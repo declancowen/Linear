@@ -1,0 +1,671 @@
+"use client"
+
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  EditorContent,
+  type Editor,
+  type JSONContent,
+  useEditor,
+} from "@tiptap/react"
+import Link from "@tiptap/extension-link"
+import Placeholder from "@tiptap/extension-placeholder"
+import TaskItem from "@tiptap/extension-task-item"
+import TaskList from "@tiptap/extension-task-list"
+import Underline from "@tiptap/extension-underline"
+import StarterKit from "@tiptap/starter-kit"
+import {
+  LinkSimple,
+  ListBullets,
+  ListChecks,
+  Paperclip,
+  Quotes,
+  TextB,
+  TextHOne,
+  TextItalic,
+  TextUnderline,
+} from "@phosphor-icons/react"
+
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import { cn } from "@/lib/utils"
+
+type UploadedAttachment = {
+  fileName: string
+  fileUrl: string | null
+}
+
+type RichTextEditorProps = {
+  content: string | JSONContent
+  onChange: (content: string) => void
+  editable?: boolean
+  placeholder?: string
+  className?: string
+  compact?: boolean
+  onUploadAttachment?: (file: File) => Promise<UploadedAttachment | null>
+}
+
+type SlashState = {
+  from: number
+  to: number
+  query: string
+  top: number
+  left: number
+}
+
+type SlashCommand = {
+  id: string
+  label: string
+  description: string
+  keywords: string[]
+  run: (editor: Editor) => void
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function buildSlashState(
+  editor: Editor,
+  container: HTMLDivElement | null
+): SlashState | null {
+  const { state, view } = editor
+
+  if (!state.selection.empty) {
+    return null
+  }
+
+  const { $from, from } = state.selection
+
+  if (!$from.parent.isTextblock) {
+    return null
+  }
+
+  const textBefore = state.doc.textBetween($from.start(), from, "\n", "\0")
+  const match = textBefore.match(/^\/([\w\s-]*)$/)
+
+  if (!match) {
+    return null
+  }
+
+  const coords = view.coordsAtPos(from)
+  const containerRect = container?.getBoundingClientRect()
+
+  return {
+    from: from - textBefore.length,
+    to: from,
+    query: match[1]?.trim().toLowerCase() ?? "",
+    top: containerRect ? coords.bottom - containerRect.top + 8 : 12,
+    left: containerRect ? coords.left - containerRect.left : 12,
+  }
+}
+
+export function RichTextEditor({
+  content,
+  onChange,
+  editable = true,
+  placeholder = "Write something…",
+  className,
+  compact = false,
+  onUploadAttachment,
+}: RichTextEditorProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const hiddenFileInputRef = useRef<HTMLInputElement | null>(null)
+  const editorRef = useRef<Editor | null>(null)
+  const pendingFileInsertRef = useRef(false)
+  const previousSlashQueryRef = useRef<string | null>(null)
+
+  const [slashState, setSlashState] = useState<SlashState | null>(null)
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [attachmentPickerRequest, setAttachmentPickerRequest] = useState(0)
+
+  function requestAttachmentPicker() {
+    setAttachmentPickerRequest((current) => current + 1)
+  }
+
+  function syncSlashState(nextSlashState: SlashState | null) {
+    const nextQuery = nextSlashState?.query ?? null
+
+    setSlashState(nextSlashState)
+
+    if (previousSlashQueryRef.current !== nextQuery) {
+      previousSlashQueryRef.current = nextQuery
+      setSlashIndex(0)
+    }
+  }
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3],
+        },
+      }),
+      Underline,
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+      }),
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+      }),
+      Placeholder.configure({
+        placeholder,
+      }),
+    ],
+    content,
+    editable,
+    editorProps: {
+      attributes: {
+        class:
+          "min-h-44 rounded-xl border border-transparent bg-background px-3 py-3 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc",
+      },
+      handleKeyDown(view, event) {
+        const currentEditor = editorRef.current
+        const currentSlashState = slashState
+
+        if (!currentEditor || !currentSlashState) {
+          return false
+        }
+
+        if (event.key === "Escape") {
+          setSlashState(null)
+          return true
+        }
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault()
+          setSlashIndex((current) => current + 1)
+          return true
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault()
+          setSlashIndex((current) => Math.max(0, current - 1))
+          return true
+        }
+
+        if (event.key === "Enter") {
+          const nextCommands = getSlashCommands(requestAttachmentPicker).filter(
+            (command) => {
+              const haystack = [
+                command.label,
+                command.description,
+                ...command.keywords,
+              ]
+                .join(" ")
+                .toLowerCase()
+              return haystack.includes(currentSlashState.query)
+            }
+          )
+
+          const selected =
+            nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
+            nextCommands[0]
+
+          if (!selected) {
+            return false
+          }
+
+          event.preventDefault()
+          currentEditor
+            .chain()
+            .focus()
+            .deleteRange({
+              from: currentSlashState.from,
+              to: currentSlashState.to,
+            })
+            .run()
+          selected.run(currentEditor)
+          setSlashState(null)
+          setSlashIndex(0)
+          return true
+        }
+
+        const nextSlashState = buildSlashState(currentEditor, containerRef.current)
+        if (!nextSlashState) {
+          setSlashState(null)
+          setSlashIndex(0)
+          previousSlashQueryRef.current = null
+        }
+
+        return false
+      },
+      handlePaste(_view, event) {
+        const file = event.clipboardData?.files?.[0]
+
+        if (!file || !onUploadAttachment) {
+          return false
+        }
+
+        event.preventDefault()
+        pendingFileInsertRef.current = true
+        void handleAttachment(file)
+        return true
+      },
+      handleDrop(_view, event) {
+        const file = event.dataTransfer?.files?.[0]
+
+        if (!file || !onUploadAttachment) {
+          return false
+        }
+
+        event.preventDefault()
+        pendingFileInsertRef.current = true
+        void handleAttachment(file)
+        return true
+      },
+    },
+    onUpdate({ editor: currentEditor }) {
+      onChange(currentEditor.getHTML())
+      syncSlashState(buildSlashState(currentEditor, containerRef.current))
+    },
+    onSelectionUpdate({ editor: currentEditor }) {
+      syncSlashState(buildSlashState(currentEditor, containerRef.current))
+    },
+  })
+
+  useEffect(() => {
+    editorRef.current = editor
+  }, [editor])
+
+  useEffect(() => {
+    if (!editor) {
+      return
+    }
+
+    const nextContent =
+      typeof content === "string" ? content : JSON.stringify(content)
+    const currentContent = editor.getHTML()
+
+    if (typeof content === "string" && currentContent !== nextContent) {
+      editor.commands.setContent(content, {
+        emitUpdate: false,
+      })
+    }
+  }, [content, editor])
+
+  useEffect(() => {
+    if (!editor) {
+      return
+    }
+
+    editor.setEditable(editable)
+  }, [editable, editor])
+
+  useEffect(() => {
+    if (attachmentPickerRequest === 0) {
+      return
+    }
+
+    pendingFileInsertRef.current = true
+    hiddenFileInputRef.current?.click()
+  }, [attachmentPickerRequest])
+
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashState || !editor) {
+      return []
+    }
+
+    return getSlashCommands(requestAttachmentPicker).filter((command) => {
+      const haystack = [command.label, command.description, ...command.keywords]
+        .join(" ")
+        .toLowerCase()
+
+      return haystack.includes(slashState.query)
+    })
+  }, [editor, slashState])
+
+  async function handleAttachment(file: File | null) {
+    if (!file || !onUploadAttachment) {
+      return
+    }
+
+    setUploadingAttachment(true)
+    const uploaded = await onUploadAttachment(file)
+    setUploadingAttachment(false)
+
+    if (
+      uploaded?.fileUrl &&
+      editorRef.current &&
+      pendingFileInsertRef.current
+    ) {
+      editorRef.current
+        .chain()
+        .focus()
+        .insertContent(
+          `<p><a href="${escapeHtml(uploaded.fileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(uploaded.fileName)}</a></p>`
+        )
+        .run()
+    }
+
+    pendingFileInsertRef.current = false
+
+    if (hiddenFileInputRef.current) {
+      hiddenFileInputRef.current.value = ""
+    }
+  }
+
+  if (!editor) {
+    return null
+  }
+
+  const currentEditor = editor
+  const activeSlashIndex =
+    filteredSlashCommands.length === 0
+      ? 0
+      : Math.min(slashIndex, filteredSlashCommands.length - 1)
+
+  function setLink() {
+    const existing = currentEditor.getAttributes("link").href as string | undefined
+    const nextHref = window.prompt("Link URL", existing ?? "https://")
+
+    if (!nextHref) {
+      currentEditor.chain().focus().unsetLink().run()
+      return
+    }
+
+    currentEditor.chain().focus().setLink({ href: nextHref }).run()
+  }
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("bold") ? "secondary" : "ghost"}
+        onClick={() => currentEditor.chain().focus().toggleBold().run()}
+      >
+        <TextB />
+        <span className="sr-only">Bold</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("italic") ? "secondary" : "ghost"}
+        onClick={() => currentEditor.chain().focus().toggleItalic().run()}
+      >
+        <TextItalic />
+        <span className="sr-only">Italic</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("underline") ? "secondary" : "ghost"}
+        onClick={() => currentEditor.chain().focus().toggleUnderline().run()}
+      >
+        <TextUnderline />
+        <span className="sr-only">Underline</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={
+          currentEditor.isActive("heading", { level: 2 }) ? "secondary" : "ghost"
+        }
+        onClick={() =>
+          currentEditor.chain().focus().toggleHeading({ level: 2 }).run()
+        }
+      >
+        <TextHOne />
+        <span className="sr-only">Heading</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("bulletList") ? "secondary" : "ghost"}
+        onClick={() => currentEditor.chain().focus().toggleBulletList().run()}
+      >
+        <ListBullets />
+        <span className="sr-only">Bulleted list</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("taskList") ? "secondary" : "ghost"}
+        onClick={() => currentEditor.chain().focus().toggleTaskList().run()}
+      >
+        <ListChecks />
+        <span className="sr-only">Task list</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("blockquote") ? "secondary" : "ghost"}
+        onClick={() => currentEditor.chain().focus().toggleBlockquote().run()}
+      >
+        <Quotes />
+        <span className="sr-only">Quote</span>
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant={currentEditor.isActive("link") ? "secondary" : "ghost"}
+        onClick={setLink}
+      >
+        <LinkSimple />
+        <span className="sr-only">Link</span>
+      </Button>
+      {editable && onUploadAttachment ? (
+        <>
+          <input
+            ref={hiddenFileInputRef}
+            className="hidden"
+            type="file"
+            onChange={(event) => void handleAttachment(event.target.files?.[0] ?? null)}
+          />
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => {
+              pendingFileInsertRef.current = true
+              hiddenFileInputRef.current?.click()
+            }}
+          >
+            <Paperclip />
+            <span className="sr-only">Attach file</span>
+          </Button>
+        </>
+      ) : null}
+    </div>
+  )
+
+  const editorFrame = (
+    <div className="relative" ref={containerRef}>
+      <div className="rounded-xl border bg-card">
+        <EditorContent editor={currentEditor} />
+      </div>
+      {editable && slashState ? (
+        <div
+          className="absolute z-10 w-80 max-w-[calc(100%-1rem)]"
+          style={{
+            left: Math.max(12, Math.min(slashState.left, 320)),
+            top: slashState.top,
+          }}
+        >
+          <Command
+            className="rounded-xl border bg-popover shadow-xl"
+            shouldFilter={false}
+          >
+            <CommandList>
+              <CommandEmpty>
+                <div className="px-3 py-3 text-sm text-muted-foreground">
+                  No slash commands match.
+                </div>
+              </CommandEmpty>
+              <CommandGroup heading="Insert">
+                {filteredSlashCommands.map((command, index) => (
+                  <CommandItem
+                    key={command.id}
+                    className={cn(
+                      "items-start gap-3",
+                      index === activeSlashIndex &&
+                        "bg-accent text-accent-foreground"
+                    )}
+                    value={command.id}
+                    onSelect={() => {
+                      currentEditor
+                        .chain()
+                        .focus()
+                        .deleteRange({
+                          from: slashState.from,
+                          to: slashState.to,
+                        })
+                        .run()
+                      command.run(currentEditor)
+                      setSlashState(null)
+                      setSlashIndex(0)
+                      previousSlashQueryRef.current = null
+                    }}
+                  >
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span>{command.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {command.description}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </div>
+      ) : null}
+      {editable ? (
+        <div className="mt-2 text-xs text-muted-foreground">
+          Type <code>/</code> for block commands, or paste/drop a file to upload.
+          {uploadingAttachment ? " Uploading attachment…" : null}
+        </div>
+      ) : null}
+    </div>
+  )
+
+  if (compact) {
+    return (
+      <div className={cn("flex flex-col gap-3", className)}>
+        {editable ? toolbar : null}
+        {editorFrame}
+      </div>
+    )
+  }
+
+  return (
+    <Card className={cn("shadow-none", className)}>
+      {editable ? <CardHeader>{toolbar}</CardHeader> : null}
+      <CardContent>{editorFrame}</CardContent>
+    </Card>
+  )
+}
+
+function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
+  return [
+    {
+      id: "heading-1",
+      label: "Heading",
+      description: "Convert the current block into a section heading.",
+      keywords: ["title", "header", "section"],
+      run: (currentEditor) => {
+        currentEditor.chain().focus().toggleHeading({ level: 1 }).run()
+      },
+    },
+    {
+      id: "bullet-list",
+      label: "Bullet list",
+      description: "Create a bulleted list for requirements or notes.",
+      keywords: ["list", "bullets", "requirements"],
+      run: (currentEditor) => {
+        currentEditor.chain().focus().toggleBulletList().run()
+      },
+    },
+    {
+      id: "task-list",
+      label: "Checklist",
+      description: "Insert a checklist for execution or success criteria.",
+      keywords: ["tasks", "todo", "criteria"],
+      run: (currentEditor) => {
+        currentEditor.chain().focus().toggleTaskList().run()
+      },
+    },
+    {
+      id: "quote",
+      label: "Callout quote",
+      description: "Drop in a quote block for decisions or constraints.",
+      keywords: ["callout", "note", "constraint"],
+      run: (currentEditor) => {
+        currentEditor.chain().focus().toggleBlockquote().run()
+      },
+    },
+    {
+      id: "code",
+      label: "Code block",
+      description: "Add a code block for implementation notes.",
+      keywords: ["code", "snippet", "technical"],
+      run: (currentEditor) => {
+        currentEditor.chain().focus().toggleCodeBlock().run()
+      },
+    },
+    {
+      id: "divider",
+      label: "Divider",
+      description: "Separate sections with a horizontal rule.",
+      keywords: ["separator", "rule", "divider"],
+      run: (currentEditor) => {
+        currentEditor.chain().focus().setHorizontalRule().run()
+      },
+    },
+    {
+      id: "decision",
+      label: "Decision block",
+      description: "Insert a short decision template.",
+      keywords: ["decision", "adr", "context"],
+      run: (currentEditor) => {
+        currentEditor
+          .chain()
+          .focus()
+          .insertContent(
+            "<h3>Decision</h3><p>Summarize the decision and the reason for it.</p><h3>Impact</h3><ul><li>What changes now?</li><li>Who is affected?</li></ul>"
+          )
+          .run()
+      },
+    },
+    {
+      id: "success-criteria",
+      label: "Success criteria",
+      description: "Insert a checklist template for acceptance criteria.",
+      keywords: ["acceptance", "criteria", "done"],
+      run: (currentEditor) => {
+        currentEditor
+          .chain()
+          .focus()
+          .insertContent(
+            `<h3>Success criteria</h3><ul data-type="taskList"><li data-type="taskItem" data-checked="false"><div><p>Outcome one</p></div></li><li data-type="taskItem" data-checked="false"><div><p>Outcome two</p></div></li></ul>`
+          )
+          .run()
+      },
+    },
+    {
+      id: "attachment",
+      label: "Upload attachment",
+      description: "Store a file in Convex and insert a download link.",
+      keywords: ["file", "upload", "attachment"],
+      run: () => {
+        promptAttachmentUpload()
+      },
+    },
+  ]
+}

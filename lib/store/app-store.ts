@@ -1,0 +1,1361 @@
+"use client"
+
+import { addDays, differenceInCalendarDays } from "date-fns"
+import { create } from "zustand"
+import { createJSONStorage, persist } from "zustand/middleware"
+import { toast } from "sonner"
+
+import {
+  fetchSnapshot,
+  hasConvex,
+  syncAddComment,
+  syncCreateAttachment,
+  syncCreateDocument,
+  syncCreateInvite,
+  syncCreateProject,
+  syncCreateWorkItem,
+  syncDeleteAttachment,
+  syncGenerateAttachmentUploadUrl,
+  syncJoinTeamByCode,
+  syncMarkNotificationRead,
+  syncRenameDocument,
+  syncShiftTimelineItem,
+  syncToggleNotificationRead,
+  syncToggleViewDisplayProperty,
+  syncToggleViewFilterValue,
+  syncToggleViewHiddenValue,
+  syncUpdateTeamDetails,
+  syncUpdateCurrentUserProfile,
+  syncUpdateDocumentContent,
+  syncUpdateItemDescription,
+  syncUpdateTeamWorkflowSettings,
+  syncUpdateViewConfig,
+  syncUpdateWorkItem,
+  syncUpdateWorkspaceBranding,
+} from "@/lib/convex/client"
+import { createSeedState } from "@/lib/domain/seed"
+import {
+  type AttachmentTargetType,
+  type AppSnapshot,
+  commentSchema,
+  createDefaultTeamWorkflowSettings,
+  documentSchema,
+  inviteSchema,
+  joinCodeSchema,
+  profileSchema,
+  projectSchema,
+  type AppData,
+  type CommentTargetType,
+  type DisplayProperty,
+  type GroupField,
+  type OrderingField,
+  type Priority,
+  type Role,
+  type ScopeType,
+  teamDetailsSchema,
+  type TeamWorkflowSettings,
+  type WorkItemType,
+  type WorkStatus,
+  templateMeta,
+  workspaceBrandingSchema,
+  workItemSchema,
+} from "@/lib/domain/types"
+
+type WorkItemPatch = {
+  status?: WorkStatus
+  priority?: Priority
+  assigneeId?: string | null
+  primaryProjectId?: string | null
+  startDate?: string | null
+  dueDate?: string | null
+  targetDate?: string | null
+}
+
+type CreateProjectInput = {
+  scopeType: ScopeType
+  scopeId: string
+  templateType: "software-delivery" | "bug-tracking" | "project-management"
+  name: string
+  summary: string
+  priority: Priority
+  settingsTeamId?: string | null
+}
+
+type CreateWorkItemInput = {
+  teamId: string
+  type: WorkItemType
+  title: string
+  primaryProjectId: string | null
+  assigneeId: string | null
+  priority: Priority
+}
+
+type CreateDocumentInput = {
+  teamId: string
+  title: string
+}
+
+type CreateInviteInput = {
+  teamIds: string[]
+  email: string
+  role: Role
+}
+
+type UpdateWorkspaceBrandingInput = {
+  name: string
+  logoUrl: string
+  accent: string
+  description: string
+}
+
+type UpdateTeamDetailsInput = {
+  name: string
+  icon: string
+  summary: string
+  joinCode: string
+}
+
+type UpdateProfileInput = {
+  name: string
+  title: string
+  avatarUrl: string
+  preferences: {
+    emailMentions: boolean
+    emailAssignments: boolean
+    emailDigest: boolean
+  }
+}
+
+type AddCommentInput = {
+  targetType: CommentTargetType
+  targetId: string
+  content: string
+}
+
+export type AppStore = AppData & {
+  replaceDomainData: (data: AppSnapshot) => void
+  resetDemo: () => void
+  setActiveTeam: (teamId: string) => void
+  setRolePreview: (role: Role | null) => void
+  setSelectedView: (route: string, viewId: string) => void
+  setActiveInboxNotification: (notificationId: string | null) => void
+  markNotificationRead: (notificationId: string) => void
+  toggleNotificationRead: (notificationId: string) => void
+  updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
+  updateTeamDetails: (teamId: string, input: UpdateTeamDetailsInput) => void
+  updateCurrentUserProfile: (input: UpdateProfileInput) => void
+  updateViewConfig: (
+    viewId: string,
+    patch: Partial<{
+      layout: "list" | "board" | "timeline"
+      grouping: GroupField
+      subGrouping: GroupField | null
+      ordering: OrderingField
+      showCompleted: boolean
+    }>
+  ) => void
+  toggleViewDisplayProperty: (viewId: string, property: DisplayProperty) => void
+  toggleViewHiddenValue: (
+    viewId: string,
+    key: "groups" | "subgroups",
+    value: string
+  ) => void
+  toggleViewFilterValue: (
+    viewId: string,
+    key:
+      | "status"
+      | "priority"
+      | "assigneeIds"
+      | "projectIds"
+      | "itemTypes"
+      | "labelIds",
+    value: string
+  ) => void
+  updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
+  shiftTimelineItem: (itemId: string, nextStartDate: string) => void
+  updateDocumentContent: (documentId: string, content: string) => void
+  renameDocument: (documentId: string, title: string) => void
+  updateItemDescription: (itemId: string, content: string) => void
+  uploadAttachment: (
+    targetType: AttachmentTargetType,
+    targetId: string,
+    file: File
+  ) => Promise<{ fileName: string; fileUrl: string | null } | null>
+  deleteAttachment: (attachmentId: string) => Promise<void>
+  addComment: (input: AddCommentInput) => void
+  createInvite: (input: CreateInviteInput) => void
+  joinTeamByCode: (code: string) => void
+  createProject: (input: CreateProjectInput) => void
+  createDocument: (input: CreateDocumentInput) => void
+  createWorkItem: (input: CreateWorkItemInput) => void
+  updateTeamWorkflowSettings: (teamId: string, workflow: TeamWorkflowSettings) => void
+}
+
+function getNow() {
+  return new Date().toISOString()
+}
+
+function createId(prefix: string) {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function toKeyPrefix(teamId: string) {
+  if (teamId === "team_development") {
+    return "DEV"
+  }
+
+  if (teamId === "team_operations") {
+    return "OPS"
+  }
+
+  return "REC"
+}
+
+function createMentionIds(content: string, users: AppData["users"]) {
+  const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
+    match[1]?.toLowerCase()
+  )
+
+  return users
+    .filter((user) => handles.includes(user.handle.toLowerCase()))
+    .map((user) => user.id)
+}
+
+function effectiveRole(data: AppData, teamId: string) {
+  if (data.ui.rolePreview) {
+    return data.ui.rolePreview
+  }
+
+  return (
+    data.teamMemberships.find(
+      (membership) =>
+        membership.teamId === teamId && membership.userId === data.currentUserId
+    )?.role ?? null
+  )
+}
+
+function getTeamWorkflowSettings(state: AppData, teamId: string | null | undefined) {
+  if (!teamId) {
+    return createDefaultTeamWorkflowSettings()
+  }
+
+  return (
+    state.teams.find((team) => team.id === teamId)?.settings.workflow ??
+    createDefaultTeamWorkflowSettings()
+  )
+}
+
+function createNotification(
+  userId: string,
+  actorId: string,
+  message: string,
+  entityType: "workItem" | "document" | "project" | "invite",
+  entityId: string,
+  type: "mention" | "assignment" | "comment" | "invite" | "status-change"
+) {
+  return {
+    id: createId("notification"),
+    userId,
+    actorId,
+    message,
+    entityType,
+    entityId,
+    type,
+    readAt: null,
+    emailedAt: null,
+    createdAt: getNow(),
+  }
+}
+
+function syncInBackground(task: Promise<unknown> | null, fallbackMessage: string) {
+  if (!task) {
+    return
+  }
+
+  void task.catch(async (error) => {
+    console.error(error)
+    const state = useAppStore.getState()
+    const currentUserEmail = state.users.find(
+      (user) => user.id === state.currentUserId
+    )?.email
+    const snapshot = await fetchSnapshot(currentUserEmail)
+    if (snapshot) {
+      useAppStore.getState().replaceDomainData(snapshot)
+    }
+    toast.error(fallbackMessage)
+  })
+}
+
+async function refreshFromServer() {
+  const state = useAppStore.getState()
+  const currentUserEmail = state.users.find(
+    (user) => user.id === state.currentUserId
+  )?.email
+  const snapshot = await fetchSnapshot(currentUserEmail)
+
+  if (snapshot) {
+    useAppStore.getState().replaceDomainData(snapshot)
+  }
+}
+
+export const useAppStore = create<AppStore>()(
+  persist(
+    (set) => ({
+      ...createSeedState(),
+      replaceDomainData(data) {
+        set((state) => ({
+          ...state,
+          ...data,
+          ui: {
+            ...state.ui,
+            activeTeamId:
+              state.ui.activeTeamId ||
+              data.teams[0]?.id ||
+              state.ui.activeTeamId,
+          },
+        }))
+      },
+      resetDemo() {
+        if (hasConvex) {
+          toast.error("Reset is disabled while Convex is connected")
+          return
+        }
+
+        set(createSeedState())
+        toast.success("Demo data reset")
+      },
+      setActiveTeam(teamId) {
+        set((state) => ({
+          ui: {
+            ...state.ui,
+            activeTeamId: teamId,
+          },
+        }))
+      },
+      setRolePreview(role) {
+        set((state) => ({
+          ui: {
+            ...state.ui,
+            rolePreview: role,
+          },
+        }))
+      },
+      setSelectedView(route, viewId) {
+        set((state) => ({
+          ui: {
+            ...state.ui,
+            selectedViewByRoute: {
+              ...state.ui.selectedViewByRoute,
+              [route]: viewId,
+            },
+          },
+        }))
+      },
+      setActiveInboxNotification(notificationId) {
+        set((state) => ({
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId: notificationId,
+          },
+        }))
+      },
+      markNotificationRead(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notification.id === notificationId
+              ? { ...notification, readAt: notification.readAt ?? getNow() }
+              : notification
+          ),
+        }))
+
+        syncInBackground(
+          syncMarkNotificationRead(notificationId),
+          "Failed to update notification"
+        )
+      },
+      toggleNotificationRead(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notification.id === notificationId
+              ? {
+                  ...notification,
+                  readAt: notification.readAt ? null : getNow(),
+                }
+              : notification
+          ),
+        }))
+
+        syncInBackground(
+          syncToggleNotificationRead(notificationId),
+          "Failed to update notification"
+        )
+      },
+      updateWorkspaceBranding(input) {
+        const parsed = workspaceBrandingSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Workspace branding is invalid")
+          return
+        }
+
+        set((state) => ({
+          workspaces: state.workspaces.map((workspace) =>
+            workspace.id === state.currentWorkspaceId
+              ? {
+                  ...workspace,
+                  name: parsed.data.name,
+                  logoUrl: parsed.data.logoUrl,
+                  settings: {
+                    ...workspace.settings,
+                    accent: parsed.data.accent,
+                    description: parsed.data.description,
+                  },
+                }
+              : workspace
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateWorkspaceBranding(
+            useAppStore.getState().currentWorkspaceId,
+            parsed.data.name,
+            parsed.data.logoUrl,
+            parsed.data.accent,
+            parsed.data.description
+          ),
+          "Failed to update workspace"
+        )
+
+        toast.success("Workspace updated")
+      },
+      updateTeamDetails(teamId, input) {
+        const parsed = teamDetailsSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Team details are invalid")
+          return
+        }
+
+        set((state) => ({
+          teams: state.teams.map((team) =>
+            team.id === teamId
+              ? {
+                  ...team,
+                  name: parsed.data.name,
+                  icon: parsed.data.icon,
+                  settings: {
+                    ...team.settings,
+                    summary: parsed.data.summary,
+                    joinCode: parsed.data.joinCode.toUpperCase(),
+                  },
+                }
+              : team
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateTeamDetails(teamId, parsed.data),
+          "Failed to update team details"
+        )
+
+        toast.success("Team updated")
+      },
+      updateCurrentUserProfile(input) {
+        const parsed = profileSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Profile details are invalid")
+          return
+        }
+
+        set((state) => ({
+          users: state.users.map((user) =>
+            user.id === state.currentUserId ? { ...user, ...parsed.data } : user
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateCurrentUserProfile(
+            useAppStore.getState().currentUserId,
+            parsed.data.name,
+            parsed.data.title,
+            parsed.data.avatarUrl,
+            parsed.data.preferences
+          ),
+          "Failed to update profile"
+        )
+
+        toast.success("Profile updated")
+      },
+      updateViewConfig(viewId, patch) {
+        set((state) => ({
+          views: state.views.map((view) =>
+            view.id === viewId
+              ? {
+                  ...view,
+                  ...patch,
+                  filters:
+                    patch.showCompleted === undefined
+                      ? view.filters
+                      : {
+                          ...view.filters,
+                          showCompleted: patch.showCompleted,
+                        },
+                  updatedAt: getNow(),
+                }
+              : view
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateViewConfig(viewId, patch),
+          "Failed to update view"
+        )
+      },
+      toggleViewDisplayProperty(viewId, property) {
+        set((state) => ({
+          views: state.views.map((view) => {
+            if (view.id !== viewId) {
+              return view
+            }
+
+            const nextDisplayProps = view.displayProps.includes(property)
+              ? view.displayProps.filter((value) => value !== property)
+              : [...view.displayProps, property]
+
+            return {
+              ...view,
+              displayProps: nextDisplayProps,
+              updatedAt: getNow(),
+            }
+          }),
+        }))
+
+        syncInBackground(
+          syncToggleViewDisplayProperty(viewId, property),
+          "Failed to update view"
+        )
+      },
+      toggleViewHiddenValue(viewId, key, value) {
+        set((state) => ({
+          views: state.views.map((view) => {
+            if (view.id !== viewId) {
+              return view
+            }
+
+            const values = view.hiddenState[key]
+            const nextValues = values.includes(value)
+              ? values.filter((entry) => entry !== value)
+              : [...values, value]
+
+            return {
+              ...view,
+              hiddenState: {
+                ...view.hiddenState,
+                [key]: nextValues,
+              },
+              updatedAt: getNow(),
+            }
+          }),
+        }))
+
+        syncInBackground(
+          syncToggleViewHiddenValue(viewId, key, value),
+          "Failed to update view"
+        )
+      },
+      toggleViewFilterValue(viewId, key, value) {
+        set((state) => ({
+          views: state.views.map((view) => {
+            if (view.id !== viewId) {
+              return view
+            }
+
+            const current = view.filters[key]
+            const next =
+              current.includes(value as never)
+                ? current.filter((entry) => entry !== value)
+                : [...current, value]
+
+            return {
+              ...view,
+              filters: {
+                ...view.filters,
+                [key]: next,
+              },
+              updatedAt: getNow(),
+            }
+          }),
+        }))
+
+        syncInBackground(
+          syncToggleViewFilterValue(viewId, key, value),
+          "Failed to update filters"
+        )
+      },
+      updateWorkItem(itemId, patch) {
+        set((state) => {
+          const existing = state.workItems.find((item) => item.id === itemId)
+          if (!existing) {
+            return state
+          }
+
+          const nextItems = state.workItems.map((item) =>
+            item.id === itemId ? { ...item, ...patch, updatedAt: getNow() } : item
+          )
+
+          const notifications = [...state.notifications]
+          const actor = state.users.find((user) => user.id === state.currentUserId)
+
+          if (
+            patch.assigneeId !== undefined &&
+            patch.assigneeId &&
+            patch.assigneeId !== existing.assigneeId &&
+            patch.assigneeId !== state.currentUserId
+          ) {
+            notifications.unshift(
+              createNotification(
+                patch.assigneeId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} assigned you ${existing.title}`,
+                "workItem",
+                existing.id,
+                "assignment"
+              )
+            )
+          }
+
+          if (
+            patch.status &&
+            patch.status !== existing.status &&
+            existing.creatorId !== state.currentUserId
+          ) {
+            notifications.unshift(
+              createNotification(
+                existing.creatorId,
+                state.currentUserId,
+                `${existing.title} moved to ${patch.status}`,
+                "workItem",
+                existing.id,
+                "status-change"
+              )
+            )
+          }
+
+          return {
+            ...state,
+            workItems: nextItems,
+            notifications,
+          }
+        })
+
+        syncInBackground(
+          syncUpdateWorkItem(useAppStore.getState().currentUserId, itemId, patch),
+          "Failed to update work item"
+        )
+      },
+      shiftTimelineItem(itemId, nextStartDate) {
+        set((state) => {
+          const item = state.workItems.find((entry) => entry.id === itemId)
+          if (!item || !item.startDate) {
+            return state
+          }
+
+          const delta = differenceInCalendarDays(
+            new Date(nextStartDate),
+            new Date(item.startDate)
+          )
+
+          return {
+            ...state,
+            workItems: state.workItems.map((entry) => {
+              if (entry.id !== itemId) {
+                return entry
+              }
+
+              return {
+                ...entry,
+                startDate: nextStartDate,
+                dueDate: entry.dueDate
+                  ? addDays(new Date(entry.dueDate), delta).toISOString()
+                  : entry.dueDate,
+                targetDate: entry.targetDate
+                  ? addDays(new Date(entry.targetDate), delta).toISOString()
+                  : entry.targetDate,
+                updatedAt: getNow(),
+              }
+            }),
+          }
+        })
+
+        syncInBackground(
+          syncShiftTimelineItem(itemId, nextStartDate),
+          "Failed to move timeline item"
+        )
+      },
+      updateDocumentContent(documentId, content) {
+        set((state) => ({
+          documents: state.documents.map((document) =>
+            document.id === documentId
+              ? {
+                  ...document,
+                  content,
+                  updatedAt: getNow(),
+                  updatedBy: state.currentUserId,
+                }
+              : document
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateDocumentContent(
+            useAppStore.getState().currentUserId,
+            documentId,
+            content
+          ),
+          "Failed to update document"
+        )
+      },
+      renameDocument(documentId, title) {
+        set((state) => ({
+          documents: state.documents.map((document) =>
+            document.id === documentId
+              ? {
+                  ...document,
+                  title,
+                  updatedAt: getNow(),
+                  updatedBy: state.currentUserId,
+                }
+              : document
+          ),
+        }))
+
+        syncInBackground(
+          syncRenameDocument(
+            useAppStore.getState().currentUserId,
+            documentId,
+            title
+          ),
+          "Failed to rename document"
+        )
+      },
+      updateItemDescription(itemId, content) {
+        set((state) => {
+          const item = state.workItems.find((entry) => entry.id === itemId)
+          if (!item) {
+            return state
+          }
+
+          return {
+            ...state,
+            documents: state.documents.map((document) =>
+              document.id === item.descriptionDocId
+                ? {
+                    ...document,
+                    content,
+                    updatedAt: getNow(),
+                    updatedBy: state.currentUserId,
+                  }
+                : document
+            ),
+            workItems: state.workItems.map((entry) =>
+              entry.id === itemId ? { ...entry, updatedAt: getNow() } : entry
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncUpdateItemDescription(
+            useAppStore.getState().currentUserId,
+            itemId,
+            content
+          ),
+          "Failed to update description"
+        )
+      },
+      async uploadAttachment(targetType, targetId, file) {
+        const state = useAppStore.getState()
+        const maxSize = 25 * 1024 * 1024
+        let teamId = ""
+
+        if (targetType === "workItem") {
+          teamId =
+            state.workItems.find((item) => item.id === targetId)?.teamId ?? ""
+        } else {
+          teamId =
+            state.documents.find((document) => document.id === targetId)?.teamId ?? ""
+        }
+
+        const role = effectiveRole(state, teamId)
+
+        if (role === "viewer" || role === "guest" || !role) {
+          toast.error("Your current role is read-only")
+          return null
+        }
+
+        if (!file || file.size <= 0) {
+          toast.error("Choose a file to upload")
+          return null
+        }
+
+        if (file.size > maxSize) {
+          toast.error("Files must be 25 MB or smaller")
+          return null
+        }
+
+        try {
+          const upload = await syncGenerateAttachmentUploadUrl(targetType, targetId)
+
+          if (!upload?.uploadUrl) {
+            throw new Error("Upload URL was not returned")
+          }
+
+          const uploadResponse = await fetch(upload.uploadUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": file.type || "application/octet-stream",
+            },
+            body: file,
+          })
+          const uploadPayload = (await uploadResponse.json()) as {
+            storageId?: string
+          }
+
+          if (!uploadResponse.ok || !uploadPayload.storageId) {
+            throw new Error("File upload failed")
+          }
+
+          const createdAttachment = await syncCreateAttachment({
+            targetType,
+            targetId,
+            storageId: uploadPayload.storageId,
+            fileName: file.name,
+            contentType: file.type || "application/octet-stream",
+            size: file.size,
+          })
+          await refreshFromServer()
+          toast.success(`${file.name} uploaded`)
+          return {
+            fileName: file.name,
+            fileUrl: createdAttachment?.fileUrl ?? null,
+          }
+        } catch (error) {
+          console.error(error)
+          await refreshFromServer()
+          toast.error("Failed to upload attachment")
+          return null
+        }
+      },
+      async deleteAttachment(attachmentId) {
+        const state = useAppStore.getState()
+        const attachment = state.attachments.find((entry) => entry.id === attachmentId)
+
+        if (!attachment) {
+          return
+        }
+
+        const role = effectiveRole(state, attachment.teamId)
+
+        if (role === "viewer" || role === "guest" || !role) {
+          toast.error("Your current role is read-only")
+          return
+        }
+
+        set((current) => ({
+          attachments: current.attachments.filter(
+            (entry) => entry.id !== attachmentId
+          ),
+        }))
+
+        try {
+          await syncDeleteAttachment(attachmentId)
+          await refreshFromServer()
+          toast.success("Attachment deleted")
+        } catch (error) {
+          console.error(error)
+          await refreshFromServer()
+          toast.error("Failed to delete attachment")
+        }
+      },
+      addComment(input) {
+        const parsed = commentSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Comment cannot be empty")
+          return
+        }
+
+        set((state) => {
+          let teamId = ""
+          let followerIds: string[] = []
+          let entityType: "workItem" | "document" = "workItem"
+          let entityTitle = "item"
+
+          if (parsed.data.targetType === "workItem") {
+            const item = state.workItems.find((entry) => entry.id === parsed.data.targetId)
+            if (!item) {
+              return state
+            }
+
+            teamId = item.teamId
+            followerIds = [
+              ...item.subscriberIds,
+              item.creatorId,
+              item.assigneeId ?? "",
+            ].filter(Boolean)
+            entityType = "workItem"
+            entityTitle = item.title
+          } else {
+            const document = state.documents.find(
+              (entry) => entry.id === parsed.data.targetId
+            )
+            if (!document) {
+              return state
+            }
+
+            teamId = document.teamId
+            followerIds = [document.createdBy, document.updatedBy]
+            entityType = "document"
+            entityTitle = document.title
+          }
+
+          const role = effectiveRole(state, teamId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const mentionUserIds = createMentionIds(parsed.data.content, state.users)
+          const comment = {
+            id: createId("comment"),
+            targetType: parsed.data.targetType,
+            targetId: parsed.data.targetId,
+            parentCommentId: null,
+            content: parsed.data.content.trim(),
+            mentionUserIds,
+            createdBy: state.currentUserId,
+            createdAt: getNow(),
+          }
+
+          const notifications = [...state.notifications]
+          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const notifiedUserIds = new Set<string>()
+
+          for (const mentionedUserId of mentionUserIds) {
+            if (mentionedUserId === state.currentUserId || notifiedUserIds.has(mentionedUserId)) {
+              continue
+            }
+
+            notifications.unshift(
+              createNotification(
+                mentionedUserId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+                entityType,
+                parsed.data.targetId,
+                "mention"
+              )
+            )
+            notifiedUserIds.add(mentionedUserId)
+          }
+
+          for (const followerId of followerIds) {
+            if (
+              !followerId ||
+              followerId === state.currentUserId ||
+              notifiedUserIds.has(followerId)
+            ) {
+              continue
+            }
+
+            notifications.unshift(
+              createNotification(
+                followerId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
+                entityType,
+                parsed.data.targetId,
+                "comment"
+              )
+            )
+            notifiedUserIds.add(followerId)
+          }
+
+          return {
+            ...state,
+            comments: [...state.comments, comment],
+            notifications,
+            workItems: state.workItems.map((item) =>
+              item.id === parsed.data.targetId ? { ...item, updatedAt: getNow() } : item
+            ),
+            documents: state.documents.map((document) =>
+              document.id === parsed.data.targetId
+                ? { ...document, updatedAt: getNow(), updatedBy: state.currentUserId }
+                : document
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncAddComment(
+            useAppStore.getState().currentUserId,
+            parsed.data.targetType,
+            parsed.data.targetId,
+            parsed.data.content
+          ),
+          "Failed to post comment"
+        )
+
+        toast.success("Comment posted")
+      },
+      createInvite(input) {
+        const parsed = inviteSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Invite is invalid")
+          return
+        }
+
+        set((state) => {
+          const teams = state.teams.filter((entry) =>
+            parsed.data.teamIds.includes(entry.id)
+          )
+          if (teams.length === 0) {
+            return state
+          }
+
+          const canInviteAll = teams.every((team) => {
+            const role = effectiveRole(state, team.id)
+            return role === "admin" || role === "member"
+          })
+
+          if (!canInviteAll) {
+            toast.error("Only admins and members can invite")
+            return state
+          }
+
+          const invites = teams.map((team) => ({
+            id: createId("invite"),
+            workspaceId: team.workspaceId,
+            teamId: team.id,
+            email: parsed.data.email,
+            role: parsed.data.role,
+            token: createId("token"),
+            joinCode: team.settings.joinCode,
+            invitedBy: state.currentUserId,
+            expiresAt: addDays(new Date(), 7).toISOString(),
+            acceptedAt: null,
+          }))
+
+          return {
+            ...state,
+            invites: [...invites, ...state.invites],
+          }
+        })
+
+        syncInBackground(
+          syncCreateInvite(
+            useAppStore.getState().currentUserId,
+            parsed.data.teamIds,
+            parsed.data.email,
+            parsed.data.role
+          ),
+          "Failed to create invite"
+        )
+
+        toast.success(
+          parsed.data.teamIds.length === 1
+            ? "Invite created"
+            : `Invites created for ${parsed.data.teamIds.length} teams`
+        )
+      },
+      joinTeamByCode(code) {
+        const parsed = joinCodeSchema.safeParse({ code })
+        if (!parsed.success) {
+          toast.error("Join code is invalid")
+          return
+        }
+
+        set((state) => {
+          const team = state.teams.find(
+            (entry) =>
+              entry.settings.joinCode.toLowerCase() === parsed.data.code.toLowerCase()
+          )
+
+          if (!team) {
+            toast.error("Join code not found")
+            return state
+          }
+
+          const existingMembership = state.teamMemberships.find(
+            (membership) =>
+              membership.teamId === team.id && membership.userId === state.currentUserId
+          )
+
+          const nextMemberships = existingMembership
+            ? state.teamMemberships.map((membership) =>
+                membership.teamId === team.id && membership.userId === state.currentUserId
+                  ? { ...membership, role: "viewer" as const }
+                  : membership
+              )
+            : [
+                ...state.teamMemberships,
+                {
+                  teamId: team.id,
+                  userId: state.currentUserId,
+                  role: "viewer" as const,
+                },
+              ]
+
+          const notifications = [
+            createNotification(
+              state.currentUserId,
+              state.currentUserId,
+              `You joined ${team.name} as a viewer`,
+              "invite",
+              team.id,
+              "invite"
+            ),
+            ...state.notifications,
+          ]
+
+          return {
+            ...state,
+            teamMemberships: nextMemberships,
+            notifications,
+            ui: {
+              ...state.ui,
+              activeTeamId: team.id,
+            },
+          }
+        })
+
+        syncInBackground(
+          syncJoinTeamByCode(useAppStore.getState().currentUserId, parsed.data.code),
+          "Failed to join team"
+        )
+
+        toast.success("Joined team as viewer")
+      },
+      createProject(input) {
+        const parsed = projectSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Project input is invalid")
+          return
+        }
+
+        set((state) => {
+          const settingsTeamId =
+            parsed.data.settingsTeamId ??
+            (parsed.data.scopeType === "team" ? parsed.data.scopeId : null)
+          const workflowSettings = getTeamWorkflowSettings(state, settingsTeamId)
+          const templateDefaults =
+            workflowSettings.templateDefaults[parsed.data.templateType]
+          const project = {
+            id: createId("project"),
+            scopeType: parsed.data.scopeType,
+            scopeId: parsed.data.scopeId,
+            templateType: parsed.data.templateType,
+            name: parsed.data.name,
+            summary: parsed.data.summary,
+            description: `${parsed.data.name} was created from the ${parsed.data.templateType} template with a ${templateMeta[parsed.data.templateType].label.toLowerCase()} setup.`,
+            leadId: state.currentUserId,
+            memberIds: [state.currentUserId],
+            health: "no-update" as const,
+            priority: parsed.data.priority,
+            status: "planning" as const,
+            startDate: getNow(),
+            targetDate: addDays(
+              new Date(),
+              templateDefaults.targetWindowDays
+            ).toISOString(),
+            createdAt: getNow(),
+            updatedAt: getNow(),
+          }
+
+          return {
+            ...state,
+            projects: [project, ...state.projects],
+          }
+        })
+
+        syncInBackground(
+          syncCreateProject(
+            useAppStore.getState().currentUserId,
+            parsed.data.scopeType,
+            parsed.data.scopeId,
+            parsed.data.templateType,
+            parsed.data.name,
+            parsed.data.summary,
+            parsed.data.priority,
+            parsed.data.settingsTeamId
+          ),
+          "Failed to create project"
+        )
+
+        toast.success("Project created")
+      },
+      updateTeamWorkflowSettings(teamId, workflow) {
+        set((state) => ({
+          teams: state.teams.map((team) =>
+            team.id === teamId
+              ? {
+                  ...team,
+                  settings: {
+                    ...team.settings,
+                    workflow,
+                  },
+                }
+              : team
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateTeamWorkflowSettings(teamId, workflow),
+          "Failed to update team workflow settings"
+        )
+
+        toast.success("Team workflow updated")
+      },
+      createDocument(input) {
+        const parsed = documentSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Document input is invalid")
+          return
+        }
+
+        set((state) => {
+          const role = effectiveRole(state, parsed.data.teamId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const document = {
+            id: createId("document"),
+            kind: "team-document" as const,
+            teamId: parsed.data.teamId,
+            title: parsed.data.title,
+            content: `<h1>${parsed.data.title}</h1><p>New team document.</p>`,
+            linkedProjectIds: [],
+            linkedWorkItemIds: [],
+            createdBy: state.currentUserId,
+            updatedBy: state.currentUserId,
+            createdAt: getNow(),
+            updatedAt: getNow(),
+          }
+
+          return {
+            ...state,
+            documents: [document, ...state.documents],
+          }
+        })
+
+        syncInBackground(
+          syncCreateDocument(
+            useAppStore.getState().currentUserId,
+            parsed.data.teamId,
+            parsed.data.title
+          ),
+          "Failed to create document"
+        )
+
+        toast.success("Document created")
+      },
+      createWorkItem(input) {
+        const parsed = workItemSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Work item input is invalid")
+          return
+        }
+
+        set((state) => {
+          const role = effectiveRole(state, parsed.data.teamId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const teamItems = state.workItems.filter(
+            (item) => item.teamId === parsed.data.teamId
+          )
+          const prefix = toKeyPrefix(parsed.data.teamId)
+          const nextNumber = 1 + teamItems.length + 100
+          const descriptionDocId = createId("doc")
+
+          const descriptionDoc = {
+            id: descriptionDocId,
+            kind: "item-description" as const,
+            teamId: parsed.data.teamId,
+            title: `${parsed.data.title} description`,
+            content: `<p>Add a fuller description for ${parsed.data.title}.</p>`,
+            linkedProjectIds: parsed.data.primaryProjectId
+              ? [parsed.data.primaryProjectId]
+              : [],
+            linkedWorkItemIds: [],
+            createdBy: state.currentUserId,
+            updatedBy: state.currentUserId,
+            createdAt: getNow(),
+            updatedAt: getNow(),
+          }
+
+          const workItem = {
+            id: createId("item"),
+            key: `${prefix}-${nextNumber}`,
+            teamId: parsed.data.teamId,
+            type: parsed.data.type,
+            title: parsed.data.title,
+            descriptionDocId,
+            status: "backlog" as const,
+            priority: parsed.data.priority,
+            assigneeId: parsed.data.assigneeId,
+            creatorId: state.currentUserId,
+            parentId: null,
+            primaryProjectId: parsed.data.primaryProjectId,
+            linkedProjectIds: [],
+            linkedDocumentIds: [],
+            labelIds: [],
+            milestoneId: null,
+            startDate: getNow(),
+            dueDate: addDays(new Date(), 7).toISOString(),
+            targetDate: addDays(new Date(), 10).toISOString(),
+            subscriberIds: [state.currentUserId],
+            createdAt: getNow(),
+            updatedAt: getNow(),
+          }
+
+          return {
+            ...state,
+            documents: [descriptionDoc, ...state.documents],
+            workItems: [workItem, ...state.workItems],
+          }
+        })
+
+        syncInBackground(
+          syncCreateWorkItem(
+            useAppStore.getState().currentUserId,
+            parsed.data.teamId,
+            parsed.data.type,
+            parsed.data.title,
+            parsed.data.primaryProjectId,
+            parsed.data.assigneeId,
+            parsed.data.priority
+          ),
+          "Failed to create work item"
+        )
+
+        toast.success("Work item created")
+      },
+    }),
+    {
+      name: "linear-multi-work-store",
+      storage: createJSONStorage(() => localStorage),
+      version: 3,
+      partialize: (state) => ({
+        ui: state.ui,
+      }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ui: {
+          ...currentState.ui,
+          ...((persistedState as Partial<AppStore> | undefined)?.ui ?? {}),
+        },
+      }),
+    }
+  )
+)

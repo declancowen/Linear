@@ -1,0 +1,392 @@
+import { v } from "convex/values"
+
+const nullableString = v.union(v.string(), v.null())
+
+const roleLiterals = [
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("viewer"),
+  v.literal("guest"),
+] as const
+
+const scopeTypeLiterals = [v.literal("team"), v.literal("workspace")] as const
+
+const templateTypeLiterals = [
+  v.literal("software-delivery"),
+  v.literal("bug-tracking"),
+  v.literal("project-management"),
+] as const
+
+const workItemTypeLiterals = [
+  v.literal("epic"),
+  v.literal("feature"),
+  v.literal("requirement"),
+  v.literal("task"),
+  v.literal("bug"),
+  v.literal("sub-task"),
+  v.literal("qa-task"),
+  v.literal("test-case"),
+] as const
+
+const workStatusLiterals = [
+  v.literal("backlog"),
+  v.literal("todo"),
+  v.literal("in-progress"),
+  v.literal("done"),
+  v.literal("cancelled"),
+  v.literal("duplicate"),
+] as const
+
+const priorityLiterals = [
+  v.literal("none"),
+  v.literal("low"),
+  v.literal("medium"),
+  v.literal("high"),
+  v.literal("urgent"),
+] as const
+
+const projectHealthLiterals = [
+  v.literal("no-update"),
+  v.literal("on-track"),
+  v.literal("at-risk"),
+  v.literal("off-track"),
+] as const
+
+const projectStatusLiterals = [
+  v.literal("planning"),
+  v.literal("active"),
+  v.literal("paused"),
+  v.literal("completed"),
+] as const
+
+const notificationTypeLiterals = [
+  v.literal("mention"),
+  v.literal("assignment"),
+  v.literal("comment"),
+  v.literal("invite"),
+  v.literal("status-change"),
+] as const
+
+const viewLayoutLiterals = [
+  v.literal("list"),
+  v.literal("board"),
+  v.literal("timeline"),
+] as const
+
+const viewScopeTypeLiterals = [
+  v.literal("personal"),
+  v.literal("team"),
+  v.literal("workspace"),
+] as const
+
+const entityKindLiterals = [
+  v.literal("items"),
+  v.literal("projects"),
+  v.literal("docs"),
+] as const
+
+const displayPropertyLiterals = [
+  v.literal("id"),
+  v.literal("type"),
+  v.literal("status"),
+  v.literal("assignee"),
+  v.literal("priority"),
+  v.literal("project"),
+  v.literal("dueDate"),
+  v.literal("milestone"),
+  v.literal("labels"),
+  v.literal("created"),
+  v.literal("updated"),
+] as const
+
+const groupFieldLiterals = [
+  v.literal("project"),
+  v.literal("status"),
+  v.literal("assignee"),
+  v.literal("priority"),
+  v.literal("team"),
+  v.literal("type"),
+] as const
+
+const orderingFieldLiterals = [
+  v.literal("priority"),
+  v.literal("updatedAt"),
+  v.literal("createdAt"),
+  v.literal("dueDate"),
+  v.literal("targetDate"),
+  v.literal("title"),
+] as const
+
+const commentTargetTypeLiterals = [
+  v.literal("workItem"),
+  v.literal("document"),
+] as const
+
+const attachmentTargetTypeLiterals = [
+  v.literal("workItem"),
+  v.literal("document"),
+] as const
+
+const documentKindLiterals = [
+  v.literal("team-document"),
+  v.literal("item-description"),
+] as const
+
+const notificationEntityTypeLiterals = [
+  v.literal("workItem"),
+  v.literal("document"),
+  v.literal("project"),
+  v.literal("invite"),
+] as const
+
+export const roleValidator = v.union(...roleLiterals)
+export const scopeTypeValidator = v.union(...scopeTypeLiterals)
+export const templateTypeValidator = v.union(...templateTypeLiterals)
+export const workItemTypeValidator = v.union(...workItemTypeLiterals)
+export const workStatusValidator = v.union(...workStatusLiterals)
+export const priorityValidator = v.union(...priorityLiterals)
+export const projectHealthValidator = v.union(...projectHealthLiterals)
+export const projectStatusValidator = v.union(...projectStatusLiterals)
+export const notificationTypeValidator = v.union(...notificationTypeLiterals)
+export const viewLayoutValidator = v.union(...viewLayoutLiterals)
+export const viewScopeTypeValidator = v.union(...viewScopeTypeLiterals)
+export const entityKindValidator = v.union(...entityKindLiterals)
+export const displayPropertyValidator = v.union(...displayPropertyLiterals)
+export const groupFieldValidator = v.union(...groupFieldLiterals)
+export const orderingFieldValidator = v.union(...orderingFieldLiterals)
+export const commentTargetTypeValidator = v.union(...commentTargetTypeLiterals)
+export const attachmentTargetTypeValidator = v.union(...attachmentTargetTypeLiterals)
+export const documentKindValidator = v.union(...documentKindLiterals)
+export const notificationEntityTypeValidator = v.union(
+  ...notificationEntityTypeLiterals
+)
+export const nullableStringValidator = nullableString
+export const teamTemplateConfigValidator = v.object({
+  defaultPriority: priorityValidator,
+  targetWindowDays: v.number(),
+  defaultViewLayout: viewLayoutValidator,
+  recommendedItemTypes: v.array(workItemTypeValidator),
+  summaryHint: v.string(),
+})
+export const teamWorkflowSettingsValidator = v.object({
+  statusOrder: v.array(workStatusValidator),
+  templateDefaults: v.record(v.string(), teamTemplateConfigValidator),
+})
+
+export const workspaceFields = {
+  id: v.string(),
+  slug: v.string(),
+  name: v.string(),
+  logoUrl: v.string(),
+  workosOrganizationId: v.optional(nullableString),
+  settings: v.object({
+    accent: v.string(),
+    description: v.string(),
+  }),
+}
+
+export const teamFields = {
+  id: v.string(),
+  workspaceId: v.string(),
+  slug: v.string(),
+  name: v.string(),
+  icon: v.string(),
+  settings: v.object({
+    joinCode: v.string(),
+    summary: v.string(),
+    guestProjectIds: v.array(v.string()),
+    guestDocumentIds: v.array(v.string()),
+    guestWorkItemIds: v.array(v.string()),
+    workflow: v.optional(teamWorkflowSettingsValidator),
+  }),
+}
+
+export const teamMembershipFields = {
+  teamId: v.string(),
+  userId: v.string(),
+  role: roleValidator,
+}
+
+export const userFields = {
+  id: v.string(),
+  name: v.string(),
+  handle: v.string(),
+  email: v.string(),
+  avatarUrl: v.string(),
+  workosUserId: v.optional(nullableString),
+  title: v.string(),
+  preferences: v.object({
+    emailMentions: v.boolean(),
+    emailAssignments: v.boolean(),
+    emailDigest: v.boolean(),
+  }),
+}
+
+export const labelFields = {
+  id: v.string(),
+  name: v.string(),
+  color: v.string(),
+}
+
+export const projectFields = {
+  id: v.string(),
+  scopeType: scopeTypeValidator,
+  scopeId: v.string(),
+  templateType: templateTypeValidator,
+  name: v.string(),
+  summary: v.string(),
+  description: v.string(),
+  leadId: v.string(),
+  memberIds: v.array(v.string()),
+  health: projectHealthValidator,
+  priority: priorityValidator,
+  status: projectStatusValidator,
+  startDate: nullableString,
+  targetDate: nullableString,
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const milestoneFields = {
+  id: v.string(),
+  projectId: v.string(),
+  name: v.string(),
+  targetDate: nullableString,
+  status: workStatusValidator,
+}
+
+export const workItemFields = {
+  id: v.string(),
+  key: v.string(),
+  teamId: v.string(),
+  type: workItemTypeValidator,
+  title: v.string(),
+  descriptionDocId: v.string(),
+  status: workStatusValidator,
+  priority: priorityValidator,
+  assigneeId: nullableString,
+  creatorId: v.string(),
+  parentId: nullableString,
+  primaryProjectId: nullableString,
+  linkedProjectIds: v.array(v.string()),
+  linkedDocumentIds: v.array(v.string()),
+  labelIds: v.array(v.string()),
+  milestoneId: nullableString,
+  startDate: nullableString,
+  dueDate: nullableString,
+  targetDate: nullableString,
+  subscriberIds: v.array(v.string()),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const documentFields = {
+  id: v.string(),
+  kind: documentKindValidator,
+  teamId: v.string(),
+  title: v.string(),
+  content: v.string(),
+  linkedProjectIds: v.array(v.string()),
+  linkedWorkItemIds: v.array(v.string()),
+  createdBy: v.string(),
+  updatedBy: v.string(),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const viewFiltersValidator = v.object({
+  status: v.array(workStatusValidator),
+  priority: v.array(priorityValidator),
+  assigneeIds: v.array(v.string()),
+  creatorIds: v.array(v.string()),
+  leadIds: v.array(v.string()),
+  health: v.array(projectHealthValidator),
+  milestoneIds: v.array(v.string()),
+  relationTypes: v.array(v.string()),
+  projectIds: v.array(v.string()),
+  itemTypes: v.array(workItemTypeValidator),
+  labelIds: v.array(v.string()),
+  teamIds: v.array(v.string()),
+  showCompleted: v.boolean(),
+})
+
+export const viewDefinitionFields = {
+  id: v.string(),
+  name: v.string(),
+  description: v.string(),
+  scopeType: viewScopeTypeValidator,
+  scopeId: v.string(),
+  entityKind: entityKindValidator,
+  layout: viewLayoutValidator,
+  filters: viewFiltersValidator,
+  grouping: groupFieldValidator,
+  subGrouping: v.union(groupFieldValidator, v.null()),
+  ordering: orderingFieldValidator,
+  displayProps: v.array(displayPropertyValidator),
+  hiddenState: v.object({
+    groups: v.array(v.string()),
+    subgroups: v.array(v.string()),
+  }),
+  isShared: v.boolean(),
+  route: v.string(),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const commentFields = {
+  id: v.string(),
+  targetType: commentTargetTypeValidator,
+  targetId: v.string(),
+  parentCommentId: nullableString,
+  content: v.string(),
+  mentionUserIds: v.array(v.string()),
+  createdBy: v.string(),
+  createdAt: v.string(),
+}
+
+export const attachmentFields = {
+  id: v.string(),
+  targetType: attachmentTargetTypeValidator,
+  targetId: v.string(),
+  teamId: v.string(),
+  storageId: v.id("_storage"),
+  fileName: v.string(),
+  contentType: v.string(),
+  size: v.number(),
+  uploadedBy: v.string(),
+  createdAt: v.string(),
+}
+
+export const notificationFields = {
+  id: v.string(),
+  userId: v.string(),
+  type: notificationTypeValidator,
+  entityType: notificationEntityTypeValidator,
+  entityId: v.string(),
+  actorId: v.string(),
+  message: v.string(),
+  readAt: nullableString,
+  emailedAt: nullableString,
+  createdAt: v.string(),
+}
+
+export const inviteFields = {
+  id: v.string(),
+  workspaceId: v.string(),
+  teamId: v.string(),
+  email: v.string(),
+  role: roleValidator,
+  token: v.string(),
+  joinCode: v.string(),
+  invitedBy: v.string(),
+  expiresAt: v.string(),
+  acceptedAt: nullableString,
+}
+
+export const projectUpdateFields = {
+  id: v.string(),
+  projectId: v.string(),
+  content: v.string(),
+  createdBy: v.string(),
+  createdAt: v.string(),
+}

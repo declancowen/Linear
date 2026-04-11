@@ -1,0 +1,192 @@
+import { Resend } from "resend"
+
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY
+
+  if (!apiKey) {
+    throw new Error("Resend is not configured")
+  }
+
+  return new Resend(apiKey)
+}
+
+function getFromEmail() {
+  const fromEmail = process.env.RESEND_FROM_EMAIL
+
+  if (!fromEmail) {
+    throw new Error("Resend sender is not configured")
+  }
+
+  return fromEmail
+}
+
+function escapeHtml(input: string) {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function buildEntityPath(entityType: "workItem" | "document", entityId: string) {
+  if (entityType === "document") {
+    return `/docs/${entityId}`
+  }
+
+  return `/items/${entityId}`
+}
+
+export async function sendAssignmentEmails(input: {
+  origin: string
+  emails: Array<{
+    notificationId: string
+    email: string
+    name: string
+    itemTitle: string
+    itemId: string
+    actorName: string
+  }>
+}) {
+  if (input.emails.length === 0) {
+    return []
+  }
+
+  const resend = getResendClient()
+  const from = getFromEmail()
+
+  await Promise.all(
+    input.emails.map((entry) =>
+      resend.emails.send({
+        from,
+        to: entry.email,
+        subject: `${entry.actorName} assigned you ${entry.itemTitle}`,
+        text: [
+          `Hi ${entry.name},`,
+          "",
+          `${entry.actorName} assigned you ${entry.itemTitle}.`,
+          `${input.origin}${buildEntityPath("workItem", entry.itemId)}`,
+        ].join("\n"),
+        html: [
+          `<p>Hi ${escapeHtml(entry.name)},</p>`,
+          `<p><strong>${escapeHtml(entry.actorName)}</strong> assigned you <strong>${escapeHtml(entry.itemTitle)}</strong>.</p>`,
+          `<p><a href="${input.origin}${buildEntityPath("workItem", entry.itemId)}">Open work item</a></p>`,
+        ].join(""),
+      })
+    )
+  )
+
+  return input.emails.map((entry) => entry.notificationId)
+}
+
+export async function sendMentionEmails(input: {
+  origin: string
+  emails: Array<{
+    notificationId: string
+    email: string
+    name: string
+    entityTitle: string
+    entityType: "workItem" | "document"
+    entityId: string
+    actorName: string
+    commentHtml: string
+  }>
+}) {
+  if (input.emails.length === 0) {
+    return []
+  }
+
+  const resend = getResendClient()
+  const from = getFromEmail()
+
+  await Promise.all(
+    input.emails.map((entry) =>
+      resend.emails.send({
+        from,
+        to: entry.email,
+        subject: `${entry.actorName} mentioned you in ${entry.entityTitle}`,
+        text: [
+          `Hi ${entry.name},`,
+          "",
+          `${entry.actorName} mentioned you in ${entry.entityTitle}.`,
+          `${input.origin}${buildEntityPath(entry.entityType, entry.entityId)}`,
+        ].join("\n"),
+        html: [
+          `<p>Hi ${escapeHtml(entry.name)},</p>`,
+          `<p><strong>${escapeHtml(entry.actorName)}</strong> mentioned you in <strong>${escapeHtml(entry.entityTitle)}</strong>.</p>`,
+          `<div>${entry.commentHtml}</div>`,
+          `<p><a href="${input.origin}${buildEntityPath(entry.entityType, entry.entityId)}">Open ${entry.entityType === "document" ? "document" : "work item"}</a></p>`,
+        ].join(""),
+      })
+    )
+  )
+
+  return input.emails.map((entry) => entry.notificationId)
+}
+
+export async function sendNotificationDigestEmails(input: {
+  origin: string
+  digests: Array<{
+    user: {
+      id: string
+      email: string
+      name: string
+    }
+    notifications: Array<{
+      id: string
+      message: string
+      entityId: string
+      entityType: "workItem" | "document" | "project" | "invite"
+      type: string
+      createdAt: string
+    }>
+  }>
+}) {
+  if (input.digests.length === 0) {
+    return []
+  }
+
+  const resend = getResendClient()
+  const from = getFromEmail()
+  const emailedNotificationIds: string[] = []
+
+  await Promise.all(
+    input.digests.map(async (digest) => {
+      const topNotifications = digest.notifications.slice(0, 8)
+      const listItems = topNotifications
+        .map((notification) => {
+          const path =
+            notification.entityType === "document"
+              ? buildEntityPath("document", notification.entityId)
+              : notification.entityType === "workItem"
+                ? buildEntityPath("workItem", notification.entityId)
+                : "/inbox"
+
+          return `<li><a href="${input.origin}${path}">${escapeHtml(notification.message)}</a></li>`
+        })
+        .join("")
+
+      await resend.emails.send({
+        from,
+        to: digest.user.email,
+        subject: `You have ${digest.notifications.length} unread notifications`,
+        text: [
+          `Hi ${digest.user.name},`,
+          "",
+          `You have ${digest.notifications.length} unread notifications waiting in your inbox.`,
+          `${input.origin}/inbox`,
+        ].join("\n"),
+        html: [
+          `<p>Hi ${escapeHtml(digest.user.name)},</p>`,
+          `<p>You have <strong>${digest.notifications.length}</strong> unread notifications waiting in your inbox.</p>`,
+          `<ul>${listItems}</ul>`,
+          `<p><a href="${input.origin}/inbox">Open inbox</a></p>`,
+        ].join(""),
+      })
+
+      emailedNotificationIds.push(...digest.notifications.map((notification) => notification.id))
+    })
+  )
+
+  return emailedNotificationIds
+}
