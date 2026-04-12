@@ -502,52 +502,84 @@ function ChatThread({
             messages.map((message, idx) => {
               const author = getUser(data, message.createdBy)
               const prevMessage = messages[idx - 1]
-              const sameAuthor = prevMessage?.createdBy === message.createdBy
-              const withinMinute =
-                prevMessage &&
+              const nextMessage = messages[idx + 1]
+              const isCurrentUser = message.createdBy === data.currentUserId
+              const groupedWithPrev =
+                prevMessage?.createdBy === message.createdBy &&
                 new Date(message.createdAt).getTime() -
                   new Date(prevMessage.createdAt).getTime() <
-                  60_000
-
-              // Compact follow-up from same author
-              if (sameAuthor && withinMinute) {
-                return (
-                  <div
-                    key={message.id}
-                    className="group flex items-start gap-3 rounded-md px-2 py-0.5 hover:bg-accent/30"
-                  >
-                    <div className="w-6 shrink-0" />
-                    <p className="min-w-0 whitespace-pre-wrap text-sm">
-                      {message.content}
-                    </p>
-                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100">
-                      {format(new Date(message.createdAt), "h:mm a")}
-                    </span>
-                  </div>
-                )
-              }
+                  5 * 60_000
+              const groupedWithNext =
+                nextMessage?.createdBy === message.createdBy &&
+                new Date(nextMessage.createdAt).getTime() -
+                  new Date(message.createdAt).getTime() <
+                  5 * 60_000
 
               return (
                 <div
                   key={message.id}
                   className={cn(
-                    "group flex items-start gap-3 rounded-md px-2 py-1.5 hover:bg-accent/30",
-                    idx > 0 && !sameAuthor && "mt-3"
+                    "flex px-4 py-0.5",
+                    isCurrentUser ? "justify-end" : "justify-start",
+                    idx > 0 && !groupedWithPrev && "mt-3"
                   )}
                 >
-                  <UserAvatar initials={author?.avatarUrl ?? "?"} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium">
-                        {author?.name ?? "Unknown"}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {formatTimestamp(message.createdAt)}
-                      </span>
+                  <div
+                    className={cn(
+                      "flex max-w-[min(78%,42rem)] items-end gap-2",
+                      isCurrentUser && "flex-row-reverse"
+                    )}
+                  >
+                    {!isCurrentUser ? (
+                      groupedWithPrev ? (
+                        <div className="size-8 shrink-0" />
+                      ) : (
+                        <UserAvatar
+                          initials={author?.avatarUrl ?? "?"}
+                          size="default"
+                        />
+                      )
+                    ) : null}
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-col",
+                        isCurrentUser ? "items-end" : "items-start"
+                      )}
+                    >
+                      {!groupedWithPrev ? (
+                        <div
+                          className={cn(
+                            "mb-1 flex items-center gap-2 px-1",
+                            isCurrentUser ? "justify-end" : "justify-start"
+                          )}
+                        >
+                          {!isCurrentUser ? (
+                            <span className="text-[11px] font-medium">
+                              {author?.name ?? "Unknown"}
+                            </span>
+                          ) : null}
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatTimestamp(message.createdAt)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div
+                        className={cn(
+                          "whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-6 shadow-sm",
+                          isCurrentUser
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-foreground",
+                          isCurrentUser
+                            ? groupedWithPrev && "rounded-tr-md"
+                            : groupedWithPrev && "rounded-tl-md",
+                          isCurrentUser
+                            ? groupedWithNext && "rounded-br-md"
+                            : groupedWithNext && "rounded-bl-md"
+                        )}
+                      >
+                        {message.content}
+                      </div>
                     </div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-sm">
-                      {message.content}
-                    </p>
                   </div>
                 </div>
               )
@@ -1248,8 +1280,8 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
           <div className="min-h-0 flex flex-col">
             <ChatThread
               conversationId={conversation.id}
-              title={team.name}
-              description={teamDescription}
+              title="Team chat"
+              description=""
               members={members}
               showHeader
             />
