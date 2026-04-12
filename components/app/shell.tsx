@@ -86,6 +86,7 @@ import {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 
@@ -492,11 +493,26 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
+        <CollapsedSidebarButton />
         <div className="flex flex-1 flex-col">
           {children}
         </div>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function CollapsedSidebarButton() {
+  const { isMobile, state } = useSidebar()
+
+  if (isMobile || state !== "collapsed") {
+    return null
+  }
+
+  return (
+    <div className="absolute top-3 left-3 z-20">
+      <SidebarTrigger className="size-8 rounded-lg border bg-background text-foreground shadow-sm hover:bg-muted" />
+    </div>
   )
 }
 

@@ -26,16 +26,15 @@ import {
   CalendarDots,
   CaretDown,
   CaretRight,
-  ChatsCircle,
   Circle,
   CheckCircle,
+  DotsSixVertical,
   DotsThree,
   FadersHorizontal,
   GearSix,
   Kanban,
   Plus,
   Rows,
-  SquaresFour,
   XCircle,
 } from "@phosphor-icons/react"
 
@@ -47,9 +46,6 @@ import {
   getDocument,
   getDocumentsForScope,
   getItemAssignees,
-  getLabelMap,
-  getLinkedDocuments,
-  getLinkedProjects,
   getProject,
   getProjectProgress,
   getProjectsForScope,
@@ -84,20 +80,12 @@ import {
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
-import { AttachmentsCard } from "@/components/app/attachments-card"
 import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-settings-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -105,7 +93,6 @@ import {
 import {
   Field,
   FieldContent,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
@@ -164,6 +151,44 @@ const orderingOptions: OrderingField[] = [
   "targetDate",
   "title",
 ]
+
+function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
+  const data = useAppStore()
+  const selectedView = getViewByRoute(data, routeKey)
+  const hasSelectedView = selectedView
+    ? views.some((view) => view.id === selectedView.id)
+    : false
+  const activeView = hasSelectedView ? selectedView : views[0] ?? null
+  const [localLayout, setLocalLayout] = useState<"list" | "board">("list")
+
+  useEffect(() => {
+    if (!views[0] || hasSelectedView) {
+      return
+    }
+
+    useAppStore.getState().setSelectedView(routeKey, views[0].id)
+  }, [hasSelectedView, routeKey, views])
+
+  const layout =
+    activeView?.layout === "board"
+      ? "board"
+      : activeView?.layout === "list"
+        ? "list"
+        : localLayout
+
+  function setLayout(nextLayout: "list" | "board") {
+    if (activeView) {
+      useAppStore.getState().updateViewConfig(activeView.id, {
+        layout: nextLayout,
+      })
+      return
+    }
+
+    setLocalLayout(nextLayout)
+  }
+
+  return { layout, setLayout }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Screen components                                                  */
@@ -345,6 +370,7 @@ export function ProjectsScreen({
   scopeId,
   team,
   title,
+  description,
 }: {
   scopeType: ScopeType
   scopeId: string
@@ -354,6 +380,14 @@ export function ProjectsScreen({
 }) {
   const data = useAppStore()
   const projects = getProjectsForScope(data, scopeType, scopeId)
+  const projectViews = getViewsForScope(
+    data,
+    scopeType === "team" ? "team" : "workspace",
+    scopeId,
+    "projects"
+  )
+  const routeKey = team ? `/team/${team.slug}/projects` : "/workspace/projects"
+  const { layout, setLayout } = useCollectionLayout(routeKey, projectViews)
   const editable = team ? canEditTeam(data, team.id) : true
   const admin = team ? canAdminTeam(data, team.id) : false
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -361,8 +395,11 @@ export function ProjectsScreen({
 
   return (
     <div className="flex flex-col">
-      <ScreenHeader
+      <CollectionHeader
         title={title}
+        description={description}
+        layout={layout}
+        onLayoutChange={setLayout}
         actions={
           <div className="flex items-center gap-2">
             {team && admin ? (
@@ -397,54 +434,60 @@ export function ProjectsScreen({
           disabled={!editable}
         />
       ) : null}
-      <div className="px-6">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Health</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Priority</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Lead</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Target date</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {projects.map((project) => {
-              const progress = getProjectProgress(data, project.id)
-              return (
-                <TableRow key={project.id}>
-                  <TableCell>
-                    <Link
-                      className="text-sm font-medium hover:underline"
-                      href={`/projects/${project.id}`}
-                    >
-                      {project.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {projectHealthMeta[project.health].label}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {priorityMeta[project.priority].label}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {getUser(data, project.leadId)?.name ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {project.targetDate
-                      ? format(new Date(project.targetDate), "MMM d")
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {progress.percent}%
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      {projects.length === 0 ? (
+        <MissingState title="No projects yet" />
+      ) : layout === "board" ? (
+        <ProjectBoard data={data} projects={projects} />
+      ) : (
+        <div className="px-6 py-4">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Health</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Priority</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Lead</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Target date</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {projects.map((project) => {
+                const progress = getProjectProgress(data, project.id)
+                return (
+                  <TableRow key={project.id}>
+                    <TableCell>
+                      <Link
+                        className="text-sm font-medium hover:underline"
+                        href={`/projects/${project.id}`}
+                      >
+                        {project.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {projectHealthMeta[project.health].label}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {priorityMeta[project.priority].label}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {getUser(data, project.leadId)?.name ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {project.targetDate
+                        ? format(new Date(project.targetDate), "MMM d")
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {progress.percent}%
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   )
 }
@@ -453,6 +496,7 @@ export function ViewsScreen({
   scopeType,
   scopeId,
   title,
+  description,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
@@ -466,42 +510,57 @@ export function ViewsScreen({
 
   return (
     <div className="flex flex-col">
-      <ScreenHeader title={title} />
-      <div className="px-6">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Created</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Updated</TableHead>
-              <TableHead className="text-xs font-normal text-muted-foreground">Owner</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {views.map((view) => (
-              <TableRow key={view.id}>
-                <TableCell>
-                  <div className="flex flex-col gap-0.5">
-                    <Link className="text-sm font-medium hover:underline" href={view.route}>
-                      {view.name}
-                    </Link>
-                    <span className="text-xs text-muted-foreground">
-                      {view.description}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{view.layout}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {view.grouping}{view.subGrouping ? ` / ${view.subGrouping}` : ""}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {view.isShared ? scopeType : "personal"}
-                </TableCell>
+      <CollectionHeader title={title} description={description} />
+      {views.length === 0 ? (
+        <MissingState title="No saved views yet" />
+      ) : (
+        <div className="px-6 py-4">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Entity</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Layout</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Grouping</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">Sharing</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {views.map((view) => (
+                <TableRow key={view.id}>
+                  <TableCell>
+                    <div className="flex flex-col gap-0.5">
+                      <Link className="text-sm font-medium hover:underline" href={view.route}>
+                        {view.name}
+                      </Link>
+                      <span className="text-xs text-muted-foreground">
+                        {view.description}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {formatEntityKind(view.entityKind)}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {view.layout}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {view.grouping}
+                    {view.subGrouping ? ` / ${view.subGrouping}` : ""}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {view.isShared
+                      ? scopeType === "workspace"
+                        ? "Workspace"
+                        : "Team"
+                      : "Personal"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   )
 }
@@ -511,6 +570,7 @@ export function DocsScreen({
   scopeId,
   team,
   title,
+  description,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
@@ -520,12 +580,18 @@ export function DocsScreen({
 }) {
   const data = useAppStore()
   const documents = getDocumentsForScope(data, scopeType, scopeId)
+  const docViews = getViewsForScope(data, scopeType, scopeId, "docs")
+  const routeKey = team ? `/team/${team.slug}/docs` : "/workspace/docs"
+  const { layout, setLayout } = useCollectionLayout(routeKey, docViews)
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
     <div className="flex flex-col">
-      <ScreenHeader
+      <CollectionHeader
         title={title}
+        description={description}
+        layout={layout}
+        onLayoutChange={setLayout}
         actions={
           <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
             <Plus className="size-3.5" />
@@ -538,26 +604,119 @@ export function DocsScreen({
         teamId={team?.id ?? data.ui.activeTeamId}
         disabled={team ? !canEditTeam(data, team.id) : false}
       />
-      <div className="px-6">
-        <div className="flex flex-col">
-          {documents.map((document) => (
-            <Link
-              key={document.id}
-              className="flex items-center justify-between border-b px-3 py-3 hover:bg-accent/50 transition-colors"
-              href={`/docs/${document.id}`}
-            >
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">{document.title}</span>
-                <span className="text-xs text-muted-foreground">
-                  {getTeam(data, document.teamId)?.name} · updated{" "}
-                  {format(new Date(document.updatedAt), "MMM d")}
-                </span>
-              </div>
-              <ArrowSquareOut className="size-3.5 text-muted-foreground" />
-            </Link>
-          ))}
+      {documents.length === 0 ? (
+        <MissingState title="No documents yet" />
+      ) : layout === "board" ? (
+        <DocumentBoard data={data} documents={documents} />
+      ) : (
+        <div className="px-6 py-4">
+          <div className="flex flex-col">
+            {documents.map((document) => (
+              <Link
+                key={document.id}
+                className="flex items-center justify-between border-b px-3 py-3 transition-colors hover:bg-accent/50"
+                href={`/docs/${document.id}`}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">{document.title}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {getTeam(data, document.teamId)?.name} · updated{" "}
+                    {format(new Date(document.updatedAt), "MMM d")}
+                  </span>
+                </div>
+                <ArrowSquareOut className="size-3.5 text-muted-foreground" />
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+    </div>
+  )
+}
+
+function ProjectBoard({
+  data,
+  projects,
+}: {
+  data: AppData
+  projects: Project[]
+}) {
+  return (
+    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
+      {projects.map((project) => {
+        const progress = getProjectProgress(data, project.id)
+
+        return (
+          <Link
+            key={project.id}
+            className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+            href={`/projects/${project.id}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-xs text-muted-foreground">
+                  {templateMeta[project.templateType].label}
+                </span>
+                <h2 className="mt-1 text-base font-medium leading-tight">
+                  {project.name}
+                </h2>
+              </div>
+              <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </div>
+            <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">
+              {project.summary}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge variant="secondary">{projectHealthMeta[project.health].label}</Badge>
+              <Badge variant="outline">{priorityMeta[project.priority].label}</Badge>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground">Lead</div>
+                <div className="truncate">{getUser(data, project.leadId)?.name ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Progress</div>
+                <div>{progress.percent}% complete</div>
+              </div>
+            </div>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
+function DocumentBoard({
+  data,
+  documents,
+}: {
+  data: AppData
+  documents: ReturnType<typeof getDocumentsForScope>
+}) {
+  return (
+    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
+      {documents.map((document) => (
+        <Link
+          key={document.id}
+          className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+          href={`/docs/${document.id}`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <Badge variant="outline" className="max-w-full truncate">
+              {getTeam(data, document.teamId)?.name ?? "Team doc"}
+            </Badge>
+            <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </div>
+          <h2 className="mt-4 text-base font-medium leading-tight">{document.title}</h2>
+          <p className="mt-3 line-clamp-4 text-sm text-muted-foreground">
+            {extractTextContent(document.content) || "Open document"}
+          </p>
+          <div className="mt-auto pt-4 text-xs text-muted-foreground">
+            Updated {format(new Date(document.updatedAt), "MMM d")}
+          </div>
+        </Link>
+      ))}
     </div>
   )
 }
@@ -1026,7 +1185,6 @@ function WorkSurface({
                 data={data}
                 items={filteredItems}
                 view={activeView}
-                editable={editable}
               />
             ) : null}
             {activeView.layout === "timeline" ? (
@@ -1406,12 +1564,10 @@ function ListView({
   data,
   items,
   view,
-  editable,
 }: {
   data: AppData
   items: WorkItem[]
   view: ViewDefinition
-  editable: boolean
 }) {
   const groups = [...buildItemGroups(data, items, view).entries()]
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -1475,7 +1631,6 @@ function ListView({
                           key={item.id}
                           data={data}
                           item={item}
-                          editable={editable}
                           displayProps={view.displayProps}
                         />
                       ))}
@@ -1621,16 +1776,12 @@ function TimelineView({
 function ListRow({
   data,
   item,
-  editable,
   displayProps,
 }: {
   data: AppData
   item: WorkItem
-  editable: boolean
   displayProps: DisplayProperty[]
 }) {
-  const team = getTeam(data, item.teamId)
-
   return (
     <Link
       href={`/items/${item.id}`}
@@ -1723,10 +1874,22 @@ function DraggableWorkCard({
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(isDragging ? "opacity-60" : "opacity-100")}
-      {...listeners}
-      {...attributes}
     >
-      <BoardCardBody data={data} item={item} />
+      <BoardCardBody
+        data={data}
+        item={item}
+        dragHandle={
+          <button
+            type="button"
+            className="cursor-grab rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
+            aria-label={`Drag ${item.title}`}
+            {...listeners}
+            {...attributes}
+          >
+            <DotsSixVertical className="size-4" />
+          </button>
+        }
+      />
     </div>
   )
 }
@@ -1734,36 +1897,44 @@ function DraggableWorkCard({
 function BoardCardBody({
   data,
   item,
+  dragHandle,
 }: {
   data: AppData
   item: WorkItem
+  dragHandle?: React.ReactNode
 }) {
   return (
-    <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs hover:shadow-sm transition-shadow">
-      <div className="flex items-start justify-between gap-2 mb-1">
+    <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs transition-shadow hover:shadow-sm">
+      <div className="mb-2 flex items-start justify-between gap-2">
         <span className="text-xs text-muted-foreground">{item.key}</span>
-        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-          {item.assigneeId
-            ? getUser(data, item.assigneeId)?.avatarUrl ?? "?"
-            : ""}
+        <div className="flex items-center gap-1.5">
+          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+            {item.assigneeId
+              ? getUser(data, item.assigneeId)?.avatarUrl ?? "?"
+              : ""}
+          </div>
+          {dragHandle}
         </div>
       </div>
-      <div className="mb-2">
-        <Link className="text-sm font-medium hover:underline" href={`/items/${item.id}`}>
+      <Link
+        className="flex flex-col rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        href={`/items/${item.id}`}
+      >
+        <div className="text-sm font-medium leading-snug hover:underline">
           {item.title}
-        </Link>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <StatusIcon status={item.status} />
-        {item.primaryProjectId ? (
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
-            {getProject(data, item.primaryProjectId)?.name}
-          </Badge>
-        ) : null}
-      </div>
-      <div className="mt-2 text-xs text-muted-foreground">
-        Created {format(new Date(item.createdAt), "MMM d")}
-      </div>
+        </div>
+        <div className="mt-2 flex items-center gap-1.5">
+          <StatusIcon status={item.status} />
+          {item.primaryProjectId ? (
+            <Badge variant="secondary" className="h-4 px-1.5 py-0 text-[10px]">
+              {getProject(data, item.primaryProjectId)?.name}
+            </Badge>
+          ) : null}
+        </div>
+        <div className="mt-2 text-xs text-muted-foreground">
+          Created {format(new Date(item.createdAt), "MMM d")}
+        </div>
+      </Link>
     </div>
   )
 }
@@ -1955,7 +2126,6 @@ function CreateProjectDialog({
   const [priority, setPriority] = useState<Priority>(
     initialTemplateDefaults.defaultPriority
   )
-  const templateDefaults = getTemplateDefaultsForTeam(settingsTeam, templateType)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2270,6 +2440,71 @@ function ScreenHeader({
   )
 }
 
+function CollectionHeader({
+  title,
+  description,
+  actions,
+  layout,
+  onLayoutChange,
+}: {
+  title: string
+  description?: string
+  actions?: React.ReactNode
+  layout?: "list" | "board"
+  onLayoutChange?: (layout: "list" | "board") => void
+}) {
+  return (
+    <div className="flex flex-col gap-4 border-b px-6 py-5 md:flex-row md:items-start md:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+        {description ? (
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {layout && onLayoutChange ? (
+          <CollectionLayoutToggle layout={layout} onLayoutChange={onLayoutChange} />
+        ) : null}
+        {actions}
+      </div>
+    </div>
+  )
+}
+
+function CollectionLayoutToggle({
+  layout,
+  onLayoutChange,
+}: {
+  layout: "list" | "board"
+  onLayoutChange: (layout: "list" | "board") => void
+}) {
+  return (
+    <div className="flex rounded-lg border p-0.5">
+      {[
+        { value: "list", label: "List", icon: <Rows className="size-3.5" /> },
+        { value: "board", label: "Board", icon: <Kanban className="size-3.5" /> },
+      ].map((option) => (
+        <button
+          key={option.value}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+            layout === option.value
+              ? "bg-accent font-medium"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => onLayoutChange(option.value as "list" | "board")}
+          type="button"
+        >
+          {option.icon}
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function StatusIcon({ status }: { status: string }) {
   const statusLower = status.toLowerCase()
   if (statusLower === "done" || statusLower === "completed") {
@@ -2454,26 +2689,26 @@ function MissingState({ title }: { title: string }) {
   )
 }
 
-function formatPropertyValue(
-  data: AppData,
-  item: WorkItem,
-  property: DisplayProperty
-) {
-  if (property === "id") return item.key
-  if (property === "type") return workItemTypeMeta[item.type].label
-  if (property === "dueDate") return item.dueDate ? format(new Date(item.dueDate), "MMM d") : "—"
-  if (property === "milestone") {
-    return data.milestones.find((m) => m.id === item.milestoneId)?.name ?? "—"
+function formatEntityKind(entityKind: ViewDefinition["entityKind"]) {
+  if (entityKind === "items") {
+    return "Issues"
   }
-  if (property === "labels") {
-    return item.labelIds
-      .map((id) => data.labels.find((l) => l.id === id)?.name)
-      .filter(Boolean)
-      .join(", ")
+
+  if (entityKind === "projects") {
+    return "Projects"
   }
-  if (property === "created") return format(new Date(item.createdAt), "MMM d")
-  if (property === "updated") return format(new Date(item.updatedAt), "MMM d")
-  return "—"
+
+  return "Docs"
+}
+
+function extractTextContent(content: string) {
+  return content
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6)>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
 function getPatchForField(
