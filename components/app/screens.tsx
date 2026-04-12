@@ -1259,17 +1259,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
           editable={editable}
           fullPage
           placeholder="Start writing…"
-          onChange={(content) => {
+          onChange={(content) =>
             useAppStore.getState().updateDocumentContent(document.id, content)
-            // Sync the title from the first <h1> in the content
-            const match = content.match(/<h1[^>]*>(.*?)<\/h1>/)
-            if (match?.[1]) {
-              const plainTitle = match[1].replace(/<[^>]*>/g, "")
-              if (plainTitle && plainTitle !== document.title) {
-                useAppStore.getState().renameDocument(document.id, plainTitle)
-              }
-            }
-          }}
+          }
           onUploadAttachment={
             document.kind === "team-document"
               ? (file) =>
@@ -1428,15 +1420,30 @@ function FilterPopover({
   )
   const statusOptions = getStatusOrderForTeam(singleTeam)
 
+  const activeCount =
+    view.filters.status.length +
+    view.filters.priority.length +
+    view.filters.assigneeIds.length +
+    view.filters.projectIds.length +
+    view.filters.labelIds.length
+
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="icon-xs" variant="ghost">
+        <Button size="icon-xs" variant="ghost" className="relative">
           <FadersHorizontal className="size-3.5" />
+          {activeCount > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+              {activeCount}
+            </span>
+          ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80">
-        <div className="flex flex-col gap-3">
+      <PopoverContent align="end" className="w-72 p-0">
+        <div className="border-b px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">Filters</span>
+        </div>
+        <div className="flex flex-col gap-0 p-2">
           <FilterSection label="Status">
             {statusOptions.map((status) => (
               <FilterChip
@@ -1511,21 +1518,21 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
           <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[22rem]">
-        <div className="flex flex-col gap-4">
-          {/* Layout toggle */}
-          <div className="flex rounded-lg border p-0.5">
+      <PopoverContent align="end" className="w-72 p-0">
+        {/* Layout toggle */}
+        <div className="border-b p-2">
+          <div className="flex rounded-md bg-muted/60 p-0.5">
             {[
-              { value: "list", label: "List", icon: <Rows className="size-3.5" /> },
-              { value: "board", label: "Board", icon: <Kanban className="size-3.5" /> },
-              { value: "timeline", label: "Timeline", icon: <CalendarDots className="size-3.5" /> },
+              { value: "list", label: "List", icon: <Rows className="size-3" /> },
+              { value: "board", label: "Board", icon: <Kanban className="size-3" /> },
+              { value: "timeline", label: "Timeline", icon: <CalendarDots className="size-3" /> },
             ].map((layout) => (
               <button
                 key={layout.value}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm transition-colors",
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-sm py-1 text-xs transition-colors",
                   view.layout === layout.value
-                    ? "bg-accent font-medium"
+                    ? "bg-background font-medium shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 onClick={() =>
@@ -1539,74 +1546,76 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
               </button>
             ))}
           </div>
+        </div>
 
-          {/* Config options */}
-          <div className="flex flex-col gap-3">
-            <ConfigSelect
-              label="Grouping"
-              value={view.grouping}
-              options={groupOptions.map((o) => ({ value: o, label: o }))}
-              onValueChange={(value) =>
-                useAppStore.getState().updateViewConfig(view.id, { grouping: value as GroupField })
-              }
-            />
-            <ConfigSelect
-              label="Sub-grouping"
-              value={view.subGrouping ?? "none"}
-              options={[
-                { value: "none", label: "None" },
-                ...groupOptions.map((o) => ({ value: o, label: o })),
-              ]}
-              onValueChange={(value) =>
-                useAppStore.getState().updateViewConfig(view.id, {
-                  subGrouping: value === "none" ? null : (value as GroupField),
-                })
-              }
-            />
-            <ConfigSelect
-              label="Ordering"
-              value={view.ordering}
-              options={orderingOptions.map((o) => ({ value: o, label: o }))}
-              onValueChange={(value) =>
-                useAppStore.getState().updateViewConfig(view.id, { ordering: value as OrderingField })
-              }
-            />
-            <ConfigSelect
-              label="Completed issues"
-              value={String(view.filters.showCompleted)}
-              options={[
-                { value: "true", label: "All" },
-                { value: "false", label: "Hide" },
-              ]}
-              onValueChange={(value) =>
-                useAppStore.getState().updateViewConfig(view.id, { showCompleted: value === "true" })
-              }
-            />
+        {/* Config options */}
+        <div className="flex flex-col gap-0 p-2">
+          <ConfigSelect
+            label="Grouping"
+            value={view.grouping}
+            options={groupOptions.map((o) => ({ value: o, label: o }))}
+            onValueChange={(value) =>
+              useAppStore.getState().updateViewConfig(view.id, { grouping: value as GroupField })
+            }
+          />
+          <ConfigSelect
+            label="Sub-grouping"
+            value={view.subGrouping ?? "none"}
+            options={[
+              { value: "none", label: "None" },
+              ...groupOptions.map((o) => ({ value: o, label: o })),
+            ]}
+            onValueChange={(value) =>
+              useAppStore.getState().updateViewConfig(view.id, {
+                subGrouping: value === "none" ? null : (value as GroupField),
+              })
+            }
+          />
+          <ConfigSelect
+            label="Ordering"
+            value={view.ordering}
+            options={orderingOptions.map((o) => ({ value: o, label: o }))}
+            onValueChange={(value) =>
+              useAppStore.getState().updateViewConfig(view.id, { ordering: value as OrderingField })
+            }
+          />
+          <ConfigSelect
+            label="Completed"
+            value={String(view.filters.showCompleted)}
+            options={[
+              { value: "true", label: "All" },
+              { value: "false", label: "Hide" },
+            ]}
+            onValueChange={(value) =>
+              useAppStore.getState().updateViewConfig(view.id, { showCompleted: value === "true" })
+            }
+          />
+        </div>
+
+        <Separator />
+
+        {/* Display properties */}
+        <div className="p-2">
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Properties
           </div>
-
-          <Separator />
-
-          {/* Display properties */}
-          <div>
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Display properties</div>
-            <div className="flex flex-wrap gap-1.5">
-              {displayPropertyOptions.map((property) => (
-                <button
-                  key={property}
-                  className={cn(
-                    "rounded-md border px-2 py-0.5 text-xs transition-colors",
-                    view.displayProps.includes(property)
-                      ? "border-primary/30 bg-primary/10 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground"
-                  )}
-                  onClick={() =>
-                    useAppStore.getState().toggleViewDisplayProperty(view.id, property)
-                  }
-                >
-                  {property}
-                </button>
-              ))}
-            </div>
+          <div className="flex flex-wrap gap-1">
+            {displayPropertyOptions.map((property) => (
+              <button
+                key={property}
+                className={cn(
+                  "rounded-md px-2 py-0.5 text-xs transition-colors",
+                  view.displayProps.includes(property)
+                    ? "bg-accent font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                )}
+                onClick={() =>
+                  useAppStore.getState().toggleViewDisplayProperty(view.id, property)
+                }
+              >
+                {property}
+              </button>
+            ))}
           </div>
         </div>
       </PopoverContent>
@@ -2669,11 +2678,14 @@ function ViewsDisplaySettingsPopover({
     <Popover>
       <PopoverTrigger asChild>
         <Button size="icon-xs" variant="ghost">
-          <GearSix className="size-4" />
+          <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56">
-        <div className="flex flex-col gap-3">
+      <PopoverContent align="end" className="w-56 p-0">
+        <div className="border-b px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">Display</span>
+        </div>
+        <div className="flex flex-col gap-0 p-2">
           <ConfigSelect
             label="Layout"
             value={layout}
@@ -2723,11 +2735,14 @@ function CollectionDisplaySettingsPopover({
     <Popover>
       <PopoverTrigger asChild>
         <Button size="icon-xs" variant="ghost">
-          <GearSix className="size-4" />
+          <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56">
-        <div className="flex flex-col gap-3">
+      <PopoverContent align="end" className="w-52 p-0">
+        <div className="border-b px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">Display</span>
+        </div>
+        <div className="p-2">
           <ConfigSelect
             label="Layout"
             value={layout}
@@ -2739,7 +2754,7 @@ function CollectionDisplaySettingsPopover({
           />
           {extraAction ? (
             <>
-              <Separator />
+              <Separator className="my-1" />
               {extraAction}
             </>
           ) : null}
@@ -2794,8 +2809,10 @@ function SidebarSection({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-muted-foreground">{title}</span>
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {title}
+      </span>
       {children}
     </div>
   )
@@ -2815,7 +2832,7 @@ function CollapsibleSection({
   return (
     <div className="flex flex-col">
       <button
-        className="flex items-center gap-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
         onClick={() => setOpen(!open)}
       >
         {open ? (
@@ -2825,7 +2842,7 @@ function CollapsibleSection({
         )}
         {title}
       </button>
-      {open && <div className="flex flex-col gap-1 mt-1">{children}</div>}
+      {open && <div className="flex flex-col gap-0.5 mt-0.5">{children}</div>}
     </div>
   )
 }
@@ -2885,10 +2902,10 @@ function ConfigSelect({
   onValueChange: (value: string) => void
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-muted-foreground">{label}</span>
+    <div className="flex items-center justify-between py-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-7 w-auto min-w-28 text-sm">
+        <SelectTrigger className="h-6 w-auto min-w-24 border-none bg-transparent text-xs shadow-none">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -2913,9 +2930,11 @@ function FilterSection({
   children: React.ReactNode
 }) {
   return (
-    <div>
-      <div className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</div>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
+    <div className="py-1.5">
+      <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="flex flex-wrap gap-1">{children}</div>
     </div>
   )
 }
@@ -2932,10 +2951,10 @@ function FilterChip({
   return (
     <button
       className={cn(
-        "rounded-md border px-2 py-0.5 text-xs transition-colors",
+        "rounded-md px-2 py-0.5 text-xs transition-colors",
         active
-          ? "border-primary/30 bg-primary/10 text-foreground"
-          : "border-border text-muted-foreground hover:text-foreground"
+          ? "bg-accent font-medium text-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       )}
       onClick={onClick}
     >

@@ -31,6 +31,7 @@ import {
   getCurrentWorkspace,
   getTeamFeatureSettings,
   getTeamRole,
+  getTeamSurfaceDisableReasons,
 } from "@/lib/domain/selectors"
 import {
   type Role,
@@ -347,7 +348,7 @@ export function AppShell({ children }: AppShellProps) {
                   return (
                     <SidebarMenuItem key={team.id}>
                       <SidebarMenuButton
-                        className="font-medium"
+                        className="text-[13px] font-medium"
                         onClick={() => toggleTeam(team.id)}
                       >
                         {isExpanded ? (
@@ -386,6 +387,32 @@ export function AppShell({ children }: AppShellProps) {
                       </DropdownMenu>
                       {isExpanded ? (
                         <SidebarMenuSub>
+                          {features.chat ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
+                              >
+                                <Link href={`/team/${team.slug}/chat`}>
+                                  <ChatCircleDots className="size-4" />
+                                  <span>Chat</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
+                          {features.channels ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/channels`)}
+                              >
+                                <Link href={`/team/${team.slug}/channels`}>
+                                  <HashStraight className="size-4" />
+                                  <span>Channel</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
                           {features.issues ? (
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
@@ -434,32 +461,6 @@ export function AppShell({ children }: AppShellProps) {
                                 <Link href={`/team/${team.slug}/docs`}>
                                   <NotePencil className="size-4" />
                                   <span>Docs</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.chat ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
-                              >
-                                <Link href={`/team/${team.slug}/chat`}>
-                                  <ChatCircleDots className="size-4" />
-                                  <span>Chat</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.channels ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/channels`)}
-                              >
-                                <Link href={`/team/${team.slug}/channels`}>
-                                  <HashStraight className="size-4" />
-                                  <span>Channels</span>
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -706,6 +707,7 @@ function TeamDetailsDialog({
   const [features, setFeatures] = useState(
     team?.settings.features ?? getTeamFeatureSettings(team)
   )
+  const [saving, setSaving] = useState(false)
   const optionalFeatures = [
     {
       key: "docs" as const,
@@ -719,14 +721,17 @@ function TeamDetailsDialog({
     },
     {
       key: "channels" as const,
-      label: "Channels",
-      description: "Forum-style posts with replies and slower discussion.",
+      label: "Channel",
+      description: "Shared forum-style posts with replies for the full team.",
     },
   ]
 
   if (!team) {
     return null
   }
+
+  const savedFeatures = getTeamFeatureSettings(team)
+  const surfaceDisableReasons = getTeamSurfaceDisableReasons(data, team.id)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -816,11 +821,15 @@ function TeamDetailsDialog({
                           <button
                             type="button"
                             className={cn(
-                              "rounded-xl border px-4 py-4 text-left transition-colors",
+                              "rounded-xl border px-4 py-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                               features.chat
                                 ? "border-primary/30 bg-primary/8"
                                 : "hover:bg-accent/40"
                             )}
+                            disabled={
+                              savedFeatures.channels &&
+                              Boolean(surfaceDisableReasons.channels)
+                            }
                             onClick={() =>
                               setFeatures({
                                 issues: false,
@@ -840,11 +849,14 @@ function TeamDetailsDialog({
                           <button
                             type="button"
                             className={cn(
-                              "rounded-xl border px-4 py-4 text-left transition-colors",
+                              "rounded-xl border px-4 py-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                               features.channels
                                 ? "border-primary/30 bg-primary/8"
                                 : "hover:bg-accent/40"
                             )}
+                            disabled={
+                              savedFeatures.chat && Boolean(surfaceDisableReasons.chat)
+                            }
                             onClick={() =>
                               setFeatures({
                                 issues: false,
@@ -866,6 +878,16 @@ function TeamDetailsDialog({
                       <FieldDescription>
                         Community teams must use exactly one of chat or channels.
                       </FieldDescription>
+                      {savedFeatures.chat && surfaceDisableReasons.chat ? (
+                        <div className="text-xs text-muted-foreground">
+                          {surfaceDisableReasons.chat}
+                        </div>
+                      ) : null}
+                      {savedFeatures.channels && surfaceDisableReasons.channels ? (
+                        <div className="text-xs text-muted-foreground">
+                          {surfaceDisableReasons.channels}
+                        </div>
+                      ) : null}
                     </Field>
                   </FieldGroup>
                 ) : (
@@ -905,9 +927,19 @@ function TeamDetailsDialog({
                                 <div className="mt-1 text-sm text-muted-foreground">
                                   {feature.description}
                                 </div>
+                                {savedFeatures[feature.key] &&
+                                surfaceDisableReasons[feature.key] ? (
+                                  <div className="mt-2 text-xs text-muted-foreground">
+                                    {surfaceDisableReasons[feature.key]}
+                                  </div>
+                                ) : null}
                               </div>
                               <Switch
                                 checked={features[feature.key]}
+                                disabled={
+                                  savedFeatures[feature.key] &&
+                                  Boolean(surfaceDisableReasons[feature.key])
+                                }
                                 onCheckedChange={(checked) =>
                                   setFeatures((current) => ({
                                     ...current,
@@ -973,12 +1005,18 @@ function TeamDetailsDialog({
           </div>
         </div>
         <div className="flex shrink-0 items-center justify-end gap-2 border-t bg-muted/40 px-6 py-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            disabled={saving}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
-            onClick={() => {
-              useAppStore.getState().updateTeamDetails(team.id, {
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true)
+              const updated = await useAppStore.getState().updateTeamDetails(team.id, {
                 name,
                 icon,
                 summary,
@@ -986,10 +1024,14 @@ function TeamDetailsDialog({
                 experience,
                 features,
               })
-              onOpenChange(false)
+              setSaving(false)
+
+              if (updated) {
+                onOpenChange(false)
+              }
             }}
           >
-            Save team
+            {saving ? "Saving..." : "Save team"}
           </Button>
         </div>
       </DialogContent>

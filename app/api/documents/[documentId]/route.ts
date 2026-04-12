@@ -4,8 +4,7 @@ import { z } from "zod"
 
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
-  renameDocumentServer,
-  updateDocumentContentServer,
+  updateDocumentServer,
 } from "@/lib/server/convex"
 
 const documentUpdateSchema = z
@@ -44,21 +43,12 @@ export async function PATCH(
       session.organizationId
     )
 
-    if (parsed.data.title !== undefined) {
-      await renameDocumentServer({
-        currentUserId: ensuredUser.userId,
-        documentId,
-        title: parsed.data.title,
-      })
-    }
-
-    if (parsed.data.content !== undefined) {
-      await updateDocumentContentServer({
-        currentUserId: ensuredUser.userId,
-        documentId,
-        content: parsed.data.content,
-      })
-    }
+    await updateDocumentServer({
+      currentUserId: ensuredUser.userId,
+      documentId,
+      title: parsed.data.title,
+      content: parsed.data.content,
+    })
 
     return NextResponse.json({
       ok: true,

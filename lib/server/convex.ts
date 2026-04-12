@@ -209,6 +209,31 @@ export async function updateDocumentContentServer(input: {
   return getConvexServerClient().mutation(api.app.updateDocumentContent, input)
 }
 
+export async function updateDocumentServer(input: {
+  currentUserId: string
+  documentId: string
+  title?: string
+  content?: string
+}) {
+  if (input.title !== undefined) {
+    await renameDocumentServer({
+      currentUserId: input.currentUserId,
+      documentId: input.documentId,
+      title: input.title,
+    })
+  }
+
+  if (input.content !== undefined) {
+    await updateDocumentContentServer({
+      currentUserId: input.currentUserId,
+      documentId: input.documentId,
+      content: input.content,
+    })
+  }
+
+  return null
+}
+
 export async function renameDocumentServer(input: {
   currentUserId: string
   documentId: string

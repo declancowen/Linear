@@ -23,7 +23,6 @@ import {
   syncGenerateAttachmentUploadUrl,
   syncJoinTeamByCode,
   syncMarkNotificationRead,
-  syncRenameDocument,
   syncSendChatMessage,
   syncShiftTimelineItem,
   syncToggleNotificationRead,
@@ -32,13 +31,17 @@ import {
   syncToggleViewHiddenValue,
   syncUpdateTeamDetails,
   syncUpdateCurrentUserProfile,
-  syncUpdateDocumentContent,
+  syncUpdateDocument,
   syncUpdateItemDescription,
   syncUpdateTeamWorkflowSettings,
   syncUpdateViewConfig,
   syncUpdateWorkItem,
   syncUpdateWorkspaceBranding,
 } from "@/lib/convex/client"
+import {
+  getTeamFeatureSettings,
+  getTeamSurfaceDisableReason,
+} from "@/lib/domain/selectors"
 import { createSeedState } from "@/lib/domain/seed"
 import {
   type AttachmentTargetType,
@@ -199,7 +202,10 @@ export type AppStore = AppData & {
   markNotificationRead: (notificationId: string) => void
   toggleNotificationRead: (notificationId: string) => void
   updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
-  updateTeamDetails: (teamId: string, input: UpdateTeamDetailsInput) => void
+  updateTeamDetails: (
+    teamId: string,
+    input: UpdateTeamDetailsInput
+  ) => Promise<boolean>
   updateCurrentUserProfile: (input: UpdateProfileInput) => void
   updateViewConfig: (
     viewId: string,
@@ -266,6 +272,100 @@ const noopStorage: StateStorage = {
 
 function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function extractDocumentTitleFromContent(content: string) {
+  const match = content.match(/<h1[^>]*>(.*?)<\/h1>/)
+
+  if (!match?.[1]) {
+    return null
+  }
+
+  const plainTitle = match[1].replace(/<[^>]*>/g, "").trim()
+  return plainTitle.length > 0 ? plainTitle : null
+}
+
+const RICH_TEXT_SYNC_DELAY_MS = 350
+
+type QueuedSyncEntry = {
+  fallbackMessage: string
+  inFlight: boolean
+  latestTask: (() => Promise<unknown> | null) | null
+  timeoutId: ReturnType<typeof setTimeout> | null
+}
+
+const queuedRichTextSyncs = new Map<string, QueuedSyncEntry>()
+
+async function handleSyncFailure(error: unknown, fallbackMessage: string) {
+  console.error(error)
+  const state = useAppStore.getState()
+  const currentUserEmail = state.users.find(
+    (user) => user.id === state.currentUserId
+  )?.email
+  const snapshot = await fetchSnapshot(currentUserEmail)
+
+  if (snapshot) {
+    useAppStore.getState().replaceDomainData(snapshot)
+  }
+
+  toast.error(fallbackMessage)
+}
+
+async function flushQueuedRichTextSync(key: string) {
+  const entry = queuedRichTextSyncs.get(key)
+
+  if (!entry || entry.inFlight || !entry.latestTask) {
+    return
+  }
+
+  const task = entry.latestTask
+  entry.latestTask = null
+  entry.inFlight = true
+
+  try {
+    await task()
+  } catch (error) {
+    await handleSyncFailure(error, entry.fallbackMessage)
+  } finally {
+    entry.inFlight = false
+
+    if (entry.latestTask) {
+      void flushQueuedRichTextSync(key)
+      return
+    }
+
+    if (!entry.timeoutId) {
+      queuedRichTextSyncs.delete(key)
+    }
+  }
+}
+
+function queueRichTextSync(
+  key: string,
+  task: () => Promise<unknown> | null,
+  fallbackMessage: string
+) {
+  const existingEntry = queuedRichTextSyncs.get(key)
+
+  if (existingEntry?.timeoutId) {
+    clearTimeout(existingEntry.timeoutId)
+  }
+
+  const entry: QueuedSyncEntry = existingEntry ?? {
+    fallbackMessage,
+    inFlight: false,
+    latestTask: null,
+    timeoutId: null,
+  }
+
+  entry.fallbackMessage = fallbackMessage
+  entry.latestTask = task
+  entry.timeoutId = setTimeout(() => {
+    entry.timeoutId = null
+    void flushQueuedRichTextSync(key)
+  }, RICH_TEXT_SYNC_DELAY_MS)
+
+  queuedRichTextSyncs.set(key, entry)
 }
 
 function toKeyPrefix(teamId: string) {
@@ -398,18 +498,35 @@ function syncInBackground(task: Promise<unknown> | null, fallbackMessage: string
     return
   }
 
-  void task.catch(async (error) => {
-    console.error(error)
-    const state = useAppStore.getState()
-    const currentUserEmail = state.users.find(
-      (user) => user.id === state.currentUserId
-    )?.email
-    const snapshot = await fetchSnapshot(currentUserEmail)
-    if (snapshot) {
-      useAppStore.getState().replaceDomainData(snapshot)
+  void task.catch((error) => handleSyncFailure(error, fallbackMessage))
+}
+
+function getTeamDetailsDisableMessage(
+  state: AppData,
+  teamId: string,
+  nextFeatures: AppData["teams"][number]["settings"]["features"]
+) {
+  const team = state.teams.find((entry) => entry.id === teamId)
+
+  if (!team) {
+    return "Team not found"
+  }
+
+  const currentFeatures = getTeamFeatureSettings(team)
+
+  for (const feature of ["docs", "chat", "channels"] as const) {
+    if (!currentFeatures[feature] || nextFeatures[feature]) {
+      continue
     }
-    toast.error(fallbackMessage)
-  })
+
+    const disableReason = getTeamSurfaceDisableReason(state, teamId, feature)
+
+    if (disableReason) {
+      return disableReason
+    }
+  }
+
+  return null
 }
 
 async function refreshFromServer() {
@@ -553,11 +670,35 @@ export const useAppStore = create<AppStore>()(
 
         toast.success("Workspace updated")
       },
-      updateTeamDetails(teamId, input) {
+      async updateTeamDetails(teamId, input) {
         const parsed = teamDetailsSchema.safeParse(input)
         if (!parsed.success) {
           toast.error("Team details are invalid")
-          return
+          return false
+        }
+
+        const stateBeforeUpdate = useAppStore.getState()
+        const team = stateBeforeUpdate.teams.find((entry) => entry.id === teamId)
+
+        if (!team) {
+          toast.error("Team not found")
+          return false
+        }
+
+        const nextFeatures = normalizeTeamFeatureSettings(
+          parsed.data.experience,
+          parsed.data.features
+        )
+        const currentFeatures = getTeamFeatureSettings(team)
+        const disableMessage = getTeamDetailsDisableMessage(
+          stateBeforeUpdate,
+          teamId,
+          nextFeatures
+        )
+
+        if (disableMessage) {
+          toast.error(disableMessage)
+          return false
         }
 
         set((state) => ({
@@ -572,22 +713,47 @@ export const useAppStore = create<AppStore>()(
                     summary: parsed.data.summary,
                     joinCode: parsed.data.joinCode.toUpperCase(),
                     experience: parsed.data.experience,
-                    features: normalizeTeamFeatureSettings(
-                      parsed.data.experience,
-                      parsed.data.features
-                    ),
+                    features: nextFeatures,
                   },
                 }
               : team
           ),
         }))
 
-        syncInBackground(
-          syncUpdateTeamDetails(teamId, parsed.data),
-          "Failed to update team details"
-        )
+        try {
+          await syncUpdateTeamDetails(teamId, parsed.data)
+          if (
+            (!currentFeatures.chat && nextFeatures.chat) ||
+            (!currentFeatures.channels && nextFeatures.channels)
+          ) {
+            await refreshFromServer()
+          }
+          toast.success("Team updated")
+          return true
+        } catch (error) {
+          console.error(error)
 
-        toast.success("Team updated")
+          const currentState = useAppStore.getState()
+          const currentUserEmail = currentState.users.find(
+            (user) => user.id === currentState.currentUserId
+          )?.email
+          const snapshot = await fetchSnapshot(currentUserEmail)
+
+          if (snapshot) {
+            useAppStore.getState().replaceDomainData(snapshot)
+          } else {
+            set((state) => ({
+              teams: state.teams.map((entry) =>
+                entry.id === teamId ? team : entry
+              ),
+            }))
+          }
+
+          toast.error(
+            error instanceof Error ? error.message : "Failed to update team details"
+          )
+          return false
+        }
       },
       updateCurrentUserProfile(input) {
         const parsed = profileSchema.safeParse(input)
@@ -822,52 +988,78 @@ export const useAppStore = create<AppStore>()(
         )
       },
       updateDocumentContent(documentId, content) {
+        const updatedAt = getNow()
+        const nextTitle = extractDocumentTitleFromContent(content)
+
         set((state) => ({
           documents: state.documents.map((document) =>
             document.id === documentId
               ? {
                   ...document,
                   content,
-                  updatedAt: getNow(),
+                  title: nextTitle ?? document.title,
+                  updatedAt,
                   updatedBy: state.currentUserId,
                 }
               : document
           ),
         }))
 
-        syncInBackground(
-          syncUpdateDocumentContent(
-            useAppStore.getState().currentUserId,
-            documentId,
-            content
-          ),
+        queueRichTextSync(
+          `document:${documentId}`,
+          () => {
+            const state = useAppStore.getState()
+            const document = state.documents.find((entry) => entry.id === documentId)
+
+            if (!document || document.kind === "item-description") {
+              return null
+            }
+
+            return syncUpdateDocument(documentId, {
+              title: document.title,
+              content: document.content,
+            })
+          },
           "Failed to update document"
         )
       },
       renameDocument(documentId, title) {
+        const updatedAt = getNow()
+
         set((state) => ({
           documents: state.documents.map((document) =>
             document.id === documentId
               ? {
                   ...document,
                   title,
-                  updatedAt: getNow(),
+                  updatedAt,
                   updatedBy: state.currentUserId,
                 }
               : document
           ),
         }))
 
-        syncInBackground(
-          syncRenameDocument(
-            useAppStore.getState().currentUserId,
-            documentId,
-            title
-          ),
-          "Failed to rename document"
+        queueRichTextSync(
+          `document:${documentId}`,
+          () => {
+            const state = useAppStore.getState()
+            const document = state.documents.find((entry) => entry.id === documentId)
+
+            if (!document || document.kind === "item-description") {
+              return null
+            }
+
+            return syncUpdateDocument(documentId, {
+              title: document.title,
+              content: document.content,
+            })
+          },
+          "Failed to update document"
         )
       },
       updateItemDescription(itemId, content) {
+        const updatedAt = getNow()
+
         set((state) => {
           const item = state.workItems.find((entry) => entry.id === itemId)
           if (!item) {
@@ -881,23 +1073,41 @@ export const useAppStore = create<AppStore>()(
                 ? {
                     ...document,
                     content,
-                    updatedAt: getNow(),
+                    updatedAt,
                     updatedBy: state.currentUserId,
                   }
                 : document
             ),
             workItems: state.workItems.map((entry) =>
-              entry.id === itemId ? { ...entry, updatedAt: getNow() } : entry
+              entry.id === itemId ? { ...entry, updatedAt } : entry
             ),
           }
         })
 
-        syncInBackground(
-          syncUpdateItemDescription(
-            useAppStore.getState().currentUserId,
-            itemId,
-            content
-          ),
+        queueRichTextSync(
+          `item-description:${itemId}`,
+          () => {
+            const state = useAppStore.getState()
+            const item = state.workItems.find((entry) => entry.id === itemId)
+
+            if (!item) {
+              return null
+            }
+
+            const descriptionDocument = state.documents.find(
+              (document) => document.id === item.descriptionDocId
+            )
+
+            if (!descriptionDocument) {
+              return null
+            }
+
+            return syncUpdateItemDescription(
+              state.currentUserId,
+              itemId,
+              descriptionDocument.content
+            )
+          },
           "Failed to update description"
         )
       },
@@ -1263,8 +1473,8 @@ export const useAppStore = create<AppStore>()(
                 scopeType: "team",
                 scopeId: parsed.data.teamId,
                 variant: "team",
-                title: parsed.data.title,
-                description: parsed.data.description.trim(),
+                title: parsed.data.title.trim() || team.name,
+                description: parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, parsed.data.teamId),
                 createdBy: state.currentUserId,
                 createdAt: now,
@@ -1311,6 +1521,18 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
+          const existingConversation = state.conversations.find(
+            (conversation) =>
+              conversation.kind === "channel" &&
+              conversation.scopeType === "team" &&
+              conversation.scopeId === parsed.data.teamId
+          )
+
+          if (existingConversation) {
+            conversationId = existingConversation.id
+            return state
+          }
+
           const role = effectiveRole(state, parsed.data.teamId)
           if (role === "viewer" || role === "guest" || !role) {
             toast.error("Your current role is read-only")
@@ -1329,8 +1551,8 @@ export const useAppStore = create<AppStore>()(
                 scopeType: "team",
                 scopeId: parsed.data.teamId,
                 variant: "team",
-                title: parsed.data.title,
-                description: parsed.data.description.trim(),
+                title: parsed.data.title.trim() || team.name,
+                description: parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, parsed.data.teamId),
                 createdBy: state.currentUserId,
                 createdAt: now,
@@ -1351,7 +1573,7 @@ export const useAppStore = create<AppStore>()(
           "Failed to create channel"
         )
 
-        toast.success("Channel created")
+        toast.success("Channel ready")
         return conversationId
       },
       sendChatMessage(input) {

@@ -340,6 +340,10 @@ async function requireEditableDocumentAccess(
     return
   }
 
+  if (!document.workspaceId) {
+    throw new Error("Document is missing a workspace")
+  }
+
   await requireEditableWorkspaceAccess(ctx, document.workspaceId, userId)
 }
 
@@ -459,6 +463,106 @@ async function getWorkspaceUserIds(ctx: AppCtx, workspaceId: string) {
   }
 
   return [...userIds]
+}
+
+async function findTeamChatConversation(ctx: AppCtx, teamId: string) {
+  const conversations = await ctx.db
+    .query("conversations")
+    .withIndex("by_kind_scope", (q) =>
+      q.eq("kind", "chat").eq("scopeType", "team").eq("scopeId", teamId)
+    )
+    .collect()
+
+  return conversations.find((conversation) => conversation.variant === "team") ?? null
+}
+
+async function findPrimaryTeamChannelConversation(ctx: AppCtx, teamId: string) {
+  const conversations = await ctx.db
+    .query("conversations")
+    .withIndex("by_kind_scope", (q) =>
+      q.eq("kind", "channel").eq("scopeType", "team").eq("scopeId", teamId)
+    )
+    .collect()
+
+  return conversations.sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null
+}
+
+async function ensureTeamChatConversation(
+  ctx: MutationCtx,
+  input: {
+    teamId: string
+    currentUserId: string
+    teamName: string
+    teamSummary: string
+    title?: string
+    description?: string
+  }
+) {
+  const existing = await findTeamChatConversation(ctx, input.teamId)
+
+  if (existing) {
+    return existing.id
+  }
+
+  const participantIds = await getTeamMemberIds(ctx, input.teamId)
+  const now = getNow()
+  const conversationId = createId("conversation")
+
+  await ctx.db.insert("conversations", {
+    id: conversationId,
+    kind: "chat",
+    scopeType: "team",
+    scopeId: input.teamId,
+    variant: "team",
+    title: input.title?.trim() || input.teamName.trim(),
+    description: input.description?.trim() || input.teamSummary.trim(),
+    participantIds,
+    createdBy: input.currentUserId,
+    createdAt: now,
+    updatedAt: now,
+    lastActivityAt: now,
+  })
+
+  return conversationId
+}
+
+async function ensureTeamChannelConversation(
+  ctx: MutationCtx,
+  input: {
+    teamId: string
+    currentUserId: string
+    teamName: string
+    teamSummary: string
+    title?: string
+    description?: string
+  }
+) {
+  const existing = await findPrimaryTeamChannelConversation(ctx, input.teamId)
+
+  if (existing) {
+    return existing.id
+  }
+
+  const participantIds = await getTeamMemberIds(ctx, input.teamId)
+  const now = getNow()
+  const conversationId = createId("conversation")
+
+  await ctx.db.insert("conversations", {
+    id: conversationId,
+    kind: "channel",
+    scopeType: "team",
+    scopeId: input.teamId,
+    variant: "team",
+    title: input.title?.trim() || input.teamName.trim(),
+    description: input.description?.trim() || input.teamSummary.trim(),
+    participantIds,
+    createdBy: input.currentUserId,
+    createdAt: now,
+    updatedAt: now,
+    lastActivityAt: now,
+  })
+
+  return conversationId
 }
 
 async function requireConversationAccess(
@@ -650,6 +754,104 @@ function normalizeTeam<T extends { settings: Record<string, unknown> }>(team: T)
       ),
     },
   }
+}
+
+function normalizeDocument<T extends { workspaceId?: string; teamId?: string | null }>(
+  document: T,
+  teams: Array<{ id: string; workspaceId: string }>
+) {
+  return {
+    ...document,
+    workspaceId:
+      document.workspaceId ??
+      teams.find((team) => team.id === document.teamId)?.workspaceId ??
+      "",
+  }
+}
+
+async function getTeamSurfaceDisableMessage(
+  ctx: MutationCtx,
+  team: {
+    id: string
+    settings: {
+      experience?: "software-development" | "issue-analysis" | "community"
+      features?: {
+        issues: boolean
+        projects: boolean
+        views: boolean
+        docs: boolean
+        chat: boolean
+        channels: boolean
+      }
+    }
+  },
+  nextFeatures: {
+    issues: boolean
+    projects: boolean
+    views: boolean
+    docs: boolean
+    chat: boolean
+    channels: boolean
+  }
+) {
+  const currentFeatures = normalizeTeamFeatures(
+    team.settings.experience,
+    team.settings.features
+  )
+
+  if (currentFeatures.docs && !nextFeatures.docs) {
+    const documents = await ctx.db.query("documents").collect()
+    const hasTeamDocuments = documents.some(
+      (document) => document.kind === "team-document" && document.teamId === team.id
+    )
+
+    if (hasTeamDocuments) {
+      return "Docs cannot be turned off while this team still has documents."
+    }
+  }
+
+  if (currentFeatures.chat && !nextFeatures.chat) {
+    const conversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_kind_scope", (q) =>
+        q.eq("kind", "chat").eq("scopeType", "team").eq("scopeId", team.id)
+      )
+      .collect()
+    const teamChat = conversations.find((conversation) => conversation.variant === "team")
+
+    if (teamChat) {
+      const messages = await ctx.db
+        .query("chatMessages")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", teamChat.id))
+        .take(1)
+
+      if (messages.length > 0) {
+        return "Chat cannot be turned off while the team chat has messages."
+      }
+    }
+  }
+
+  if (currentFeatures.channels && !nextFeatures.channels) {
+    const channels = await ctx.db
+      .query("conversations")
+      .withIndex("by_kind_scope", (q) =>
+        q.eq("kind", "channel").eq("scopeType", "team").eq("scopeId", team.id)
+      )
+      .collect()
+
+    for (const channel of channels) {
+      const posts = await ctx.db
+        .query("channelPosts")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", channel.id))
+        .take(1)
+
+      if (posts.length > 0) {
+        return "Channels cannot be turned off while channel posts exist."
+      }
+    }
+  }
+
+  return null
 }
 
 async function insertSeedData(ctx: MutationCtx) {
@@ -976,18 +1178,22 @@ export const getSnapshot = query({
       }))
     )
 
+    const normalizedTeams = teams.map(normalizeTeam)
+
     return {
       currentUserId,
       currentWorkspaceId,
       workspaces: workspaces.map(normalizeWorkspace),
-      teams: teams.map(normalizeTeam),
+      teams: normalizedTeams,
       teamMemberships,
       users: (await ctx.db.query("users").collect()).map(normalizeUser),
       labels: await ctx.db.query("labels").collect(),
       projects: await ctx.db.query("projects").collect(),
       milestones: await ctx.db.query("milestones").collect(),
       workItems: await ctx.db.query("workItems").collect(),
-      documents: await ctx.db.query("documents").collect(),
+      documents: (await ctx.db.query("documents").collect()).map((document) =>
+        normalizeDocument(document, teams)
+      ),
       views: await ctx.db.query("views").collect(),
       comments: await ctx.db.query("comments").collect(),
       attachments,
@@ -1533,6 +1739,20 @@ export const updateTeamDetails = mutation({
       throw new Error(validationMessage)
     }
 
+    const normalizedFeatures = normalizeTeamFeatures(
+      args.experience,
+      args.features
+    )
+    const disableMessage = await getTeamSurfaceDisableMessage(
+      ctx,
+      team,
+      normalizedFeatures
+    )
+
+    if (disableMessage) {
+      throw new Error(disableMessage)
+    }
+
     await ctx.db.patch(team._id, {
       name: args.name,
       icon: args.icon,
@@ -1541,15 +1761,33 @@ export const updateTeamDetails = mutation({
         summary: args.summary,
         joinCode: normalizeJoinCode(args.joinCode),
         experience: args.experience,
-        features: normalizeTeamFeatures(args.experience, args.features),
+        features: normalizedFeatures,
       },
     })
+
+    if (normalizedFeatures.chat) {
+      await ensureTeamChatConversation(ctx, {
+        teamId: team.id,
+        currentUserId: args.currentUserId,
+        teamName: args.name,
+        teamSummary: args.summary,
+      })
+    }
+
+    if (normalizedFeatures.channels) {
+      await ensureTeamChannelConversation(ctx, {
+        teamId: team.id,
+        currentUserId: args.currentUserId,
+        teamName: args.name,
+        teamSummary: args.summary,
+      })
+    }
 
     return {
       teamId: team.id,
       joinCode: normalizeJoinCode(args.joinCode),
       experience: args.experience,
-      features: normalizeTeamFeatures(args.experience, args.features),
+      features: normalizedFeatures,
     }
   },
 })
@@ -1842,6 +2080,35 @@ export const updateDocumentContent = mutation({
 
     await ctx.db.patch(document._id, {
       content: args.content,
+      updatedAt: getNow(),
+      updatedBy: args.currentUserId,
+    })
+  },
+})
+
+export const updateDocument = mutation({
+  args: {
+    currentUserId: v.string(),
+    documentId: v.string(),
+    title: v.optional(v.string()),
+    content: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (args.title === undefined && args.content === undefined) {
+      return
+    }
+
+    const document = await getDocumentDoc(ctx, args.documentId)
+
+    if (!document) {
+      return
+    }
+
+    await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+
+    await ctx.db.patch(document._id, {
+      ...(args.title !== undefined ? { title: args.title } : {}),
+      ...(args.content !== undefined ? { content: args.content } : {}),
       updatedAt: getNow(),
       updatedBy: args.currentUserId,
     })
@@ -2646,14 +2913,7 @@ export const ensureTeamChat = mutation({
       throw new Error("Chat is disabled for this team")
     }
 
-    const existing = (
-      await ctx.db
-        .query("conversations")
-        .withIndex("by_kind_scope", (q) =>
-          q.eq("kind", "chat").eq("scopeType", "team").eq("scopeId", args.teamId)
-        )
-        .collect()
-    ).find((conversation) => conversation.variant === "team")
+    const existing = await findTeamChatConversation(ctx, args.teamId)
 
     if (existing) {
       return {
@@ -2662,23 +2922,13 @@ export const ensureTeamChat = mutation({
     }
 
     await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-    const participantIds = await getTeamMemberIds(ctx, args.teamId)
-    const now = getNow()
-    const conversationId = createId("conversation")
-
-    await ctx.db.insert("conversations", {
-      id: conversationId,
-      kind: "chat",
-      scopeType: "team",
-      scopeId: args.teamId,
-      variant: "team",
-      title: args.title.trim() || `${team.name} chat`,
-      description: args.description.trim() || team.settings.summary,
-      participantIds,
-      createdBy: args.currentUserId,
-      createdAt: now,
-      updatedAt: now,
-      lastActivityAt: now,
+    const conversationId = await ensureTeamChatConversation(ctx, {
+      teamId: args.teamId,
+      currentUserId: args.currentUserId,
+      teamName: team.name,
+      teamSummary: team.settings.summary,
+      title: args.title,
+      description: args.description,
     })
 
     return {
@@ -2695,7 +2945,7 @@ export const createChannel = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
     const team = await getTeamDoc(ctx, args.teamId)
 
     if (!team) {
@@ -2708,23 +2958,22 @@ export const createChannel = mutation({
       throw new Error("Channels are disabled for this team")
     }
 
-    const participantIds = await getTeamMemberIds(ctx, args.teamId)
-    const now = getNow()
-    const conversationId = createId("conversation")
+    const existing = await findPrimaryTeamChannelConversation(ctx, args.teamId)
 
-    await ctx.db.insert("conversations", {
-      id: conversationId,
-      kind: "channel",
-      scopeType: "team",
-      scopeId: args.teamId,
-      variant: "team",
-      title: args.title.trim(),
-      description: args.description.trim(),
-      participantIds,
-      createdBy: args.currentUserId,
-      createdAt: now,
-      updatedAt: now,
-      lastActivityAt: now,
+    if (existing) {
+      return {
+        conversationId: existing.id,
+      }
+    }
+
+    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    const conversationId = await ensureTeamChannelConversation(ctx, {
+      teamId: args.teamId,
+      currentUserId: args.currentUserId,
+      teamName: team.name,
+      teamSummary: team.settings.summary,
+      title: args.title,
+      description: args.description,
     })
 
     return {

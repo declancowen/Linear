@@ -147,6 +147,10 @@ export function getConversationParticipants(
     return []
   }
 
+  if (conversation.scopeType === "team") {
+    return getTeamMembers(data, conversation.scopeId)
+  }
+
   return conversation.participantIds
     .map((userId) => getUser(data, userId))
     .filter((user): user is UserProfile => Boolean(user))
@@ -319,6 +323,52 @@ export function getTeamChannels(data: AppData, teamId: string) {
         conversation.scopeId === teamId
     )
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+}
+
+export function getPrimaryTeamChannel(data: AppData, teamId: string) {
+  return getTeamChannels(data, teamId)[0] ?? null
+}
+
+export function getTeamSurfaceDisableReason(
+  data: AppData,
+  teamId: string,
+  feature: "docs" | "chat" | "channels"
+) {
+  if (feature === "docs") {
+    return getTeamDocuments(data, teamId).length > 0
+      ? "Docs cannot be turned off while this team still has documents."
+      : null
+  }
+
+  if (feature === "chat") {
+    const conversation = getTeamChatConversation(data, teamId)
+
+    if (!conversation) {
+      return null
+    }
+
+    return getChatMessages(data, conversation.id).length > 0
+      ? "Chat cannot be turned off while the team chat has messages."
+      : null
+  }
+
+  const channelIds = new Set(getTeamChannels(data, teamId).map((channel) => channel.id))
+
+  if (channelIds.size === 0) {
+    return null
+  }
+
+  return data.channelPosts.some((post) => channelIds.has(post.conversationId))
+    ? "Channels cannot be turned off while channel posts exist."
+    : null
+}
+
+export function getTeamSurfaceDisableReasons(data: AppData, teamId: string) {
+  return {
+    docs: getTeamSurfaceDisableReason(data, teamId, "docs"),
+    chat: getTeamSurfaceDisableReason(data, teamId, "chat"),
+    channels: getTeamSurfaceDisableReason(data, teamId, "channels"),
+  }
 }
 
 export function getChatMessages(data: AppData, conversationId: string) {

@@ -1,6 +1,11 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+
+@source "./";
+@source "../components";
+@source "../lib";
+@source "../hooks";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -121,11 +126,53 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
     @apply bg-background text-foreground;
-    }
+  }
   html {
     @apply font-sans;
-    }
+  }
+
+  [data-slot="field-legend"][data-variant="legend"]
+    + [data-slot="field-description"] {
+    margin-top: -0.375rem;
+  }
+
+  [data-slot="chart"] .recharts-cartesian-axis-tick text {
+    fill: var(--muted-foreground);
+  }
+
+  [data-slot="chart"] .recharts-cartesian-grid line[stroke="#ccc"] {
+    stroke: var(--border);
+    stroke-opacity: 0.5;
+  }
+
+  [data-slot="chart"] .recharts-curve.recharts-tooltip-cursor {
+    stroke: var(--border);
+  }
+
+  [data-slot="chart"] .recharts-dot[stroke="#fff"] {
+    stroke: transparent;
+  }
+
+  [data-slot="chart"] .recharts-layer,
+  [data-slot="chart"] .recharts-sector,
+  [data-slot="chart"] .recharts-surface {
+    outline: none;
+  }
+
+  [data-slot="chart"] .recharts-polar-grid [stroke="#ccc"],
+  [data-slot="chart"] .recharts-reference-line [stroke="#ccc"] {
+    stroke: var(--border);
+  }
+
+  [data-slot="chart"] .recharts-radial-bar-background-sector,
+  [data-slot="chart"] .recharts-rectangle.recharts-tooltip-cursor {
+    fill: var(--muted);
+  }
+
+  [data-slot="chart"] .recharts-sector[stroke="#fff"] {
+    stroke: transparent;
+  }
 }

@@ -829,14 +829,14 @@ export const workspaceChatSchema = z.object({
 
 export const teamChatSchema = z.object({
   teamId: z.string().min(1),
-  title: z.string().trim().min(2).max(80),
+  title: z.string().trim().max(80).default(""),
   description: z.string().trim().max(180).default(""),
 })
 
 export const channelSchema = z.object({
   teamId: z.string().min(1),
-  title: z.string().trim().min(2).max(80),
-  description: z.string().trim().min(2).max(180),
+  title: z.string().trim().max(80).default(""),
+  description: z.string().trim().max(180).default(""),
 })
 
 export const chatMessageSchema = z.object({

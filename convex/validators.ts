@@ -325,7 +325,7 @@ export const workItemFields = {
 export const documentFields = {
   id: v.string(),
   kind: documentKindValidator,
-  workspaceId: v.string(),
+  workspaceId: v.optional(v.string()),
   teamId: nullableString,
   title: v.string(),
   content: v.string(),

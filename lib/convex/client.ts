@@ -250,14 +250,24 @@ export function syncUpdateDocumentContent(
   documentId: string,
   content: string
 ) {
+  return syncUpdateDocument(documentId, {
+    content,
+  })
+}
+
+export function syncUpdateDocument(
+  documentId: string,
+  patch: {
+    title?: string
+    content?: string
+  }
+) {
   return runRouteMutation(`/api/documents/${documentId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      content,
-    }),
+    body: JSON.stringify(patch),
   })
 }
 
@@ -266,14 +276,8 @@ export function syncRenameDocument(
   documentId: string,
   title: string
 ) {
-  return runRouteMutation(`/api/documents/${documentId}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      title,
-    }),
+  return syncUpdateDocument(documentId, {
+    title,
   })
 }
 
