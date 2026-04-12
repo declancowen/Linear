@@ -1,18 +1,29 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
-import { ConvexAppProvider } from "@/components/providers/convex-app-provider"
-import { AppShell } from "@/components/app/shell"
+import { AuthenticatedWorkspaceClient } from "@/components/app/authenticated-workspace-client"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  buildAppDestination,
+  buildPortalAuthHref,
+  getAppModeFromHeaders,
+} from "@/lib/portal"
 
 export default async function WorkspaceLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const requestHeaders = await headers()
+
+  if (getAppModeFromHeaders(requestHeaders) === "portal") {
+    redirect(buildAppDestination("projects", "/inbox"))
+  }
+
   const auth = await withAuth()
   if (!auth.user) {
-    redirect("/login?next=%2Finbox")
+    redirect(buildPortalAuthHref("login", "projects", "/inbox"))
   }
 
   const { authenticatedUser, authContext } = await ensureAuthenticatedAppContext(
@@ -25,8 +36,8 @@ export default async function WorkspaceLayout({
   }
 
   return (
-    <ConvexAppProvider authenticatedUser={authenticatedUser}>
-      <AppShell>{children}</AppShell>
-    </ConvexAppProvider>
+    <AuthenticatedWorkspaceClient authenticatedUser={authenticatedUser}>
+      {children}
+    </AuthenticatedWorkspaceClient>
   )
 }

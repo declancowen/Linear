@@ -469,10 +469,12 @@ export function AppShell({ children }: AppShellProps) {
                       Edit profile
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/auth/logout">
-                        <SignIn />
-                        Sign out
-                      </Link>
+                      <form action="/auth/logout" method="post" className="w-full">
+                        <button type="submit" className="flex w-full items-center gap-2">
+                          <SignIn />
+                          Sign out
+                        </button>
+                      </form>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() => useAppStore.getState().resetDemo()}

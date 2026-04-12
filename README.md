@@ -36,10 +36,22 @@ Required environment variables:
 - `WORKOS_CLIENT_ID`
 - `WORKOS_API_KEY`
 - `WORKOS_COOKIE_PASSWORD`
+- `WORKOS_COOKIE_DOMAIN`
 - `NEXT_PUBLIC_WORKOS_REDIRECT_URI`
+- `APP_MODE`
 - `APP_URL`
+- `PORTAL_URL`
+- `PROJECTS_URL`
+- `TEAMS_URL`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
+
+WorkOS note:
+
+- `portal.reciperoom.io` should own the shared WorkOS sign-in endpoint, homepage, and callback route.
+- `projects.reciperoom.io` keeps the project UI, onboarding, invites, and workspace entry.
+- Use the same `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_COOKIE_DOMAIN=reciperoom.io` across portal and product deployments to share the session cookie across subdomains.
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` should point at the portal callback URL in production. For local work with a production AuthKit client, `127.0.0.1` is the safe loopback callback host.
 
 Useful commands:
 

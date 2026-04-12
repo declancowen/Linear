@@ -21,7 +21,8 @@ type AcceptInviteCardProps = {
   teamName: string
   workspaceName: string
   inviteEmail: string
-  nextPath: string
+  loginHref: string
+  signupHref: string
   role: string
   expired: boolean
   accepted: boolean
@@ -33,7 +34,8 @@ export function AcceptInviteCard({
   teamName,
   workspaceName,
   inviteEmail,
-  nextPath,
+  loginHref,
+  signupHref,
   role,
   expired,
   accepted,
@@ -102,14 +104,10 @@ export function AcceptInviteCard({
         ) : (
           <>
             <Button asChild variant="outline">
-              <Link href={`/login?next=${encodeURIComponent(nextPath)}`}>
-                Sign in
-              </Link>
+              <Link href={loginHref}>Sign in</Link>
             </Button>
             <Button asChild>
-              <Link href={`/signup?next=${encodeURIComponent(nextPath)}`}>
-                Create account
-              </Link>
+              <Link href={signupHref}>Create account</Link>
             </Button>
           </>
         )}

@@ -15,7 +15,12 @@ function getConvexServerClient() {
 }
 
 export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {
-  return getConvexServerClient().mutation(api.app.ensureUserFromAuth, user)
+  return getConvexServerClient().mutation(api.app.ensureUserFromAuth, {
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    workosUserId: user.workosUserId,
+  })
 }
 
 export async function getAuthContextServer(email: string) {

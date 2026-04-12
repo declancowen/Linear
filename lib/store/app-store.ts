@@ -2,7 +2,7 @@
 
 import { addDays, differenceInCalendarDays } from "date-fns"
 import { create } from "zustand"
-import { createJSONStorage, persist } from "zustand/middleware"
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware"
 import { toast } from "sonner"
 
 import {
@@ -193,6 +193,12 @@ export type AppStore = AppData & {
 
 function getNow() {
   return new Date().toISOString()
+}
+
+const noopStorage: StateStorage = {
+  getItem: () => null,
+  setItem: () => undefined,
+  removeItem: () => undefined,
 }
 
 function createId(prefix: string) {
@@ -1344,7 +1350,9 @@ export const useAppStore = create<AppStore>()(
     }),
     {
       name: "linear-multi-work-store",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() =>
+        typeof window === "undefined" ? noopStorage : localStorage
+      ),
       version: 3,
       partialize: (state) => ({
         ui: state.ui,

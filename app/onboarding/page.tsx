@@ -5,6 +5,7 @@ import {
   LockSimple,
   MagnifyingGlass,
 } from "@phosphor-icons/react/dist/ssr"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { AcceptInviteCard } from "@/components/app/accept-invite-card"
@@ -20,6 +21,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  buildAppDestination,
+  buildPortalAuthHref,
+  getAppModeFromHeaders,
+} from "@/lib/portal"
 import {
   getInviteByTokenServer,
   lookupTeamByJoinCodeServer,
@@ -50,6 +56,14 @@ export default async function OnboardingPage({
   }
 
   const nextPath = `/onboarding${nextParams.size > 0 ? `?${nextParams.toString()}` : ""}`
+  const requestHeaders = await headers()
+
+  if (getAppModeFromHeaders(requestHeaders) === "portal") {
+    redirect(buildAppDestination("projects", nextPath))
+  }
+
+  const loginHref = buildPortalAuthHref("login", "projects", nextPath)
+  const signupHref = buildPortalAuthHref("signup", "projects", nextPath)
   const inviteData = inviteToken
     ? await getInviteByTokenServer(inviteToken)
     : null
@@ -125,7 +139,8 @@ export default async function OnboardingPage({
                 <OnboardingJoinCard
                   authenticated={Boolean(auth.user)}
                   joinCode={joinResult.team.joinCode}
-                  nextPath={nextPath}
+                  loginHref={loginHref}
+                  signupHref={signupHref}
                   teamName={joinResult.team.name}
                   teamSummary={joinResult.team.summary}
                   workspaceLogo={joinResult.workspace.logoUrl}
@@ -144,7 +159,8 @@ export default async function OnboardingPage({
               teamName={inviteData.team.name}
               workspaceName={inviteData.workspace.name}
               inviteEmail={inviteData.invite.email}
-              nextPath={nextPath}
+              loginHref={loginHref}
+              signupHref={signupHref}
               role={inviteData.invite.role}
               expired={false}
               accepted={Boolean(inviteData.invite.acceptedAt)}
@@ -173,9 +189,11 @@ export default async function OnboardingPage({
                       Team invites keep access team-scoped. Direct sign-up without an
                       invite still works, but you must join through a team code first.
                     </p>
-                    <Button asChild variant="outline" className="w-full">
-                      <a href="/auth/logout">Use a different account</a>
-                    </Button>
+                    <form action="/auth/logout" method="post">
+                      <Button type="submit" variant="outline" className="w-full">
+                        Use a different account
+                      </Button>
+                    </form>
                   </>
                 ) : (
                   <>
@@ -186,14 +204,10 @@ export default async function OnboardingPage({
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Button asChild className="w-full">
-                        <a href={`/signup?next=${encodeURIComponent(nextPath)}`}>
-                          Create account
-                        </a>
+                        <a href={signupHref}>Create account</a>
                       </Button>
                       <Button asChild variant="outline" className="w-full">
-                        <a href={`/login?next=${encodeURIComponent(nextPath)}`}>
-                          Sign in
-                        </a>
+                        <a href={loginHref}>Sign in</a>
                       </Button>
                     </div>
                   </>

@@ -22,7 +22,8 @@ type OnboardingJoinCardProps = {
   teamName: string
   teamSummary: string
   joinCode: string
-  nextPath: string
+  loginHref: string
+  signupHref: string
 }
 
 export function OnboardingJoinCard({
@@ -32,7 +33,8 @@ export function OnboardingJoinCard({
   teamName,
   teamSummary,
   joinCode,
-  nextPath,
+  loginHref,
+  signupHref,
 }: OnboardingJoinCardProps) {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
@@ -102,14 +104,10 @@ export function OnboardingJoinCard({
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             <Button asChild variant="outline">
-              <Link href={`/login?next=${encodeURIComponent(nextPath)}`}>
-                Sign in
-              </Link>
+              <Link href={loginHref}>Sign in</Link>
             </Button>
             <Button asChild>
-              <Link href={`/signup?next=${encodeURIComponent(nextPath)}`}>
-                Create account
-              </Link>
+              <Link href={signupHref}>Create account</Link>
             </Button>
           </div>
         )}

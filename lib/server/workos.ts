@@ -2,7 +2,7 @@ import { createWorkOS, type Organization } from "@workos-inc/node"
 
 import { splitName } from "@/lib/workos/auth"
 
-function getWorkOSClient() {
+export function getWorkOSClient() {
   const apiKey = process.env.WORKOS_API_KEY
   const clientId = process.env.WORKOS_CLIENT_ID
 
