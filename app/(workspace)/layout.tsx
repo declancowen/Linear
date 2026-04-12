@@ -8,6 +8,7 @@ import {
   buildAppDestination,
   buildPortalAuthHref,
   getAppModeFromHeaders,
+  isSingleHostLocalDev,
 } from "@/lib/portal"
 
 export default async function WorkspaceLayout({
@@ -17,7 +18,10 @@ export default async function WorkspaceLayout({
 }>) {
   const requestHeaders = await headers()
 
-  if (getAppModeFromHeaders(requestHeaders) === "portal") {
+  if (
+    !isSingleHostLocalDev() &&
+    getAppModeFromHeaders(requestHeaders) === "portal"
+  ) {
     redirect(buildAppDestination("projects", "/inbox"))
   }
 

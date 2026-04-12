@@ -7,6 +7,7 @@ import {
   buildPortalAuthHref,
   buildPortalPostAuthPath,
   getAppModeFromHeaders,
+  isSingleHostLocalDev,
   normalizePortalAuthNextPath,
   parsePortalAppId,
 } from "@/lib/portal"
@@ -30,7 +31,7 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
   const selectedAppId = parsePortalAppId(params.app)
   const nextPath = normalizePortalAuthNextPath(params.next, selectedAppId)
 
-  if (appMode !== "portal") {
+  if (!isSingleHostLocalDev() && appMode !== "portal") {
     redirect(buildPortalAuthHref("signup", "projects", nextPath))
   }
 

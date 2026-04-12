@@ -6,10 +6,11 @@ import { useEffect, useState } from "react"
 import {
   ArrowsClockwise,
   Bell,
-  Buildings,
-  ChartLineUp,
+  CaretDown,
+  CaretRight,
   CheckCircle,
   CodesandboxLogo,
+  DotsThree,
   Gear,
   IdentificationBadge,
   Kanban,
@@ -32,10 +33,6 @@ import type { Role } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -82,6 +79,9 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
@@ -91,54 +91,6 @@ import { Switch } from "@/components/ui/switch"
 
 const previewRoles: Role[] = ["admin", "member", "viewer", "guest"]
 const workspaceAccentOptions = ["emerald", "blue", "amber", "rose", "slate"] as const
-
-function routeTitle(pathname: string) {
-  if (pathname.startsWith("/inbox")) {
-    return "Inbox"
-  }
-
-  if (pathname.startsWith("/assigned")) {
-    return "Assigned to Me"
-  }
-
-  if (pathname.startsWith("/workspace/projects")) {
-    return "Projects"
-  }
-
-  if (pathname.startsWith("/workspace/views")) {
-    return "Views"
-  }
-
-  if (pathname.startsWith("/workspace/docs")) {
-    return "Documents"
-  }
-
-  if (pathname.startsWith("/workspace/search")) {
-    return "Search"
-  }
-
-  if (pathname.startsWith("/workspace/reports")) {
-    return "Reports"
-  }
-
-  if (pathname.includes("/work")) {
-    return "Work"
-  }
-
-  if (pathname.includes("/projects/")) {
-    return "Project"
-  }
-
-  if (pathname.includes("/docs/")) {
-    return "Document"
-  }
-
-  if (pathname.includes("/items/")) {
-    return "Work Item"
-  }
-
-  return "Workspace"
-}
 
 type AppShellProps = {
   children: React.ReactNode
@@ -163,11 +115,7 @@ export function AppShell({ children }: AppShellProps) {
   const [teamDetailsTeamId, setTeamDetailsTeamId] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [desktopShell, setDesktopShell] = useState(false)
-
-  useEffect(() => {
-    setDesktopShell(Boolean(window.electronApp))
-  }, [])
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(() => new Set(teams.map((t) => t.id)))
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -183,6 +131,18 @@ export function AppShell({ children }: AppShellProps) {
       window.removeEventListener("keydown", handleKeyDown)
     }
   }, [])
+
+  function toggleTeam(teamId: string) {
+    setExpandedTeams((current) => {
+      const next = new Set(current)
+      if (next.has(teamId)) {
+        next.delete(teamId)
+      } else {
+        next.add(teamId)
+      }
+      return next
+    })
+  }
 
   return (
     <SidebarProvider>
@@ -227,15 +187,11 @@ export function AppShell({ children }: AppShellProps) {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton size="lg">
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                    <div className="flex size-6 items-center justify-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground">
                       {workspace?.logoUrl}
                     </div>
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">{workspace?.name}</span>
-                      <span className="truncate text-xs text-sidebar-foreground/70">
-                        Multi-work workspace
-                      </span>
-                    </div>
+                    <span className="truncate text-sm font-semibold">{workspace?.name}</span>
+                    <CaretDown className="ml-auto size-3.5 text-sidebar-foreground/50" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
@@ -259,15 +215,22 @@ export function AppShell({ children }: AppShellProps) {
                       <SignIn />
                       Join a team with code
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={!useAppStore.getState().currentWorkspaceId}>
-                      <Buildings />
-                      Team-derived membership only
-                    </DropdownMenuItem>
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             </SidebarMenuItem>
           </SidebarMenu>
+          <div className="flex items-center gap-1 px-2">
+            <SidebarTrigger className="size-7 text-sidebar-foreground/70 hover:text-sidebar-foreground" />
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="size-7 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              onClick={() => setSearchOpen(true)}
+            >
+              <MagnifyingGlass className="size-4" />
+            </Button>
+          </div>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -283,7 +246,7 @@ export function AppShell({ children }: AppShellProps) {
                 <SidebarLink
                   href="/assigned"
                   icon={<CheckCircle />}
-                  label="Assigned to Me"
+                  label="My issues"
                   active={pathname.startsWith("/assigned")}
                 />
               </SidebarMenu>
@@ -312,18 +275,30 @@ export function AppShell({ children }: AppShellProps) {
                   label="Docs"
                   active={pathname.startsWith("/workspace/docs")}
                 />
-                <SidebarLink
-                  href="/workspace/search"
-                  icon={<MagnifyingGlass />}
-                  label="Search"
-                  active={pathname.startsWith("/workspace/search")}
-                />
-                <SidebarLink
-                  href="/workspace/reports"
-                  icon={<ChartLineUp />}
-                  label="Reports"
-                  active={pathname.startsWith("/workspace/reports")}
-                />
+                <SidebarMenuItem>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <SidebarMenuButton>
+                        <DotsThree />
+                        <span>More</span>
+                      </SidebarMenuButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-48">
+                      <DropdownMenuItem asChild>
+                        <Link href="/workspace/search">
+                          <MagnifyingGlass />
+                          Search
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href="/workspace/reports">
+                          <Kanban />
+                          Reports
+                        </Link>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -334,94 +309,106 @@ export function AppShell({ children }: AppShellProps) {
               <Button
                 size="icon-xs"
                 variant="ghost"
+                className="size-6"
                 onClick={() => {
                   setInviteMode("workspace")
                   setInvitePresetTeamIds([])
                   setInviteOpen(true)
                 }}
               >
-                <Plus />
+                <Plus className="size-3.5" />
                 <span className="sr-only">Invite people</span>
               </Button>
             </div>
             <SidebarGroupContent>
-              <div className="flex flex-col gap-3">
-                {teams.map((team) => (
-                  <Card key={team.id} className="shadow-none">
-                    <CardContent className="flex flex-col gap-2 px-3 py-3">
-                      <div className="flex items-center justify-between">
-                        {(() => {
-                          const teamRole = getTeamRole(data, team.id)
-                          const canInvite = teamRole === "admin" || teamRole === "member"
-                          const canManage = teamRole === "admin"
+              <SidebarMenu>
+                {teams.map((team) => {
+                  const isExpanded = expandedTeams.has(team.id)
+                  const teamRole = getTeamRole(data, team.id)
+                  const canInvite = teamRole === "admin" || teamRole === "member"
+                  const canManage = teamRole === "admin"
 
-                          return (
-                            <>
-                              <Link
-                                className="truncate text-sm font-medium"
-                                href={`/team/${team.slug}/work`}
-                              >
-                                {team.name}
+                  return (
+                    <SidebarMenuItem key={team.id}>
+                      <SidebarMenuButton
+                        className="font-medium"
+                        onClick={() => toggleTeam(team.id)}
+                      >
+                        {isExpanded ? (
+                          <CaretDown className="size-3 text-sidebar-foreground/50" />
+                        ) : (
+                          <CaretRight className="size-3 text-sidebar-foreground/50" />
+                        )}
+                        <span>{team.name}</span>
+                      </SidebarMenuButton>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="absolute right-1 top-1.5 rounded-md p-1 text-sidebar-foreground/50 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover/menu-item:opacity-100">
+                            <CaretDown className="size-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-48">
+                          {canInvite ? (
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setInviteMode("team")
+                                setInvitePresetTeamIds([team.id])
+                                setInviteOpen(true)
+                              }}
+                            >
+                              <Plus />
+                              Invite to {team.name}
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canManage ? (
+                            <DropdownMenuItem onSelect={() => setTeamDetailsTeamId(team.id)}>
+                              <Gear />
+                              Team settings
+                            </DropdownMenuItem>
+                          ) : null}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      {isExpanded ? (
+                        <SidebarMenuSub>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={pathname.startsWith(`/team/${team.slug}/work`)}
+                            >
+                              <Link href={`/team/${team.slug}/work`}>
+                                <CodesandboxLogo className="size-4" />
+                                <span>Issues</span>
                               </Link>
-                              <div className="flex items-center gap-1">
-                                <SidebarMenuBadge>{teamRole}</SidebarMenuBadge>
-                                <Button
-                                  size="icon-xs"
-                                  variant="ghost"
-                                  disabled={!canInvite}
-                                  onClick={() => {
-                                    setInviteMode("team")
-                                    setInvitePresetTeamIds([team.id])
-                                    setInviteOpen(true)
-                                  }}
-                                >
-                                  <Plus />
-                                  <span className="sr-only">Invite to {team.name}</span>
-                                </Button>
-                                <Button
-                                  size="icon-xs"
-                                  variant="ghost"
-                                  disabled={!canManage}
-                                  onClick={() => setTeamDetailsTeamId(team.id)}
-                                >
-                                  <Gear />
-                                  <span className="sr-only">Edit {team.name}</span>
-                                </Button>
-                              </div>
-                            </>
-                          )
-                        })()}
-                      </div>
-                      <SidebarMenu>
-                        <SidebarLink
-                          href={`/team/${team.slug}/work`}
-                          icon={<CodesandboxLogo />}
-                          label="Work"
-                          active={pathname.startsWith(`/team/${team.slug}/work`)}
-                        />
-                        <SidebarLink
-                          href={`/team/${team.slug}/projects`}
-                          icon={<Kanban />}
-                          label="Projects"
-                          active={pathname.startsWith(`/team/${team.slug}/projects`)}
-                        />
-                        <SidebarLink
-                          href={`/team/${team.slug}/views`}
-                          icon={<SquaresFour />}
-                          label="Views"
-                          active={pathname.startsWith(`/team/${team.slug}/views`)}
-                        />
-                        <SidebarLink
-                          href={`/team/${team.slug}/docs`}
-                          icon={<NotePencil />}
-                          label="Docs"
-                          active={pathname.startsWith(`/team/${team.slug}/docs`)}
-                        />
-                      </SidebarMenu>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
+                            >
+                              <Link href={`/team/${team.slug}/projects`}>
+                                <Kanban className="size-4" />
+                                <span>Projects</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={pathname.startsWith(`/team/${team.slug}/views`)}
+                            >
+                              <Link href={`/team/${team.slug}/views`}>
+                                <SquaresFour className="size-4" />
+                                <span>Views</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        </SidebarMenuSub>
+                      ) : null}
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
           <SidebarSeparator />
@@ -449,20 +436,15 @@ export function AppShell({ children }: AppShellProps) {
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton size="lg">
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+                  <SidebarMenuButton>
+                    <div className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                       {currentUser.avatarUrl}
                     </div>
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">{currentUser.name}</span>
-                      <span className="truncate text-xs text-sidebar-foreground/70">
-                        {currentUser.title}
-                      </span>
-                    </div>
+                    <span className="truncate text-sm">{currentUser.name}</span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-72">
-                  <DropdownMenuLabel>Profile and preview</DropdownMenuLabel>
+                <DropdownMenuContent align="start" className="w-64">
+                  <DropdownMenuLabel>Account</DropdownMenuLabel>
                   <DropdownMenuGroup>
                     <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
                       <UserCircle />
@@ -510,51 +492,7 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur">
-          <div className="flex items-center justify-between gap-3 px-4 py-3 md:px-6">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger />
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">{routeTitle(pathname)}</span>
-                <span className="text-xs text-muted-foreground">
-                  {workspace?.name} · {getTeamRole(data, data.ui.activeTeamId) ?? "no access"}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setSearchOpen(true)}
-              >
-                <MagnifyingGlass />
-                Search
-                <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-                  Cmd+K
-                </span>
-              </Button>
-              {desktopShell ? (
-                <Button size="sm" variant="outline">
-                  <Buildings />
-                  Desktop shell
-                </Button>
-              ) : null}
-              {data.ui.rolePreview ? (
-                <Button size="sm" variant="secondary">
-                  <IdentificationBadge />
-                  Preview: {data.ui.rolePreview}
-                </Button>
-              ) : null}
-              <Button size="icon-sm" variant="ghost" asChild>
-                <Link href="/inbox">
-                  <Bell />
-                  <span className="sr-only">Inbox</span>
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </header>
-        <div className="flex flex-1 flex-col px-4 py-4 md:px-6 md:py-6">
+        <div className="flex flex-1 flex-col">
           {children}
         </div>
       </SidebarInset>
@@ -610,9 +548,7 @@ function WorkspaceDialog({
         <DialogHeader>
           <DialogTitle>Workspace details</DialogTitle>
           <DialogDescription>
-            Update the current workspace identity and meta details. Workspace
-            admins control these fields and the name stays synced to the linked
-            WorkOS organization.
+            Update the current workspace identity and meta details.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -624,7 +560,6 @@ function WorkspaceDialog({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
-              <FieldDescription>Shown across the sidebar and headers.</FieldDescription>
             </FieldContent>
           </Field>
           <Field>
@@ -635,9 +570,6 @@ function WorkspaceDialog({
                 value={logoUrl}
                 onChange={(event) => setLogoUrl(event.target.value)}
               />
-              <FieldDescription>
-                Keep this short so it renders cleanly in the sidebar badge.
-              </FieldDescription>
             </FieldContent>
           </Field>
           <Field>
@@ -657,9 +589,6 @@ function WorkspaceDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldDescription>
-                Used for workspace-level styling and future theming hooks.
-              </FieldDescription>
             </FieldContent>
           </Field>
           <Field>
@@ -670,9 +599,6 @@ function WorkspaceDialog({
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
-              <FieldDescription>
-                Short workspace summary used in onboarding and settings.
-              </FieldDescription>
             </FieldContent>
           </Field>
         </FieldGroup>
@@ -725,8 +651,7 @@ function TeamDetailsDialog({
         <DialogHeader>
           <DialogTitle>Team details</DialogTitle>
           <DialogDescription>
-            Update the team identity, summary, and join code. Only team admins can
-            change these settings.
+            Update the team identity, summary, and join code.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -748,9 +673,6 @@ function TeamDetailsDialog({
                 value={icon}
                 onChange={(event) => setIcon(event.target.value)}
               />
-              <FieldDescription>
-                Internal token used for the team glyph across the app shell.
-              </FieldDescription>
             </FieldContent>
           </Field>
           <Field>
@@ -771,9 +693,6 @@ function TeamDetailsDialog({
                 value={joinCode}
                 onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
               />
-              <FieldDescription>
-                New members who join by code enter this code and are added as viewers.
-              </FieldDescription>
             </FieldContent>
           </Field>
         </FieldGroup>
@@ -843,8 +762,7 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite people</DialogTitle>
           <DialogDescription>
-            Users are always invited through one or more teams, never directly into
-            a workspace.
+            Invite users through one or more teams.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -852,11 +770,11 @@ function InviteDialog({
             <FieldLabel>{lockedToTeam ? "Team" : "Teams"}</FieldLabel>
             <FieldContent>
               {lockedToTeam ? (
-                <div className="rounded-xl border px-3 py-2 text-sm">
+                <div className="rounded-lg border px-3 py-2 text-sm">
                   {teams.find((team) => team.id === presetTeamIds[0])?.name ?? "Selected team"}
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2 rounded-xl border p-3">
+                <div className="flex flex-wrap gap-2 rounded-lg border p-3">
                   {inviteableTeams.map((team) => {
                     const selected = teamIds.includes(team.id)
 
@@ -880,11 +798,6 @@ function InviteDialog({
                   })}
                 </div>
               )}
-              <FieldDescription>
-                {lockedToTeam
-                  ? "This invite is scoped to the current team."
-                  : "When inviting from the workspace, select one or more teams to attach access."}
-              </FieldDescription>
             </FieldContent>
           </Field>
           <Field>
@@ -977,7 +890,7 @@ function JoinTeamDialog({
         <DialogHeader>
           <DialogTitle>Join a team</DialogTitle>
           <DialogDescription>
-            A team join code adds the current user as a viewer for that team.
+            Enter a team join code to be added as a viewer.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -989,9 +902,6 @@ function JoinTeamDialog({
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
               />
-              <FieldDescription>
-                Enter a valid team join code to be added to that team as a viewer.
-              </FieldDescription>
             </FieldContent>
           </Field>
         </FieldGroup>
@@ -1040,9 +950,6 @@ function ProfileDialog({
       <DialogContent key={`${currentUser.id}-${open}`}>
         <DialogHeader>
           <DialogTitle>Profile settings</DialogTitle>
-          <DialogDescription>
-            Update the current profile details used across the app shell and comments.
-          </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -1078,9 +985,9 @@ function ProfileDialog({
           <Field>
             <FieldLabel>Email mentions</FieldLabel>
             <FieldContent>
-              <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <FieldDescription>
-                  Send an email when someone mentions you in a comment.
+                  Send an email when someone mentions you.
                 </FieldDescription>
                 <Switch checked={emailMentions} onCheckedChange={setEmailMentions} />
               </div>
@@ -1089,7 +996,7 @@ function ProfileDialog({
           <Field>
             <FieldLabel>Email assignments</FieldLabel>
             <FieldContent>
-              <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <FieldDescription>
                   Send an email when work is assigned to you.
                 </FieldDescription>
@@ -1103,7 +1010,7 @@ function ProfileDialog({
           <Field>
             <FieldLabel>Email digest</FieldLabel>
             <FieldContent>
-              <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <FieldDescription>
                   Include unread notifications in a digest email.
                 </FieldDescription>

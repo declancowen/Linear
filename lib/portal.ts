@@ -97,6 +97,28 @@ export function getAppModeFromHeaders(headers: HeadersLike) {
   )
 }
 
+export function isSingleHostLocalDev() {
+  const portalOrigin = getPortalOrigin()
+  const projectsOrigin = getProjectsOrigin()
+  const teamsOrigin = getTeamsOrigin()
+  const portalHost = getOriginHost(portalOrigin)
+  const projectsHost = getOriginHost(projectsOrigin)
+  const teamsHost = getOriginHost(teamsOrigin)
+
+  if (!portalHost || !projectsHost || !teamsHost) {
+    return false
+  }
+
+  const isLocalHost =
+    portalHost === "localhost" || portalHost === "127.0.0.1"
+
+  return (
+    isLocalHost &&
+    portalHost === projectsHost &&
+    portalHost === teamsHost
+  )
+}
+
 export const portalApps: Record<PortalAppId, PortalAppDefinition> = {
   teams: {
     id: "teams",

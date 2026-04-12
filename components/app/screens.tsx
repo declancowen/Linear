@@ -24,14 +24,19 @@ import {
 import {
   ArrowSquareOut,
   CalendarDots,
+  CaretDown,
   CaretRight,
   ChatsCircle,
+  Circle,
+  CheckCircle,
+  DotsThree,
   FadersHorizontal,
   GearSix,
   Kanban,
   Plus,
   Rows,
   SquaresFour,
+  XCircle,
 } from "@phosphor-icons/react"
 
 import {
@@ -86,8 +91,6 @@ import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -162,6 +165,10 @@ const orderingOptions: OrderingField[] = [
   "title",
 ]
 
+/* ------------------------------------------------------------------ */
+/*  Screen components                                                  */
+/* ------------------------------------------------------------------ */
+
 export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   const data = useAppStore()
   const team = getTeamBySlug(data, teamSlug)
@@ -174,8 +181,7 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
 
   return (
     <WorkSurface
-      title={`${team.name} work`}
-      description={team.settings.summary}
+      title="Issues"
       routeKey={`/team/${team.slug}/work`}
       views={views}
       items={getVisibleWorkItems(data, { teamId: team.id })}
@@ -191,8 +197,7 @@ export function AssignedScreen() {
 
   return (
     <WorkSurface
-      title="Assigned to Me"
-      description="Cross-team work assigned to the current user."
+      title="My issues"
       routeKey="/assigned"
       views={views}
       items={getVisibleWorkItems(data, { assignedToCurrentUser: true })}
@@ -213,78 +218,89 @@ export function InboxScreen() {
     notifications.find((notification) => notification.id === activeId) ?? null
 
   return (
-    <div className="grid min-h-[calc(100svh-10rem)] gap-4 lg:grid-cols-[26rem_minmax(0,1fr)]">
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Inbox</CardTitle>
-          <CardDescription>
-            Persistent notifications for mentions, assignments, comments, and invite activity.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[65svh]">
-            <div className="flex flex-col gap-1 p-3">
+    <div className="flex h-[calc(100svh-3rem)] flex-col">
+      <ScreenHeader title="Inbox" />
+      <div className="flex flex-1 min-h-0">
+        {/* Notification list */}
+        <div className="w-[22rem] shrink-0 border-r">
+          <div className="flex items-center justify-between border-b px-4 py-2">
+            <span className="text-sm font-medium">Inbox</span>
+            <div className="flex items-center gap-1">
+              <Button size="icon-xs" variant="ghost">
+                <FadersHorizontal className="size-3.5" />
+              </Button>
+              <Button size="icon-xs" variant="ghost">
+                <GearSix className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+          <ScrollArea className="h-full">
+            <div className="flex flex-col">
               {notifications.map((notification) => (
                 <button
                   key={notification.id}
                   className={cn(
-                    "rounded-xl border px-3 py-3 text-left transition-colors",
+                    "border-b px-4 py-3 text-left transition-colors",
                     notification.id === activeId
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted"
+                      ? "bg-accent"
+                      : "hover:bg-accent/50"
                   )}
                   onClick={() => {
                     useAppStore.getState().setActiveInboxNotification(notification.id)
                     useAppStore.getState().markNotificationRead(notification.id)
                   }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm font-medium">{notification.message}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className={cn(
+                        "text-sm truncate",
+                        !notification.readAt && "font-medium"
+                      )}>
+                        {notification.message}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {format(new Date(notification.createdAt), "MMM d, h:mm a")}
                       </span>
                     </div>
                     {notification.readAt ? null : (
-                      <Badge variant="secondary">Unread</Badge>
+                      <div className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
                     )}
                   </div>
                 </button>
               ))}
+              {notifications.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 text-sm text-muted-foreground">
+                  No notifications
+                </div>
+              )}
             </div>
           </ScrollArea>
-        </CardContent>
-      </Card>
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Notification detail</CardTitle>
-          <CardDescription>
-            Open linked work or documents directly from the inbox.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex min-h-[20rem] flex-col gap-4">
+        </div>
+        {/* Detail pane */}
+        <div className="flex-1 min-w-0">
           {activeNotification ? (
-            <>
-              <div className="flex items-center gap-2">
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-4">
                 <Badge variant="outline">{activeNotification.type}</Badge>
                 <Badge variant="secondary">{activeNotification.entityType}</Badge>
               </div>
-              <p className="max-w-2xl text-sm leading-7">{activeNotification.message}</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="max-w-2xl text-sm leading-7 mb-4">{activeNotification.message}</p>
+              <div className="flex flex-wrap gap-2 mb-6">
                 {activeNotification.entityType === "workItem" ? (
-                  <Button asChild>
+                  <Button size="sm" asChild>
                     <Link href={`/items/${activeNotification.entityId}`}>
                       Open work item
                     </Link>
                   </Button>
                 ) : null}
                 {activeNotification.entityType === "document" ? (
-                  <Button asChild>
+                  <Button size="sm" asChild>
                     <Link href={`/docs/${activeNotification.entityId}`}>Open document</Link>
                   </Button>
                 ) : null}
                 {activeNotification.entityType === "invite" ? (
                   <Button
+                    size="sm"
                     variant="outline"
                     onClick={() =>
                       useAppStore.getState().joinTeamByCode(
@@ -298,29 +314,28 @@ export function InboxScreen() {
                 ) : null}
               </div>
               <Separator />
-              <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-2">
+              <div className="mt-4 flex gap-6 text-xs text-muted-foreground">
                 <span>
-                  Read status:{" "}
+                  Read:{" "}
                   {activeNotification.readAt
                     ? format(new Date(activeNotification.readAt), "MMM d, h:mm a")
                     : "Unread"}
                 </span>
                 <span>
-                  Email status:{" "}
+                  Email:{" "}
                   {activeNotification.emailedAt
                     ? format(new Date(activeNotification.emailedAt), "MMM d, h:mm a")
                     : "In-app only"}
                 </span>
               </div>
-            </>
+            </div>
           ) : (
-            <EmptyCard
-              title="No notifications"
-              description="Mention or assign the current user to populate the inbox."
-            />
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              No notifications
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
@@ -330,13 +345,12 @@ export function ProjectsScreen({
   scopeId,
   team,
   title,
-  description,
 }: {
   scopeType: ScopeType
   scopeId: string
   team?: Team | null
   title: string
-  description: string
+  description?: string
 }) {
   const data = useAppStore()
   const projects = getProjectsForScope(data, scopeType, scopeId)
@@ -346,40 +360,32 @@ export function ProjectsScreen({
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
-    <div className="flex flex-col gap-4">
-      <PageIntro
+    <div className="flex flex-col">
+      <ScreenHeader
         title={title}
-        description={description}
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            {team ? (
+        actions={
+          <div className="flex items-center gap-2">
+            {team && admin ? (
               <Button
-                variant="outline"
-                disabled={!admin}
+                size="sm"
+                variant="ghost"
                 onClick={() => setSettingsOpen(true)}
               >
-                <GearSix />
-                Workflow settings
+                <GearSix className="size-3.5" />
               </Button>
             ) : null}
-            <Button onClick={() => setDialogOpen(true)}>
-              <Plus />
-              New project
+            <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
+              <Plus className="size-3.5" />
             </Button>
           </div>
         }
       />
-      {team ? (
-        <>
-          <TeamWorkflowOverviewCard team={team} />
-          {settingsOpen ? (
-            <TeamWorkflowSettingsDialog
-              open={settingsOpen}
-              onOpenChange={setSettingsOpen}
-              teamId={team.id}
-            />
-          ) : null}
-        </>
+      {team && settingsOpen ? (
+        <TeamWorkflowSettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          teamId={team.id}
+        />
       ) : null}
       {dialogOpen ? (
         <CreateProjectDialog
@@ -391,116 +397,55 @@ export function ProjectsScreen({
           disabled={!editable}
         />
       ) : null}
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Project inventory</CardTitle>
-          <CardDescription>
-            Templates, health, owners, target dates, and aggregate progress.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Template</TableHead>
-                <TableHead>Health</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Lead</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {projects.map((project) => {
-                const progress = getProjectProgress(data, project.id)
-                return (
-                  <TableRow key={project.id}>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <Link
-                          className="font-medium hover:underline"
-                          href={`/projects/${project.id}`}
-                        >
-                          {project.name}
-                        </Link>
-                        <span className="text-xs text-muted-foreground">
-                          {project.summary}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{templateMeta[project.templateType].label}</TableCell>
-                    <TableCell>{projectHealthMeta[project.health].label}</TableCell>
-                    <TableCell>{priorityMeta[project.priority].label}</TableCell>
-                    <TableCell>{getUser(data, project.leadId)?.name ?? "Unknown"}</TableCell>
-                    <TableCell>
-                      {project.targetDate
-                        ? format(new Date(project.targetDate), "MMM d")
-                        : "TBD"}
-                    </TableCell>
-                    <TableCell>{progress.percent}%</TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <div className="px-6">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Health</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Priority</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Lead</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Target date</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {projects.map((project) => {
+              const progress = getProjectProgress(data, project.id)
+              return (
+                <TableRow key={project.id}>
+                  <TableCell>
+                    <Link
+                      className="text-sm font-medium hover:underline"
+                      href={`/projects/${project.id}`}
+                    >
+                      {project.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {projectHealthMeta[project.health].label}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {priorityMeta[project.priority].label}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {getUser(data, project.leadId)?.name ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {project.targetDate
+                      ? format(new Date(project.targetDate), "MMM d")
+                      : "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {progress.percent}%
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
     </div>
-  )
-}
-
-function TeamWorkflowOverviewCard({ team }: { team: Team }) {
-  const softwareDefaults = getTemplateDefaultsForTeam(team, "software-delivery")
-  const qaDefaults = getTemplateDefaultsForTeam(team, "bug-tracking")
-  const opsDefaults = getTemplateDefaultsForTeam(team, "project-management")
-
-  return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle>Workflow and template defaults</CardTitle>
-        <CardDescription>
-          Admin-configured lane ordering and project launch defaults for {team.name}.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 xl:grid-cols-[1.1fr_1.4fr]">
-        <div className="flex flex-col gap-3">
-          <div className="text-sm font-medium">Status lane order</div>
-          <div className="flex flex-wrap gap-2">
-            {getStatusOrderForTeam(team).map((status) => (
-              <Badge key={status} variant="secondary">
-                {statusMeta[status].label}
-              </Badge>
-            ))}
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {[
-            {
-              label: templateMeta["software-delivery"].label,
-              defaults: softwareDefaults,
-            },
-            {
-              label: templateMeta["bug-tracking"].label,
-              defaults: qaDefaults,
-            },
-            {
-              label: templateMeta["project-management"].label,
-              defaults: opsDefaults,
-            },
-          ].map(({ label, defaults }) => (
-            <div key={label} className="rounded-2xl border px-4 py-4">
-              <div className="mb-2 text-sm font-medium">{label}</div>
-              <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                <span>Priority: {priorityMeta[defaults.defaultPriority].label}</span>
-                <span>Window: {defaults.targetWindowDays} days</span>
-                <span>View: {defaults.defaultViewLayout}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
@@ -508,12 +453,11 @@ export function ViewsScreen({
   scopeType,
   scopeId,
   title,
-  description,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
   title: string
-  description: string
+  description?: string
 }) {
   const data = useAppStore()
   const views = data.views.filter(
@@ -521,52 +465,43 @@ export function ViewsScreen({
   )
 
   return (
-    <div className="flex flex-col gap-4">
-      <PageIntro title={title} description={description} />
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Saved views</CardTitle>
-          <CardDescription>
-            Shared team and workspace views with interactive layout preferences.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Layout</TableHead>
-                <TableHead>Grouping</TableHead>
-                <TableHead>Owner scope</TableHead>
+    <div className="flex flex-col">
+      <ScreenHeader title={title} />
+      <div className="px-6">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Created</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Updated</TableHead>
+              <TableHead className="text-xs font-normal text-muted-foreground">Owner</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {views.map((view) => (
+              <TableRow key={view.id}>
+                <TableCell>
+                  <div className="flex flex-col gap-0.5">
+                    <Link className="text-sm font-medium hover:underline" href={view.route}>
+                      {view.name}
+                    </Link>
+                    <span className="text-xs text-muted-foreground">
+                      {view.description}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">{view.layout}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {view.grouping}{view.subGrouping ? ` / ${view.subGrouping}` : ""}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {view.isShared ? scopeType : "personal"}
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {views.map((view) => (
-                <TableRow key={view.id}>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <Link className="font-medium hover:underline" href={view.route}>
-                        {view.name}
-                      </Link>
-                      <span className="text-xs text-muted-foreground">
-                        {view.description}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{view.entityKind}</TableCell>
-                  <TableCell>{view.layout}</TableCell>
-                  <TableCell>
-                    {view.grouping}
-                    {view.subGrouping ? ` → ${view.subGrouping}` : ""}
-                  </TableCell>
-                  <TableCell>{view.isShared ? scopeType : "personal"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }
@@ -576,27 +511,24 @@ export function DocsScreen({
   scopeId,
   team,
   title,
-  description,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
   team?: Team | null
   title: string
-  description: string
+  description?: string
 }) {
   const data = useAppStore()
   const documents = getDocumentsForScope(data, scopeType, scopeId)
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
-    <div className="flex flex-col gap-4">
-      <PageIntro
+    <div className="flex flex-col">
+      <ScreenHeader
         title={title}
-        description={description}
-        action={
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus />
-            New document
+        actions={
+          <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
+            <Plus className="size-3.5" />
           </Button>
         }
       />
@@ -606,32 +538,25 @@ export function DocsScreen({
         teamId={team?.id ?? data.ui.activeTeamId}
         disabled={team ? !canEditTeam(data, team.id) : false}
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {documents.map((document) => (
-          <Card key={document.id} className="shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">
-                <Link href={`/docs/${document.id}`}>{document.title}</Link>
-              </CardTitle>
-              <CardDescription>
-                {getTeam(data, document.teamId)?.name} · updated{" "}
-                {format(new Date(document.updatedAt), "MMM d")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Linked projects {document.linkedProjectIds.length} · linked items{" "}
-              {document.linkedWorkItemIds.length}
-            </CardContent>
-            <CardFooter>
-              <Button asChild variant="outline">
-                <Link href={`/docs/${document.id}`}>
-                  Open document
-                  <ArrowSquareOut />
-                </Link>
-              </Button>
-            </CardFooter>
-          </Card>
-        ))}
+      <div className="px-6">
+        <div className="flex flex-col">
+          {documents.map((document) => (
+            <Link
+              key={document.id}
+              className="flex items-center justify-between border-b px-3 py-3 hover:bg-accent/50 transition-colors"
+              href={`/docs/${document.id}`}
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">{document.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {getTeam(data, document.teamId)?.name} · updated{" "}
+                  {format(new Date(document.updatedAt), "MMM d")}
+                </span>
+              </div>
+              <ArrowSquareOut className="size-3.5 text-muted-foreground" />
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -640,6 +565,7 @@ export function DocsScreen({
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const data = useAppStore()
   const item = data.workItems.find((entry) => entry.id === itemId)
+  const [propertiesOpen, setPropertiesOpen] = useState(true)
 
   if (!item) {
     return <MissingState title="Work item not found" />
@@ -654,185 +580,155 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }))
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      <div className="flex flex-col gap-4">
-        <Card className="shadow-none">
-          <CardHeader>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{item.key}</Badge>
-              <Badge variant="secondary">{workItemTypeMeta[item.type].label}</Badge>
-              <Badge variant="secondary">{statusMeta[item.status].label}</Badge>
-            </div>
-            <CardTitle className="text-3xl">{item.title}</CardTitle>
-            <CardDescription>
-              {getTeam(data, item.teamId)?.name} · created{" "}
-              {format(new Date(item.createdAt), "MMM d")}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Description</CardTitle>
-            <CardDescription>
-              Tiptap-backed editor for rich item descriptions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RichTextEditor
-              content={description?.content ?? "<p>Add a description…</p>"}
-              editable={editable}
-              onChange={(content) =>
-                useAppStore.getState().updateItemDescription(item.id, content)
-              }
-              onUploadAttachment={(file) =>
-                useAppStore.getState().uploadAttachment("workItem", item.id, file)
-              }
-            />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Linked references</CardTitle>
-            <CardDescription>
-              Primary project plus any linked projects and documents.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {item.primaryProjectId ? (
-              <Badge variant="secondary">
-                Primary: {getProject(data, item.primaryProjectId)?.name}
-              </Badge>
-            ) : (
-              <Badge variant="outline">No primary project</Badge>
-            )}
-            {getLinkedProjects(data, item).map((project) => (
-              <Badge key={project.id} variant="outline">
-                {project.name}
-              </Badge>
-            ))}
-            {getLinkedDocuments(data, item).map((document) => (
-              <Badge key={document.id} variant="outline">
-                {document.title}
-              </Badge>
-            ))}
-          </CardContent>
-        </Card>
-        <AttachmentsCard
-          editable={editable}
-          targetId={item.id}
-          targetType="workItem"
-        />
-        <CommentsCard
-          targetType="workItem"
-          targetId={item.id}
-          editable={editable}
-          title="Comments"
-        />
+    <div className="flex flex-col h-[calc(100svh-3rem)]">
+      {/* Breadcrumb header */}
+      <div className="flex items-center justify-between border-b px-6 py-2 shrink-0">
+        <div className="flex items-center gap-2 text-sm">
+          <Link href={`/team/${team?.slug}/work`} className="text-muted-foreground hover:text-foreground">
+            {team?.name}
+          </Link>
+          <CaretRight className="size-3 text-muted-foreground" />
+          <span>{item.key} {item.title}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => setPropertiesOpen(!propertiesOpen)}
+            className={cn(!propertiesOpen && "text-muted-foreground")}
+          >
+            <GearSix className="size-4" />
+          </Button>
+        </div>
       </div>
-      <div className="flex flex-col gap-4">
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Properties</CardTitle>
-            <CardDescription>
-              Inline editing is role-gated for viewers and guests.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <InlineSelect
-              label="Status"
-              value={item.status}
-              disabled={!editable}
-              options={statusOptions}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  status: value as WorkItem["status"],
-                })
-              }
-            />
-            <InlineSelect
-              label="Priority"
-              value={item.priority}
-              disabled={!editable}
-              options={Object.entries(priorityMeta).map(([value, meta]) => ({
-                value,
-                label: meta.label,
-              }))}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  priority: value as Priority,
-                })
-              }
-            />
-            <InlineSelect
-              label="Assignee"
-              value={item.assigneeId ?? "unassigned"}
-              disabled={!editable}
-              options={[
-                { value: "unassigned", label: "Unassigned" },
-                ...data.users.map((user) => ({ value: user.id, label: user.name })),
-              ]}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  assigneeId: value === "unassigned" ? null : value,
-                })
-              }
-            />
-            <InlineSelect
-              label="Primary project"
-              value={item.primaryProjectId ?? "none"}
-              disabled={!editable}
-              options={[
-                { value: "none", label: "No project" },
-                ...data.projects.map((project) => ({
-                  value: project.id,
-                  label: project.name,
-                })),
-              ]}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  primaryProjectId: value === "none" ? null : value,
-                })
-              }
-            />
-            <DateField
-              label="Start"
-              value={item.startDate}
-              disabled={!editable}
-              onChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  startDate: value ? new Date(value).toISOString() : null,
-                })
-              }
-            />
-            <DateField
-              label="Target"
-              value={item.targetDate}
-              disabled={!editable}
-              onChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  targetDate: value ? new Date(value).toISOString() : null,
-                })
-              }
-            />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Activity</CardTitle>
-            <CardDescription>Recent item events and watchers.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-            <span>Creator: {getUser(data, item.creatorId)?.name}</span>
-            <span>
-              Subscribers:{" "}
-              {item.subscriberIds
-                .map((userId) => getUser(data, userId)?.name)
-                .filter(Boolean)
-                .join(", ")}
-            </span>
-            <span>Updated {format(new Date(item.updatedAt), "MMM d, h:mm a")}</span>
-          </CardContent>
-        </Card>
+
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Main content — scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-8 py-8">
+            {/* Title */}
+            <h1 className="text-2xl font-semibold mb-1">{item.title}</h1>
+
+            {/* Description — seamless inline editor */}
+            <div className="mt-4">
+              <RichTextEditor
+                content={description?.content ?? "<p>Add a description…</p>"}
+                editable={editable}
+                placeholder="Add a description…"
+                onChange={(content) =>
+                  useAppStore.getState().updateItemDescription(item.id, content)
+                }
+                onUploadAttachment={(file) =>
+                  useAppStore.getState().uploadAttachment("workItem", item.id, file)
+                }
+              />
+            </div>
+
+            {/* Sub-issues */}
+            <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground py-2 mt-4">
+              <Plus className="size-3.5" />
+              Add sub-issues
+            </button>
+
+            <Separator className="my-6" />
+
+            {/* Activity */}
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Activity</h3>
+              </div>
+              <CommentsInline
+                targetType="workItem"
+                targetId={item.id}
+                editable={editable}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Collapsible right sidebar */}
+        {propertiesOpen && (
+          <div className="w-72 shrink-0 border-l overflow-y-auto">
+            <div className="flex flex-col p-4">
+              <CollapsibleSection title="Properties" defaultOpen>
+                <PropertySelect
+                  label="Status"
+                  value={item.status}
+                  disabled={!editable}
+                  options={statusOptions}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(item.id, {
+                      status: value as WorkItem["status"],
+                    })
+                  }
+                />
+                <PropertySelect
+                  label="Priority"
+                  value={item.priority}
+                  disabled={!editable}
+                  options={Object.entries(priorityMeta).map(([value, meta]) => ({
+                    value,
+                    label: meta.label,
+                  }))}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(item.id, {
+                      priority: value as Priority,
+                    })
+                  }
+                />
+                <PropertySelect
+                  label="Assignee"
+                  value={item.assigneeId ?? "unassigned"}
+                  disabled={!editable}
+                  options={[
+                    { value: "unassigned", label: "Assign" },
+                    ...data.users.map((user) => ({ value: user.id, label: user.name })),
+                  ]}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(item.id, {
+                      assigneeId: value === "unassigned" ? null : value,
+                    })
+                  }
+                />
+              </CollapsibleSection>
+
+              <Separator className="my-3" />
+
+              <CollapsibleSection title="Labels" defaultOpen>
+                <span className="text-sm text-muted-foreground">
+                  {item.labelIds.length > 0
+                    ? item.labelIds
+                        .map((id) => data.labels.find((l) => l.id === id)?.name)
+                        .filter(Boolean)
+                        .join(", ")
+                    : "Add label"}
+                </span>
+              </CollapsibleSection>
+
+              <Separator className="my-3" />
+
+              <CollapsibleSection title="Project" defaultOpen>
+                <PropertySelect
+                  label=""
+                  value={item.primaryProjectId ?? "none"}
+                  disabled={!editable}
+                  options={[
+                    { value: "none", label: "No project" },
+                    ...data.projects.map((project) => ({
+                      value: project.id,
+                      label: project.name,
+                    })),
+                  ]}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(item.id, {
+                      primaryProjectId: value === "none" ? null : value,
+                    })
+                  }
+                />
+              </CollapsibleSection>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -858,132 +754,127 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const updates = data.projectUpdates.filter((update) => update.projectId === project.id)
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex flex-col gap-4">
-        <Card className="shadow-none">
-          <CardHeader>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{templateMeta[project.templateType].label}</Badge>
-              <Badge variant="outline">{projectHealthMeta[project.health].label}</Badge>
-            </div>
-            <CardTitle className="text-3xl">{project.name}</CardTitle>
-            <CardDescription>{project.summary}</CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm leading-7 text-muted-foreground">
-            {project.description}
-          </CardContent>
-        </Card>
-        <Tabs defaultValue="overview">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
-            <TabsTrigger value="work">Work</TabsTrigger>
-          </TabsList>
-          <TabsContent value="overview" className="mt-4">
-            <Card className="shadow-none">
-              <CardHeader>
-                <CardTitle>Milestones</CardTitle>
-                <CardDescription>
-                  Project management and software-delivery templates can both use milestones.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                {milestones.map((milestone) => (
-                  <div
-                    key={milestone.id}
-                    className="flex items-center justify-between rounded-xl border px-3 py-3"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">{milestone.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {milestone.targetDate
-                          ? format(new Date(milestone.targetDate), "MMM d")
-                          : "No date"}
-                      </span>
-                    </div>
-                    <Badge variant="secondary">{statusMeta[milestone.status].label}</Badge>
+    <div className="flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b px-6 py-2">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-medium">{project.name}</span>
+        </div>
+      </div>
+
+      <div className="grid flex-1 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        {/* Main content */}
+        <div className="flex flex-col p-6 gap-6">
+          <div>
+            <h1 className="text-2xl font-semibold mb-1">{project.name}</h1>
+            <p className="text-sm text-muted-foreground">{project.summary}</p>
+          </div>
+
+          <Tabs defaultValue="overview">
+            <TabsList className="h-9 bg-transparent border-b rounded-none w-full justify-start gap-0 px-0">
+              <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="activity" className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+                Activity
+              </TabsTrigger>
+              <TabsTrigger value="issues" className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+                Issues
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="overview" className="mt-4">
+              <div className="flex flex-col gap-4">
+                {project.description && (
+                  <div className="text-sm leading-7 text-muted-foreground">
+                    {project.description}
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="activity" className="mt-4">
-            <Card className="shadow-none">
-              <CardHeader>
-                <CardTitle>Project updates</CardTitle>
-                <CardDescription>Activity feed without threaded comments.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                {updates.map((update) => (
-                  <div key={update.id} className="rounded-xl border px-3 py-3">
-                    <div className="mb-1 text-sm font-medium">
-                      {getUser(data, update.createdBy)?.name}
+                )}
+                <div className="flex flex-col gap-2">
+                  <h3 className="text-sm font-medium">Milestones</h3>
+                  {milestones.map((milestone) => (
+                    <div
+                      key={milestone.id}
+                      className="flex items-center justify-between rounded-lg border px-3 py-2"
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium">{milestone.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {milestone.targetDate
+                            ? format(new Date(milestone.targetDate), "MMM d")
+                            : "No date"}
+                        </span>
+                      </div>
+                      <Badge variant="secondary">{statusMeta[milestone.status].label}</Badge>
                     </div>
+                  ))}
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="activity" className="mt-4">
+              <div className="flex flex-col gap-3">
+                {updates.map((update) => (
+                  <div key={update.id} className="flex flex-col gap-1 border-b pb-3">
+                    <span className="text-sm font-medium">
+                      {getUser(data, update.createdBy)?.name}
+                    </span>
                     <p className="text-sm text-muted-foreground">{update.content}</p>
                   </div>
                 ))}
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="work" className="mt-4">
-            <Card className="shadow-none">
-              <CardHeader>
-                <CardTitle>Linked work</CardTitle>
-                <CardDescription>
-                  Primary and linked items contributing to project progress.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2">
+              </div>
+            </TabsContent>
+            <TabsContent value="issues" className="mt-4">
+              <div className="flex flex-col">
                 {items.map((item) => (
                   <Link
                     key={item.id}
-                    className="flex items-center justify-between rounded-xl border px-3 py-3 hover:bg-muted"
+                    className="flex items-center justify-between border-b px-2 py-2.5 hover:bg-accent/50 transition-colors"
                     href={`/items/${item.id}`}
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">{item.title}</span>
-                      <span className="text-xs text-muted-foreground">{item.key}</span>
+                    <div className="flex items-center gap-2">
+                      <StatusIcon status={item.status} />
+                      <span className="text-sm">{item.title}</span>
                     </div>
-                    <Badge variant="secondary">{statusMeta[item.status].label}</Badge>
+                    <span className="text-xs text-muted-foreground">{item.key}</span>
                   </Link>
                 ))}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-      <div className="flex flex-col gap-4">
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Progress</CardTitle>
-            <CardDescription>Live rollup from linked work items.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <StatCard label="Scope" value={String(progress.scope)} />
-            <StatCard label="Completed" value={String(progress.completed)} />
-            <StatCard label="Progress" value={`${progress.percent}%`} />
-          </CardContent>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Properties</CardTitle>
-            <CardDescription>Lead, dates, status, and template metadata.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            <PropertyRow label="Lead" value={getUser(data, project.leadId)?.name ?? "—"} />
-            <PropertyRow label="Priority" value={priorityMeta[project.priority].label} />
-            <PropertyRow label="Health" value={projectHealthMeta[project.health].label} />
-            <PropertyRow label="Template" value={templateMeta[project.templateType].label} />
-            <PropertyRow
-              label="Target"
-              value={
-                project.targetDate
-                  ? format(new Date(project.targetDate), "MMM d, yyyy")
-                  : "TBD"
-              }
-            />
-          </CardContent>
-        </Card>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Right sidebar */}
+        <div className="border-l">
+          <div className="flex flex-col gap-1 p-4">
+            <SidebarSection title="Properties">
+              <PropertyRow label="Status" value={projectHealthMeta[project.health].label} />
+              <PropertyRow label="Priority" value={priorityMeta[project.priority].label} />
+              <PropertyRow label="Lead" value={getUser(data, project.leadId)?.name ?? "—"} />
+              <PropertyRow
+                label="Target"
+                value={
+                  project.targetDate
+                    ? format(new Date(project.targetDate), "MMM d, yyyy")
+                    : "—"
+                }
+              />
+            </SidebarSection>
+
+            <Separator className="my-2" />
+
+            <SidebarSection title="Progress">
+              <div className="flex gap-6 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Scope</span>
+                  <div className="font-semibold">{progress.scope}</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Completed</span>
+                  <div className="font-semibold">{progress.completed}</div>
+                </div>
+              </div>
+            </SidebarSection>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1001,113 +892,49 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const editable = team ? canEditTeam(data, team.id) : false
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex flex-col gap-4">
-        <Card className="shadow-none">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{team?.name ?? "Unknown team"}</Badge>
-              <Badge variant="outline">Team document</Badge>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Input
-                aria-label="Document title"
-                className="h-11 text-3xl font-semibold"
-                disabled={!editable}
-                value={document.title}
-                onChange={(event) =>
-                  useAppStore
-                    .getState()
-                    .renameDocument(document.id, event.target.value)
-                }
-              />
-              <CardDescription>
-                Updated {format(new Date(document.updatedAt), "MMM d, h:mm a")}
-              </CardDescription>
-            </div>
-          </CardHeader>
-        </Card>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Document editor</CardTitle>
-            <CardDescription>
-              Structured rich text for team docs with a clean upgrade path to deeper block editing.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RichTextEditor
-              content={document.content}
-              editable={editable}
-              onChange={(content) =>
-                useAppStore.getState().updateDocumentContent(document.id, content)
-              }
-              onUploadAttachment={(file) =>
-                useAppStore.getState().uploadAttachment("document", document.id, file)
-              }
-            />
-          </CardContent>
-        </Card>
-        <CommentsCard
-          targetType="document"
-          targetId={document.id}
-          editable={editable}
-          title="Discussion"
-        />
+    <div className="flex flex-col h-[calc(100svh-3rem)]">
+      {/* Thin breadcrumb header */}
+      <div className="flex items-center justify-between border-b px-6 py-2 shrink-0">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">{team?.name ?? "Private"}</span>
+          <CaretRight className="size-3 text-muted-foreground" />
+          <span>{document.title}</span>
+        </div>
       </div>
-      <div className="flex flex-col gap-4">
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Links</CardTitle>
-            <CardDescription>Projects and work items referenced by this document.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
-              {document.linkedProjectIds.map((projectId) => {
-                const project = getProject(data, projectId)
-                if (!project) {
-                  return null
-                }
 
-                return (
-                  <Badge key={project.id} variant="secondary">
-                    {project.name}
-                  </Badge>
-                )
-              })}
-            </div>
-            <div className="flex flex-col gap-2">
-              {document.linkedWorkItemIds.map((itemId) => {
-                const item = data.workItems.find((entry) => entry.id === itemId)
-                if (!item) {
-                  return null
-                }
-
-                return (
-                  <Link
-                    key={item.id}
-                    className="rounded-xl border px-3 py-2 text-sm hover:bg-muted"
-                    href={`/items/${item.id}`}
-                  >
-                    {item.key} · {item.title}
-                  </Link>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-        <AttachmentsCard
+      {/* Full canvas editor — content includes the title as <h1> */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <RichTextEditor
+          content={document.content}
           editable={editable}
-          targetId={document.id}
-          targetType="document"
+          fullPage
+          placeholder="Start writing…"
+          onChange={(content) => {
+            useAppStore.getState().updateDocumentContent(document.id, content)
+            // Sync the title from the first <h1> in the content
+            const match = content.match(/<h1[^>]*>(.*?)<\/h1>/)
+            if (match?.[1]) {
+              const plainTitle = match[1].replace(/<[^>]*>/g, "")
+              if (plainTitle && plainTitle !== document.title) {
+                useAppStore.getState().renameDocument(document.id, plainTitle)
+              }
+            }
+          }}
+          onUploadAttachment={(file) =>
+            useAppStore.getState().uploadAttachment("document", document.id, file)
+          }
         />
       </div>
     </div>
   )
 }
 
+/* ------------------------------------------------------------------ */
+/*  WorkSurface — issues list/board/timeline container                 */
+/* ------------------------------------------------------------------ */
+
 function WorkSurface({
   title,
-  description,
   routeKey,
   views,
   items,
@@ -1115,7 +942,6 @@ function WorkSurface({
   emptyLabel,
 }: {
   title: string
-  description: string
   routeKey: string
   views: ViewDefinition[]
   items: WorkItem[]
@@ -1139,82 +965,97 @@ function WorkSurface({
     : items
 
   return (
-    <div className="flex flex-col gap-4">
-      <PageIntro
-        title={title}
-        description={description}
-        action={
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus />
-            New item
+    <div className="flex flex-col">
+      {/* Screen header with tabs */}
+      <div className="flex items-center justify-between border-b px-6 py-2">
+        <div className="flex items-center gap-1">
+          <h1 className="text-sm font-medium mr-3">{title}</h1>
+          {views.length > 0 && activeView ? (
+            <div className="flex items-center">
+              {views.map((view) => (
+                <button
+                  key={view.id}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-sm transition-colors",
+                    view.id === activeView.id
+                      ? "bg-accent font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={() => useAppStore.getState().setSelectedView(routeKey, view.id)}
+                >
+                  {view.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1">
+          {activeView ? (
+            <>
+              <FilterPopover view={activeView} items={items} />
+              <ViewConfigPopover view={activeView} />
+            </>
+          ) : null}
+          <Button size="icon-sm" variant="ghost" onClick={() => setDialogOpen(true)}>
+            <Plus className="size-4" />
           </Button>
-        }
-      />
+        </div>
+      </div>
+
       <CreateWorkItemDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         teamId={team?.id ?? data.ui.activeTeamId}
         disabled={!editable}
       />
-      {views.length > 0 && activeView ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Tabs
-            value={activeView.id}
-            onValueChange={(value) => useAppStore.getState().setSelectedView(routeKey, value)}
-          >
-            <TabsList>
-              {views.map((view) => (
-                <TabsTrigger key={view.id} value={view.id}>
-                  {view.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          <div className="flex items-center gap-2">
-            <FilterPopover view={activeView} items={items} />
-            <ViewConfigPopover view={activeView} />
+
+      {/* View content */}
+      <div className="flex-1">
+        {activeView ? (
+          <>
+            {activeView.layout === "board" ? (
+              <BoardView
+                data={data}
+                items={filteredItems}
+                view={activeView}
+                editable={editable}
+              />
+            ) : null}
+            {activeView.layout === "list" ? (
+              <ListView
+                data={data}
+                items={filteredItems}
+                view={activeView}
+                editable={editable}
+              />
+            ) : null}
+            {activeView.layout === "timeline" ? (
+              <TimelineView
+                data={data}
+                items={filteredItems}
+                view={activeView}
+                editable={editable}
+              />
+            ) : null}
+          </>
+        ) : (
+          <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+            {emptyLabel}
           </div>
-        </div>
-      ) : null}
-      {activeView ? (
-        <>
-          {activeView.layout === "board" ? (
-            <BoardView
-              data={data}
-              items={filteredItems}
-              view={activeView}
-              editable={editable}
-            />
-          ) : null}
-          {activeView.layout === "list" ? (
-            <ListView
-              data={data}
-              items={filteredItems}
-              view={activeView}
-              editable={editable}
-            />
-          ) : null}
-          {activeView.layout === "timeline" ? (
-            <TimelineView
-              data={data}
-              items={filteredItems}
-              view={activeView}
-              editable={editable}
-            />
-          ) : null}
-        </>
-      ) : (
-        <EmptyCard title="No views" description={emptyLabel} />
-      )}
-      {activeView && filteredItems.length === 0 ? (
-        <EmptyCard
-          title="Nothing matches this view"
-          description={emptyLabel}
-        />
-      ) : null}
+        )}
+        {activeView && filteredItems.length === 0 ? (
+          <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+            {emptyLabel}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  Filter & View Config popovers                                      */
+/* ------------------------------------------------------------------ */
 
 function FilterPopover({
   view,
@@ -1238,124 +1079,72 @@ function FilterPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline">
-          <FadersHorizontal />
-          Filters
+        <Button size="icon-sm" variant="ghost">
+          <FadersHorizontal className="size-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96">
-        <div className="flex flex-col gap-4">
-          <div>
-            <div className="mb-2 text-sm font-medium">Status</div>
-            <div className="flex flex-wrap gap-2">
-              {statusOptions.map((status) => (
-                <Button
-                  key={status}
-                  size="sm"
-                  variant={
-                    view.filters.status.includes(status) ? "secondary" : "outline"
-                  }
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "status", status)
-                  }
-                >
-                  {statusMeta[status].label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium">Priority</div>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(priorityMeta).map(([priority, meta]) => (
-                <Button
-                  key={priority}
-                  size="sm"
-                  variant={
-                    view.filters.priority.includes(priority as Priority)
-                      ? "secondary"
-                      : "outline"
-                  }
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "priority", priority)
-                  }
-                >
-                  {meta.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium">Assignee</div>
-            <div className="flex flex-wrap gap-2">
-              {assignees.map((assignee) => (
-                <Button
-                  key={assignee.id}
-                  size="sm"
-                  variant={
-                    view.filters.assigneeIds.includes(assignee.id)
-                      ? "secondary"
-                      : "outline"
-                  }
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "assigneeIds", assignee.id)
-                  }
-                >
-                  {assignee.name}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium">Projects</div>
-            <div className="flex flex-wrap gap-2">
-              {projects.map((project) => (
-                <Button
-                  key={project.id}
-                  size="sm"
-                  variant={
-                    view.filters.projectIds.includes(project.id)
-                      ? "secondary"
-                      : "outline"
-                  }
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "projectIds", project.id)
-                  }
-                >
-                  {project.name}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium">Labels</div>
-            <div className="flex flex-wrap gap-2">
-              {labels.map((label) => (
-                <Button
-                  key={label.id}
-                  size="sm"
-                  variant={
-                    view.filters.labelIds.includes(label.id) ? "secondary" : "outline"
-                  }
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "labelIds", label.id)
-                  }
-                >
-                  {label.name}
-                </Button>
-              ))}
-            </div>
-          </div>
+      <PopoverContent align="end" className="w-80">
+        <div className="flex flex-col gap-3">
+          <FilterSection label="Status">
+            {statusOptions.map((status) => (
+              <FilterChip
+                key={status}
+                label={statusMeta[status].label}
+                active={view.filters.status.includes(status)}
+                onClick={() =>
+                  useAppStore.getState().toggleViewFilterValue(view.id, "status", status)
+                }
+              />
+            ))}
+          </FilterSection>
+          <FilterSection label="Priority">
+            {Object.entries(priorityMeta).map(([priority, meta]) => (
+              <FilterChip
+                key={priority}
+                label={meta.label}
+                active={view.filters.priority.includes(priority as Priority)}
+                onClick={() =>
+                  useAppStore.getState().toggleViewFilterValue(view.id, "priority", priority)
+                }
+              />
+            ))}
+          </FilterSection>
+          <FilterSection label="Assignee">
+            {assignees.map((assignee) => (
+              <FilterChip
+                key={assignee.id}
+                label={assignee.name}
+                active={view.filters.assigneeIds.includes(assignee.id)}
+                onClick={() =>
+                  useAppStore.getState().toggleViewFilterValue(view.id, "assigneeIds", assignee.id)
+                }
+              />
+            ))}
+          </FilterSection>
+          <FilterSection label="Project">
+            {projects.map((project) => (
+              <FilterChip
+                key={project.id}
+                label={project.name}
+                active={view.filters.projectIds.includes(project.id)}
+                onClick={() =>
+                  useAppStore.getState().toggleViewFilterValue(view.id, "projectIds", project.id)
+                }
+              />
+            ))}
+          </FilterSection>
+          <FilterSection label="Labels">
+            {labels.map((label) => (
+              <FilterChip
+                key={label.id}
+                label={label.name}
+                active={view.filters.labelIds.includes(label.id)}
+                onClick={() =>
+                  useAppStore.getState().toggleViewFilterValue(view.id, "labelIds", label.id)
+                }
+              />
+            ))}
+          </FilterSection>
         </div>
       </PopoverContent>
     </Popover>
@@ -1366,22 +1155,27 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline">
-          <SquaresFour />
-          View config
+        <Button size="icon-sm" variant="ghost">
+          <GearSix className="size-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[28rem]">
+      <PopoverContent align="end" className="w-[22rem]">
         <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2">
+          {/* Layout toggle */}
+          <div className="flex rounded-lg border p-0.5">
             {[
-              { value: "list", label: "List", icon: <Rows /> },
-              { value: "board", label: "Board", icon: <Kanban /> },
-              { value: "timeline", label: "Timeline", icon: <CalendarDots /> },
+              { value: "list", label: "List", icon: <Rows className="size-3.5" /> },
+              { value: "board", label: "Board", icon: <Kanban className="size-3.5" /> },
+              { value: "timeline", label: "Timeline", icon: <CalendarDots className="size-3.5" /> },
             ].map((layout) => (
-              <Button
+              <button
                 key={layout.value}
-                variant={view.layout === layout.value ? "secondary" : "outline"}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm transition-colors",
+                  view.layout === layout.value
+                    ? "bg-accent font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
                 onClick={() =>
                   useAppStore
                     .getState()
@@ -1390,26 +1184,26 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
               >
                 {layout.icon}
                 {layout.label}
-              </Button>
+              </button>
             ))}
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <InlineSelect
+
+          {/* Config options */}
+          <div className="flex flex-col gap-3">
+            <ConfigSelect
               label="Grouping"
               value={view.grouping}
-              options={groupOptions.map((option) => ({ value: option, label: option }))}
+              options={groupOptions.map((o) => ({ value: o, label: o }))}
               onValueChange={(value) =>
-                useAppStore
-                  .getState()
-                  .updateViewConfig(view.id, { grouping: value as GroupField })
+                useAppStore.getState().updateViewConfig(view.id, { grouping: value as GroupField })
               }
             />
-            <InlineSelect
+            <ConfigSelect
               label="Sub-grouping"
               value={view.subGrouping ?? "none"}
               options={[
                 { value: "none", label: "None" },
-                ...groupOptions.map((option) => ({ value: option, label: option })),
+                ...groupOptions.map((o) => ({ value: o, label: o })),
               ]}
               onValueChange={(value) =>
                 useAppStore.getState().updateViewConfig(view.id, {
@@ -1417,46 +1211,48 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
                 })
               }
             />
-            <InlineSelect
+            <ConfigSelect
               label="Ordering"
               value={view.ordering}
-              options={orderingOptions.map((option) => ({ value: option, label: option }))}
+              options={orderingOptions.map((o) => ({ value: o, label: o }))}
               onValueChange={(value) =>
-                useAppStore
-                  .getState()
-                  .updateViewConfig(view.id, { ordering: value as OrderingField })
+                useAppStore.getState().updateViewConfig(view.id, { ordering: value as OrderingField })
               }
             />
-            <InlineSelect
-              label="Completed work"
+            <ConfigSelect
+              label="Completed issues"
               value={String(view.filters.showCompleted)}
               options={[
-                { value: "true", label: "Show" },
+                { value: "true", label: "All" },
                 { value: "false", label: "Hide" },
               ]}
               onValueChange={(value) =>
-                useAppStore
-                  .getState()
-                  .updateViewConfig(view.id, { showCompleted: value === "true" })
+                useAppStore.getState().updateViewConfig(view.id, { showCompleted: value === "true" })
               }
             />
           </div>
+
+          <Separator />
+
+          {/* Display properties */}
           <div>
-            <div className="mb-2 text-sm font-medium">Display properties</div>
-            <div className="flex flex-wrap gap-2">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">Display properties</div>
+            <div className="flex flex-wrap gap-1.5">
               {displayPropertyOptions.map((property) => (
-                <Button
+                <button
                   key={property}
-                  size="sm"
-                  variant={
-                    view.displayProps.includes(property) ? "secondary" : "outline"
-                  }
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-xs transition-colors",
+                    view.displayProps.includes(property)
+                      ? "border-primary/30 bg-primary/10 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  )}
                   onClick={() =>
                     useAppStore.getState().toggleViewDisplayProperty(view.id, property)
                   }
                 >
                   {property}
-                </Button>
+                </button>
               ))}
             </div>
           </div>
@@ -1465,6 +1261,10 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
     </Popover>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  Board view                                                         */
+/* ------------------------------------------------------------------ */
 
 function BoardView({
   data,
@@ -1513,83 +1313,94 @@ function BoardView({
   const activeItem = items.find((item) => item.id === activeItemId) ?? null
 
   return (
-    <div className="flex flex-col gap-4">
-      <DndContext
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <ScrollArea className="w-full">
-          <div className="flex min-w-max gap-4 pb-4">
-            {visibleGroups.map(([groupName, subgroups]) => (
-              <Card key={groupName} className="w-[21rem] shrink-0 shadow-none">
-                <CardHeader>
-                  <CardTitle className="text-base">{groupName}</CardTitle>
-                  <CardDescription>
-                    {Array.from(subgroups.values()).flat().length} items
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-3">
+    <DndContext
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <ScrollArea className="w-full">
+        <div className="flex min-w-max gap-2 p-3">
+          {visibleGroups.map(([groupName, subgroups]) => {
+            const groupCount = Array.from(subgroups.values()).flat().length
+            return (
+              <div key={groupName} className="flex w-[20rem] shrink-0 flex-col rounded-lg bg-muted/50">
+                {/* Column header */}
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <StatusIcon status={groupName as WorkItem["status"]} />
+                    <span className="text-sm font-medium">{groupName}</span>
+                    <span className="text-xs text-muted-foreground">{groupCount}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <Button size="icon-xs" variant="ghost">
+                      <DotsThree className="size-3.5" />
+                    </Button>
+                    <Button size="icon-xs" variant="ghost">
+                      <Plus className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                {/* Column items */}
+                <div className="flex flex-col gap-1.5 px-2 pb-2">
                   {Array.from(subgroups.entries()).map(([subgroupName, subItems]) => {
                     const hidden = view.hiddenState.subgroups.includes(subgroupName)
-
-                    if (hidden) {
-                      return null
-                    }
+                    if (hidden) return null
 
                     return (
                       <BoardDropLane
                         key={`${groupName}-${subgroupName}`}
                         id={`board::${groupName}::${subgroupName}`}
-                        label={subgroupName}
                       >
                         {subItems.map((item) => (
                           <DraggableWorkCard
                             key={item.id}
                             item={item}
                             data={data}
-                            compact
                           />
                         ))}
                       </BoardDropLane>
                     )
                   })}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </ScrollArea>
+
+      {hiddenGroups.length > 0 ? (
+        <div className="border-t px-4 py-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Hidden columns</span>
+            {hiddenGroups.map(([groupName]) => (
+              <button
+                key={groupName}
+                className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
+                onClick={() =>
+                  useAppStore.getState().toggleViewHiddenValue(view.id, "groups", groupName)
+                }
+              >
+                {groupName}
+              </button>
             ))}
           </div>
-        </ScrollArea>
-        {hiddenGroups.length > 0 ? (
-          <HiddenStateBar
-            label="Hidden columns"
-            values={hiddenGroups.map(([groupName]) => groupName)}
-            onToggle={(value) =>
-              useAppStore.getState().toggleViewHiddenValue(view.id, "groups", value)
-            }
-          />
+        </div>
+      ) : null}
+
+      <DragOverlay>
+        {activeItem ? (
+          <div className="w-[18rem]">
+            <BoardCardBody data={data} item={activeItem} />
+          </div>
         ) : null}
-        {view.hiddenState.subgroups.length > 0 ? (
-          <HiddenStateBar
-            label="Hidden rows"
-            values={view.hiddenState.subgroups}
-            onToggle={(value) =>
-              useAppStore
-                .getState()
-                .toggleViewHiddenValue(view.id, "subgroups", value)
-            }
-          />
-        ) : null}
-        <DragOverlay>
-          {activeItem ? (
-            <div className="w-[18rem]">
-              <WorkCardBody data={data} item={activeItem} compact />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-    </div>
+      </DragOverlay>
+    </DndContext>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  List view                                                          */
+/* ------------------------------------------------------------------ */
 
 function ListView({
   data,
@@ -1603,84 +1414,105 @@ function ListView({
   editable: boolean
 }) {
   const groups = [...buildItemGroups(data, items, view).entries()]
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  function toggleGroup(groupName: string) {
+    setCollapsedGroups((current) => {
+      const next = new Set(current)
+      if (next.has(groupName)) {
+        next.delete(groupName)
+      } else {
+        next.add(groupName)
+      }
+      return next
+    })
+  }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
       {groups.map(([groupName, subgroups]) => {
         if (view.hiddenState.groups.includes(groupName)) {
           return null
         }
 
-        return (
-          <Card key={groupName} className="shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">{groupName}</CardTitle>
-              <CardDescription>
-                {Array.from(subgroups.values()).flat().length} items
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {Array.from(subgroups.entries()).map(([subgroupName, subItems]) => {
-                if (view.hiddenState.subgroups.includes(subgroupName)) {
-                  return null
-                }
+        const groupCount = Array.from(subgroups.values()).flat().length
+        const isCollapsed = collapsedGroups.has(groupName)
 
-                return (
-                  <div key={`${groupName}-${subgroupName}`} className="flex flex-col gap-2">
-                    {view.subGrouping ? (
-                      <div className="text-sm font-medium text-muted-foreground">
-                        {subgroupName}
-                      </div>
-                    ) : null}
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Title</TableHead>
-                          {view.displayProps.map((property) => (
-                            <TableHead key={property}>{property}</TableHead>
-                          ))}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {subItems.map((item) => (
-                          <ListRow
-                            key={item.id}
-                            data={data}
-                            item={item}
-                            editable={editable}
-                            displayProps={view.displayProps}
-                          />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )
-              })}
-            </CardContent>
-          </Card>
+        return (
+          <div key={groupName}>
+            {/* Group header */}
+            <button
+              className="flex w-full items-center gap-2 border-b px-4 py-2 hover:bg-accent/50 transition-colors"
+              onClick={() => toggleGroup(groupName)}
+            >
+              {isCollapsed ? (
+                <CaretRight className="size-3 text-muted-foreground" />
+              ) : (
+                <CaretDown className="size-3 text-muted-foreground" />
+              )}
+              <StatusIcon status={groupName as WorkItem["status"]} />
+              <span className="text-sm font-medium">{groupName}</span>
+              <span className="text-xs text-muted-foreground">{groupCount}</span>
+            </button>
+
+            {/* Group items */}
+            {!isCollapsed && (
+              <div className="flex flex-col">
+                {Array.from(subgroups.entries()).map(([subgroupName, subItems]) => {
+                  if (view.hiddenState.subgroups.includes(subgroupName)) {
+                    return null
+                  }
+
+                  return (
+                    <div key={`${groupName}-${subgroupName}`}>
+                      {view.subGrouping ? (
+                        <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
+                          {subgroupName}
+                        </div>
+                      ) : null}
+                      {subItems.map((item) => (
+                        <ListRow
+                          key={item.id}
+                          data={data}
+                          item={item}
+                          editable={editable}
+                          displayProps={view.displayProps}
+                        />
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         )
       })}
+
       {view.hiddenState.groups.length > 0 ? (
-        <HiddenStateBar
-          label="Hidden groups"
-          values={view.hiddenState.groups}
-          onToggle={(value) =>
-            useAppStore.getState().toggleViewHiddenValue(view.id, "groups", value)
-          }
-        />
-      ) : null}
-      {view.hiddenState.subgroups.length > 0 ? (
-        <HiddenStateBar
-          label="Hidden rows"
-          values={view.hiddenState.subgroups}
-          onToggle={(value) =>
-            useAppStore.getState().toggleViewHiddenValue(view.id, "subgroups", value)
-          }
-        />
+        <div className="border-t px-4 py-3">
+          <div className="text-xs text-muted-foreground mb-2">Hidden rows</div>
+          {view.hiddenState.groups.map((groupName) => (
+            <button
+              key={groupName}
+              className="flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
+              onClick={() =>
+                useAppStore.getState().toggleViewHiddenValue(view.id, "groups", groupName)
+              }
+            >
+              <StatusIcon status={groupName as WorkItem["status"]} />
+              <span>{groupName}</span>
+              <span className="text-xs text-muted-foreground ml-auto">0</span>
+            </button>
+          ))}
+        </div>
       ) : null}
     </div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  Timeline view                                                      */
+/* ------------------------------------------------------------------ */
 
 function TimelineView({
   data,
@@ -1722,75 +1554,69 @@ function TimelineView({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <DndContext
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Timeline</CardTitle>
-            <CardDescription>
-              Drag bars horizontally to shift item schedules.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 overflow-x-auto">
-            <div
-              className="grid min-w-[90rem] gap-3"
-              style={{ gridTemplateColumns: "16rem 1fr" }}
-            >
-              <div />
+    <DndContext
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="flex flex-col overflow-x-auto p-4">
+        <div
+          className="grid min-w-[90rem] gap-3"
+          style={{ gridTemplateColumns: "16rem 1fr" }}
+        >
+          <div />
+          <div
+            className="grid gap-1"
+            style={{
+              gridTemplateColumns: `repeat(${days.length}, minmax(3rem, 1fr))`,
+            }}
+          >
+            {days.map((day) => (
               <div
-                className="grid gap-1"
-                style={{
-                  gridTemplateColumns: `repeat(${days.length}, minmax(3rem, 1fr))`,
-                }}
+                key={day.toISOString()}
+                className="rounded-md px-2 py-1.5 text-center text-xs text-muted-foreground"
               >
-                {days.map((day) => (
-                  <div
-                    key={day.toISOString()}
-                    className="rounded-lg border px-2 py-2 text-center text-xs text-muted-foreground"
-                  >
-                    {format(day, "MMM d")}
-                  </div>
-                ))}
+                {format(day, "MMM d")}
               </div>
-            </div>
-            {groups.map(([groupName, subgroups]) => {
-              if (view.hiddenState.groups.includes(groupName)) {
-                return null
-              }
+            ))}
+          </div>
+        </div>
+        {groups.map(([groupName, subgroups]) => {
+          if (view.hiddenState.groups.includes(groupName)) {
+            return null
+          }
 
-              const groupItems = Array.from(subgroups.values()).flat()
+          const groupItems = Array.from(subgroups.values()).flat()
 
-              return (
-                <div key={groupName} className="flex flex-col gap-3">
-                  <div className="text-sm font-medium">{groupName}</div>
-                  {groupItems.map((item) => (
-                    <TimelineRow
-                      key={item.id}
-                      data={data}
-                      days={days}
-                      item={item}
-                    />
-                  ))}
-                </div>
-              )
-            })}
-          </CardContent>
-        </Card>
-        <DragOverlay>
-          {activeItemId ? (
-            <div className="rounded-xl border bg-card px-3 py-2 text-sm shadow-lg">
-              {data.workItems.find((item) => item.id === activeItemId)?.title}
+          return (
+            <div key={groupName} className="flex flex-col gap-2 mt-3">
+              <div className="text-sm font-medium px-1">{groupName}</div>
+              {groupItems.map((item) => (
+                <TimelineRow
+                  key={item.id}
+                  data={data}
+                  days={days}
+                  item={item}
+                />
+              ))}
             </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-    </div>
+          )
+        })}
+      </div>
+      <DragOverlay>
+        {activeItemId ? (
+          <div className="rounded-md border bg-card px-3 py-1.5 text-sm shadow-lg">
+            {data.workItems.find((item) => item.id === activeItemId)?.title}
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  Row / card primitives                                              */
+/* ------------------------------------------------------------------ */
 
 function ListRow({
   data,
@@ -1804,88 +1630,141 @@ function ListRow({
   displayProps: DisplayProperty[]
 }) {
   const team = getTeam(data, item.teamId)
-  const projectOptions = [
-    { value: "none", label: "No project" },
-    ...data.projects.map((project) => ({ value: project.id, label: project.name })),
-  ]
 
   return (
-    <TableRow>
-      <TableCell>
-        <div className="flex flex-col gap-1">
-          <Link className="font-medium hover:underline" href={`/items/${item.id}`}>
-            {item.title}
-          </Link>
-          <span className="text-xs text-muted-foreground">{item.key}</span>
+    <Link
+      href={`/items/${item.id}`}
+      className="flex items-center gap-3 border-b px-4 py-2 hover:bg-accent/50 transition-colors group"
+    >
+      {/* Three-dot menu */}
+      <button
+        className="opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={(e) => e.preventDefault()}
+      >
+        <DotsThree className="size-4 text-muted-foreground" />
+      </button>
+
+      {/* Issue key */}
+      <span className="w-20 shrink-0 text-xs text-muted-foreground">{item.key}</span>
+
+      {/* Status icon */}
+      <StatusIcon status={item.status} />
+
+      {/* Title */}
+      <span className="flex-1 text-sm truncate">{item.title}</span>
+
+      {/* Display properties */}
+      {displayProps.includes("priority") && (
+        <span className="text-xs text-muted-foreground shrink-0">
+          {priorityMeta[item.priority].label}
+        </span>
+      )}
+      {displayProps.includes("assignee") && (
+        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+          {item.assigneeId
+            ? getUser(data, item.assigneeId)?.avatarUrl ?? "?"
+            : ""}
         </div>
-      </TableCell>
-      {displayProps.map((property) => (
-        <TableCell key={property}>
-          {property === "status" ? (
-            <MiniSelect
-              disabled={!editable}
-              value={item.status}
-              options={getStatusOrderForTeam(team).map((status) => ({
-                value: status,
-                label: statusMeta[status].label,
-              }))}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  status: value as WorkItem["status"],
-                })
-              }
-            />
-          ) : null}
-          {property === "priority" ? (
-            <MiniSelect
-              disabled={!editable}
-              value={item.priority}
-              options={Object.entries(priorityMeta).map(([value, meta]) => ({
-                value,
-                label: meta.label,
-              }))}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  priority: value as Priority,
-                })
-              }
-            />
-          ) : null}
-          {property === "assignee" ? (
-            <MiniSelect
-              disabled={!editable}
-              value={item.assigneeId ?? "unassigned"}
-              options={[
-                { value: "unassigned", label: "Unassigned" },
-                ...data.users.map((user) => ({ value: user.id, label: user.name })),
-              ]}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  assigneeId: value === "unassigned" ? null : value,
-                })
-              }
-            />
-          ) : null}
-          {property === "project" ? (
-            <MiniSelect
-              disabled={!editable}
-              value={item.primaryProjectId ?? "none"}
-              options={projectOptions}
-              onValueChange={(value) =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  primaryProjectId: value === "none" ? null : value,
-                })
-              }
-            />
-          ) : null}
-          {!["status", "priority", "assignee", "project"].includes(property) ? (
-            <span className="text-sm text-muted-foreground">
-              {formatPropertyValue(data, item, property)}
-            </span>
-          ) : null}
-        </TableCell>
-      ))}
-    </TableRow>
+      )}
+      {displayProps.includes("project") && (
+        <span className="text-xs text-muted-foreground shrink-0">
+          {getProject(data, item.primaryProjectId)?.name ?? ""}
+        </span>
+      )}
+      {displayProps.includes("created") && (
+        <span className="text-xs text-muted-foreground shrink-0">
+          {format(new Date(item.createdAt), "MMM d")}
+        </span>
+      )}
+      {displayProps.includes("updated") && (
+        <span className="text-xs text-muted-foreground shrink-0">
+          {format(new Date(item.updatedAt), "MMM d")}
+        </span>
+      )}
+    </Link>
+  )
+}
+
+function BoardDropLane({
+  id,
+  children,
+}: {
+  id: string
+  children: React.ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex min-h-8 flex-col gap-2 rounded-md p-1 transition-colors",
+        isOver ? "bg-accent/50" : ""
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+function DraggableWorkCard({
+  data,
+  item,
+}: {
+  data: AppData
+  item: WorkItem
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: item.id,
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={cn(isDragging ? "opacity-60" : "opacity-100")}
+      {...listeners}
+      {...attributes}
+    >
+      <BoardCardBody data={data} item={item} />
+    </div>
+  )
+}
+
+function BoardCardBody({
+  data,
+  item,
+}: {
+  data: AppData
+  item: WorkItem
+}) {
+  return (
+    <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs hover:shadow-sm transition-shadow">
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <span className="text-xs text-muted-foreground">{item.key}</span>
+        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+          {item.assigneeId
+            ? getUser(data, item.assigneeId)?.avatarUrl ?? "?"
+            : ""}
+        </div>
+      </div>
+      <div className="mb-2">
+        <Link className="text-sm font-medium hover:underline" href={`/items/${item.id}`}>
+          {item.title}
+        </Link>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <StatusIcon status={item.status} />
+        {item.primaryProjectId ? (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+            {getProject(data, item.primaryProjectId)?.name}
+          </Badge>
+        ) : null}
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground">
+        Created {format(new Date(item.createdAt), "MMM d")}
+      </div>
+    </div>
   )
 }
 
@@ -1913,14 +1792,12 @@ function TimelineRow({
       className="grid min-w-[90rem] gap-3"
       style={{ gridTemplateColumns: "16rem 1fr" }}
     >
-      <div className="rounded-xl border px-3 py-3">
-        <div className="flex flex-col gap-1">
-          <Link className="font-medium hover:underline" href={`/items/${item.id}`}>
-            {item.title}
-          </Link>
-          <span className="text-xs text-muted-foreground">
-            {getProject(data, item.primaryProjectId)?.name ?? "No project"}
-          </span>
+      <div className="rounded-md border px-3 py-2">
+        <Link className="text-sm font-medium hover:underline" href={`/items/${item.id}`}>
+          {item.title}
+        </Link>
+        <div className="text-xs text-muted-foreground">
+          {getProject(data, item.primaryProjectId)?.name ?? "No project"}
         </div>
       </div>
       <div className="relative">
@@ -1945,9 +1822,7 @@ function TimelineRow({
         >
           <div
             className="pointer-events-auto h-full"
-            style={{
-              gridColumn: `${startIndex + 1} / span ${span}`,
-            }}
+            style={{ gridColumn: `${startIndex + 1} / span ${span}` }}
           >
             <TimelineBar item={item} />
           </div>
@@ -1957,67 +1832,99 @@ function TimelineRow({
   )
 }
 
-function CommentsCard({
+function TimelineDropCell({ id }: { id: string }) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "h-10 rounded-md border transition-colors",
+        isOver ? "border-primary bg-primary/10" : "border-transparent"
+      )}
+    />
+  )
+}
+
+function TimelineBar({ item }: { item: WorkItem }) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    id: item.id,
+  })
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      className="flex h-full w-full items-center rounded-md bg-primary px-3 text-left text-xs font-medium text-primary-foreground"
+      style={{ transform: CSS.Translate.toString(transform) }}
+      {...listeners}
+      {...attributes}
+    >
+      {item.title}
+    </button>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Comments (inline version for detail screens)                       */
+/* ------------------------------------------------------------------ */
+
+function CommentsInline({
   targetType,
   targetId,
   editable,
-  title,
 }: {
   targetType: "workItem" | "document"
   targetId: string
   editable: boolean
-  title: string
 }) {
   const data = useAppStore()
   const comments = getCommentsForTarget(data, targetType, targetId)
   const [content, setContent] = useState("")
 
   return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>
-          Comments create inbox records and mention notifications.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {comments.map((comment) => (
-          <div key={comment.id} className="rounded-xl border px-3 py-3">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-sm font-medium">
-                {getUser(data, comment.createdBy)?.name}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {format(new Date(comment.createdAt), "MMM d, h:mm a")}
-              </span>
-            </div>
-            <p className="text-sm leading-7">{comment.content}</p>
+    <div className="flex flex-col gap-4">
+      {comments.map((comment) => (
+        <div key={comment.id} className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">
+              {getUser(data, comment.createdBy)?.name}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {format(new Date(comment.createdAt), "MMM d, h:mm a")}
+            </span>
           </div>
-        ))}
-        <div className="flex flex-col gap-3">
-          <Textarea
-            disabled={!editable}
-            placeholder="Leave a comment. Use @declan style mentions."
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-          />
-          <div className="flex justify-end">
-            <Button
-              disabled={!editable}
-              onClick={() => {
-                useAppStore.getState().addComment({ targetType, targetId, content })
-                setContent("")
-              }}
-            >
-              <ChatsCircle />
-              Comment
-            </Button>
-          </div>
+          <p className="text-sm leading-7 text-muted-foreground">{comment.content}</p>
         </div>
-      </CardContent>
-    </Card>
+      ))}
+      <div className="flex flex-col gap-2">
+        <Textarea
+          disabled={!editable}
+          placeholder="Leave a comment..."
+          className="min-h-[4rem] resize-none"
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+        />
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            disabled={!editable || !content.trim()}
+            onClick={() => {
+              useAppStore.getState().addComment({ targetType, targetId, content })
+              setContent("")
+            }}
+          >
+            Comment
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  Create dialogs                                                     */
+/* ------------------------------------------------------------------ */
 
 function CreateProjectDialog({
   open,
@@ -2055,10 +1962,6 @@ function CreateProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create project</DialogTitle>
-          <DialogDescription>
-            Launch templates cover software delivery, bug tracking, and project
-            management.
-          </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -2084,7 +1987,6 @@ function CreateProjectDialog({
                     settingsTeam,
                     nextTemplateType
                   )
-
                   setTemplateType(nextTemplateType)
                   setPriority(nextDefaults.defaultPriority)
                   setSummary(nextDefaults.summaryHint)
@@ -2103,11 +2005,6 @@ function CreateProjectDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldDescription>
-                {settingsTeam
-                  ? `${settingsTeam.name} defaults to ${priorityMeta[templateDefaults.defaultPriority].label.toLowerCase()} priority, ${templateDefaults.targetWindowDays} days, and ${templateDefaults.defaultViewLayout} layout for this template.`
-                  : templateMeta[templateType].description}
-              </FieldDescription>
             </FieldContent>
           </Field>
           <Field>
@@ -2178,18 +2075,12 @@ function CreateDocumentDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create document</DialogTitle>
-          <DialogDescription>
-            Documents are team-owned and roll up into workspace-level document views.
-          </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
             <FieldLabel>Title</FieldLabel>
             <FieldContent>
               <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-              <FieldDescription>
-                The document will be created under the current team context.
-              </FieldDescription>
             </FieldContent>
           </Field>
         </FieldGroup>
@@ -2241,9 +2132,6 @@ function CreateWorkItemDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create work item</DialogTitle>
-          <DialogDescription>
-            Shared work-item engine with typed records for bugs, tasks, features, and more.
-          </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -2363,325 +2251,206 @@ function CreateWorkItemDialog({
   )
 }
 
-function HiddenStateBar({
-  label,
-  values,
-  onToggle,
-}: {
-  label: string
-  values: string[]
-  onToggle: (value: string) => void
-}) {
-  return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle className="text-base">{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        {values.map((value) => (
-          <Button key={value} variant="outline" onClick={() => onToggle(value)}>
-            <CaretRight />
-            {value}
-          </Button>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
+/* ------------------------------------------------------------------ */
+/*  Shared primitives                                                  */
+/* ------------------------------------------------------------------ */
 
-function BoardDropLane({
-  id,
-  label,
-  children,
-}: {
-  id: string
-  label: string
-  children: React.ReactNode
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id,
-  })
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="text-sm font-medium text-muted-foreground">{label}</div>
-      <div
-        ref={setNodeRef}
-        className={cn(
-          "flex min-h-24 flex-col gap-2 rounded-xl border border-dashed p-2 transition-colors",
-          isOver ? "border-primary bg-primary/5" : "border-border"
-        )}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function DraggableWorkCard({
-  data,
-  item,
-  compact = false,
-}: {
-  data: AppData
-  item: WorkItem
-  compact?: boolean
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: item.id,
-  })
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-      }}
-      className={cn(isDragging ? "opacity-60" : "opacity-100")}
-      {...listeners}
-      {...attributes}
-    >
-      <WorkCardBody data={data} item={item} compact={compact} />
-    </div>
-  )
-}
-
-function WorkCardBody({
-  data,
-  item,
-  compact = false,
-}: {
-  data: AppData
-  item: WorkItem
-  compact?: boolean
-}) {
-  const labelMap = getLabelMap(data)
-
-  return (
-    <Card className="shadow-none">
-      <CardContent className={cn("flex flex-col gap-3 px-3 py-3", compact ? "" : "py-4")}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">{item.key}</span>
-            <Link className="font-medium hover:underline" href={`/items/${item.id}`}>
-              {item.title}
-            </Link>
-          </div>
-          <Badge variant="outline">{priorityMeta[item.priority].label}</Badge>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">
-            {getProject(data, item.primaryProjectId)?.name ?? "No project"}
-          </Badge>
-          {item.assigneeId ? (
-            <Badge variant="outline">{getUser(data, item.assigneeId)?.name}</Badge>
-          ) : null}
-          {item.labelIds.slice(0, 2).map((labelId) => (
-            <Badge key={labelId} variant="outline">
-              {labelMap[labelId]?.name}
-            </Badge>
-          ))}
-        </div>
-        {!compact && (
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              Due{" "}
-              {item.dueDate ? format(new Date(item.dueDate), "MMM d") : "not set"}
-            </span>
-            <Button size="sm" variant="ghost" asChild>
-              <Link href={`/items/${item.id}`}>Open</Link>
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function TimelineDropCell({ id }: { id: string }) {
-  const { isOver, setNodeRef } = useDroppable({
-    id,
-  })
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "h-12 rounded-lg border transition-colors",
-        isOver ? "border-primary bg-primary/10" : "border-border"
-      )}
-    />
-  )
-}
-
-function TimelineBar({ item }: { item: WorkItem }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: item.id,
-  })
-
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      className="flex h-full w-full items-center rounded-lg bg-primary px-3 text-left text-xs font-medium text-primary-foreground"
-      style={{
-        transform: CSS.Translate.toString(transform),
-      }}
-      {...listeners}
-      {...attributes}
-    >
-      {item.title}
-    </button>
-  )
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border px-3 py-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold">{value}</div>
-    </div>
-  )
-}
-
-function PageIntro({
+function ScreenHeader({
   title,
-  description,
-  action,
+  actions,
 }: {
   title: string
-  description: string
-  action?: React.ReactNode
+  actions?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      {action}
+    <div className="flex items-center justify-between border-b px-6 py-2">
+      <h1 className="text-sm font-medium">{title}</h1>
+      {actions}
+    </div>
+  )
+}
+
+function StatusIcon({ status }: { status: string }) {
+  const statusLower = status.toLowerCase()
+  if (statusLower === "done" || statusLower === "completed") {
+    return <CheckCircle className="size-3.5 shrink-0 text-green-600" weight="fill" />
+  }
+  if (statusLower === "in-progress" || statusLower === "in progress") {
+    return <Circle className="size-3.5 shrink-0 text-yellow-500" weight="fill" />
+  }
+  if (statusLower === "cancelled" || statusLower === "duplicate") {
+    return <XCircle className="size-3.5 shrink-0 text-muted-foreground" weight="fill" />
+  }
+  if (statusLower === "todo") {
+    return <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+  }
+  // backlog / default
+  return <Circle className="size-3.5 shrink-0 text-muted-foreground/50" />
+}
+
+function SidebarSection({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium text-muted-foreground">{title}</span>
+      {children}
+    </div>
+  )
+}
+
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <div className="flex flex-col">
+      <button
+        className="flex items-center gap-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? (
+          <CaretDown className="size-3" />
+        ) : (
+          <CaretRight className="size-3" />
+        )}
+        {title}
+      </button>
+      {open && <div className="flex flex-col gap-1 mt-1">{children}</div>}
+    </div>
+  )
+}
+
+function PropertySelect({
+  label,
+  value,
+  options,
+  onValueChange,
+  disabled,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onValueChange: (value: string) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      {label && <span className="text-sm text-muted-foreground">{label}</span>}
+      <Select disabled={disabled} value={value} onValueChange={onValueChange}>
+        <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent shadow-none text-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
     </div>
   )
 }
 
 function PropertyRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex items-center justify-between py-1">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm">{value}</span>
     </div>
   )
 }
 
-function InlineSelect({
+function ConfigSelect({
   label,
   value,
   options,
   onValueChange,
-  disabled,
 }: {
   label: string
   value: string
   options: Array<{ value: string; label: string }>
   onValueChange: (value: string) => void
-  disabled?: boolean
 }) {
   return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <FieldContent>
-        <Select disabled={disabled} value={value} onValueChange={onValueChange}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {options.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </FieldContent>
-    </Field>
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger className="h-7 w-auto min-w-28 text-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
 
-function MiniSelect({
-  value,
-  options,
-  onValueChange,
-  disabled,
-}: {
-  value: string
-  options: Array<{ value: string; label: string }>
-  onValueChange: (value: string) => void
-  disabled?: boolean
-}) {
-  return (
-    <Select disabled={disabled} value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-8 min-w-36">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  )
-}
-
-function DateField({
+function FilterSection({
   label,
-  value,
-  disabled,
-  onChange,
+  children,
 }: {
   label: string
-  value: string | null
-  disabled?: boolean
-  onChange: (value: string) => void
+  children: React.ReactNode
 }) {
   return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <FieldContent>
-        <Input
-          disabled={disabled}
-          type="date"
-          value={value ? format(new Date(value), "yyyy-MM-dd") : ""}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      </FieldContent>
-    </Field>
+    <div>
+      <div className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  )
+}
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={cn(
+        "rounded-md border px-2 py-0.5 text-xs transition-colors",
+        active
+          ? "border-primary/30 bg-primary/10 text-foreground"
+          : "border-border text-muted-foreground hover:text-foreground"
+      )}
+      onClick={onClick}
+    >
+      {label}
+    </button>
   )
 }
 
 function MissingState({ title }: { title: string }) {
-  return <EmptyCard title={title} description="The requested entity does not exist." />
-}
-
-function EmptyCard({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
   return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-    </Card>
+    <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+      {title}
+    </div>
   )
 }
 
@@ -2690,40 +2459,20 @@ function formatPropertyValue(
   item: WorkItem,
   property: DisplayProperty
 ) {
-  if (property === "id") {
-    return item.key
-  }
-
-  if (property === "type") {
-    return workItemTypeMeta[item.type].label
-  }
-
-  if (property === "dueDate") {
-    return item.dueDate ? format(new Date(item.dueDate), "MMM d") : "—"
-  }
-
+  if (property === "id") return item.key
+  if (property === "type") return workItemTypeMeta[item.type].label
+  if (property === "dueDate") return item.dueDate ? format(new Date(item.dueDate), "MMM d") : "—"
   if (property === "milestone") {
-    return (
-      data.milestones.find((milestone) => milestone.id === item.milestoneId)?.name ??
-      "—"
-    )
+    return data.milestones.find((m) => m.id === item.milestoneId)?.name ?? "—"
   }
-
   if (property === "labels") {
     return item.labelIds
-      .map((labelId) => data.labels.find((label) => label.id === labelId)?.name)
+      .map((id) => data.labels.find((l) => l.id === id)?.name)
       .filter(Boolean)
       .join(", ")
   }
-
-  if (property === "created") {
-    return format(new Date(item.createdAt), "MMM d")
-  }
-
-  if (property === "updated") {
-    return format(new Date(item.updatedAt), "MMM d")
-  }
-
+  if (property === "created") return format(new Date(item.createdAt), "MMM d")
+  if (property === "updated") return format(new Date(item.updatedAt), "MMM d")
   return "—"
 }
 
@@ -2732,27 +2481,16 @@ function getPatchForField(
   field: GroupField | null,
   value: string
 ) {
-  if (!field || value === "all") {
-    return {}
-  }
-
-  if (field === "status") {
-    return { status: value as WorkItem["status"] }
-  }
-
-  if (field === "priority") {
-    return { priority: value as Priority }
-  }
-
+  if (!field || value === "all") return {}
+  if (field === "status") return { status: value as WorkItem["status"] }
+  if (field === "priority") return { priority: value as Priority }
   if (field === "assignee") {
     const user = data.users.find((entry) => entry.name === value)
     return { assigneeId: user?.id ?? null }
   }
-
   if (field === "project") {
     const project = data.projects.find((entry) => entry.name === value)
     return { primaryProjectId: project?.id ?? null }
   }
-
   return {}
 }

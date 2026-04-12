@@ -10,8 +10,10 @@ function ThemeProvider({
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="system"
-      enableSystem
+      defaultTheme="light"
+      enableSystem={false}
+      themes={["light", "dark"]}
+      storageKey="reciperoom-theme"
       disableTransitionOnChange
       {...props}
     >

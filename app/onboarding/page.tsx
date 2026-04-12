@@ -25,6 +25,7 @@ import {
   buildAppDestination,
   buildPortalAuthHref,
   getAppModeFromHeaders,
+  isSingleHostLocalDev,
 } from "@/lib/portal"
 import {
   getInviteByTokenServer,
@@ -58,7 +59,10 @@ export default async function OnboardingPage({
   const nextPath = `/onboarding${nextParams.size > 0 ? `?${nextParams.toString()}` : ""}`
   const requestHeaders = await headers()
 
-  if (getAppModeFromHeaders(requestHeaders) === "portal") {
+  if (
+    !isSingleHostLocalDev() &&
+    getAppModeFromHeaders(requestHeaders) === "portal"
+  ) {
     redirect(buildAppDestination("projects", nextPath))
   }
 

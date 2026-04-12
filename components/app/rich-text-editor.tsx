@@ -26,7 +26,6 @@ import {
 } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import {
   Command,
   CommandEmpty,
@@ -48,6 +47,8 @@ type RichTextEditorProps = {
   placeholder?: string
   className?: string
   compact?: boolean
+  /** Full-page canvas mode — no borders, large content area */
+  fullPage?: boolean
   onUploadAttachment?: (file: File) => Promise<UploadedAttachment | null>
 }
 
@@ -115,9 +116,10 @@ export function RichTextEditor({
   content,
   onChange,
   editable = true,
-  placeholder = "Write something…",
+  placeholder = "Add a description…",
   className,
   compact = false,
+  fullPage = false,
   onUploadAttachment,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -146,6 +148,11 @@ export function RichTextEditor({
     }
   }
 
+  // Build editor class based on mode
+  const editorClass = fullPage
+    ? "min-h-[calc(100svh-12rem)] max-w-3xl mx-auto w-full px-6 py-4 text-base outline-none [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+    : "min-h-24 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -171,8 +178,7 @@ export function RichTextEditor({
     editable,
     editorProps: {
       attributes: {
-        class:
-          "min-h-44 rounded-xl border border-transparent bg-background px-3 py-3 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc",
+        class: editorClass,
       },
       handleKeyDown(view, event) {
         const currentEditor = editorRef.current
@@ -382,85 +388,70 @@ export function RichTextEditor({
     currentEditor.chain().focus().setLink({ href: nextHref }).run()
   }
 
-  const toolbar = (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("bold") ? "secondary" : "ghost"}
+  // Toolbar
+  const toolbar = editable ? (
+    <div className={cn(
+      "flex items-center gap-0.5 shrink-0",
+      fullPage ? "max-w-3xl mx-auto w-full px-6 py-2" : "pb-1"
+    )}>
+      <ToolbarButton
+        active={currentEditor.isActive("bold")}
         onClick={() => currentEditor.chain().focus().toggleBold().run()}
+        label="Bold"
       >
-        <TextB />
-        <span className="sr-only">Bold</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("italic") ? "secondary" : "ghost"}
+        <TextB className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={currentEditor.isActive("italic")}
         onClick={() => currentEditor.chain().focus().toggleItalic().run()}
+        label="Italic"
       >
-        <TextItalic />
-        <span className="sr-only">Italic</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("underline") ? "secondary" : "ghost"}
+        <TextItalic className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={currentEditor.isActive("underline")}
         onClick={() => currentEditor.chain().focus().toggleUnderline().run()}
+        label="Underline"
       >
-        <TextUnderline />
-        <span className="sr-only">Underline</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={
-          currentEditor.isActive("heading", { level: 2 }) ? "secondary" : "ghost"
-        }
-        onClick={() =>
-          currentEditor.chain().focus().toggleHeading({ level: 2 }).run()
-        }
+        <TextUnderline className="size-3.5" />
+      </ToolbarButton>
+      <div className="mx-1 h-4 w-px bg-border" />
+      <ToolbarButton
+        active={currentEditor.isActive("heading", { level: 2 })}
+        onClick={() => currentEditor.chain().focus().toggleHeading({ level: 2 }).run()}
+        label="Heading"
       >
-        <TextHOne />
-        <span className="sr-only">Heading</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("bulletList") ? "secondary" : "ghost"}
+        <TextHOne className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={currentEditor.isActive("bulletList")}
         onClick={() => currentEditor.chain().focus().toggleBulletList().run()}
+        label="Bulleted list"
       >
-        <ListBullets />
-        <span className="sr-only">Bulleted list</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("taskList") ? "secondary" : "ghost"}
+        <ListBullets className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={currentEditor.isActive("taskList")}
         onClick={() => currentEditor.chain().focus().toggleTaskList().run()}
+        label="Task list"
       >
-        <ListChecks />
-        <span className="sr-only">Task list</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("blockquote") ? "secondary" : "ghost"}
+        <ListChecks className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={currentEditor.isActive("blockquote")}
         onClick={() => currentEditor.chain().focus().toggleBlockquote().run()}
+        label="Quote"
       >
-        <Quotes />
-        <span className="sr-only">Quote</span>
-      </Button>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant={currentEditor.isActive("link") ? "secondary" : "ghost"}
+        <Quotes className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={currentEditor.isActive("link")}
         onClick={setLink}
+        label="Link"
       >
-        <LinkSimple />
-        <span className="sr-only">Link</span>
-      </Button>
-      {editable && onUploadAttachment ? (
+        <LinkSimple className="size-3.5" />
+      </ToolbarButton>
+      {onUploadAttachment ? (
         <>
           <input
             ref={hiddenFileInputRef}
@@ -468,107 +459,131 @@ export function RichTextEditor({
             type="file"
             onChange={(event) => void handleAttachment(event.target.files?.[0] ?? null)}
           />
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
+          <ToolbarButton
+            active={false}
             onClick={() => {
               pendingFileInsertRef.current = true
               hiddenFileInputRef.current?.click()
             }}
+            label="Attach file"
           >
-            <Paperclip />
-            <span className="sr-only">Attach file</span>
-          </Button>
+            <Paperclip className="size-3.5" />
+          </ToolbarButton>
         </>
       ) : null}
+      {uploadingAttachment ? (
+        <span className="ml-2 text-xs text-muted-foreground">Uploading…</span>
+      ) : null}
     </div>
-  )
+  ) : null
 
-  const editorFrame = (
-    <div className="relative" ref={containerRef}>
-      <div className="rounded-xl border bg-card">
-        <EditorContent editor={currentEditor} />
-      </div>
-      {editable && slashState ? (
-        <div
-          className="absolute z-10 w-80 max-w-[calc(100%-1rem)]"
-          style={{
-            left: Math.max(12, Math.min(slashState.left, 320)),
-            top: slashState.top,
-          }}
-        >
-          <Command
-            className="rounded-xl border bg-popover shadow-xl"
-            shouldFilter={false}
-          >
-            <CommandList>
-              <CommandEmpty>
-                <div className="px-3 py-3 text-sm text-muted-foreground">
-                  No slash commands match.
+  const slashMenu = slashState ? (
+    <div
+      className="absolute z-10 w-72 max-w-[calc(100%-1rem)]"
+      style={{
+        left: Math.max(12, Math.min(slashState.left, 280)),
+        top: slashState.top,
+      }}
+    >
+      <Command
+        className="rounded-lg border bg-popover shadow-lg"
+        shouldFilter={false}
+      >
+        <CommandList>
+          <CommandEmpty>
+            <div className="px-3 py-2 text-sm text-muted-foreground">
+              No commands match.
+            </div>
+          </CommandEmpty>
+          <CommandGroup heading="Insert">
+            {filteredSlashCommands.map((command, index) => (
+              <CommandItem
+                key={command.id}
+                className={cn(
+                  "items-start gap-3",
+                  index === activeSlashIndex &&
+                    "bg-accent text-accent-foreground"
+                )}
+                value={command.id}
+                onSelect={() => {
+                  currentEditor
+                    .chain()
+                    .focus()
+                    .deleteRange({
+                      from: slashState.from,
+                      to: slashState.to,
+                    })
+                    .run()
+                  command.run(currentEditor)
+                  setSlashState(null)
+                  setSlashIndex(0)
+                  previousSlashQueryRef.current = null
+                }}
+              >
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm">{command.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {command.description}
+                  </span>
                 </div>
-              </CommandEmpty>
-              <CommandGroup heading="Insert">
-                {filteredSlashCommands.map((command, index) => (
-                  <CommandItem
-                    key={command.id}
-                    className={cn(
-                      "items-start gap-3",
-                      index === activeSlashIndex &&
-                        "bg-accent text-accent-foreground"
-                    )}
-                    value={command.id}
-                    onSelect={() => {
-                      currentEditor
-                        .chain()
-                        .focus()
-                        .deleteRange({
-                          from: slashState.from,
-                          to: slashState.to,
-                        })
-                        .run()
-                      command.run(currentEditor)
-                      setSlashState(null)
-                      setSlashIndex(0)
-                      previousSlashQueryRef.current = null
-                    }}
-                  >
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span>{command.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {command.description}
-                      </span>
-                    </div>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </div>
-      ) : null}
-      {editable ? (
-        <div className="mt-2 text-xs text-muted-foreground">
-          Type <code>/</code> for block commands, or paste/drop a file to upload.
-          {uploadingAttachment ? " Uploading attachment…" : null}
-        </div>
-      ) : null}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </Command>
     </div>
-  )
+  ) : null
 
-  if (compact) {
+  // Full-page mode — used for standalone documents
+  if (fullPage) {
     return (
-      <div className={cn("flex flex-col gap-3", className)}>
-        {editable ? toolbar : null}
-        {editorFrame}
+      <div className={cn("flex flex-col flex-1 overflow-hidden", className)}>
+        {toolbar}
+        <div className="relative flex-1 overflow-y-auto" ref={containerRef}>
+          <EditorContent editor={currentEditor} />
+          {slashMenu}
+        </div>
       </div>
     )
   }
 
+  // Inline mode — used for issue descriptions (no card, no border, seamless)
   return (
-    <Card className={cn("shadow-none", className)}>
-      {editable ? <CardHeader>{toolbar}</CardHeader> : null}
-      <CardContent>{editorFrame}</CardContent>
-    </Card>
+    <div className={cn("flex flex-col gap-1", className)}>
+      <div className="relative" ref={containerRef}>
+        <EditorContent editor={currentEditor} />
+        {slashMenu}
+      </div>
+      {toolbar}
+    </div>
+  )
+}
+
+function ToolbarButton({
+  active,
+  onClick,
+  label,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex size-7 items-center justify-center rounded-md transition-colors",
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      )}
+      onClick={onClick}
+    >
+      {children}
+      <span className="sr-only">{label}</span>
+    </button>
   )
 }
 
@@ -661,7 +676,7 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "attachment",
       label: "Upload attachment",
-      description: "Store a file in Convex and insert a download link.",
+      description: "Store a file and insert a download link.",
       keywords: ["file", "upload", "attachment"],
       run: () => {
         promptAttachmentUpload()
