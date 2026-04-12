@@ -3,7 +3,11 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { v } from "convex/values"
 
 import { createSeedState } from "../lib/domain/seed"
-import { createDefaultTeamWorkflowSettings } from "../lib/domain/types"
+import {
+  createDefaultTeamFeatureSettings,
+  createDefaultTeamWorkflowSettings,
+  getTeamFeatureValidationMessage,
+} from "../lib/domain/types"
 import {
   attachmentTargetTypeValidator,
   commentTargetTypeValidator,
@@ -14,6 +18,8 @@ import {
   priorityValidator,
   roleValidator,
   scopeTypeValidator,
+  teamExperienceTypeValidator,
+  teamFeatureSettingsValidator,
   teamWorkflowSettingsValidator,
   templateTypeValidator,
   workItemTypeValidator,
@@ -125,6 +131,20 @@ async function getWorkItemDoc(ctx: AppCtx, id: string) {
 async function getDocumentDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("documents")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+async function getConversationDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("conversations")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+async function getChannelPostDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("channelPosts")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
 }
@@ -275,6 +295,20 @@ async function requireEditableTeamAccess(
   return role
 }
 
+async function requireReadableTeamAccess(
+  ctx: AppCtx,
+  teamId: string,
+  userId: string
+) {
+  const role = await getEffectiveRole(ctx, teamId, userId)
+
+  if (!role) {
+    throw new Error("You do not have access to this team")
+  }
+
+  return role
+}
+
 async function requireEditableWorkspaceAccess(
   ctx: AppCtx,
   workspaceId: string,
@@ -286,6 +320,27 @@ async function requireEditableWorkspaceAccess(
   if (!canEdit) {
     throw new Error("Your current role is read-only")
   }
+}
+
+async function requireEditableDocumentAccess(
+  ctx: AppCtx,
+  document: Awaited<ReturnType<typeof getDocumentDoc>>,
+  userId: string
+) {
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  if (document.kind === "team-document" || document.kind === "item-description") {
+    if (!document.teamId) {
+      throw new Error("Document is missing a team")
+    }
+
+    await requireEditableTeamAccess(ctx, document.teamId, userId)
+    return
+  }
+
+  await requireEditableWorkspaceAccess(ctx, document.workspaceId, userId)
 }
 
 async function requireWorkspaceAdminAccess(
@@ -371,11 +426,70 @@ async function resolveAttachmentTarget(
     throw new Error("Document not found")
   }
 
+  if (!document.teamId) {
+    throw new Error("Attachments are only available on team documents")
+  }
+
   return {
     teamId: document.teamId,
     entityType: "document" as const,
     recordId: document._id,
   }
+}
+
+async function getTeamMemberIds(ctx: AppCtx, teamId: string) {
+  const memberships = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team", (q) => q.eq("teamId", teamId))
+    .collect()
+
+  return memberships.map((membership) => membership.userId)
+}
+
+async function getWorkspaceUserIds(ctx: AppCtx, workspaceId: string) {
+  const teams = (await ctx.db.query("teams").collect()).filter(
+    (team) => team.workspaceId === workspaceId
+  )
+  const userIds = new Set<string>()
+
+  for (const team of teams) {
+    for (const userId of await getTeamMemberIds(ctx, team.id)) {
+      userIds.add(userId)
+    }
+  }
+
+  return [...userIds]
+}
+
+async function requireConversationAccess(
+  ctx: AppCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>,
+  userId: string,
+  mode: "read" | "write" = "read"
+) {
+  if (!conversation) {
+    throw new Error("Conversation not found")
+  }
+
+  if (conversation.scopeType === "workspace") {
+    const workspaceRoles = (await getWorkspaceRoleMapForUser(ctx, userId))[
+      conversation.scopeId
+    ] ?? []
+
+    if (workspaceRoles.length === 0 || !conversation.participantIds.includes(userId)) {
+      throw new Error("You do not have access to this conversation")
+    }
+
+    return conversation
+  }
+
+  if (mode === "write") {
+    await requireEditableTeamAccess(ctx, conversation.scopeId, userId)
+  } else {
+    await requireReadableTeamAccess(ctx, conversation.scopeId, userId)
+  }
+
+  return conversation
 }
 
 function createMentionIds(content: string, users: Array<{ id: string; handle: string }>) {
@@ -480,13 +594,59 @@ function normalizeTeamWorkflowSettings(
   }
 }
 
+function normalizeTeamFeatures(
+  experience: "software-development" | "issue-analysis" | "community" | null | undefined,
+  features:
+    | {
+        issues: boolean
+        projects: boolean
+        views: boolean
+        docs: boolean
+        chat: boolean
+        channels: boolean
+      }
+    | null
+    | undefined
+) {
+  const resolvedExperience = experience ?? "software-development"
+  const merged = {
+    ...createDefaultTeamFeatureSettings(resolvedExperience),
+    ...(features ?? {}),
+  }
+  const validationMessage = getTeamFeatureValidationMessage(
+    resolvedExperience,
+    merged
+  )
+
+  if (validationMessage) {
+    return createDefaultTeamFeatureSettings(resolvedExperience)
+  }
+
+  return merged
+}
+
 function normalizeTeam<T extends { settings: Record<string, unknown> }>(team: T) {
+  const settings = team.settings as {
+    experience?: "software-development" | "issue-analysis" | "community"
+    features?: {
+      issues: boolean
+      projects: boolean
+      views: boolean
+      docs: boolean
+      chat: boolean
+      channels: boolean
+    }
+    workflow?: Parameters<typeof normalizeTeamWorkflowSettings>[0]
+  }
+
   return {
     ...team,
     settings: {
       ...team.settings,
+      experience: settings.experience ?? "software-development",
+      features: normalizeTeamFeatures(settings.experience, settings.features),
       workflow: normalizeTeamWorkflowSettings(
-        (team.settings as { workflow?: Parameters<typeof normalizeTeamWorkflowSettings>[0] }).workflow
+        settings.workflow
       ),
     },
   }
@@ -562,6 +722,22 @@ async function insertSeedData(ctx: MutationCtx) {
 
   for (const update of seed.projectUpdates) {
     await ctx.db.insert("projectUpdates", update)
+  }
+
+  for (const conversation of seed.conversations) {
+    await ctx.db.insert("conversations", conversation)
+  }
+
+  for (const message of seed.chatMessages) {
+    await ctx.db.insert("chatMessages", message)
+  }
+
+  for (const post of seed.channelPosts) {
+    await ctx.db.insert("channelPosts", post)
+  }
+
+  for (const comment of seed.channelPostComments) {
+    await ctx.db.insert("channelPostComments", comment)
   }
 }
 
@@ -654,6 +830,24 @@ export const bootstrapAppWorkspace = mutation({
           ...team.settings,
           joinCode,
           summary: args.teamSummary,
+          experience:
+            (team.settings as { experience?: "software-development" }).experience ??
+            "software-development",
+          features: normalizeTeamFeatures(
+            (team.settings as {
+              experience?: "software-development" | "issue-analysis" | "community"
+            }).experience,
+            (team.settings as {
+              features?: {
+                issues: boolean
+                projects: boolean
+                views: boolean
+                docs: boolean
+                chat: boolean
+                channels: boolean
+              }
+            }).features
+          ),
           workflow,
         },
       })
@@ -670,6 +864,8 @@ export const bootstrapAppWorkspace = mutation({
           guestProjectIds: [],
           guestDocumentIds: [],
           guestWorkItemIds: [],
+          experience: "software-development",
+          features: createDefaultTeamFeatureSettings("software-development"),
           workflow,
         },
       })
@@ -798,6 +994,10 @@ export const getSnapshot = query({
       notifications: await ctx.db.query("notifications").collect(),
       invites: await ctx.db.query("invites").collect(),
       projectUpdates: await ctx.db.query("projectUpdates").collect(),
+      conversations: await ctx.db.query("conversations").collect(),
+      chatMessages: await ctx.db.query("chatMessages").collect(),
+      channelPosts: await ctx.db.query("channelPosts").collect(),
+      channelPostComments: await ctx.db.query("channelPostComments").collect(),
     }
   },
 })
@@ -1308,6 +1508,8 @@ export const updateTeamDetails = mutation({
     icon: v.string(),
     summary: v.string(),
     joinCode: v.string(),
+    experience: teamExperienceTypeValidator,
+    features: teamFeatureSettingsValidator,
   },
   handler: async (ctx, args) => {
     const team = await getTeamDoc(ctx, args.teamId)
@@ -1322,6 +1524,15 @@ export const updateTeamDetails = mutation({
       throw new Error("Only team admins can update team details")
     }
 
+    const validationMessage = getTeamFeatureValidationMessage(
+      args.experience,
+      args.features
+    )
+
+    if (validationMessage) {
+      throw new Error(validationMessage)
+    }
+
     await ctx.db.patch(team._id, {
       name: args.name,
       icon: args.icon,
@@ -1329,12 +1540,16 @@ export const updateTeamDetails = mutation({
         ...team.settings,
         summary: args.summary,
         joinCode: normalizeJoinCode(args.joinCode),
+        experience: args.experience,
+        features: normalizeTeamFeatures(args.experience, args.features),
       },
     })
 
     return {
       teamId: team.id,
       joinCode: normalizeJoinCode(args.joinCode),
+      experience: args.experience,
+      features: normalizeTeamFeatures(args.experience, args.features),
     }
   },
 })
@@ -1623,7 +1838,7 @@ export const updateDocumentContent = mutation({
       return
     }
 
-    await requireEditableTeamAccess(ctx, document.teamId, args.currentUserId)
+    await requireEditableDocumentAccess(ctx, document, args.currentUserId)
 
     await ctx.db.patch(document._id, {
       content: args.content,
@@ -1646,7 +1861,7 @@ export const renameDocument = mutation({
       return
     }
 
-    await requireEditableTeamAccess(ctx, document.teamId, args.currentUserId)
+    await requireEditableDocumentAccess(ctx, document, args.currentUserId)
 
     await ctx.db.patch(document._id, {
       title: args.title,
@@ -1832,6 +2047,10 @@ export const addComment = mutation({
       const document = await getDocumentDoc(ctx, args.targetId)
       if (!document) {
         return
+      }
+
+      if (!document.teamId) {
+        throw new Error("Comments are only available on team documents")
       }
 
       teamId = document.teamId
@@ -2181,18 +2400,49 @@ export const createProject = mutation({
 export const createDocument = mutation({
   args: {
     currentUserId: v.string(),
-    teamId: v.string(),
+    kind: v.union(
+      v.literal("team-document"),
+      v.literal("workspace-document"),
+      v.literal("private-document")
+    ),
+    teamId: v.optional(v.string()),
+    workspaceId: v.optional(v.string()),
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    const workspaceId =
+      args.kind === "team-document"
+        ? (await getTeamDoc(ctx, args.teamId ?? ""))?.workspaceId ?? ""
+        : args.workspaceId ?? ""
+
+    if (args.kind === "team-document") {
+      if (!args.teamId) {
+        throw new Error("Team is required")
+      }
+
+      await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    } else {
+      if (!workspaceId) {
+        throw new Error("Workspace is required")
+      }
+
+      await requireEditableWorkspaceAccess(ctx, workspaceId, args.currentUserId)
+    }
+
+    const contentTemplate =
+      args.kind === "private-document"
+        ? "New private document."
+        : args.kind === "workspace-document"
+          ? "New workspace document."
+          : "New team document."
 
     await ctx.db.insert("documents", {
       id: createId("document"),
-      kind: "team-document",
-      teamId: args.teamId,
+      kind: args.kind,
+      workspaceId,
+      teamId: args.kind === "team-document" ? args.teamId ?? null : null,
       title: args.title,
-      content: `<h1>${args.title}</h1><p>New team document.</p>`,
+      content: `<h1>${args.title}</h1><p>${contentTemplate}</p>`,
       linkedProjectIds: [],
       linkedWorkItemIds: [],
       createdBy: args.currentUserId,
@@ -2215,6 +2465,7 @@ export const createWorkItem = mutation({
   },
   handler: async (ctx, args) => {
     await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    const team = await getTeamDoc(ctx, args.teamId)
 
     const teamItems = await ctx.db
       .query("workItems")
@@ -2228,6 +2479,7 @@ export const createWorkItem = mutation({
     await ctx.db.insert("documents", {
       id: descriptionDocId,
       kind: "item-description",
+      workspaceId: team?.workspaceId ?? "",
       teamId: args.teamId,
       title: `${args.title} description`,
       content: `<p>Add a fuller description for ${args.title}.</p>`,
@@ -2304,6 +2556,316 @@ export const createWorkItem = mutation({
     return {
       itemId: workItem.id,
       assignmentEmails,
+    }
+  },
+})
+
+export const createWorkspaceChat = mutation({
+  args: {
+    currentUserId: v.string(),
+    workspaceId: v.string(),
+    participantIds: v.array(v.string()),
+    title: v.string(),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const workspaceRoles = (await getWorkspaceRoleMapForUser(ctx, args.currentUserId))[
+      args.workspaceId
+    ] ?? []
+
+    if (workspaceRoles.length === 0) {
+      throw new Error("You do not have access to this workspace")
+    }
+
+    const workspaceUserIds = new Set(await getWorkspaceUserIds(ctx, args.workspaceId))
+    const participantIds = [...new Set([args.currentUserId, ...args.participantIds])].filter(
+      (userId) => workspaceUserIds.has(userId)
+    )
+
+    if (participantIds.length < 2) {
+      throw new Error("Chats need at least two workspace members")
+    }
+
+    const users = await ctx.db.query("users").collect()
+    const variant = participantIds.length === 2 ? "direct" : "group"
+    const otherParticipantIds = participantIds.filter(
+      (userId) => userId !== args.currentUserId
+    )
+    const resolvedTitle =
+      args.title.trim() ||
+      (variant === "direct"
+        ? users.find((user) => user.id === otherParticipantIds[0])?.name ??
+          "Direct chat"
+        : otherParticipantIds
+            .map((userId) => users.find((user) => user.id === userId)?.name ?? "")
+            .filter(Boolean)
+            .join(", ")
+            .slice(0, 80) || "Group chat")
+    const now = getNow()
+    const conversationId = createId("conversation")
+
+    await ctx.db.insert("conversations", {
+      id: conversationId,
+      kind: "chat",
+      scopeType: "workspace",
+      scopeId: args.workspaceId,
+      variant,
+      title: resolvedTitle,
+      description: args.description.trim(),
+      participantIds,
+      createdBy: args.currentUserId,
+      createdAt: now,
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      conversationId,
+    }
+  },
+})
+
+export const ensureTeamChat = mutation({
+  args: {
+    currentUserId: v.string(),
+    teamId: v.string(),
+    title: v.string(),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
+    const team = await getTeamDoc(ctx, args.teamId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    const normalizedTeam = normalizeTeam(team)
+
+    if (!normalizedTeam.settings.features.chat) {
+      throw new Error("Chat is disabled for this team")
+    }
+
+    const existing = (
+      await ctx.db
+        .query("conversations")
+        .withIndex("by_kind_scope", (q) =>
+          q.eq("kind", "chat").eq("scopeType", "team").eq("scopeId", args.teamId)
+        )
+        .collect()
+    ).find((conversation) => conversation.variant === "team")
+
+    if (existing) {
+      return {
+        conversationId: existing.id,
+      }
+    }
+
+    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    const participantIds = await getTeamMemberIds(ctx, args.teamId)
+    const now = getNow()
+    const conversationId = createId("conversation")
+
+    await ctx.db.insert("conversations", {
+      id: conversationId,
+      kind: "chat",
+      scopeType: "team",
+      scopeId: args.teamId,
+      variant: "team",
+      title: args.title.trim() || `${team.name} chat`,
+      description: args.description.trim() || team.settings.summary,
+      participantIds,
+      createdBy: args.currentUserId,
+      createdAt: now,
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      conversationId,
+    }
+  },
+})
+
+export const createChannel = mutation({
+  args: {
+    currentUserId: v.string(),
+    teamId: v.string(),
+    title: v.string(),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+    const team = await getTeamDoc(ctx, args.teamId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    const normalizedTeam = normalizeTeam(team)
+
+    if (!normalizedTeam.settings.features.channels) {
+      throw new Error("Channels are disabled for this team")
+    }
+
+    const participantIds = await getTeamMemberIds(ctx, args.teamId)
+    const now = getNow()
+    const conversationId = createId("conversation")
+
+    await ctx.db.insert("conversations", {
+      id: conversationId,
+      kind: "channel",
+      scopeType: "team",
+      scopeId: args.teamId,
+      variant: "team",
+      title: args.title.trim(),
+      description: args.description.trim(),
+      participantIds,
+      createdBy: args.currentUserId,
+      createdAt: now,
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      conversationId,
+    }
+  },
+})
+
+export const sendChatMessage = mutation({
+  args: {
+    currentUserId: v.string(),
+    conversationId: v.string(),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, args.conversationId),
+      args.currentUserId,
+      "write"
+    )
+
+    if (conversation.kind !== "chat") {
+      throw new Error("Messages can only be sent to chats")
+    }
+
+    const users = await ctx.db.query("users").collect()
+    const now = getNow()
+    const messageId = createId("chat_message")
+
+    await ctx.db.insert("chatMessages", {
+      id: messageId,
+      conversationId: conversation.id,
+      content: args.content.trim(),
+      mentionUserIds: createMentionIds(args.content, users),
+      createdBy: args.currentUserId,
+      createdAt: now,
+    })
+
+    await ctx.db.patch(conversation._id, {
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      messageId,
+    }
+  },
+})
+
+export const createChannelPost = mutation({
+  args: {
+    currentUserId: v.string(),
+    conversationId: v.string(),
+    title: v.string(),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, args.conversationId),
+      args.currentUserId,
+      "write"
+    )
+
+    if (conversation.kind !== "channel") {
+      throw new Error("Posts can only be created in channels")
+    }
+
+    const now = getNow()
+    const postId = createId("channel_post")
+
+    await ctx.db.insert("channelPosts", {
+      id: postId,
+      conversationId: conversation.id,
+      title: args.title.trim(),
+      content: args.content.trim(),
+      createdBy: args.currentUserId,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await ctx.db.patch(conversation._id, {
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      postId,
+    }
+  },
+})
+
+export const addChannelPostComment = mutation({
+  args: {
+    currentUserId: v.string(),
+    postId: v.string(),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const post = await getChannelPostDoc(ctx, args.postId)
+
+    if (!post) {
+      throw new Error("Post not found")
+    }
+
+    const conversation = await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, post.conversationId),
+      args.currentUserId,
+      "write"
+    )
+
+    if (conversation.kind !== "channel") {
+      throw new Error("Comments can only be added to channels")
+    }
+
+    const users = await ctx.db.query("users").collect()
+    const now = getNow()
+    const commentId = createId("channel_comment")
+
+    await ctx.db.insert("channelPostComments", {
+      id: commentId,
+      postId: post.id,
+      content: args.content.trim(),
+      mentionUserIds: createMentionIds(args.content, users),
+      createdBy: args.currentUserId,
+      createdAt: now,
+    })
+
+    await ctx.db.patch(post._id, {
+      updatedAt: now,
+    })
+
+    await ctx.db.patch(conversation._id, {
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      commentId,
     }
   },
 })

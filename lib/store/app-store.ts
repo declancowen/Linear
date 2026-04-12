@@ -9,16 +9,22 @@ import {
   fetchSnapshot,
   hasConvex,
   syncAddComment,
+  syncAddChannelPostComment,
   syncCreateAttachment,
+  syncCreateChannel,
+  syncCreateChannelPost,
   syncCreateDocument,
   syncCreateInvite,
   syncCreateProject,
+  syncCreateWorkspaceChat,
   syncCreateWorkItem,
   syncDeleteAttachment,
+  syncEnsureTeamChat,
   syncGenerateAttachmentUploadUrl,
   syncJoinTeamByCode,
   syncMarkNotificationRead,
   syncRenameDocument,
+  syncSendChatMessage,
   syncShiftTimelineItem,
   syncToggleNotificationRead,
   syncToggleViewDisplayProperty,
@@ -37,11 +43,16 @@ import { createSeedState } from "@/lib/domain/seed"
 import {
   type AttachmentTargetType,
   type AppSnapshot,
+  channelPostCommentSchema,
+  channelPostSchema,
+  channelSchema,
+  chatMessageSchema,
   commentSchema,
   createDefaultTeamWorkflowSettings,
   documentSchema,
   inviteSchema,
   joinCodeSchema,
+  normalizeTeamFeatureSettings,
   profileSchema,
   projectSchema,
   type AppData,
@@ -57,7 +68,9 @@ import {
   type WorkItemType,
   type WorkStatus,
   templateMeta,
+  teamChatSchema,
   workspaceBrandingSchema,
+  workspaceChatSchema,
   workItemSchema,
 } from "@/lib/domain/types"
 
@@ -90,10 +103,17 @@ type CreateWorkItemInput = {
   priority: Priority
 }
 
-type CreateDocumentInput = {
-  teamId: string
-  title: string
-}
+type CreateDocumentInput =
+  | {
+      kind: "team-document"
+      teamId: string
+      title: string
+    }
+  | {
+      kind: "workspace-document" | "private-document"
+      workspaceId: string
+      title: string
+    }
 
 type CreateInviteInput = {
   teamIds: string[]
@@ -113,6 +133,8 @@ type UpdateTeamDetailsInput = {
   icon: string
   summary: string
   joinCode: string
+  experience: AppData["teams"][number]["settings"]["experience"]
+  features: AppData["teams"][number]["settings"]["features"]
 }
 
 type UpdateProfileInput = {
@@ -129,6 +151,41 @@ type UpdateProfileInput = {
 type AddCommentInput = {
   targetType: CommentTargetType
   targetId: string
+  content: string
+}
+
+type CreateWorkspaceChatInput = {
+  workspaceId: string
+  participantIds: string[]
+  title: string
+  description: string
+}
+
+type EnsureTeamChatInput = {
+  teamId: string
+  title: string
+  description: string
+}
+
+type CreateChannelInput = {
+  teamId: string
+  title: string
+  description: string
+}
+
+type SendChatMessageInput = {
+  conversationId: string
+  content: string
+}
+
+type CreateChannelPostInput = {
+  conversationId: string
+  title: string
+  content: string
+}
+
+type AddChannelPostCommentInput = {
+  postId: string
   content: string
 }
 
@@ -183,6 +240,12 @@ export type AppStore = AppData & {
   ) => Promise<{ fileName: string; fileUrl: string | null } | null>
   deleteAttachment: (attachmentId: string) => Promise<void>
   addComment: (input: AddCommentInput) => void
+  createWorkspaceChat: (input: CreateWorkspaceChatInput) => string | null
+  ensureTeamChat: (input: EnsureTeamChatInput) => string | null
+  createChannel: (input: CreateChannelInput) => string | null
+  sendChatMessage: (input: SendChatMessageInput) => void
+  createChannelPost: (input: CreateChannelPostInput) => void
+  addChannelPostComment: (input: AddChannelPostCommentInput) => void
   createInvite: (input: CreateInviteInput) => void
   joinTeamByCode: (code: string) => void
   createProject: (input: CreateProjectInput) => void
@@ -227,6 +290,52 @@ function createMentionIds(content: string, users: AppData["users"]) {
     .map((user) => user.id)
 }
 
+function getTeamMemberIds(state: AppData, teamId: string) {
+  return state.teamMemberships
+    .filter((membership) => membership.teamId === teamId)
+    .map((membership) => membership.userId)
+}
+
+function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
+  const workspaceTeamIds = state.teams
+    .filter((team) => team.workspaceId === workspaceId)
+    .map((team) => team.id)
+
+  return [...new Set(
+    state.teamMemberships
+      .filter((membership) => workspaceTeamIds.includes(membership.teamId))
+      .map((membership) => membership.userId)
+  )]
+}
+
+function buildWorkspaceChatTitle(
+  state: AppData,
+  currentUserId: string,
+  participantIds: string[],
+  title: string
+) {
+  const trimmedTitle = title.trim()
+
+  if (trimmedTitle) {
+    return trimmedTitle
+  }
+
+  const otherParticipants = participantIds.filter((userId) => userId !== currentUserId)
+
+  if (otherParticipants.length === 1) {
+    return (
+      state.users.find((user) => user.id === otherParticipants[0])?.name ?? "Direct chat"
+    )
+  }
+
+  const names = otherParticipants
+    .map((userId) => state.users.find((user) => user.id === userId)?.name ?? "")
+    .filter(Boolean)
+    .join(", ")
+
+  return names.slice(0, 80) || "Group chat"
+}
+
 function effectiveRole(data: AppData, teamId: string) {
   if (data.ui.rolePreview) {
     return data.ui.rolePreview
@@ -238,6 +347,17 @@ function effectiveRole(data: AppData, teamId: string) {
         membership.teamId === teamId && membership.userId === data.currentUserId
     )?.role ?? null
   )
+}
+
+function canEditWorkspaceDocuments(data: AppData, workspaceId: string) {
+  return data.teams.some((team) => {
+    if (team.workspaceId !== workspaceId) {
+      return false
+    }
+
+    const role = effectiveRole(data, team.id)
+    return role === "admin" || role === "member"
+  })
 }
 
 function getTeamWorkflowSettings(state: AppData, teamId: string | null | undefined) {
@@ -451,6 +571,11 @@ export const useAppStore = create<AppStore>()(
                     ...team.settings,
                     summary: parsed.data.summary,
                     joinCode: parsed.data.joinCode.toUpperCase(),
+                    experience: parsed.data.experience,
+                    features: normalizeTeamFeatureSettings(
+                      parsed.data.experience,
+                      parsed.data.features
+                    ),
                   },
                 }
               : team
@@ -915,7 +1040,7 @@ export const useAppStore = create<AppStore>()(
               return state
             }
 
-            teamId = document.teamId
+            teamId = document.teamId ?? ""
             followerIds = [document.createdBy, document.updatedBy]
             entityType = "document"
             entityTitle = document.title
@@ -1009,6 +1134,402 @@ export const useAppStore = create<AppStore>()(
         )
 
         toast.success("Comment posted")
+      },
+      createWorkspaceChat(input) {
+        const parsed = workspaceChatSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Chat details are invalid")
+          return null
+        }
+
+        let conversationId: string | null = null
+        let participantIdsForSync: string[] = []
+
+        set((state) => {
+          const workspaceMemberIds = new Set(
+            getWorkspaceMemberIds(state, parsed.data.workspaceId)
+          )
+          const participantIds = [...new Set([
+            state.currentUserId,
+            ...parsed.data.participantIds,
+          ])].filter((userId) => workspaceMemberIds.has(userId))
+
+          if (participantIds.length < 2) {
+            toast.error("Select at least one other workspace member")
+            return state
+          }
+
+          const now = getNow()
+          conversationId = createId("conversation")
+          participantIdsForSync = participantIds.filter(
+            (userId) => userId !== state.currentUserId
+          )
+
+          return {
+            ...state,
+            conversations: [
+              {
+                id: conversationId,
+                kind: "chat",
+                scopeType: "workspace",
+                scopeId: parsed.data.workspaceId,
+                variant: participantIds.length === 2 ? "direct" : "group",
+                title: buildWorkspaceChatTitle(
+                  state,
+                  state.currentUserId,
+                  participantIds,
+                  parsed.data.title
+                ),
+                description: parsed.data.description.trim(),
+                participantIds,
+                createdBy: state.currentUserId,
+                createdAt: now,
+                updatedAt: now,
+                lastActivityAt: now,
+              },
+              ...state.conversations,
+            ],
+          }
+        })
+
+        if (!conversationId) {
+          return null
+        }
+
+        syncInBackground(
+          syncCreateWorkspaceChat({
+            workspaceId: parsed.data.workspaceId,
+            participantIds: participantIdsForSync,
+            title: parsed.data.title,
+            description: parsed.data.description,
+          }),
+          "Failed to create chat"
+        )
+
+        toast.success("Chat created")
+        return conversationId
+      },
+      ensureTeamChat(input) {
+        const parsed = teamChatSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Team chat details are invalid")
+          return null
+        }
+
+        let conversationId: string | null = null
+        let shouldSync = false
+
+        set((state) => {
+          const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+          if (!team) {
+            toast.error("Team not found")
+            return state
+          }
+
+          if (!team.settings.features.chat) {
+            toast.error("Chat is disabled for this team")
+            return state
+          }
+
+          const existingConversation = state.conversations.find(
+            (conversation) =>
+              conversation.kind === "chat" &&
+              conversation.scopeType === "team" &&
+              conversation.scopeId === parsed.data.teamId &&
+              conversation.variant === "team"
+          )
+
+          if (existingConversation) {
+            conversationId = existingConversation.id
+            return state
+          }
+
+          const role = effectiveRole(state, parsed.data.teamId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const now = getNow()
+          conversationId = createId("conversation")
+          shouldSync = true
+
+          return {
+            ...state,
+            conversations: [
+              {
+                id: conversationId,
+                kind: "chat",
+                scopeType: "team",
+                scopeId: parsed.data.teamId,
+                variant: "team",
+                title: parsed.data.title,
+                description: parsed.data.description.trim(),
+                participantIds: getTeamMemberIds(state, parsed.data.teamId),
+                createdBy: state.currentUserId,
+                createdAt: now,
+                updatedAt: now,
+                lastActivityAt: now,
+              },
+              ...state.conversations,
+            ],
+          }
+        })
+
+        if (!conversationId) {
+          return null
+        }
+
+        if (shouldSync) {
+          syncInBackground(
+            syncEnsureTeamChat(parsed.data),
+            "Failed to create team chat"
+          )
+          toast.success("Team chat ready")
+        }
+
+        return conversationId
+      },
+      createChannel(input) {
+        const parsed = channelSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Channel details are invalid")
+          return null
+        }
+
+        let conversationId: string | null = null
+
+        set((state) => {
+          const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+          if (!team) {
+            toast.error("Team not found")
+            return state
+          }
+
+          if (!team.settings.features.channels) {
+            toast.error("Channels are disabled for this team")
+            return state
+          }
+
+          const role = effectiveRole(state, parsed.data.teamId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const now = getNow()
+          conversationId = createId("conversation")
+
+          return {
+            ...state,
+            conversations: [
+              {
+                id: conversationId,
+                kind: "channel",
+                scopeType: "team",
+                scopeId: parsed.data.teamId,
+                variant: "team",
+                title: parsed.data.title,
+                description: parsed.data.description.trim(),
+                participantIds: getTeamMemberIds(state, parsed.data.teamId),
+                createdBy: state.currentUserId,
+                createdAt: now,
+                updatedAt: now,
+                lastActivityAt: now,
+              },
+              ...state.conversations,
+            ],
+          }
+        })
+
+        if (!conversationId) {
+          return null
+        }
+
+        syncInBackground(
+          syncCreateChannel(parsed.data),
+          "Failed to create channel"
+        )
+
+        toast.success("Channel created")
+        return conversationId
+      },
+      sendChatMessage(input) {
+        const parsed = chatMessageSchema.safeParse(input)
+        if (!parsed.success) {
+          return
+        }
+
+        set((state) => {
+          const conversation = state.conversations.find(
+            (entry) => entry.id === parsed.data.conversationId
+          )
+
+          if (!conversation || conversation.kind !== "chat") {
+            return state
+          }
+
+          if (conversation.scopeType === "workspace") {
+            if (!conversation.participantIds.includes(state.currentUserId)) {
+              toast.error("You do not have access to this chat")
+              return state
+            }
+          } else {
+            const role = effectiveRole(state, conversation.scopeId)
+            if (role === "viewer" || role === "guest" || !role) {
+              toast.error("Your current role is read-only")
+              return state
+            }
+          }
+
+          const now = getNow()
+
+          return {
+            ...state,
+            chatMessages: [
+              ...state.chatMessages,
+              {
+                id: createId("chat_message"),
+                conversationId: conversation.id,
+                content: parsed.data.content.trim(),
+                mentionUserIds: createMentionIds(parsed.data.content, state.users),
+                createdBy: state.currentUserId,
+                createdAt: now,
+              },
+            ],
+            conversations: state.conversations.map((entry) =>
+              entry.id === conversation.id
+                ? {
+                    ...entry,
+                    updatedAt: now,
+                    lastActivityAt: now,
+                  }
+                : entry
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncSendChatMessage(parsed.data.conversationId, parsed.data.content),
+          "Failed to send message"
+        )
+      },
+      createChannelPost(input) {
+        const parsed = channelPostSchema.safeParse(input)
+        if (!parsed.success) {
+          toast.error("Post details are invalid")
+          return
+        }
+
+        set((state) => {
+          const conversation = state.conversations.find(
+            (entry) => entry.id === parsed.data.conversationId
+          )
+
+          if (!conversation || conversation.kind !== "channel") {
+            return state
+          }
+
+          const role = effectiveRole(state, conversation.scopeId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const now = getNow()
+
+          return {
+            ...state,
+            channelPosts: [
+              {
+                id: createId("channel_post"),
+                conversationId: conversation.id,
+                title: parsed.data.title,
+                content: parsed.data.content.trim(),
+                createdBy: state.currentUserId,
+                createdAt: now,
+                updatedAt: now,
+              },
+              ...state.channelPosts,
+            ],
+            conversations: state.conversations.map((entry) =>
+              entry.id === conversation.id
+                ? {
+                    ...entry,
+                    updatedAt: now,
+                    lastActivityAt: now,
+                  }
+                : entry
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncCreateChannelPost(parsed.data),
+          "Failed to create post"
+        )
+
+        toast.success("Post published")
+      },
+      addChannelPostComment(input) {
+        const parsed = channelPostCommentSchema.safeParse(input)
+        if (!parsed.success) {
+          return
+        }
+
+        set((state) => {
+          const post = state.channelPosts.find((entry) => entry.id === parsed.data.postId)
+          if (!post) {
+            return state
+          }
+
+          const conversation = state.conversations.find(
+            (entry) => entry.id === post.conversationId
+          )
+          if (!conversation || conversation.kind !== "channel") {
+            return state
+          }
+
+          const role = effectiveRole(state, conversation.scopeId)
+          if (role === "viewer" || role === "guest" || !role) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
+          const now = getNow()
+
+          return {
+            ...state,
+            channelPostComments: [
+              ...state.channelPostComments,
+              {
+                id: createId("channel_comment"),
+                postId: post.id,
+                content: parsed.data.content.trim(),
+                mentionUserIds: createMentionIds(parsed.data.content, state.users),
+                createdBy: state.currentUserId,
+                createdAt: now,
+              },
+            ],
+            channelPosts: state.channelPosts.map((entry) =>
+              entry.id === post.id ? { ...entry, updatedAt: now } : entry
+            ),
+            conversations: state.conversations.map((entry) =>
+              entry.id === conversation.id
+                ? {
+                    ...entry,
+                    updatedAt: now,
+                    lastActivityAt: now,
+                  }
+                : entry
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncAddChannelPostComment(parsed.data.postId, parsed.data.content),
+          "Failed to post reply"
+        )
       },
       createInvite(input) {
         const parsed = inviteSchema.safeParse(input)
@@ -1224,20 +1745,55 @@ export const useAppStore = create<AppStore>()(
           toast.error("Document input is invalid")
           return
         }
+        const documentInput = parsed.data
 
         set((state) => {
-          const role = effectiveRole(state, parsed.data.teamId)
-          if (role === "viewer" || role === "guest" || !role) {
+          if (documentInput.kind === "team-document") {
+            const workspaceId =
+              state.teams.find((team) => team.id === documentInput.teamId)?.workspaceId ?? ""
+            const role = effectiveRole(state, documentInput.teamId)
+            if (role === "viewer" || role === "guest" || !role) {
+              toast.error("Your current role is read-only")
+              return state
+            }
+            const document = {
+              id: createId("document"),
+              kind: documentInput.kind,
+              workspaceId,
+              teamId: documentInput.teamId,
+              title: documentInput.title,
+              content: `<h1>${documentInput.title}</h1><p>New team document.</p>`,
+              linkedProjectIds: [],
+              linkedWorkItemIds: [],
+              createdBy: state.currentUserId,
+              updatedBy: state.currentUserId,
+              createdAt: getNow(),
+              updatedAt: getNow(),
+            }
+
+            return {
+              ...state,
+              documents: [document, ...state.documents],
+            }
+          }
+
+          if (!canEditWorkspaceDocuments(state, documentInput.workspaceId)) {
             toast.error("Your current role is read-only")
             return state
           }
 
+          const contentTemplate =
+            documentInput.kind === "private-document"
+              ? "New private document."
+              : "New workspace document."
+
           const document = {
             id: createId("document"),
-            kind: "team-document" as const,
-            teamId: parsed.data.teamId,
-            title: parsed.data.title,
-            content: `<h1>${parsed.data.title}</h1><p>New team document.</p>`,
+            kind: documentInput.kind,
+            workspaceId: documentInput.workspaceId,
+            teamId: null,
+            title: documentInput.title,
+            content: `<h1>${documentInput.title}</h1><p>${contentTemplate}</p>`,
             linkedProjectIds: [],
             linkedWorkItemIds: [],
             createdBy: state.currentUserId,
@@ -1253,11 +1809,7 @@ export const useAppStore = create<AppStore>()(
         })
 
         syncInBackground(
-          syncCreateDocument(
-            useAppStore.getState().currentUserId,
-            parsed.data.teamId,
-            parsed.data.title
-          ),
+          syncCreateDocument(useAppStore.getState().currentUserId, documentInput),
           "Failed to create document"
         )
 
@@ -1287,6 +1839,8 @@ export const useAppStore = create<AppStore>()(
           const descriptionDoc = {
             id: descriptionDocId,
             kind: "item-description" as const,
+            workspaceId:
+              state.teams.find((team) => team.id === parsed.data.teamId)?.workspaceId ?? "",
             teamId: parsed.data.teamId,
             title: `${parsed.data.title} description`,
             content: `<p>Add a fuller description for ${parsed.data.title}.</p>`,

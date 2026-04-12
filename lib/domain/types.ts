@@ -13,6 +13,13 @@ export const templateTypes = [
 ] as const
 export type TemplateType = (typeof templateTypes)[number]
 
+export const teamExperienceTypes = [
+  "software-development",
+  "issue-analysis",
+  "community",
+] as const
+export type TeamExperienceType = (typeof teamExperienceTypes)[number]
+
 export const workItemTypes = [
   "epic",
   "feature",
@@ -113,8 +120,31 @@ export type CommentTargetType = (typeof commentTargetTypes)[number]
 export const attachmentTargetTypes = ["workItem", "document"] as const
 export type AttachmentTargetType = (typeof attachmentTargetTypes)[number]
 
-export const documentKinds = ["team-document", "item-description"] as const
+export const documentKinds = [
+  "team-document",
+  "workspace-document",
+  "private-document",
+  "item-description",
+] as const
 export type DocumentKind = (typeof documentKinds)[number]
+
+export const conversationKinds = ["chat", "channel"] as const
+export type ConversationKind = (typeof conversationKinds)[number]
+
+export const conversationScopeTypes = ["workspace", "team"] as const
+export type ConversationScopeType = (typeof conversationScopeTypes)[number]
+
+export const conversationVariants = ["direct", "group", "team"] as const
+export type ConversationVariant = (typeof conversationVariants)[number]
+
+export interface TeamFeatureSettings {
+  issues: boolean
+  projects: boolean
+  views: boolean
+  docs: boolean
+  chat: boolean
+  channels: boolean
+}
 
 export interface TeamTemplateConfig {
   defaultPriority: Priority
@@ -174,6 +204,8 @@ export interface Team {
     guestProjectIds: string[]
     guestDocumentIds: string[]
     guestWorkItemIds: string[]
+    experience: TeamExperienceType
+    features: TeamFeatureSettings
     workflow: TeamWorkflowSettings
   }
 }
@@ -260,7 +292,8 @@ export interface WorkItem {
 export interface Document {
   id: string
   kind: DocumentKind
-  teamId: string
+  workspaceId: string
+  teamId: string | null
   title: string
   content: string
   linkedProjectIds: string[]
@@ -350,6 +383,49 @@ export interface ProjectUpdate {
   createdAt: string
 }
 
+export interface Conversation {
+  id: string
+  kind: ConversationKind
+  scopeType: ConversationScopeType
+  scopeId: string
+  variant: ConversationVariant
+  title: string
+  description: string
+  participantIds: string[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  lastActivityAt: string
+}
+
+export interface ChatMessage {
+  id: string
+  conversationId: string
+  content: string
+  mentionUserIds: string[]
+  createdBy: string
+  createdAt: string
+}
+
+export interface ChannelPost {
+  id: string
+  conversationId: string
+  title: string
+  content: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChannelPostComment {
+  id: string
+  postId: string
+  content: string
+  mentionUserIds: string[]
+  createdBy: string
+  createdAt: string
+}
+
 export interface UiState {
   activeTeamId: string
   rolePreview: Role | null
@@ -375,6 +451,10 @@ export interface AppData {
   notifications: Notification[]
   invites: Invite[]
   projectUpdates: ProjectUpdate[]
+  conversations: Conversation[]
+  chatMessages: ChatMessage[]
+  channelPosts: ChannelPost[]
+  channelPostComments: ChannelPostComment[]
   ui: UiState
 }
 
@@ -403,6 +483,135 @@ export const templateMeta: Record<
     description: "Tasks and sub-tasks with milestones.",
     itemTypes: ["task", "sub-task"],
   },
+}
+
+export const teamExperienceMeta: Record<
+  TeamExperienceType,
+  {
+    label: string
+    description: string
+  }
+> = {
+  "software-development": {
+    label: "Software Development",
+    description:
+      "Issues, projects, and views are always enabled. Docs, chat, and channels are optional.",
+  },
+  "issue-analysis": {
+    label: "Issue Analysis",
+    description:
+      "Operational triage and analysis. Issues, projects, and views stay on; docs, chat, and channels are optional.",
+  },
+  community: {
+    label: "Community",
+    description:
+      "A lighter collaboration space that supports either chat or channels, but never both at once.",
+  },
+}
+
+export const teamFeatureMeta: Record<
+  keyof TeamFeatureSettings,
+  {
+    label: string
+    description: string
+  }
+> = {
+  issues: {
+    label: "Issues",
+    description: "Track work items and operational tasks.",
+  },
+  projects: {
+    label: "Projects",
+    description: "Group work and milestones under shared initiatives.",
+  },
+  views: {
+    label: "Views",
+    description: "Save list, board, and timeline configurations.",
+  },
+  docs: {
+    label: "Docs",
+    description: "Team and workspace documentation.",
+  },
+  chat: {
+    label: "Chat",
+    description: "Real-time threaded messaging.",
+  },
+  channels: {
+    label: "Channels",
+    description: "Forum-style posts with comments.",
+  },
+}
+
+export function createDefaultTeamFeatureSettings(
+  experience: TeamExperienceType = "software-development"
+): TeamFeatureSettings {
+  if (experience === "community") {
+    return {
+      issues: false,
+      projects: false,
+      views: false,
+      docs: false,
+      chat: true,
+      channels: false,
+    }
+  }
+
+  return {
+    issues: true,
+    projects: true,
+    views: true,
+    docs: true,
+    chat: false,
+    channels: false,
+  }
+}
+
+export function getTeamFeatureValidationMessage(
+  experience: TeamExperienceType,
+  features: TeamFeatureSettings
+) {
+  if (experience === "community") {
+    if (features.issues || features.projects || features.views || features.docs) {
+      return "Community teams can only enable chat or channels."
+    }
+
+    if (Number(features.chat) + Number(features.channels) !== 1) {
+      return "Community teams must enable exactly one of chat or channels."
+    }
+
+    return null
+  }
+
+  if (!features.issues || !features.projects || !features.views) {
+    return "Software development and issue analysis teams must include issues, projects, and views."
+  }
+
+  return null
+}
+
+export function normalizeTeamFeatureSettings(
+  experience: TeamExperienceType | null | undefined,
+  features:
+    | Partial<TeamFeatureSettings>
+    | TeamFeatureSettings
+    | null
+    | undefined
+) {
+  const resolvedExperience = experience ?? "software-development"
+  const merged = {
+    ...createDefaultTeamFeatureSettings(resolvedExperience),
+    ...(features ?? {}),
+  }
+  const validationMessage = getTeamFeatureValidationMessage(
+    resolvedExperience,
+    merged
+  )
+
+  if (validationMessage) {
+    return createDefaultTeamFeatureSettings(resolvedExperience)
+  }
+
+  return merged
 }
 
 export function createDefaultTeamWorkflowSettings(): TeamWorkflowSettings {
@@ -506,6 +715,28 @@ export const teamDetailsSchema = z.object({
     .min(4)
     .max(24)
     .regex(/^[a-zA-Z0-9_-]+$/, "Join code can only contain letters, numbers, dashes, and underscores"),
+  experience: z.enum(teamExperienceTypes),
+  features: z.object({
+    issues: z.boolean(),
+    projects: z.boolean(),
+    views: z.boolean(),
+    docs: z.boolean(),
+    chat: z.boolean(),
+    channels: z.boolean(),
+  }),
+}).superRefine((value, ctx) => {
+  const validationMessage = getTeamFeatureValidationMessage(
+    value.experience,
+    value.features
+  )
+
+  if (validationMessage) {
+    ctx.addIssue({
+      code: "custom",
+      message: validationMessage,
+      path: ["features"],
+    })
+  }
 })
 
 export const appWorkspaceBootstrapSchema = z.object({
@@ -561,15 +792,67 @@ export const workItemSchema = z.object({
   priority: z.enum(priorities),
 })
 
-export const documentSchema = z.object({
-  teamId: z.string().min(1),
+const createDocumentBaseSchema = {
   title: z.string().trim().min(2).max(80),
-})
+}
+
+export const documentSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("team-document"),
+    teamId: z.string().min(1),
+    ...createDocumentBaseSchema,
+  }),
+  z.object({
+    kind: z.literal("workspace-document"),
+    workspaceId: z.string().min(1),
+    ...createDocumentBaseSchema,
+  }),
+  z.object({
+    kind: z.literal("private-document"),
+    workspaceId: z.string().min(1),
+    ...createDocumentBaseSchema,
+  }),
+])
 
 export const commentSchema = z.object({
   targetType: z.enum(commentTargetTypes),
   targetId: z.string().min(1),
   content: z.string().trim().min(2).max(4000),
+})
+
+export const workspaceChatSchema = z.object({
+  workspaceId: z.string().min(1),
+  participantIds: z.array(z.string().min(1)).min(1).max(24),
+  title: z.string().trim().max(80).default(""),
+  description: z.string().trim().max(180).default(""),
+})
+
+export const teamChatSchema = z.object({
+  teamId: z.string().min(1),
+  title: z.string().trim().min(2).max(80),
+  description: z.string().trim().max(180).default(""),
+})
+
+export const channelSchema = z.object({
+  teamId: z.string().min(1),
+  title: z.string().trim().min(2).max(80),
+  description: z.string().trim().min(2).max(180),
+})
+
+export const chatMessageSchema = z.object({
+  conversationId: z.string().min(1),
+  content: z.string().trim().min(1).max(4000),
+})
+
+export const channelPostSchema = z.object({
+  conversationId: z.string().min(1),
+  title: z.string().trim().min(2).max(120),
+  content: z.string().trim().min(2).max(8000),
+})
+
+export const channelPostCommentSchema = z.object({
+  postId: z.string().min(1),
+  content: z.string().trim().min(1).max(4000),
 })
 
 export const attachmentUploadUrlSchema = z.object({

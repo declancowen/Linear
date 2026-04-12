@@ -20,7 +20,7 @@ export default function TeamDocsPage() {
       scopeId={team.id}
       scopeType="team"
       team={team}
-      title={`${team.name} docs`}
+      title="Docs"
       description="Free-standing team documents with workspace aggregation."
     />
   )

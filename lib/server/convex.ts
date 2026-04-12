@@ -349,13 +349,80 @@ export async function updateTeamDetailsServer(input: {
   icon: string
   summary: string
   joinCode: string
+  experience: "software-development" | "issue-analysis" | "community"
+  features: {
+    issues: boolean
+    projects: boolean
+    views: boolean
+    docs: boolean
+    chat: boolean
+    channels: boolean
+  }
 }) {
   return getConvexServerClient().mutation(api.app.updateTeamDetails, input)
 }
 
-export async function createDocumentServer(input: {
+export async function createWorkspaceChatServer(input: {
+  currentUserId: string
+  workspaceId: string
+  participantIds: string[]
+  title: string
+  description: string
+}) {
+  return getConvexServerClient().mutation(api.app.createWorkspaceChat, input)
+}
+
+export async function ensureTeamChatServer(input: {
   currentUserId: string
   teamId: string
+  title: string
+  description: string
+}) {
+  return getConvexServerClient().mutation(api.app.ensureTeamChat, input)
+}
+
+export async function createChannelServer(input: {
+  currentUserId: string
+  teamId: string
+  title: string
+  description: string
+}) {
+  return getConvexServerClient().mutation(api.app.createChannel, input)
+}
+
+export async function sendChatMessageServer(input: {
+  currentUserId: string
+  conversationId: string
+  content: string
+}) {
+  return getConvexServerClient().mutation(api.app.sendChatMessage, input)
+}
+
+export async function createChannelPostServer(input: {
+  currentUserId: string
+  conversationId: string
+  title: string
+  content: string
+}) {
+  return getConvexServerClient().mutation(api.app.createChannelPost, input)
+}
+
+export async function addChannelPostCommentServer(input: {
+  currentUserId: string
+  postId: string
+  content: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.addChannelPostComment,
+    input
+  )
+}
+
+export async function createDocumentServer(input: {
+  currentUserId: string
+  kind: "team-document" | "workspace-document" | "private-document"
+  teamId?: string
+  workspaceId?: string
   title: string
 }) {
   return getConvexServerClient().mutation(api.app.createDocument, input)

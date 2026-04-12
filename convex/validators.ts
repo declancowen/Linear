@@ -17,6 +17,12 @@ const templateTypeLiterals = [
   v.literal("project-management"),
 ] as const
 
+const teamExperienceTypeLiterals = [
+  v.literal("software-development"),
+  v.literal("issue-analysis"),
+  v.literal("community"),
+] as const
+
 const workItemTypeLiterals = [
   v.literal("epic"),
   v.literal("feature"),
@@ -129,7 +135,25 @@ const attachmentTargetTypeLiterals = [
 
 const documentKindLiterals = [
   v.literal("team-document"),
+  v.literal("workspace-document"),
+  v.literal("private-document"),
   v.literal("item-description"),
+] as const
+
+const conversationKindLiterals = [
+  v.literal("chat"),
+  v.literal("channel"),
+] as const
+
+const conversationScopeTypeLiterals = [
+  v.literal("workspace"),
+  v.literal("team"),
+] as const
+
+const conversationVariantLiterals = [
+  v.literal("direct"),
+  v.literal("group"),
+  v.literal("team"),
 ] as const
 
 const notificationEntityTypeLiterals = [
@@ -142,6 +166,7 @@ const notificationEntityTypeLiterals = [
 export const roleValidator = v.union(...roleLiterals)
 export const scopeTypeValidator = v.union(...scopeTypeLiterals)
 export const templateTypeValidator = v.union(...templateTypeLiterals)
+export const teamExperienceTypeValidator = v.union(...teamExperienceTypeLiterals)
 export const workItemTypeValidator = v.union(...workItemTypeLiterals)
 export const workStatusValidator = v.union(...workStatusLiterals)
 export const priorityValidator = v.union(...priorityLiterals)
@@ -157,6 +182,13 @@ export const orderingFieldValidator = v.union(...orderingFieldLiterals)
 export const commentTargetTypeValidator = v.union(...commentTargetTypeLiterals)
 export const attachmentTargetTypeValidator = v.union(...attachmentTargetTypeLiterals)
 export const documentKindValidator = v.union(...documentKindLiterals)
+export const conversationKindValidator = v.union(...conversationKindLiterals)
+export const conversationScopeTypeValidator = v.union(
+  ...conversationScopeTypeLiterals
+)
+export const conversationVariantValidator = v.union(
+  ...conversationVariantLiterals
+)
 export const notificationEntityTypeValidator = v.union(
   ...notificationEntityTypeLiterals
 )
@@ -171,6 +203,14 @@ export const teamTemplateConfigValidator = v.object({
 export const teamWorkflowSettingsValidator = v.object({
   statusOrder: v.array(workStatusValidator),
   templateDefaults: v.record(v.string(), teamTemplateConfigValidator),
+})
+export const teamFeatureSettingsValidator = v.object({
+  issues: v.boolean(),
+  projects: v.boolean(),
+  views: v.boolean(),
+  docs: v.boolean(),
+  chat: v.boolean(),
+  channels: v.boolean(),
 })
 
 export const workspaceFields = {
@@ -197,6 +237,8 @@ export const teamFields = {
     guestProjectIds: v.array(v.string()),
     guestDocumentIds: v.array(v.string()),
     guestWorkItemIds: v.array(v.string()),
+    experience: v.optional(teamExperienceTypeValidator),
+    features: v.optional(teamFeatureSettingsValidator),
     workflow: v.optional(teamWorkflowSettingsValidator),
   }),
 }
@@ -283,7 +325,8 @@ export const workItemFields = {
 export const documentFields = {
   id: v.string(),
   kind: documentKindValidator,
-  teamId: v.string(),
+  workspaceId: v.string(),
+  teamId: nullableString,
   title: v.string(),
   content: v.string(),
   linkedProjectIds: v.array(v.string()),
@@ -387,6 +430,49 @@ export const projectUpdateFields = {
   id: v.string(),
   projectId: v.string(),
   content: v.string(),
+  createdBy: v.string(),
+  createdAt: v.string(),
+}
+
+export const conversationFields = {
+  id: v.string(),
+  kind: conversationKindValidator,
+  scopeType: conversationScopeTypeValidator,
+  scopeId: v.string(),
+  variant: conversationVariantValidator,
+  title: v.string(),
+  description: v.string(),
+  participantIds: v.array(v.string()),
+  createdBy: v.string(),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+  lastActivityAt: v.string(),
+}
+
+export const chatMessageFields = {
+  id: v.string(),
+  conversationId: v.string(),
+  content: v.string(),
+  mentionUserIds: v.array(v.string()),
+  createdBy: v.string(),
+  createdAt: v.string(),
+}
+
+export const channelPostFields = {
+  id: v.string(),
+  conversationId: v.string(),
+  title: v.string(),
+  content: v.string(),
+  createdBy: v.string(),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const channelPostCommentFields = {
+  id: v.string(),
+  postId: v.string(),
+  content: v.string(),
+  mentionUserIds: v.array(v.string()),
   createdBy: v.string(),
   createdAt: v.string(),
 }

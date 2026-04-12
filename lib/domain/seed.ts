@@ -2,7 +2,11 @@ import { addDays, subDays } from "date-fns"
 
 import type {
   AppData,
+  ChannelPost,
+  ChannelPostComment,
+  ChatMessage,
   Comment,
+  Conversation,
   Document,
   Invite,
   Label,
@@ -17,7 +21,10 @@ import type {
   Workspace,
   WorkItem,
 } from "@/lib/domain/types"
-import { createDefaultTeamWorkflowSettings } from "@/lib/domain/types"
+import {
+  createDefaultTeamFeatureSettings,
+  createDefaultTeamWorkflowSettings,
+} from "@/lib/domain/types"
 
 function iso(date: Date) {
   return date.toISOString()
@@ -95,6 +102,12 @@ export function createSeedState(): AppData {
         guestProjectIds: ["project_release_hub"],
         guestDocumentIds: ["doc_release_playbook"],
         guestWorkItemIds: ["item_auth_reliability"],
+        experience: "software-development",
+        features: {
+          ...createDefaultTeamFeatureSettings("software-development"),
+          chat: true,
+          channels: true,
+        },
         workflow: recipeWorkflow,
       },
     },
@@ -110,6 +123,11 @@ export function createSeedState(): AppData {
         guestProjectIds: [],
         guestDocumentIds: [],
         guestWorkItemIds: [],
+        experience: "issue-analysis",
+        features: {
+          ...createDefaultTeamFeatureSettings("issue-analysis"),
+          chat: true,
+        },
         workflow: developmentWorkflow,
       },
     },
@@ -125,6 +143,8 @@ export function createSeedState(): AppData {
         guestProjectIds: [],
         guestDocumentIds: [],
         guestWorkItemIds: [],
+        experience: "community",
+        features: createDefaultTeamFeatureSettings("community"),
         workflow: operationsWorkflow,
       },
     },
@@ -350,6 +370,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_item_routes",
       kind: "item-description",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Routes description",
       content: startHtml(
@@ -366,6 +387,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_item_rls",
       kind: "item-description",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Review RLS description",
       content: startHtml(
@@ -382,6 +404,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_item_auth",
       kind: "item-description",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Auth reliability description",
       content: startHtml(
@@ -398,6 +421,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_item_mobile_cards",
       kind: "item-description",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Mobile cards description",
       content: startHtml(
@@ -414,6 +438,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_item_release",
       kind: "item-description",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Release notes description",
       content: startHtml(
@@ -433,6 +458,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_release_playbook",
       kind: "team-document",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Release Playbook",
       content:
@@ -447,6 +473,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_shell_inventory",
       kind: "team-document",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Shell Inventory",
       content:
@@ -461,6 +488,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_platform_principles",
       kind: "team-document",
+      workspaceId: workspace.id,
       teamId: "team_development",
       title: "Platform Principles",
       content:
@@ -475,6 +503,7 @@ export function createSeedState(): AppData {
     {
       id: "doc_qa_matrix",
       kind: "team-document",
+      workspaceId: workspace.id,
       teamId: "team_recipe_room",
       title: "Permission QA Matrix",
       content:
@@ -485,6 +514,72 @@ export function createSeedState(): AppData {
       updatedBy: "user_idris",
       createdAt: iso(subDays(now, 9)),
       updatedAt: iso(subDays(now, 2)),
+    },
+  ]
+
+  const workspaceDocs: Document[] = [
+    {
+      id: "doc_workspace_operating_system",
+      kind: "workspace-document",
+      workspaceId: workspace.id,
+      teamId: null,
+      title: "Workspace Operating System",
+      content:
+        "<h1>Workspace Operating System</h1><p>Shared principles for how teams should structure projects, work, docs, and release coordination across the workspace.</p><ul><li>Use team docs for execution detail</li><li>Use workspace docs for shared standards</li><li>Keep private docs for rough thinking</li></ul>",
+      linkedProjectIds: ["project_release_hub"],
+      linkedWorkItemIds: [],
+      createdBy: "user_declan",
+      updatedBy: "user_declan",
+      createdAt: iso(subDays(now, 13)),
+      updatedAt: iso(subDays(now, 1)),
+    },
+    {
+      id: "doc_workspace_release_readiness",
+      kind: "workspace-document",
+      workspaceId: workspace.id,
+      teamId: null,
+      title: "Workspace Release Readiness",
+      content:
+        "<h1>Workspace Release Readiness</h1><p>Cross-team launch risks, ownership gaps, and rollout sequencing for the current milestone window.</p>",
+      linkedProjectIds: ["project_release_hub", "project_platform_docs"],
+      linkedWorkItemIds: [],
+      createdBy: "user_maya",
+      updatedBy: "user_sofia",
+      createdAt: iso(subDays(now, 10)),
+      updatedAt: iso(subDays(now, 2)),
+    },
+  ]
+
+  const privateDocs: Document[] = [
+    {
+      id: "doc_private_notes_declan",
+      kind: "private-document",
+      workspaceId: workspace.id,
+      teamId: null,
+      title: "Founder Notes",
+      content:
+        "<h1>Founder Notes</h1><p>Scratchpad for product framing, rough interface calls, and things to test before they become shared docs.</p>",
+      linkedProjectIds: [],
+      linkedWorkItemIds: [],
+      createdBy: "user_declan",
+      updatedBy: "user_declan",
+      createdAt: iso(subDays(now, 7)),
+      updatedAt: iso(subDays(now, 1)),
+    },
+    {
+      id: "doc_private_research_declan",
+      kind: "private-document",
+      workspaceId: workspace.id,
+      teamId: null,
+      title: "Research Dump",
+      content:
+        "<h1>Research Dump</h1><p>Loose notes on navigation, document management, and collection affordances before we turn them into shared decisions.</p>",
+      linkedProjectIds: [],
+      linkedWorkItemIds: [],
+      createdBy: "user_declan",
+      updatedBy: "user_declan",
+      createdAt: iso(subDays(now, 6)),
+      updatedAt: iso(subDays(now, 0)),
     },
   ]
 
@@ -731,7 +826,7 @@ export function createSeedState(): AppData {
     },
   ]
 
-  const documents = [...descriptionDocs, ...teamDocs]
+  const documents = [...descriptionDocs, ...teamDocs, ...workspaceDocs, ...privateDocs]
 
   const comments: Comment[] = [
     {
@@ -1009,6 +1104,190 @@ export function createSeedState(): AppData {
     },
   ]
 
+  const conversations: Conversation[] = [
+    {
+      id: "conversation_workspace_direct_maya",
+      kind: "chat",
+      scopeType: "workspace",
+      scopeId: workspace.id,
+      variant: "direct",
+      title: "Maya Chen",
+      description: "Direct workspace chat",
+      participantIds: ["user_declan", "user_maya"],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 6)),
+      updatedAt: iso(subDays(now, 0)),
+      lastActivityAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "conversation_workspace_group_launch",
+      kind: "chat",
+      scopeType: "workspace",
+      scopeId: workspace.id,
+      variant: "group",
+      title: "Launch Room",
+      description: "Cross-workspace coordination chat for launch planning.",
+      participantIds: ["user_declan", "user_maya", "user_sofia", "user_idris"],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 4)),
+      updatedAt: iso(subDays(now, 0)),
+      lastActivityAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "conversation_team_recipe_chat",
+      kind: "chat",
+      scopeType: "team",
+      scopeId: "team_recipe_room",
+      variant: "team",
+      title: "Recipe Room chat",
+      description: "Fast-moving team discussion for delivery and release work.",
+      participantIds: [
+        "user_declan",
+        "user_maya",
+        "user_sofia",
+        "user_idris",
+        "user_theo",
+      ],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 5)),
+      updatedAt: iso(subDays(now, 0)),
+      lastActivityAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "conversation_team_development_chat",
+      kind: "chat",
+      scopeType: "team",
+      scopeId: "team_development",
+      variant: "team",
+      title: "Development chat",
+      description: "Implementation coordination and architecture notes.",
+      participantIds: ["user_declan", "user_maya", "user_sofia", "user_idris"],
+      createdBy: "user_maya",
+      createdAt: iso(subDays(now, 3)),
+      updatedAt: iso(subDays(now, 0)),
+      lastActivityAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "conversation_channel_release",
+      kind: "channel",
+      scopeType: "team",
+      scopeId: "team_recipe_room",
+      variant: "team",
+      title: "Release Announcements",
+      description: "Launch notes, blockers, and updates that need comments instead of chat replies.",
+      participantIds: [
+        "user_declan",
+        "user_maya",
+        "user_sofia",
+        "user_idris",
+        "user_theo",
+      ],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 7)),
+      updatedAt: iso(subDays(now, 0)),
+      lastActivityAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "conversation_channel_design",
+      kind: "channel",
+      scopeType: "team",
+      scopeId: "team_recipe_room",
+      variant: "team",
+      title: "Design Reviews",
+      description: "Structured feedback threads for interaction and UI decisions.",
+      participantIds: ["user_declan", "user_maya", "user_sofia", "user_idris"],
+      createdBy: "user_sofia",
+      createdAt: iso(subDays(now, 5)),
+      updatedAt: iso(subDays(now, 1)),
+      lastActivityAt: iso(subDays(now, 1)),
+    },
+  ]
+
+  const chatMessages: ChatMessage[] = [
+    {
+      id: "chat_message_maya_1",
+      conversationId: "conversation_workspace_direct_maya",
+      content: "Can we keep the launch room for blockers and use this thread for implementation decisions?",
+      mentionUserIds: [],
+      createdBy: "user_maya",
+      createdAt: iso(subDays(now, 1)),
+    },
+    {
+      id: "chat_message_maya_2",
+      conversationId: "conversation_workspace_direct_maya",
+      content: "Yes. I also want the team chat to carry a video placeholder for the 100MS handoff later.",
+      mentionUserIds: [],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "chat_message_launch_1",
+      conversationId: "conversation_workspace_group_launch",
+      content: "Posting final QA blockers here so launch comms and design stay aligned.",
+      mentionUserIds: [],
+      createdBy: "user_idris",
+      createdAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "chat_message_recipe_1",
+      conversationId: "conversation_team_recipe_chat",
+      content: "Channel work should feel slower and structured. Team chat should stay real-time.",
+      mentionUserIds: [],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "chat_message_dev_1",
+      conversationId: "conversation_team_development_chat",
+      content: "Schema work is first. Once snapshot sync lands, the UI will follow quickly.",
+      mentionUserIds: [],
+      createdBy: "user_maya",
+      createdAt: iso(subDays(now, 0)),
+    },
+  ]
+
+  const channelPosts: ChannelPost[] = [
+    {
+      id: "channel_post_release_ready",
+      conversationId: "conversation_channel_release",
+      title: "Launch Readiness Snapshot",
+      content:
+        "Auth reliability is the last red flag. Docs and release notes are green, but QA still needs one more pass tomorrow morning.",
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 1)),
+      updatedAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "channel_post_design_docs",
+      conversationId: "conversation_channel_design",
+      title: "Document Board Direction",
+      content:
+        "The docs index should feel calmer than the issues board. Keep the cards more editorial and reduce chrome around metadata.",
+      createdBy: "user_sofia",
+      createdAt: iso(subDays(now, 2)),
+      updatedAt: iso(subDays(now, 1)),
+    },
+  ]
+
+  const channelPostComments: ChannelPostComment[] = [
+    {
+      id: "channel_comment_release_1",
+      postId: "channel_post_release_ready",
+      content: "Agreed. I’ll handle the release note polish while QA finishes the final pass.",
+      mentionUserIds: [],
+      createdBy: "user_theo",
+      createdAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "channel_comment_design_1",
+      postId: "channel_post_design_docs",
+      content: "That direction works. We should also show the document scope label more clearly.",
+      mentionUserIds: [],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 1)),
+    },
+  ]
+
   return {
     currentUserId: "user_declan",
     currentWorkspaceId: workspace.id,
@@ -1027,6 +1306,10 @@ export function createSeedState(): AppData {
     notifications,
     invites,
     projectUpdates,
+    conversations,
+    chatMessages,
+    channelPosts,
+    channelPostComments,
     ui: {
       activeTeamId: "team_recipe_room",
       rolePreview: null,

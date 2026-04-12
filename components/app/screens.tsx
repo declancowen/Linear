@@ -28,11 +28,13 @@ import {
   CaretRight,
   Circle,
   CheckCircle,
+  CodesandboxLogo,
   DotsSixVertical,
   DotsThree,
   FadersHorizontal,
   GearSix,
   Kanban,
+  NotePencil,
   Plus,
   Rows,
   XCircle,
@@ -43,22 +45,26 @@ import {
   canAdminTeam,
   canEditTeam,
   getCommentsForTarget,
+  getDocumentContextLabel,
   getDocument,
-  getDocumentsForScope,
   getItemAssignees,
+  getPrivateDocuments,
   getProject,
   getProjectProgress,
   getProjectsForScope,
   getTeam,
   getTeamBySlug,
+  getTeamDocuments,
   getTemplateDefaultsForTeam,
   getUser,
   getViewByRoute,
   getViewsForScope,
   getVisibleWorkItems,
+  getWorkspaceDocuments,
   getStatusOrderForTeam,
   itemMatchesView,
   sortItems,
+  teamHasFeature,
 } from "@/lib/domain/selectors"
 import {
   priorityMeta,
@@ -66,6 +72,7 @@ import {
   statusMeta,
   templateMeta,
   type AppData,
+  type Document,
   type DisplayProperty,
   type GroupField,
   type OrderingField,
@@ -108,6 +115,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
   Table,
   TableBody,
@@ -200,6 +208,10 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
 
   if (!team) {
     return <MissingState title="Team not found" />
+  }
+
+  if (!teamHasFeature(team, "issues")) {
+    return <MissingState title="Issues are disabled for this team" />
   }
 
   const views = getViewsForScope(data, "team", team.id, "items")
@@ -370,7 +382,6 @@ export function ProjectsScreen({
   scopeId,
   team,
   title,
-  description,
 }: {
   scopeType: ScopeType
   scopeId: string
@@ -393,25 +404,33 @@ export function ProjectsScreen({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
+  if (team && !teamHasFeature(team, "projects")) {
+    return <MissingState title="Projects are disabled for this team" />
+  }
+
   return (
     <div className="flex flex-col">
-      <CollectionHeader
+      <ScreenHeader
         title={title}
-        description={description}
-        layout={layout}
-        onLayoutChange={setLayout}
         actions={
-          <div className="flex items-center gap-2">
-            {team && admin ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSettingsOpen(true)}
-              >
-                <GearSix className="size-3.5" />
-              </Button>
-            ) : null}
-            <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
+          <div className="flex items-center gap-1">
+            <CollectionDisplaySettingsPopover
+              layout={layout}
+              onLayoutChange={setLayout}
+              extraAction={
+                team && admin ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => setSettingsOpen(true)}
+                  >
+                    Team workflow settings
+                  </Button>
+                ) : null
+              }
+            />
+            <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
               <Plus className="size-3.5" />
             </Button>
           </div>
@@ -439,7 +458,7 @@ export function ProjectsScreen({
       ) : layout === "board" ? (
         <ProjectBoard data={data} projects={projects} />
       ) : (
-        <div className="px-6 py-4">
+        <div className="px-6">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -496,7 +515,6 @@ export function ViewsScreen({
   scopeType,
   scopeId,
   title,
-  description,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
@@ -504,17 +522,50 @@ export function ViewsScreen({
   description?: string
 }) {
   const data = useAppStore()
+  const [layout, setLayout] = useState<"list" | "board">("list")
+  const [sortBy, setSortBy] = useState<"updated" | "name" | "entity">("updated")
+  const [showDescriptions, setShowDescriptions] = useState(true)
   const views = data.views.filter(
     (view) => view.scopeType === scopeType && view.scopeId === scopeId
   )
+  const orderedViews = [...views].sort((left, right) => {
+    if (sortBy === "name") {
+      return left.name.localeCompare(right.name)
+    }
+
+    if (sortBy === "entity") {
+      return (
+        formatEntityKind(left.entityKind).localeCompare(formatEntityKind(right.entityKind)) ||
+        left.name.localeCompare(right.name)
+      )
+    }
+
+    return right.updatedAt.localeCompare(left.updatedAt)
+  })
 
   return (
     <div className="flex flex-col">
-      <CollectionHeader title={title} description={description} />
+      <ScreenHeader
+        title={title}
+        actions={
+          <div className="flex items-center gap-1">
+            <ViewsDisplaySettingsPopover
+              layout={layout}
+              onLayoutChange={setLayout}
+              sortBy={sortBy}
+              showDescriptions={showDescriptions}
+              onSortByChange={setSortBy}
+              onShowDescriptionsChange={setShowDescriptions}
+            />
+          </div>
+        }
+      />
       {views.length === 0 ? (
         <MissingState title="No saved views yet" />
+      ) : layout === "board" ? (
+        <SavedViewsBoard views={orderedViews} showDescriptions={showDescriptions} />
       ) : (
-        <div className="px-6 py-4">
+        <div className="px-6">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -526,16 +577,24 @@ export function ViewsScreen({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {views.map((view) => (
+              {orderedViews.map((view) => (
                 <TableRow key={view.id}>
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
-                      <Link className="text-sm font-medium hover:underline" href={view.route}>
+                      <Link
+                        className="flex items-center gap-2 text-sm font-medium hover:underline"
+                        href={view.route}
+                      >
+                        <span className="text-muted-foreground">
+                          {getEntityKindIcon(view.entityKind)}
+                        </span>
                         {view.name}
                       </Link>
-                      <span className="text-xs text-muted-foreground">
-                        {view.description}
-                      </span>
+                      {showDescriptions ? (
+                        <span className="text-xs text-muted-foreground">
+                          {view.description}
+                        </span>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
@@ -570,7 +629,6 @@ export function DocsScreen({
   scopeId,
   team,
   title,
-  description,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
@@ -579,37 +637,104 @@ export function DocsScreen({
   description?: string
 }) {
   const data = useAppStore()
-  const documents = getDocumentsForScope(data, scopeType, scopeId)
-  const docViews = getViewsForScope(data, scopeType, scopeId, "docs")
-  const routeKey = team ? `/team/${team.slug}/docs` : "/workspace/docs"
-  const { layout, setLayout } = useCollectionLayout(routeKey, docViews)
+  const isWorkspaceDocs = scopeType === "workspace" && !team
+  const [activeTab, setActiveTab] = useState<"workspace" | "private">("workspace")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const teamRouteKey = team ? `/team/${team.slug}/docs` : "/workspace/docs/team"
+  const teamDocViews = team ? getViewsForScope(data, "team", scopeId, "docs") : []
+  const workspaceDocViews = isWorkspaceDocs
+    ? getViewsForScope(data, "workspace", scopeId, "docs")
+    : []
+  const teamLayoutState = useCollectionLayout(teamRouteKey, teamDocViews)
+  const workspaceLayoutState = useCollectionLayout("/workspace/docs", workspaceDocViews)
+  const privateLayoutState = useCollectionLayout("/workspace/docs/private", [])
+  const documents = isWorkspaceDocs
+    ? activeTab === "workspace"
+      ? getWorkspaceDocuments(data, scopeId)
+      : getPrivateDocuments(data, scopeId)
+    : getTeamDocuments(data, scopeId)
+  const { layout, setLayout } = isWorkspaceDocs
+    ? activeTab === "workspace"
+      ? workspaceLayoutState
+      : privateLayoutState
+    : teamLayoutState
+  const dialogInput = isWorkspaceDocs
+    ? activeTab === "workspace"
+      ? ({ kind: "workspace-document", workspaceId: scopeId } as const)
+      : ({ kind: "private-document", workspaceId: scopeId } as const)
+    : ({ kind: "team-document", teamId: team?.id ?? data.ui.activeTeamId } as const)
+  const editable = team ? canEditTeam(data, team.id) : true
+  const emptyTitle = isWorkspaceDocs
+    ? activeTab === "workspace"
+      ? "No workspace documents yet"
+      : "No private documents yet"
+    : "No documents yet"
+
+  if (team && !teamHasFeature(team, "docs")) {
+    return <MissingState title="Docs are disabled for this team" />
+  }
 
   return (
     <div className="flex flex-col">
-      <CollectionHeader
-        title={title}
-        description={description}
-        layout={layout}
-        onLayoutChange={setLayout}
-        actions={
-          <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
-            <Plus className="size-3.5" />
-          </Button>
-        }
-      />
+      {isWorkspaceDocs ? (
+        <div className={SCREEN_HEADER_CLASS_NAME}>
+          <div className="flex min-w-0 items-center gap-2">
+            <HeaderTitle title={title} />
+            <div className="flex items-center gap-1">
+              {(["workspace", "private"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  className={cn(
+                    "h-6 rounded-sm px-2 text-xs transition-colors",
+                    tab === activeTab
+                      ? "bg-accent font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab === "workspace" ? "Workspace" : "Private"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <CollectionDisplaySettingsPopover
+              layout={layout}
+              onLayoutChange={setLayout}
+            />
+            <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+              <Plus className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <ScreenHeader
+          title={title}
+          actions={
+            <div className="flex items-center gap-1">
+              <CollectionDisplaySettingsPopover
+                layout={layout}
+                onLayoutChange={setLayout}
+              />
+              <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+                <Plus className="size-3.5" />
+              </Button>
+            </div>
+          }
+        />
+      )}
       <CreateDocumentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        teamId={team?.id ?? data.ui.activeTeamId}
-        disabled={team ? !canEditTeam(data, team.id) : false}
+        input={dialogInput}
+        disabled={!editable}
       />
       {documents.length === 0 ? (
-        <MissingState title="No documents yet" />
+        <MissingState title={emptyTitle} />
       ) : layout === "board" ? (
         <DocumentBoard data={data} documents={documents} />
       ) : (
-        <div className="px-6 py-4">
+        <div className="px-6">
           <div className="flex flex-col">
             {documents.map((document) => (
               <Link
@@ -620,7 +745,7 @@ export function DocsScreen({
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium">{document.title}</span>
                   <span className="text-xs text-muted-foreground">
-                    {getTeam(data, document.teamId)?.name} · updated{" "}
+                    {getDocumentContextLabel(data, document)} · updated{" "}
                     {format(new Date(document.updatedAt), "MMM d")}
                   </span>
                 </div>
@@ -687,33 +812,94 @@ function ProjectBoard({
   )
 }
 
+function SavedViewsBoard({
+  views,
+  showDescriptions,
+}: {
+  views: ViewDefinition[]
+  showDescriptions: boolean
+}) {
+  return (
+    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
+      {views.map((view) => (
+        <Link
+          key={view.id}
+          className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+          href={view.route}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-muted-foreground">
+                {getEntityKindIcon(view.entityKind)}
+              </span>
+              <h2 className="truncate text-base font-medium leading-tight">{view.name}</h2>
+            </div>
+            <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </div>
+          {showDescriptions ? (
+            <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">
+              {view.description}
+            </p>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Badge variant="secondary">{formatEntityKind(view.entityKind)}</Badge>
+            <Badge variant="outline">{view.layout}</Badge>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-xs text-muted-foreground">Grouping</div>
+              <div className="truncate">
+                {view.grouping}
+                {view.subGrouping ? ` / ${view.subGrouping}` : ""}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Sharing</div>
+              <div>{view.isShared ? "Shared" : "Personal"}</div>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
 function DocumentBoard({
   data,
   documents,
 }: {
   data: AppData
-  documents: ReturnType<typeof getDocumentsForScope>
+  documents: Document[]
 }) {
   return (
     <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
       {documents.map((document) => (
         <Link
           key={document.id}
-          className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+          className="group flex h-full min-h-[17rem] flex-col rounded-lg border border-border/60 bg-background/80 px-5 py-5 transition-[border-color,background-color] hover:border-foreground/12 hover:bg-accent/[0.03]"
           href={`/docs/${document.id}`}
         >
-          <div className="flex items-start justify-between gap-3">
-            <Badge variant="outline" className="max-w-full truncate">
-              {getTeam(data, document.teamId)?.name ?? "Team doc"}
-            </Badge>
-            <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+          <div className="flex items-center justify-between gap-4">
+            <span className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              {getDocumentContextLabel(data, document)}
+            </span>
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              {format(new Date(document.updatedAt), "MMM d")}
+            </span>
           </div>
-          <h2 className="mt-4 text-base font-medium leading-tight">{document.title}</h2>
-          <p className="mt-3 line-clamp-4 text-sm text-muted-foreground">
-            {extractTextContent(document.content) || "Open document"}
-          </p>
-          <div className="mt-auto pt-4 text-xs text-muted-foreground">
-            Updated {format(new Date(document.updatedAt), "MMM d")}
+          <div className="mt-7 flex flex-1 flex-col">
+            <h2 className="text-[1.02rem] font-medium leading-6 tracking-[-0.012em] text-foreground/95">
+              {document.title}
+            </h2>
+            <p className="mt-3 line-clamp-6 text-[13px] leading-6 text-muted-foreground">
+              {extractTextContent(document.content) || "Open document"}
+            </p>
+            <div className="mt-auto flex items-center justify-between pt-8 text-muted-foreground">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em]">
+                Open
+              </span>
+              <ArrowSquareOut className="size-3.5 shrink-0 transition-colors group-hover:text-foreground" />
+            </div>
           </div>
         </Link>
       ))}
@@ -739,10 +925,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }))
 
   return (
-    <div className="flex flex-col h-[calc(100svh-3rem)]">
+      <div className="flex flex-col h-[calc(100svh-3rem)]">
       {/* Breadcrumb header */}
       <div className="flex items-center justify-between border-b px-6 py-2 shrink-0">
         <div className="flex items-center gap-2 text-sm">
+          <SidebarTrigger className="size-6 shrink-0" />
           <Link href={`/team/${team?.slug}/work`} className="text-muted-foreground hover:text-foreground">
             {team?.name}
           </Link>
@@ -917,6 +1104,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       {/* Header */}
       <div className="flex items-center justify-between border-b px-6 py-2">
         <div className="flex items-center gap-2 text-sm">
+          <SidebarTrigger className="size-6 shrink-0" />
           <span className="font-medium">{project.name}</span>
         </div>
       </div>
@@ -1043,19 +1231,22 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const data = useAppStore()
   const document = data.documents.find((entry) => entry.id === documentId)
 
-  if (!document || document.kind !== "team-document") {
+  if (!document || document.kind === "item-description") {
     return <MissingState title="Document not found" />
   }
 
-  const team = getTeam(data, document.teamId)
-  const editable = team ? canEditTeam(data, team.id) : false
+  const team = document.teamId ? getTeam(data, document.teamId) : null
+  const editable = document.kind === "team-document" ? !!team && canEditTeam(data, team.id) : true
 
   return (
     <div className="flex flex-col h-[calc(100svh-3rem)]">
       {/* Thin breadcrumb header */}
       <div className="flex items-center justify-between border-b px-6 py-2 shrink-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">{team?.name ?? "Private"}</span>
+          <SidebarTrigger className="size-6 shrink-0" />
+          <span className="text-muted-foreground">
+            {getDocumentContextLabel(data, document)}
+          </span>
           <CaretRight className="size-3 text-muted-foreground" />
           <span>{document.title}</span>
         </div>
@@ -1079,8 +1270,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
               }
             }
           }}
-          onUploadAttachment={(file) =>
-            useAppStore.getState().uploadAttachment("document", document.id, file)
+          onUploadAttachment={
+            document.kind === "team-document"
+              ? (file) =>
+                  useAppStore.getState().uploadAttachment("document", document.id, file)
+              : undefined
           }
         />
       </div>
@@ -1126,16 +1320,16 @@ function WorkSurface({
   return (
     <div className="flex flex-col">
       {/* Screen header with tabs */}
-      <div className="flex items-center justify-between border-b px-6 py-2">
-        <div className="flex items-center gap-1">
-          <h1 className="text-sm font-medium mr-3">{title}</h1>
+      <div className={SCREEN_HEADER_CLASS_NAME}>
+        <div className="flex min-w-0 items-center gap-2">
+          <HeaderTitle title={title} />
           {views.length > 0 && activeView ? (
-            <div className="flex items-center">
+            <div className="flex items-center gap-1">
               {views.map((view) => (
                 <button
                   key={view.id}
                   className={cn(
-                    "rounded-md px-2.5 py-1 text-sm transition-colors",
+                    "h-6 rounded-sm px-2 text-xs transition-colors",
                     view.id === activeView.id
                       ? "bg-accent font-medium"
                       : "text-muted-foreground hover:text-foreground"
@@ -1155,8 +1349,8 @@ function WorkSurface({
               <ViewConfigPopover view={activeView} />
             </>
           ) : null}
-          <Button size="icon-sm" variant="ghost" onClick={() => setDialogOpen(true)}>
-            <Plus className="size-4" />
+          <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+            <Plus className="size-3.5" />
           </Button>
         </div>
       </div>
@@ -1237,8 +1431,8 @@ function FilterPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="icon-sm" variant="ghost">
-          <FadersHorizontal className="size-4" />
+        <Button size="icon-xs" variant="ghost">
+          <FadersHorizontal className="size-3.5" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80">
@@ -1313,8 +1507,8 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="icon-sm" variant="ghost">
-          <GearSix className="size-4" />
+        <Button size="icon-xs" variant="ghost">
+          <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[22rem]">
@@ -2230,18 +2424,32 @@ function CreateProjectDialog({
 function CreateDocumentDialog({
   open,
   onOpenChange,
-  teamId,
+  input,
   disabled,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
+  input:
+    | { kind: "team-document"; teamId: string }
+    | { kind: "workspace-document" | "private-document"; workspaceId: string }
   disabled: boolean
 }) {
-  const [title, setTitle] = useState("New Team Document")
+  const defaultTitle =
+    input.kind === "private-document"
+      ? "New Private Document"
+      : input.kind === "workspace-document"
+        ? "New Workspace Document"
+        : "New Team Document"
+  const [title, setTitle] = useState(defaultTitle)
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setTitle(defaultTitle)
+    }
+    onOpenChange(nextOpen)
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create document</DialogTitle>
@@ -2261,7 +2469,7 @@ function CreateDocumentDialog({
           <Button
             disabled={disabled}
             onClick={() => {
-              useAppStore.getState().createDocument({ teamId, title })
+              useAppStore.getState().createDocument({ ...input, title })
               onOpenChange(false)
             }}
           >
@@ -2427,80 +2635,135 @@ function CreateWorkItemDialog({
 
 function ScreenHeader({
   title,
+  icon,
   actions,
 }: {
   title: string
+  icon?: React.ReactNode
   actions?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between border-b px-6 py-2">
-      <h1 className="text-sm font-medium">{title}</h1>
+    <div className={SCREEN_HEADER_CLASS_NAME}>
+      <HeaderTitle icon={icon} title={title} />
       {actions}
     </div>
   )
 }
 
-function CollectionHeader({
-  title,
-  description,
-  actions,
+function ViewsDisplaySettingsPopover({
   layout,
   onLayoutChange,
+  sortBy,
+  showDescriptions,
+  onSortByChange,
+  onShowDescriptionsChange,
 }: {
-  title: string
-  description?: string
-  actions?: React.ReactNode
-  layout?: "list" | "board"
-  onLayoutChange?: (layout: "list" | "board") => void
+  layout: "list" | "board"
+  onLayoutChange: (value: "list" | "board") => void
+  sortBy: "updated" | "name" | "entity"
+  showDescriptions: boolean
+  onSortByChange: (value: "updated" | "name" | "entity") => void
+  onShowDescriptionsChange: (value: boolean) => void
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b px-6 py-5 md:flex-row md:items-start md:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {layout && onLayoutChange ? (
-          <CollectionLayoutToggle layout={layout} onLayoutChange={onLayoutChange} />
-        ) : null}
-        {actions}
-      </div>
-    </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="icon-xs" variant="ghost">
+          <GearSix className="size-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56">
+        <div className="flex flex-col gap-3">
+          <ConfigSelect
+            label="Layout"
+            value={layout}
+            options={[
+              { value: "list", label: "List" },
+              { value: "board", label: "Board" },
+            ]}
+            onValueChange={(value) => onLayoutChange(value as "list" | "board")}
+          />
+          <ConfigSelect
+            label="Sort"
+            value={sortBy}
+            options={[
+              { value: "updated", label: "Updated" },
+              { value: "name", label: "Name" },
+              { value: "entity", label: "Entity" },
+            ]}
+            onValueChange={(value) =>
+              onSortByChange(value as "updated" | "name" | "entity")
+            }
+          />
+          <ConfigSelect
+            label="Descriptions"
+            value={showDescriptions ? "show" : "hide"}
+            options={[
+              { value: "show", label: "Show" },
+              { value: "hide", label: "Hide" },
+            ]}
+            onValueChange={(value) => onShowDescriptionsChange(value === "show")}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
-function CollectionLayoutToggle({
+function CollectionDisplaySettingsPopover({
   layout,
   onLayoutChange,
+  extraAction,
 }: {
   layout: "list" | "board"
   onLayoutChange: (layout: "list" | "board") => void
+  extraAction?: React.ReactNode
 }) {
   return (
-    <div className="flex rounded-lg border p-0.5">
-      {[
-        { value: "list", label: "List", icon: <Rows className="size-3.5" /> },
-        { value: "board", label: "Board", icon: <Kanban className="size-3.5" /> },
-      ].map((option) => (
-        <button
-          key={option.value}
-          className={cn(
-            "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            layout === option.value
-              ? "bg-accent font-medium"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-          onClick={() => onLayoutChange(option.value as "list" | "board")}
-          type="button"
-        >
-          {option.icon}
-          {option.label}
-        </button>
-      ))}
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="icon-xs" variant="ghost">
+          <GearSix className="size-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56">
+        <div className="flex flex-col gap-3">
+          <ConfigSelect
+            label="Layout"
+            value={layout}
+            options={[
+              { value: "list", label: "List" },
+              { value: "board", label: "Board" },
+            ]}
+            onValueChange={(value) => onLayoutChange(value as "list" | "board")}
+          />
+          {extraAction ? (
+            <>
+              <Separator />
+              {extraAction}
+            </>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+const SCREEN_HEADER_CLASS_NAME =
+  "flex min-h-10 items-center justify-between gap-2 border-b px-6 py-2"
+
+function HeaderTitle({
+  icon,
+  title,
+}: {
+  icon?: React.ReactNode
+  title: string
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <SidebarTrigger className="size-6 shrink-0" />
+      {icon ? <span className="shrink-0 text-muted-foreground">{icon}</span> : null}
+      <h1 className="truncate text-sm font-medium">{title}</h1>
     </div>
   )
 }
@@ -2699,6 +2962,18 @@ function formatEntityKind(entityKind: ViewDefinition["entityKind"]) {
   }
 
   return "Docs"
+}
+
+function getEntityKindIcon(entityKind: ViewDefinition["entityKind"]) {
+  if (entityKind === "items") {
+    return <CodesandboxLogo className="size-4" />
+  }
+
+  if (entityKind === "projects") {
+    return <Kanban className="size-4" />
+  }
+
+  return <NotePencil className="size-4" />
 }
 
 function extractTextContent(content: string) {

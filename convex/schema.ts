@@ -3,7 +3,11 @@ import { v } from "convex/values"
 
 import {
   attachmentFields,
+  channelPostCommentFields,
+  channelPostFields,
+  chatMessageFields,
   commentFields,
+  conversationFields,
   documentFields,
   inviteFields,
   labelFields,
@@ -29,6 +33,7 @@ export default defineSchema({
   teams: defineTable(teamFields).index("by_domain_id", ["id"]),
   teamMemberships: defineTable(teamMembershipFields)
     .index("by_team_and_user", ["teamId", "userId"])
+    .index("by_team", ["teamId"])
     .index("by_user", ["userId"]),
   users: defineTable(userFields)
     .index("by_domain_id", ["id"])
@@ -53,4 +58,17 @@ export default defineSchema({
     .index("by_domain_id", ["id"])
     .index("by_token", ["token"]),
   projectUpdates: defineTable(projectUpdateFields).index("by_domain_id", ["id"]),
+  conversations: defineTable(conversationFields)
+    .index("by_domain_id", ["id"])
+    .index("by_scope", ["scopeType", "scopeId"])
+    .index("by_kind_scope", ["kind", "scopeType", "scopeId"]),
+  chatMessages: defineTable(chatMessageFields)
+    .index("by_domain_id", ["id"])
+    .index("by_conversation", ["conversationId"]),
+  channelPosts: defineTable(channelPostFields)
+    .index("by_domain_id", ["id"])
+    .index("by_conversation", ["conversationId"]),
+  channelPostComments: defineTable(channelPostCommentFields)
+    .index("by_domain_id", ["id"])
+    .index("by_post", ["postId"]),
 })

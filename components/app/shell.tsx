@@ -8,10 +8,12 @@ import {
   Bell,
   CaretDown,
   CaretRight,
+  ChatCircleDots,
   CheckCircle,
   CodesandboxLogo,
   DotsThree,
   Gear,
+  HashStraight,
   IdentificationBadge,
   Kanban,
   MagnifyingGlass,
@@ -27,10 +29,16 @@ import {
   getAccessibleTeams,
   getCurrentUser,
   getCurrentWorkspace,
+  getTeamFeatureSettings,
   getTeamRole,
 } from "@/lib/domain/selectors"
-import type { Role } from "@/lib/domain/types"
+import {
+  type Role,
+  type TeamExperienceType,
+  teamExperienceMeta,
+} from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { cn } from "@/lib/utils"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -58,6 +66,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -85,8 +94,6 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
-  SidebarTrigger,
-  useSidebar,
 } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 
@@ -183,53 +190,54 @@ export function AppShell({ children }: AppShellProps) {
       ) : null}
       <Sidebar variant="inset">
         <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton size="lg">
-                    <div className="flex size-6 items-center justify-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground">
-                      {workspace?.logoUrl}
-                    </div>
-                    <span className="truncate text-sm font-semibold">{workspace?.name}</span>
-                    <CaretDown className="ml-auto size-3.5 text-sidebar-foreground/50" />
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={() => setWorkspaceOpen(true)}>
-                      <Gear />
-                      Workspace details
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        setInviteMode("workspace")
-                        setInvitePresetTeamIds([])
-                        setInviteOpen(true)
-                      }}
-                    >
-                      <Plus />
-                      Invite to teams
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setJoinCodeOpen(true)}>
-                      <SignIn />
-                      Join a team with code
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          </SidebarMenu>
-          <div className="flex items-center gap-1 px-2">
-            <SidebarTrigger className="size-7 text-sidebar-foreground/70 hover:text-sidebar-foreground" />
+          <div className="flex items-center gap-1">
+            <SidebarMenu className="min-w-0 flex-1">
+              <SidebarMenuItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton className="h-9">
+                      <div className="flex size-5 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
+                        {workspace?.logoUrl}
+                      </div>
+                      <span className="truncate text-sm font-semibold leading-none">
+                        {workspace?.name}
+                      </span>
+                      <CaretDown className="ml-auto size-3 text-sidebar-foreground/50" />
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onSelect={() => setWorkspaceOpen(true)}>
+                        <Gear />
+                        Workspace details
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setInviteMode("workspace")
+                          setInvitePresetTeamIds([])
+                          setInviteOpen(true)
+                        }}
+                      >
+                        <Plus />
+                        Invite to teams
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setJoinCodeOpen(true)}>
+                        <SignIn />
+                        Join a team with code
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </SidebarMenuItem>
+            </SidebarMenu>
             <Button
               size="icon-xs"
               variant="ghost"
-              className="size-7 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="ml-auto shrink-0 text-sidebar-foreground/70 hover:text-sidebar-foreground"
               onClick={() => setSearchOpen(true)}
             >
-              <MagnifyingGlass className="size-4" />
+              <MagnifyingGlass className="size-3.5" />
             </Button>
           </div>
         </SidebarHeader>
@@ -275,6 +283,12 @@ export function AppShell({ children }: AppShellProps) {
                   icon={<NotePencil />}
                   label="Docs"
                   active={pathname.startsWith("/workspace/docs")}
+                />
+                <SidebarLink
+                  href="/chats"
+                  icon={<ChatCircleDots />}
+                  label="Chats"
+                  active={pathname.startsWith("/chats")}
                 />
                 <SidebarMenuItem>
                   <DropdownMenu>
@@ -328,6 +342,7 @@ export function AppShell({ children }: AppShellProps) {
                   const teamRole = getTeamRole(data, team.id)
                   const canInvite = teamRole === "admin" || teamRole === "member"
                   const canManage = teamRole === "admin"
+                  const features = getTeamFeatureSettings(team)
 
                   return (
                     <SidebarMenuItem key={team.id}>
@@ -371,39 +386,84 @@ export function AppShell({ children }: AppShellProps) {
                       </DropdownMenu>
                       {isExpanded ? (
                         <SidebarMenuSub>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname.startsWith(`/team/${team.slug}/work`)}
-                            >
-                              <Link href={`/team/${team.slug}/work`}>
-                                <CodesandboxLogo className="size-4" />
-                                <span>Issues</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
-                            >
-                              <Link href={`/team/${team.slug}/projects`}>
-                                <Kanban className="size-4" />
-                                <span>Projects</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname.startsWith(`/team/${team.slug}/views`)}
-                            >
-                              <Link href={`/team/${team.slug}/views`}>
-                                <SquaresFour className="size-4" />
-                                <span>Views</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
+                          {features.issues ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/work`)}
+                              >
+                                <Link href={`/team/${team.slug}/work`}>
+                                  <CodesandboxLogo className="size-4" />
+                                  <span>Issues</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
+                          {features.projects ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
+                              >
+                                <Link href={`/team/${team.slug}/projects`}>
+                                  <Kanban className="size-4" />
+                                  <span>Projects</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
+                          {features.views ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/views`)}
+                              >
+                                <Link href={`/team/${team.slug}/views`}>
+                                  <SquaresFour className="size-4" />
+                                  <span>Views</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
+                          {features.docs ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
+                              >
+                                <Link href={`/team/${team.slug}/docs`}>
+                                  <NotePencil className="size-4" />
+                                  <span>Docs</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
+                          {features.chat ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
+                              >
+                                <Link href={`/team/${team.slug}/chat`}>
+                                  <ChatCircleDots className="size-4" />
+                                  <span>Chat</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
+                          {features.channels ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={pathname.startsWith(`/team/${team.slug}/channels`)}
+                              >
+                                <Link href={`/team/${team.slug}/channels`}>
+                                  <HashStraight className="size-4" />
+                                  <span>Channels</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
                         </SidebarMenuSub>
                       ) : null}
                     </SidebarMenuItem>
@@ -493,26 +553,11 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <CollapsedSidebarButton />
         <div className="flex flex-1 flex-col">
           {children}
         </div>
       </SidebarInset>
     </SidebarProvider>
-  )
-}
-
-function CollapsedSidebarButton() {
-  const { isMobile, state } = useSidebar()
-
-  if (isMobile || state !== "collapsed") {
-    return null
-  }
-
-  return (
-    <div className="absolute top-3 left-3 z-20">
-      <SidebarTrigger className="size-8 rounded-lg border bg-background text-foreground shadow-sm hover:bg-muted" />
-    </div>
   )
 }
 
@@ -656,6 +701,28 @@ function TeamDetailsDialog({
   const [icon, setIcon] = useState(team?.icon ?? "")
   const [summary, setSummary] = useState(team?.settings.summary ?? "")
   const [joinCode, setJoinCode] = useState(team?.settings.joinCode ?? "")
+  const experience: TeamExperienceType =
+    team?.settings.experience ?? "software-development"
+  const [features, setFeatures] = useState(
+    team?.settings.features ?? getTeamFeatureSettings(team)
+  )
+  const optionalFeatures = [
+    {
+      key: "docs" as const,
+      label: "Docs",
+      description: "Long-form team documents and collaborative writing.",
+    },
+    {
+      key: "chat" as const,
+      label: "Chat",
+      description: "Real-time team conversation and quick coordination.",
+    },
+    {
+      key: "channels" as const,
+      label: "Channels",
+      description: "Forum-style posts with replies and slower discussion.",
+    },
+  ]
 
   if (!team) {
     return null
@@ -663,56 +730,249 @@ function TeamDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent key={`${team.id}-${open}`}>
-        <DialogHeader>
+      <DialogContent
+        key={`${team.id}-${open}`}
+        className="flex h-[min(88svh,56rem)] max-h-[88svh] flex-col overflow-hidden p-0 sm:max-w-4xl"
+      >
+        <DialogHeader className="border-b px-6 py-5">
           <DialogTitle>Team details</DialogTitle>
           <DialogDescription>
-            Update the team identity, summary, and join code.
+            Update the team identity, summary, join code, and enabled surfaces.
           </DialogDescription>
         </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="team-name">Name</FieldLabel>
-            <FieldContent>
-              <Input
-                id="team-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="team-icon">Icon token</FieldLabel>
-            <FieldContent>
-              <Input
-                id="team-icon"
-                value={icon}
-                onChange={(event) => setIcon(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="team-summary">Summary</FieldLabel>
-            <FieldContent>
-              <Input
-                id="team-summary"
-                value={summary}
-                onChange={(event) => setSummary(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
-            <FieldContent>
-              <Input
-                id="team-join-code"
-                value={joinCode}
-                onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-              />
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
+            <div className="flex flex-col gap-6">
+              <section className="rounded-xl border bg-background/70 p-5">
+                <div className="mb-5">
+                  <h3 className="text-sm font-medium">Identity</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Basic team details used across navigation and invites.
+                  </p>
+                </div>
+                <FieldGroup className="gap-5">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field>
+                      <FieldLabel htmlFor="team-name">Name</FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="team-name"
+                          value={name}
+                          onChange={(event) => setName(event.target.value)}
+                        />
+                      </FieldContent>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="team-icon">Icon token</FieldLabel>
+                      <FieldContent>
+                        <Input
+                          id="team-icon"
+                          value={icon}
+                          onChange={(event) => setIcon(event.target.value)}
+                        />
+                      </FieldContent>
+                    </Field>
+                  </div>
+                  <Field>
+                    <FieldLabel htmlFor="team-summary">Summary</FieldLabel>
+                    <FieldContent>
+                      <Textarea
+                        id="team-summary"
+                        value={summary}
+                        onChange={(event) => setSummary(event.target.value)}
+                        className="min-h-32 resize-none"
+                      />
+                    </FieldContent>
+                    <FieldDescription>
+                      Keep it short and specific. This is used in team discovery and sidebars.
+                    </FieldDescription>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
+                    <FieldContent>
+                      <Input
+                        id="team-join-code"
+                        value={joinCode}
+                        onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+                      />
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
+              </section>
+
+              <section className="rounded-xl border bg-background/70 p-5">
+                <div className="mb-5">
+                  <h3 className="text-sm font-medium">Enabled Surfaces</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Choose what the team can use inside this space.
+                  </p>
+                </div>
+                {experience === "community" ? (
+                  <FieldGroup className="gap-4">
+                    <Field>
+                      <FieldLabel>Community mode</FieldLabel>
+                      <FieldContent>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <button
+                            type="button"
+                            className={cn(
+                              "rounded-xl border px-4 py-4 text-left transition-colors",
+                              features.chat
+                                ? "border-primary/30 bg-primary/8"
+                                : "hover:bg-accent/40"
+                            )}
+                            onClick={() =>
+                              setFeatures({
+                                issues: false,
+                                projects: false,
+                                views: false,
+                                docs: false,
+                                chat: true,
+                                channels: false,
+                              })
+                            }
+                          >
+                            <div className="text-sm font-medium">Chat only</div>
+                            <div className="mt-1 text-sm text-muted-foreground">
+                              Fast, real-time conversation without forum-style channels.
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "rounded-xl border px-4 py-4 text-left transition-colors",
+                              features.channels
+                                ? "border-primary/30 bg-primary/8"
+                                : "hover:bg-accent/40"
+                            )}
+                            onClick={() =>
+                              setFeatures({
+                                issues: false,
+                                projects: false,
+                                views: false,
+                                docs: false,
+                                chat: false,
+                                channels: true,
+                              })
+                            }
+                          >
+                            <div className="text-sm font-medium">Channels only</div>
+                            <div className="mt-1 text-sm text-muted-foreground">
+                              Post-first discussion with replies under each update.
+                            </div>
+                          </button>
+                        </div>
+                      </FieldContent>
+                      <FieldDescription>
+                        Community teams must use exactly one of chat or channels.
+                      </FieldDescription>
+                    </Field>
+                  </FieldGroup>
+                ) : (
+                  <FieldGroup className="gap-5">
+                    <Field>
+                      <FieldLabel>Required</FieldLabel>
+                      <FieldContent>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {["issues", "projects", "views"].map((feature) => (
+                            <div
+                              key={feature}
+                              className="rounded-xl border bg-muted/20 px-4 py-4"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium capitalize">{feature}</div>
+                                <Switch checked disabled />
+                              </div>
+                              <div className="mt-2 text-xs text-muted-foreground">
+                                Always enabled for this team type.
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </FieldContent>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Optional</FieldLabel>
+                      <FieldContent>
+                        <div className="grid gap-3">
+                          {optionalFeatures.map((feature) => (
+                            <div
+                              key={feature.key}
+                              className="flex items-center justify-between gap-4 rounded-xl border px-4 py-4"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium">{feature.label}</div>
+                                <div className="mt-1 text-sm text-muted-foreground">
+                                  {feature.description}
+                                </div>
+                              </div>
+                              <Switch
+                                checked={features[feature.key]}
+                                onCheckedChange={(checked) =>
+                                  setFeatures((current) => ({
+                                    ...current,
+                                    issues: true,
+                                    projects: true,
+                                    views: true,
+                                    [feature.key]: checked,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </FieldContent>
+                    </Field>
+                  </FieldGroup>
+                )}
+              </section>
+            </div>
+
+            <div className="flex flex-col gap-6">
+              <section className="rounded-xl border bg-background/70 p-5">
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium">Team Type</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    The original team space type stays fixed after creation.
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/20 px-4 py-4">
+                  <div className="text-sm font-medium">
+                    {teamExperienceMeta[experience].label}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {teamExperienceMeta[experience].description}
+                  </div>
+                  <div className="mt-4 inline-flex rounded-full border px-2.5 py-1 text-xs text-muted-foreground">
+                    Locked after creation
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-xl border bg-background/70 p-5">
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium">Configuration Notes</h3>
+                </div>
+                <div className="space-y-3 text-sm text-muted-foreground">
+                  <p>
+                    Software development and issue analysis always keep issues,
+                    projects, and views enabled.
+                  </p>
+                  <p>
+                    Community spaces are intentionally narrower and can use only
+                    one collaboration mode at a time.
+                  </p>
+                  <p>
+                    Chat and channels can be enabled together on non-community
+                    teams if you want both fast discussion and post-based
+                    updates.
+                  </p>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t bg-muted/40 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -723,13 +983,15 @@ function TeamDetailsDialog({
                 icon,
                 summary,
                 joinCode,
+                experience,
+                features,
               })
               onOpenChange(false)
             }}
           >
             Save team
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )

@@ -2,6 +2,7 @@ import { isAfter } from "date-fns"
 
 import type {
   AppData,
+  Conversation,
   DisplayProperty,
   Document,
   GroupField,
@@ -9,6 +10,7 @@ import type {
   Priority,
   Project,
   Team,
+  TeamFeatureSettings,
   TeamWorkflowSettings,
   UserProfile,
   ViewDefinition,
@@ -16,7 +18,9 @@ import type {
   WorkStatus,
 } from "@/lib/domain/types"
 import {
+  createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  normalizeTeamFeatureSettings,
   priorityMeta,
   statusMeta,
   templateMeta,
@@ -96,6 +100,58 @@ export function getTeam(data: AppData, teamId: string) {
   return data.teams.find((team) => team.id === teamId) ?? null
 }
 
+export function getTeamFeatureSettings(
+  team: Team | null | undefined
+): TeamFeatureSettings {
+  return normalizeTeamFeatureSettings(
+    team?.settings.experience ?? "software-development",
+    team?.settings.features ?? createDefaultTeamFeatureSettings()
+  )
+}
+
+export function teamHasFeature(
+  team: Team | null | undefined,
+  feature: keyof TeamFeatureSettings
+) {
+  return getTeamFeatureSettings(team)[feature]
+}
+
+export function getTeamMembers(data: AppData, teamId: string) {
+  const memberIds = new Set(
+    data.teamMemberships
+      .filter((membership) => membership.teamId === teamId)
+      .map((membership) => membership.userId)
+  )
+
+  return data.users.filter((user) => memberIds.has(user.id))
+}
+
+export function getWorkspaceUsers(data: AppData, workspaceId: string) {
+  const teamIds = data.teams
+    .filter((team) => team.workspaceId === workspaceId)
+    .map((team) => team.id)
+  const userIds = new Set(
+    data.teamMemberships
+      .filter((membership) => teamIds.includes(membership.teamId))
+      .map((membership) => membership.userId)
+  )
+
+  return data.users.filter((user) => userIds.has(user.id))
+}
+
+export function getConversationParticipants(
+  data: AppData,
+  conversation: Conversation | null | undefined
+) {
+  if (!conversation) {
+    return []
+  }
+
+  return conversation.participantIds
+    .map((userId) => getUser(data, userId))
+    .filter((user): user is UserProfile => Boolean(user))
+}
+
 export function getTeamWorkflowSettings(team: Team | null | undefined): TeamWorkflowSettings {
   return team?.settings.workflow ?? createDefaultTeamWorkflowSettings()
 }
@@ -158,8 +214,52 @@ export function getDocumentsForScope(
 
   return data.documents.filter(
     (document) =>
-      document.kind === "team-document" && visibleTeamIds.includes(document.teamId)
+      document.kind === "team-document" &&
+      document.teamId !== null &&
+      visibleTeamIds.includes(document.teamId)
   )
+}
+
+export function getTeamDocuments(data: AppData, teamId: string) {
+  return data.documents.filter(
+    (document) => document.kind === "team-document" && document.teamId === teamId
+  )
+}
+
+export function getWorkspaceDocuments(data: AppData, workspaceId: string) {
+  return data.documents.filter(
+    (document) =>
+      document.kind === "workspace-document" && document.workspaceId === workspaceId
+  )
+}
+
+export function getPrivateDocuments(data: AppData, workspaceId: string) {
+  return data.documents.filter(
+    (document) =>
+      document.kind === "private-document" &&
+      document.workspaceId === workspaceId &&
+      document.createdBy === data.currentUserId
+  )
+}
+
+export function getSearchableDocuments(data: AppData, workspaceId: string) {
+  return [
+    ...getDocumentsForScope(data, "workspace", workspaceId),
+    ...getWorkspaceDocuments(data, workspaceId),
+    ...getPrivateDocuments(data, workspaceId),
+  ]
+}
+
+export function getDocumentContextLabel(data: AppData, document: Document) {
+  if (document.kind === "workspace-document") {
+    return "Workspace"
+  }
+
+  if (document.kind === "private-document") {
+    return "Private"
+  }
+
+  return getTeam(data, document.teamId ?? "")?.name ?? "Team"
 }
 
 export function getViewsForScope(
@@ -183,6 +283,59 @@ export function getCommentsForTarget(
 ) {
   return data.comments
     .filter((comment) => comment.targetType === targetType && comment.targetId === targetId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+export function getWorkspaceChats(data: AppData, workspaceId: string) {
+  return data.conversations
+    .filter(
+      (conversation) =>
+        conversation.kind === "chat" &&
+        conversation.scopeType === "workspace" &&
+        conversation.scopeId === workspaceId &&
+        conversation.participantIds.includes(data.currentUserId)
+    )
+    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+}
+
+export function getTeamChatConversation(data: AppData, teamId: string) {
+  return (
+    data.conversations.find(
+      (conversation) =>
+        conversation.kind === "chat" &&
+        conversation.scopeType === "team" &&
+        conversation.scopeId === teamId &&
+        conversation.variant === "team"
+    ) ?? null
+  )
+}
+
+export function getTeamChannels(data: AppData, teamId: string) {
+  return data.conversations
+    .filter(
+      (conversation) =>
+        conversation.kind === "channel" &&
+        conversation.scopeType === "team" &&
+        conversation.scopeId === teamId
+    )
+    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+}
+
+export function getChatMessages(data: AppData, conversationId: string) {
+  return data.chatMessages
+    .filter((message) => message.conversationId === conversationId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+export function getChannelPosts(data: AppData, conversationId: string) {
+  return data.channelPosts
+    .filter((post) => post.conversationId === conversationId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+export function getChannelPostComments(data: AppData, postId: string) {
+  return data.channelPostComments
+    .filter((comment) => comment.postId === postId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
@@ -471,7 +624,7 @@ export function getUnreadNotifications(data: AppData) {
 
 export function getRecentDocuments(data: AppData) {
   return [...data.documents]
-    .filter((document) => document.kind === "team-document")
+    .filter((document) => document.kind !== "item-description")
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
@@ -556,7 +709,7 @@ export function searchWorkspace(data: AppData, query: string) {
 
   const accessibleTeams = getAccessibleTeams(data)
   const projects = getProjectsForScope(data, "workspace", data.currentWorkspaceId)
-  const documents = getDocumentsForScope(data, "workspace", data.currentWorkspaceId)
+  const documents = getSearchableDocuments(data, data.currentWorkspaceId)
   const items = getVisibleWorkItems(data, { workspaceId: data.currentWorkspaceId })
 
   const navigationResults: GlobalSearchResult[] = [
@@ -596,7 +749,7 @@ export function searchWorkspace(data: AppData, query: string) {
       id: "nav-docs",
       kind: "navigation",
       title: "Workspace Docs",
-      subtitle: "Team-owned docs aggregated at the workspace level",
+      subtitle: "Workspace knowledge plus your private notes",
       href: "/workspace/docs",
       keywords: ["docs", "documents", "knowledge"],
     },
@@ -653,9 +806,14 @@ export function searchWorkspace(data: AppData, query: string) {
       id: `document-${document.id}`,
       kind: "document" as const,
       title: document.title,
-      subtitle: `${getTeam(data, document.teamId)?.name ?? "Team"} · document`,
+      subtitle: `${getDocumentContextLabel(data, document)} · document`,
       href: `/docs/${document.id}`,
-      keywords: [document.id, document.content, getTeam(data, document.teamId)?.slug ?? ""],
+      keywords: [
+        document.id,
+        document.content,
+        getTeam(data, document.teamId ?? "")?.slug ?? "",
+        getDocumentContextLabel(data, document).toLowerCase(),
+      ],
       teamId: document.teamId,
       status: null,
       priority: null,

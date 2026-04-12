@@ -16,7 +16,7 @@ export default function WorkspaceDocsPage() {
     <DocsScreen
       scopeId={workspace.id}
       scopeType="workspace"
-      title="Workspace docs"
+      title="Docs"
       description="Aggregate team-owned documents visible from the workspace."
     />
   )
