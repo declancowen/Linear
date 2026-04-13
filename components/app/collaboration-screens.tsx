@@ -37,16 +37,7 @@ import {
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -215,7 +206,7 @@ function MembersSidebar({
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
-    <div className="hidden h-full flex-col border-l xl:flex">
+    <div className="hidden min-h-0 self-stretch flex-col border-l xl:flex">
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-5 p-4">
           {/* About */}
@@ -269,42 +260,32 @@ function TeamSurfaceSidebarContent({
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <Card size="sm" className="bg-gradient-to-br from-background to-muted/35">
-        <CardHeader className="border-b">
-          <Badge
-            variant="outline"
-            className="h-6 w-fit px-2.5 text-[10px] uppercase tracking-[0.18em]"
-          >
-            {label}
-          </Badge>
-          <CardTitle className="mt-2 text-sm">{title}</CardTitle>
-          <CardDescription className="text-xs leading-relaxed">
-            {description}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-3">
-          <p className="text-xs text-muted-foreground">
-            Shared with the full team and kept in sync in real time.
-          </p>
-        </CardContent>
-      </Card>
+    <div className="flex flex-col gap-6 p-4">
+      {/* About */}
+      <div>
+        <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </h3>
+        <p className="mt-2.5 text-sm font-medium">{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      </div>
 
-      <Card size="sm">
-        <CardHeader className="border-b">
-          <CardTitle className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            Members · {members.length}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-1 pt-3">
+      {/* Members */}
+      <div>
+        <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Members · {members.length}
+        </h3>
+        <div className="mt-3 flex flex-col gap-0.5">
           {members.map((member) => (
             <div
               key={member.id}
-              className="flex items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-accent/40"
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
             >
               <UserAvatar initials={member.avatarUrl} />
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{member.name}</p>
+                <p className="truncate text-sm">{member.name}</p>
                 {member.title ? (
                   <p className="truncate text-[11px] text-muted-foreground">
                     {member.title}
@@ -313,8 +294,8 @@ function TeamSurfaceSidebarContent({
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
@@ -331,7 +312,7 @@ function TeamSurfaceSidebar({
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
-    <aside className="hidden h-full border-l xl:flex xl:w-[19rem]">
+    <aside className="hidden min-h-0 self-stretch border-l xl:flex xl:flex-col">
       <ScrollArea className="flex-1">
         <TeamSurfaceSidebarContent
           label={label}
@@ -611,12 +592,22 @@ function ForumPostCard({ postId }: { postId: string }) {
   const data = useAppStore()
   const post = data.channelPosts.find((entry) => entry.id === postId) ?? null
   const [reply, setReply] = useState("")
-  const [showComments, setShowComments] = useState(true)
+  const [showReplies, setShowReplies] = useState(false)
 
   if (!post) return null
 
   const author = getUser(data, post.createdBy)
   const comments = getChannelPostComments(data, post.id)
+
+  // Unique reply authors (first 2 for the "Open replies" label)
+  const replyAuthors = [
+    ...new Map(
+      comments.map((c) => {
+        const u = getUser(data, c.createdBy)
+        return [c.createdBy, u?.name ?? "Unknown"]
+      })
+    ).values(),
+  ].slice(0, 2)
 
   const handleReply = () => {
     if (!reply.trim()) return
@@ -628,123 +619,156 @@ function ForumPostCard({ postId }: { postId: string }) {
   }
 
   return (
-    <Card className="overflow-hidden py-0 shadow-sm ring-foreground/8">
-      <CardHeader className="border-b py-4">
-        <div className="flex items-start gap-3">
-          <UserAvatar initials={author?.avatarUrl ?? "?"} size="default" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium">
-                {author?.name ?? "Unknown"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {formatTimestamp(post.createdAt)}
-              </span>
-              <Badge variant="outline" className="h-5 px-2 text-[10px]">
-                {comments.length === 0
-                  ? "No replies"
-                  : `${comments.length} ${comments.length === 1 ? "reply" : "replies"}`}
-              </Badge>
-            </div>
-            {post.title ? (
-              <CardTitle className="mt-2 text-base">{post.title}</CardTitle>
-            ) : null}
-          </div>
-          <Button size="icon-xs" variant="ghost" className="size-7 shrink-0">
-            <DotsThree className="size-4" />
-          </Button>
-        </div>
-      </CardHeader>
+    <div className="group/post relative flex gap-3 border-l-2 border-transparent py-4 pl-4 pr-4 transition-colors hover:bg-accent/30 hover:border-primary/40">
+      {/* Avatar column */}
+      <UserAvatar initials={author?.avatarUrl ?? "?"} size="default" />
 
-      <CardContent className="space-y-4 pt-4">
-        <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
-          {post.content}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-2 text-xs"
-            onClick={() => setShowComments((current) => !current)}
-          >
-            <ChatCircle className="size-4" />
-            {showComments ? "Hide discussion" : "Open discussion"}
-          </Button>
+      {/* Content column */}
+      <div className="min-w-0 flex-1">
+        {/* Author line */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">{author?.name ?? "Unknown"}</span>
           <span className="text-xs text-muted-foreground">
-            Use the thread below for follow-up and decisions.
+            {formatTimestamp(post.createdAt)}
           </span>
         </div>
-      </CardContent>
 
-      {showComments ? (
-        <CardFooter className="flex-col items-stretch gap-3 border-t bg-muted/30">
-          {comments.length > 0 ? (
-            <div className="flex flex-col gap-3">
-              {comments.map((comment) => {
-                const commentAuthor = getUser(data, comment.createdBy)
+        {/* Title */}
+        {post.title ? (
+          <h3 className="mt-1.5 text-[15px] font-semibold leading-snug">
+            {post.title}
+          </h3>
+        ) : null}
 
-                return (
-                  <div
-                    key={comment.id}
-                    className="rounded-lg bg-background/90 px-3 py-3 ring-1 ring-foreground/6"
-                  >
-                    <div className="flex gap-2.5">
-                      <UserAvatar initials={commentAuthor?.avatarUrl ?? "?"} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-medium">
-                            {commentAuthor?.name ?? "Unknown"}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {formatTimestamp(comment.createdAt)}
-                          </span>
-                        </div>
-                        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">
-                          {comment.content}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed bg-background/70 px-3 py-3 text-xs text-muted-foreground">
-              No replies yet. Start the thread below.
-            </div>
+        {/* Body */}
+        <p
+          className={cn(
+            "whitespace-pre-wrap text-sm leading-relaxed text-foreground/90",
+            post.title ? "mt-1" : "mt-1.5"
           )}
+        >
+          {post.content}
+        </p>
 
-          <div className="flex items-end gap-2 rounded-lg bg-background px-3 py-2.5 ring-1 ring-foreground/8">
-            <input
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault()
-                  handleReply()
-                }
-              }}
-              placeholder="Write a reply…"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-            />
+        {/* Reaction row */}
+        <div className="mt-2.5 flex items-center gap-1.5">
+          {["👍", "❤️", "😊"].map((emoji) => (
             <button
+              key={emoji}
               type="button"
-              onClick={handleReply}
-              disabled={!reply.trim()}
-              className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
-                reply.trim()
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground/40"
-              )}
+              className="flex h-7 items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs transition-colors hover:bg-accent"
             >
-              <ArrowUp className="size-3.5" weight="bold" />
+              <span>{emoji}</span>
             </button>
+          ))}
+          <button
+            type="button"
+            className="flex h-7 items-center rounded-full border bg-background px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Smiley className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Replies toggle */}
+        {comments.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowReplies(!showReplies)}
+            className="mt-2.5 text-xs font-medium text-primary hover:underline"
+          >
+            {showReplies
+              ? "Hide replies"
+              : `Open ${comments.length} ${comments.length === 1 ? "reply" : "replies"} from ${replyAuthors.join(" and ")}`}
+          </button>
+        ) : null}
+
+        {/* Expanded replies */}
+        {showReplies && comments.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-0.5 border-l-2 border-muted pl-3">
+            {comments.map((comment) => {
+              const commentAuthor = getUser(data, comment.createdBy)
+              return (
+                <div
+                  key={comment.id}
+                  className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
+                >
+                  <UserAvatar initials={commentAuthor?.avatarUrl ?? "?"} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">
+                        {commentAuthor?.name ?? "Unknown"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatTimestamp(comment.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">
+                      {comment.content}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </CardFooter>
-      ) : null}
-    </Card>
+        ) : null}
+
+        {/* Reply input — always visible when expanded or no replies yet */}
+        {showReplies || comments.length === 0 ? (
+          <div className={cn("flex items-center gap-2 mt-3", comments.length > 0 && "border-l-2 border-muted pl-3")}>
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-background px-3 py-1.5">
+              <input
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    handleReply()
+                  }
+                }}
+                placeholder="Reply…"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+              />
+              <button
+                type="button"
+                onClick={handleReply}
+                disabled={!reply.trim()}
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
+                  reply.trim()
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground/40"
+                )}
+              >
+                <ArrowUp className="size-3.5" weight="bold" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Hover actions (far right) */}
+      <div className="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/post:opacity-100">
+        <button
+          type="button"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Smiley className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowReplies(true)}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <ChatCircle className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <DotsThree className="size-4" />
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -962,10 +986,8 @@ function CreateWorkspaceChatDialog({
 
 function NewPostComposer({
   channelId,
-  teamName,
 }: {
   channelId: string
-  teamName: string
 }) {
   const data = useAppStore()
   const currentUser = getUser(data, data.currentUserId)
@@ -995,90 +1017,67 @@ function NewPostComposer({
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="w-full text-left">
-        <Card className="bg-background/95 py-0 transition-shadow hover:shadow-sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">Start a new post</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Share an update with {teamName}. Replies will stay grouped in
-                the thread underneath.
-              </p>
-            </div>
-            <Badge variant="outline" className="h-6 px-2.5">
-              <Plus className="size-3.5" />
-              Post
-            </Badge>
-          </CardContent>
-        </Card>
+      <button
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center gap-3 rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/30"
+      >
+        <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
+        <span className="text-sm text-muted-foreground">Post in channel</span>
       </button>
     )
   }
 
   return (
-    <Card className="overflow-hidden py-0 shadow-sm ring-foreground/8">
-      <CardHeader className="border-b py-4">
-        <div className="flex items-start gap-3">
-          <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
-          <div className="min-w-0 flex-1">
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Post title (optional)"
-              className="w-full bg-transparent text-sm font-medium outline-none placeholder:text-muted-foreground/50"
-              autoFocus
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Write something useful for the team to react to asynchronously.
-            </p>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-4">
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.metaKey) {
-              e.preventDefault()
-              handlePost()
-            }
-          }}
-          placeholder="Write your post…"
-          rows={4}
-          className="w-full min-h-[5rem] max-h-[220px] resize-none bg-transparent text-sm leading-7 outline-none placeholder:text-muted-foreground/50"
-        />
-      </CardContent>
-      <CardFooter className="justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Press `Cmd + Enter` to publish quickly.
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              setTitle("")
-              setContent("")
-              setOpen(false)
+    <div className="rounded-lg border bg-card">
+      <div className="flex items-start gap-3 px-4 pt-4">
+        <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title (optional)"
+            className="w-full bg-transparent text-sm font-semibold outline-none placeholder:text-muted-foreground/50"
+            autoFocus
+          />
+          <textarea
+            ref={textareaRef}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && e.metaKey) {
+                e.preventDefault()
+                handlePost()
+              }
             }}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={handlePost}
-            disabled={!content.trim()}
-          >
-            Post
-          </Button>
+            placeholder="Write your post…"
+            rows={3}
+            className="w-full min-h-[4rem] max-h-[200px] resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50"
+          />
         </div>
-      </CardFooter>
-    </Card>
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t px-4 py-2.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => {
+            setTitle("")
+            setContent("")
+            setOpen(false)
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          onClick={handlePost}
+          disabled={!content.trim()}
+        >
+          Post
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -1113,7 +1112,7 @@ export function WorkspaceChatsScreen() {
   const members = getConversationParticipants(data, activeChat)
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Chats"
         subtitle="Direct and group conversations"
@@ -1234,7 +1233,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title={team.name}
         subtitle="Chat"
@@ -1273,7 +1272,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       ) : (
         <div
           className={cn(
-            "grid min-h-0 flex-1 grid-cols-1",
+            "grid min-h-0 flex-1 overflow-hidden grid-cols-1",
             sidebarOpen && "xl:grid-cols-[minmax(0,1fr)_19rem]"
           )}
         >
@@ -1360,7 +1359,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title={team.name}
         subtitle="Channel"
@@ -1399,40 +1398,36 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
       ) : (
         <div
           className={cn(
-            "grid min-h-0 flex-1 grid-cols-1",
+            "grid min-h-0 flex-1 overflow-hidden grid-cols-1",
             sidebarOpen && "xl:grid-cols-[minmax(0,1fr)_19rem]"
           )}
         >
           <div className="min-h-0 overflow-y-auto">
-            <div className="mr-auto flex w-full max-w-[84rem] flex-col gap-4 p-4 lg:p-5 xl:pr-6">
-              {editable ? (
-                <NewPostComposer
-                  channelId={activeChannel.id}
-                  teamName={team.name}
-                />
-              ) : null}
+            {/* Composer at top */}
+            {editable ? (
+              <div className="border-b px-5 py-4">
+                <NewPostComposer channelId={activeChannel.id} />
+              </div>
+            ) : null}
 
-              {posts.length === 0 ? (
-                <Card className="bg-background/95 shadow-sm">
-                  <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                      <Hash className="size-5 text-muted-foreground" />
-                    </div>
-                    <p className="mt-3 text-sm font-medium">No posts yet</p>
-                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                      Start the channel with a post. Replies and decisions will
-                      stack underneath it.
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="flex flex-col gap-4 pb-5">
-                  {posts.map((post) => (
-                    <ForumPostCard key={post.id} postId={post.id} />
-                  ))}
+            {/* Posts feed */}
+            {posts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                  <Hash className="size-5 text-muted-foreground" />
                 </div>
-              )}
-            </div>
+                <p className="mt-3 text-sm font-medium">No posts yet</p>
+                <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                  Start a discussion by creating the first post.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {posts.map((post) => (
+                  <ForumPostCard key={post.id} postId={post.id} />
+                ))}
+              </div>
+            )}
           </div>
 
           {sidebarOpen ? (

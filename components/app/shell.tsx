@@ -200,7 +200,7 @@ export function AppShell({ children }: AppShellProps) {
                       <div className="flex size-5 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
                         {workspace?.logoUrl}
                       </div>
-                      <span className="truncate text-sm font-semibold leading-none">
+                      <span className="truncate text-[12px] font-semibold leading-none">
                         {workspace?.name}
                       </span>
                       <CaretDown className="ml-auto size-3 text-sidebar-foreground/50" />
@@ -347,10 +347,7 @@ export function AppShell({ children }: AppShellProps) {
 
                   return (
                     <SidebarMenuItem key={team.id}>
-                      <SidebarMenuButton
-                        className="text-[13px] font-medium"
-                        onClick={() => toggleTeam(team.id)}
-                      >
+                      <SidebarMenuButton className="font-medium" onClick={() => toggleTeam(team.id)}>
                         {isExpanded ? (
                           <CaretDown className="size-3 text-sidebar-foreground/50" />
                         ) : (
@@ -502,7 +499,7 @@ export function AppShell({ children }: AppShellProps) {
                     <div className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                       {currentUser.avatarUrl}
                     </div>
-                    <span className="truncate text-sm">{currentUser.name}</span>
+                    <span className="truncate text-[12px]">{currentUser.name}</span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
@@ -737,25 +734,25 @@ function TeamDetailsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         key={`${team.id}-${open}`}
-        className="flex h-[min(88svh,56rem)] max-h-[88svh] flex-col overflow-hidden p-0 sm:max-w-4xl"
+        className="flex max-h-[88svh] flex-col overflow-hidden p-0 sm:max-w-5xl"
       >
-        <DialogHeader className="border-b px-6 py-5">
-          <DialogTitle>Team details</DialogTitle>
+        <DialogHeader className="border-b px-6 py-4">
+          <DialogTitle className="text-base">Team settings</DialogTitle>
           <DialogDescription>
-            Update the team identity, summary, join code, and enabled surfaces.
+            {team.name} · {teamExperienceMeta[experience].label}
           </DialogDescription>
         </DialogHeader>
+
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
-            <div className="flex flex-col gap-6">
-              <section className="rounded-xl border bg-background/70 p-5">
-                <div className="mb-5">
-                  <h3 className="text-sm font-medium">Identity</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Basic team details used across navigation and invites.
-                  </p>
-                </div>
-                <FieldGroup className="gap-5">
+          <div className="grid gap-8 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
+            {/* Left column */}
+            <div className="flex flex-col gap-8">
+              {/* Identity */}
+              <section>
+                <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Identity
+                </h3>
+                <FieldGroup className="gap-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <Field>
                       <FieldLabel htmlFor="team-name">Name</FieldLabel>
@@ -785,11 +782,11 @@ function TeamDetailsDialog({
                         id="team-summary"
                         value={summary}
                         onChange={(event) => setSummary(event.target.value)}
-                        className="min-h-32 resize-none"
+                        className="min-h-24 resize-none"
                       />
                     </FieldContent>
                     <FieldDescription>
-                      Keep it short and specific. This is used in team discovery and sidebars.
+                      Used in team discovery and sidebars.
                     </FieldDescription>
                   </Field>
                   <Field>
@@ -805,25 +802,22 @@ function TeamDetailsDialog({
                 </FieldGroup>
               </section>
 
-              <section className="rounded-xl border bg-background/70 p-5">
-                <div className="mb-5">
-                  <h3 className="text-sm font-medium">Enabled Surfaces</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Choose what the team can use inside this space.
-                  </p>
-                </div>
+              {/* Surfaces */}
+              <section>
+                <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Surfaces
+                </h3>
                 {experience === "community" ? (
                   <FieldGroup className="gap-4">
                     <Field>
-                      <FieldLabel>Community mode</FieldLabel>
                       <FieldContent>
                         <div className="grid gap-3 md:grid-cols-2">
                           <button
                             type="button"
                             className={cn(
-                              "rounded-xl border px-4 py-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                              "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                               features.chat
-                                ? "border-primary/30 bg-primary/8"
+                                ? "border-primary/40 bg-primary/5"
                                 : "hover:bg-accent/40"
                             )}
                             disabled={
@@ -842,16 +836,16 @@ function TeamDetailsDialog({
                             }
                           >
                             <div className="text-sm font-medium">Chat only</div>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              Fast, real-time conversation without forum-style channels.
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Real-time conversation.
                             </div>
                           </button>
                           <button
                             type="button"
                             className={cn(
-                              "rounded-xl border px-4 py-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                              "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                               features.channels
-                                ? "border-primary/30 bg-primary/8"
+                                ? "border-primary/40 bg-primary/5"
                                 : "hover:bg-accent/40"
                             )}
                             disabled={
@@ -869,15 +863,12 @@ function TeamDetailsDialog({
                             }
                           >
                             <div className="text-sm font-medium">Channels only</div>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              Post-first discussion with replies under each update.
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Forum posts with threaded replies.
                             </div>
                           </button>
                         </div>
                       </FieldContent>
-                      <FieldDescription>
-                        Community teams must use exactly one of chat or channels.
-                      </FieldDescription>
                       {savedFeatures.chat && surfaceDisableReasons.chat ? (
                         <div className="text-xs text-muted-foreground">
                           {surfaceDisableReasons.chat}
@@ -891,128 +882,116 @@ function TeamDetailsDialog({
                     </Field>
                   </FieldGroup>
                 ) : (
-                  <FieldGroup className="gap-5">
-                    <Field>
-                      <FieldLabel>Required</FieldLabel>
-                      <FieldContent>
-                        <div className="grid gap-3 md:grid-cols-3">
-                          {["issues", "projects", "views"].map((feature) => (
-                            <div
-                              key={feature}
-                              className="rounded-xl border bg-muted/20 px-4 py-4"
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="text-sm font-medium capitalize">{feature}</div>
-                                <Switch checked disabled />
-                              </div>
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                Always enabled for this team type.
-                              </div>
-                            </div>
-                          ))}
+                  <div className="space-y-4">
+                    {/* Required — inline row */}
+                    <div className="flex flex-wrap gap-2">
+                      {["issues", "projects", "views"].map((feature) => (
+                        <div
+                          key={feature}
+                          className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5"
+                        >
+                          <span className="text-sm capitalize">{feature}</span>
+                          <Switch checked disabled className="scale-75" />
                         </div>
-                      </FieldContent>
-                    </Field>
-                    <Field>
-                      <FieldLabel>Optional</FieldLabel>
-                      <FieldContent>
-                        <div className="grid gap-3">
-                          {optionalFeatures.map((feature) => (
-                            <div
-                              key={feature.key}
-                              className="flex items-center justify-between gap-4 rounded-xl border px-4 py-4"
-                            >
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium">{feature.label}</div>
-                                <div className="mt-1 text-sm text-muted-foreground">
-                                  {feature.description}
-                                </div>
-                                {savedFeatures[feature.key] &&
-                                surfaceDisableReasons[feature.key] ? (
-                                  <div className="mt-2 text-xs text-muted-foreground">
-                                    {surfaceDisableReasons[feature.key]}
-                                  </div>
-                                ) : null}
-                              </div>
-                              <Switch
-                                checked={features[feature.key]}
-                                disabled={
-                                  savedFeatures[feature.key] &&
-                                  Boolean(surfaceDisableReasons[feature.key])
-                                }
-                                onCheckedChange={(checked) =>
-                                  setFeatures((current) => ({
-                                    ...current,
-                                    issues: true,
-                                    projects: true,
-                                    views: true,
-                                    [feature.key]: checked,
-                                  }))
-                                }
-                              />
+                      ))}
+                    </div>
+
+                    {/* Optional toggles — flat rows */}
+                    <div className="divide-y">
+                      {optionalFeatures.map((feature) => (
+                        <div
+                          key={feature.key}
+                          className="flex items-center justify-between gap-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm">{feature.label}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {feature.description}
                             </div>
-                          ))}
+                            {savedFeatures[feature.key] &&
+                            surfaceDisableReasons[feature.key] ? (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {surfaceDisableReasons[feature.key]}
+                              </div>
+                            ) : null}
+                          </div>
+                          <Switch
+                            checked={features[feature.key]}
+                            disabled={
+                              savedFeatures[feature.key] &&
+                              Boolean(surfaceDisableReasons[feature.key])
+                            }
+                            onCheckedChange={(checked) =>
+                              setFeatures((current) => ({
+                                ...current,
+                                issues: true,
+                                projects: true,
+                                views: true,
+                                [feature.key]: checked,
+                              }))
+                            }
+                          />
                         </div>
-                      </FieldContent>
-                    </Field>
-                  </FieldGroup>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </section>
             </div>
 
-            <div className="flex flex-col gap-6">
-              <section className="rounded-xl border bg-background/70 p-5">
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium">Team Type</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    The original team space type stays fixed after creation.
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-muted/20 px-4 py-4">
+            {/* Right column */}
+            <div className="flex flex-col gap-8">
+              {/* Team type */}
+              <section>
+                <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Team type
+                </h3>
+                <div className="rounded-lg bg-muted/30 px-4 py-3">
                   <div className="text-sm font-medium">
                     {teamExperienceMeta[experience].label}
                   </div>
-                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {teamExperienceMeta[experience].description}
-                  </div>
-                  <div className="mt-4 inline-flex rounded-full border px-2.5 py-1 text-xs text-muted-foreground">
+                  </p>
+                  <span className="mt-3 inline-block text-[10px] uppercase tracking-wider text-muted-foreground/70">
                     Locked after creation
-                  </div>
+                  </span>
                 </div>
               </section>
 
-              <section className="rounded-xl border bg-background/70 p-5">
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium">Configuration Notes</h3>
-                </div>
-                <div className="space-y-3 text-sm text-muted-foreground">
+              {/* Notes */}
+              <section>
+                <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Notes
+                </h3>
+                <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
                   <p>
-                    Software development and issue analysis always keep issues,
+                    Software development and issue analysis teams always keep issues,
                     projects, and views enabled.
                   </p>
                   <p>
-                    Community spaces are intentionally narrower and can use only
-                    one collaboration mode at a time.
+                    Community spaces use exactly one collaboration mode at a time.
                   </p>
                   <p>
-                    Chat and channels can be enabled together on non-community
-                    teams if you want both fast discussion and post-based
-                    updates.
+                    Non-community teams can combine chat and channels.
                   </p>
                 </div>
               </section>
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t bg-muted/40 px-6 py-4">
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
           <Button
-            variant="outline"
+            variant="ghost"
+            size="sm"
             disabled={saving}
             onClick={() => onOpenChange(false)}
           >
             Cancel
           </Button>
           <Button
+            size="sm"
             disabled={saving}
             onClick={async () => {
               setSaving(true)
@@ -1031,7 +1010,7 @@ function TeamDetailsDialog({
               }
             }}
           >
-            {saving ? "Saving..." : "Save team"}
+            {saving ? "Saving..." : "Save"}
           </Button>
         </div>
       </DialogContent>

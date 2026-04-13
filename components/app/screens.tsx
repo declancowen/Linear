@@ -34,6 +34,7 @@ import {
   FadersHorizontal,
   GearSix,
   Kanban,
+  FileText,
   NotePencil,
   Plus,
   Rows,
@@ -734,25 +735,40 @@ export function DocsScreen({
       ) : layout === "board" ? (
         <DocumentBoard data={data} documents={documents} />
       ) : (
-        <div className="px-6">
-          <div className="flex flex-col">
-            {documents.map((document) => (
+        <div className="flex flex-col divide-y px-6">
+          {documents.map((document) => {
+            const preview = extractTextContent(document.content)
+            const author = getUser(data, document.updatedBy ?? document.createdBy)
+            return (
               <Link
                 key={document.id}
-                className="flex items-center justify-between border-b px-3 py-3 transition-colors hover:bg-accent/50"
+                className="group flex items-start gap-3 px-3 py-3.5 transition-colors hover:bg-accent/40 rounded-md"
                 href={`/docs/${document.id}`}
               >
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">{document.title}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {getDocumentContextLabel(data, document)} · updated{" "}
-                    {format(new Date(document.updatedAt), "MMM d")}
-                  </span>
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground mt-0.5">
+                  <FileText className="size-4" />
                 </div>
-                <ArrowSquareOut className="size-3.5 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">{document.title}</span>
+                  </div>
+                  {preview ? (
+                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                      {preview}
+                    </p>
+                  ) : null}
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span>{getDocumentContextLabel(data, document)}</span>
+                    <span>·</span>
+                    <span>{author?.name ?? "Unknown"}</span>
+                    <span>·</span>
+                    <span>{format(new Date(document.updatedAt), "MMM d")}</span>
+                  </div>
+                </div>
+                <ArrowSquareOut className="mt-1 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
               </Link>
-            ))}
-          </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -872,37 +888,56 @@ function DocumentBoard({
   documents: Document[]
 }) {
   return (
-    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
-      {documents.map((document) => (
-        <Link
-          key={document.id}
-          className="group flex h-full min-h-[17rem] flex-col rounded-lg border border-border/60 bg-background/80 px-5 py-5 transition-[border-color,background-color] hover:border-foreground/12 hover:bg-accent/[0.03]"
-          href={`/docs/${document.id}`}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <span className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              {getDocumentContextLabel(data, document)}
-            </span>
-            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              {format(new Date(document.updatedAt), "MMM d")}
-            </span>
-          </div>
-          <div className="mt-7 flex flex-1 flex-col">
-            <h2 className="text-[1.02rem] font-medium leading-6 tracking-[-0.012em] text-foreground/95">
-              {document.title}
-            </h2>
-            <p className="mt-3 line-clamp-6 text-[13px] leading-6 text-muted-foreground">
-              {extractTextContent(document.content) || "Open document"}
-            </p>
-            <div className="mt-auto flex items-center justify-between pt-8 text-muted-foreground">
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em]">
-                Open
-              </span>
-              <ArrowSquareOut className="size-3.5 shrink-0 transition-colors group-hover:text-foreground" />
+    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {documents.map((document) => {
+        const preview = extractTextContent(document.content)
+        const author = getUser(data, document.updatedBy ?? document.createdBy)
+
+        return (
+          <Link
+            key={document.id}
+            className="group flex h-full flex-col rounded-lg border bg-card p-0 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+            href={`/docs/${document.id}`}
+          >
+            {/* Card body */}
+            <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
+                  <FileText className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-medium leading-snug">
+                    {document.title}
+                  </h3>
+                  <span className="mt-0.5 text-[11px] text-muted-foreground">
+                    {getDocumentContextLabel(data, document)}
+                  </span>
+                </div>
+                <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+              </div>
+              {preview ? (
+                <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                  {preview}
+                </p>
+              ) : (
+                <p className="mt-3 text-xs italic text-muted-foreground/50">
+                  Empty document
+                </p>
+              )}
             </div>
-          </div>
-        </Link>
-      ))}
+
+            {/* Card footer */}
+            <div className="flex items-center gap-2 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
+              {author ? (
+                <span className="truncate">{author.name}</span>
+              ) : null}
+              <span className="ml-auto shrink-0">
+                {format(new Date(document.updatedAt), "MMM d")}
+              </span>
+            </div>
+          </Link>
+        )
+      })}
     </div>
   )
 }
@@ -1237,22 +1272,34 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
   const team = document.teamId ? getTeam(data, document.teamId) : null
   const editable = document.kind === "team-document" ? !!team && canEditTeam(data, team.id) : true
+  const updater = getUser(data, document.updatedBy ?? document.createdBy)
+  const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
 
   return (
     <div className="flex flex-col h-[calc(100svh-3rem)]">
-      {/* Thin breadcrumb header */}
-      <div className="flex items-center justify-between border-b px-6 py-2 shrink-0">
-        <div className="flex items-center gap-2 text-sm">
-          <SidebarTrigger className="size-6 shrink-0" />
-          <span className="text-muted-foreground">
+      {/* Breadcrumb header */}
+      <div className="flex h-11 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <SidebarTrigger className="size-5 shrink-0" />
+          <Link
+            href={backHref}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
             {getDocumentContextLabel(data, document)}
-          </span>
+          </Link>
           <CaretRight className="size-3 text-muted-foreground" />
-          <span>{document.title}</span>
+          <span className="truncate font-medium">{document.title}</span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          {updater ? (
+            <span>
+              Edited by {updater.name} · {format(new Date(document.updatedAt), "MMM d, h:mm a")}
+            </span>
+          ) : null}
         </div>
       </div>
 
-      {/* Full canvas editor — content includes the title as <h1> */}
+      {/* Full canvas editor */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <RichTextEditor
           content={document.content}

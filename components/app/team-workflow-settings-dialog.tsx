@@ -156,7 +156,7 @@ export function TeamWorkflowSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Workflow settings</DialogTitle>
           <DialogDescription>
@@ -164,7 +164,7 @@ export function TeamWorkflowSettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-8 lg:grid-cols-2">
           {/* Left column — Status order */}
           <div>
             <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -174,11 +174,11 @@ export function TeamWorkflowSettingsDialog({
               {workflow.statusOrder.map((status, index) => (
                 <div
                   key={status}
-                  className="flex items-center justify-between rounded-md border bg-card px-3 py-2"
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors"
                 >
                   <div className="flex items-center gap-2.5">
-                    <DotsSixVertical className="size-3.5 text-muted-foreground/60" />
-                    <span className="text-xs text-muted-foreground tabular-nums">
+                    <DotsSixVertical className="size-3.5 text-muted-foreground/40 cursor-grab" />
+                    <span className="text-xs text-muted-foreground/60 tabular-nums w-4">
                       {index + 1}
                     </span>
                     <span className="text-sm">{statusMeta[status].label}</span>
@@ -219,11 +219,11 @@ export function TeamWorkflowSettingsDialog({
 
           {/* Right column — Template defaults */}
           <div>
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Template defaults
             </h3>
 
-            <div className="flex flex-col gap-0">
+            <div className="flex flex-col">
               <SettingRow label="Template">
                 <Select
                   value={activeTemplate}
