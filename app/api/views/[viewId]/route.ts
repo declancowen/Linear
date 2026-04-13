@@ -9,6 +9,7 @@ import {
 } from "@/lib/domain/types"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
+  clearViewFiltersServer,
   toggleViewDisplayPropertyServer,
   toggleViewFilterValueServer,
   toggleViewHiddenValueServer,
@@ -46,6 +47,9 @@ const viewMutationSchema = z.discriminatedUnion("action", [
       "labelIds",
     ]),
     value: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("clearFilters"),
   }),
 ])
 
@@ -102,6 +106,12 @@ export async function PATCH(
           viewId,
           key: parsed.data.key,
           value: parsed.data.value,
+        })
+        break
+      case "clearFilters":
+        await clearViewFiltersServer({
+          currentUserId: ensuredUser.userId,
+          viewId,
         })
         break
     }

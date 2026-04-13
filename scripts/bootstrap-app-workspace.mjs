@@ -72,6 +72,19 @@ function getName(user) {
   return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email
 }
 
+function getDefaultTeamIcon(experience) {
+  switch (experience) {
+    case "issue-analysis":
+      return "qa"
+    case "project-management":
+      return "kanban"
+    case "community":
+      return "users"
+    default:
+      return "code"
+  }
+}
+
 async function getOrganizationByExternalId(workos, externalId) {
   try {
     return await workos.organizations.getOrganizationByExternalId(externalId)
@@ -100,7 +113,8 @@ const workspaceDescription =
   "A Linear-style workspace that combines product delivery, QA, and operational docs."
 const teamName = args["team-name"] ?? workspaceName
 const teamSlug = args["team-slug"] ?? slugify(teamName)
-const teamIcon = args["team-icon"] ?? "robot"
+const teamExperience = args["team-experience"] ?? "software-development"
+const teamIcon = args["team-icon"] ?? getDefaultTeamIcon(teamExperience)
 const teamSummary =
   args["team-summary"] ?? "Customer-facing product work and bug triage."
 const teamJoinCode =
@@ -141,6 +155,7 @@ const bootstrap = await convex.mutation(api.app.bootstrapAppWorkspace, {
   userName,
   avatarUrl,
   workosUserId: workosUser.id,
+  teamExperience,
   role,
 })
 

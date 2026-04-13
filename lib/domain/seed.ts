@@ -63,7 +63,7 @@ export function createSeedState(): AppData {
   developmentWorkflow.templateDefaults["software-delivery"].targetWindowDays = 18
   developmentWorkflow.templateDefaults["project-management"].defaultViewLayout = "list"
 
-  const operationsWorkflow = createDefaultTeamWorkflowSettings()
+  const operationsWorkflow = createDefaultTeamWorkflowSettings("project-management")
   operationsWorkflow.statusOrder = [
     "backlog",
     "todo",
@@ -123,9 +123,9 @@ export function createSeedState(): AppData {
         guestProjectIds: [],
         guestDocumentIds: [],
         guestWorkItemIds: [],
-        experience: "issue-analysis",
+        experience: "software-development",
         features: {
-          ...createDefaultTeamFeatureSettings("issue-analysis"),
+          ...createDefaultTeamFeatureSettings("software-development"),
           chat: true,
         },
         workflow: developmentWorkflow,
@@ -134,17 +134,21 @@ export function createSeedState(): AppData {
     {
       id: "team_operations",
       workspaceId: workspace.id,
-      slug: "operations",
-      name: "Operations",
-      icon: "briefcase",
+      slug: "project-management",
+      name: "Project Management",
+      icon: "kanban",
       settings: {
         joinCode: "OPSJOIN",
-        summary: "Go-to-market and launch readiness.",
+        summary: "Program planning, launch coordination, and delivery follow-through.",
         guestProjectIds: [],
         guestDocumentIds: [],
         guestWorkItemIds: [],
-        experience: "community",
-        features: createDefaultTeamFeatureSettings("community"),
+        experience: "project-management",
+        features: {
+          ...createDefaultTeamFeatureSettings("project-management"),
+          docs: true,
+          chat: true,
+        },
         workflow: operationsWorkflow,
       },
     },
@@ -233,6 +237,8 @@ export function createSeedState(): AppData {
     { teamId: "team_development", userId: "user_maya", role: "admin" },
     { teamId: "team_development", userId: "user_sofia", role: "viewer" },
     { teamId: "team_development", userId: "user_idris", role: "member" },
+    { teamId: "team_operations", userId: "user_theo", role: "admin" },
+    { teamId: "team_operations", userId: "user_declan", role: "member" },
   ]
 
   const labels: Label[] = [
@@ -325,7 +331,7 @@ export function createSeedState(): AppData {
       id: "project_platform_docs",
       scopeType: "team",
       scopeId: "team_development",
-      templateType: "project-management",
+      templateType: "software-delivery",
       name: "Platform Docs",
       summary: "Engineering documentation and operating notes.",
       description:
@@ -667,7 +673,7 @@ export function createSeedState(): AppData {
       priority: "urgent",
       assigneeId: "user_declan",
       creatorId: "user_idris",
-      parentId: null,
+      parentId: "item_review_rls",
       primaryProjectId: "project_auth_qa",
       linkedProjectIds: ["project_release_hub"],
       linkedDocumentIds: ["doc_release_playbook", "doc_qa_matrix"],
@@ -763,7 +769,7 @@ export function createSeedState(): AppData {
       priority: "medium",
       assigneeId: "user_declan",
       creatorId: "user_maya",
-      parentId: null,
+      parentId: "item_project_views",
       primaryProjectId: "project_platform_docs",
       linkedProjectIds: ["project_auth_qa"],
       linkedDocumentIds: ["doc_platform_principles", "doc_qa_matrix"],
@@ -804,14 +810,14 @@ export function createSeedState(): AppData {
       id: "item_doc_mentions",
       key: "REC-148",
       teamId: "team_recipe_room",
-      type: "task",
+      type: "sub-task",
       title: "Docs mentions and notifications",
       descriptionDocId: "doc_release_playbook",
       status: "backlog",
       priority: "medium",
       assigneeId: "user_sofia",
       creatorId: "user_declan",
-      parentId: null,
+      parentId: "item_release_notes",
       primaryProjectId: "project_release_hub",
       linkedProjectIds: ["project_platform_docs"],
       linkedDocumentIds: ["doc_release_playbook"],
@@ -1085,7 +1091,7 @@ export function createSeedState(): AppData {
     },
     {
       id: "view_personal_assigned",
-      name: "Assigned to Me",
+      name: "My items",
       description: "Personal work inbox across joined teams.",
       scopeType: "personal",
       scopeId: "user_declan",
@@ -1130,6 +1136,26 @@ export function createSeedState(): AppData {
       participantIds: ["user_declan", "user_maya", "user_sofia", "user_idris"],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 4)),
+      updatedAt: iso(subDays(now, 0)),
+      lastActivityAt: iso(subDays(now, 0)),
+    },
+    {
+      id: "conversation_workspace_channel",
+      kind: "channel",
+      scopeType: "workspace",
+      scopeId: workspace.id,
+      variant: "team",
+      title: "Workspace channel",
+      description: "Shared updates and threaded decisions for the whole workspace.",
+      participantIds: [
+        "user_declan",
+        "user_maya",
+        "user_sofia",
+        "user_idris",
+        "user_theo",
+      ],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 8)),
       updatedAt: iso(subDays(now, 0)),
       lastActivityAt: iso(subDays(now, 0)),
     },
@@ -1248,11 +1274,33 @@ export function createSeedState(): AppData {
 
   const channelPosts: ChannelPost[] = [
     {
+      id: "channel_post_workspace_brief",
+      conversationId: "conversation_workspace_channel",
+      title: "Workspace Brief",
+      content:
+        "Use this channel for cross-team announcements, launch notes, and decisions that should stay visible after chat scrolls away.",
+      reactions: [
+        {
+          emoji: "👍",
+          userIds: ["user_maya"],
+        },
+      ],
+      createdBy: "user_declan",
+      createdAt: iso(subDays(now, 2)),
+      updatedAt: iso(subDays(now, 0)),
+    },
+    {
       id: "channel_post_release_ready",
       conversationId: "conversation_channel_release",
       title: "Launch Readiness Snapshot",
       content:
         "Auth reliability is the last red flag. Docs and release notes are green, but QA still needs one more pass tomorrow morning.",
+      reactions: [
+        {
+          emoji: "❤️",
+          userIds: ["user_theo", "user_sofia"],
+        },
+      ],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 1)),
       updatedAt: iso(subDays(now, 0)),
@@ -1263,6 +1311,7 @@ export function createSeedState(): AppData {
       title: "Document Board Direction",
       content:
         "The docs index should feel calmer than the issues board. Keep the cards more editorial and reduce chrome around metadata.",
+      reactions: [],
       createdBy: "user_sofia",
       createdAt: iso(subDays(now, 2)),
       updatedAt: iso(subDays(now, 1)),
@@ -1270,6 +1319,14 @@ export function createSeedState(): AppData {
   ]
 
   const channelPostComments: ChannelPostComment[] = [
+    {
+      id: "channel_comment_workspace_1",
+      postId: "channel_post_workspace_brief",
+      content: "Perfect. I’ll use this for release-wide updates instead of burying them in chat.",
+      mentionUserIds: [],
+      createdBy: "user_maya",
+      createdAt: iso(subDays(now, 0)),
+    },
     {
       id: "channel_comment_release_1",
       postId: "channel_post_release_ready",

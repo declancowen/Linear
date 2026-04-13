@@ -11,6 +11,7 @@ import {
   PaperPlaneTilt,
   Plus,
   Smiley,
+  Trash,
   UsersThree,
   VideoCamera,
   X,
@@ -26,19 +27,29 @@ import {
   getConversationParticipants,
   getCurrentWorkspace,
   getPrimaryTeamChannel,
+  getPrimaryWorkspaceChannel,
   getTeamBySlug,
   getTeamChannels,
   getTeamChatConversation,
   getUser,
+  getWorkspaceChannels,
   getWorkspaceChats,
   getWorkspaceUsers,
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn } from "@/lib/utils"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { cn, getPlainTextContent } from "@/lib/utils"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { RichTextContent } from "@/components/app/rich-text-content"
+import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Sheet,
@@ -65,6 +76,25 @@ function formatShortDate(value: string) {
   if (isToday(d)) return format(d, "h:mm a")
   if (isYesterday(d)) return "Yesterday"
   return format(d, "MMM d")
+}
+
+const CHANNEL_REACTIONS = ["👍", "❤️", "🎉", "👀"] as const
+
+function getUserInitials(name: string | null | undefined) {
+  const parts = (name ?? "")
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return "?"
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
 }
 
 /* ------------------------------------------------------------------ */
@@ -124,15 +154,18 @@ function PageHeader({
 }
 
 function UserAvatar({
-  initials,
+  name,
+  avatarUrl,
   size = "sm",
 }: {
-  initials: string
+  name?: string | null
+  avatarUrl?: string | null
   size?: "sm" | "default"
 }) {
   return (
     <Avatar size={size}>
-      <AvatarFallback>{initials}</AvatarFallback>
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name ?? "User"} /> : null}
+      <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
     </Avatar>
   )
 }
@@ -196,7 +229,7 @@ function ConversationList({
 /*  Members sidebar (right)                                            */
 /* ------------------------------------------------------------------ */
 
-function MembersSidebar({
+function MembersSidebarContent({
   title,
   description,
   members,
@@ -206,43 +239,51 @@ function MembersSidebar({
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
+    <div className="flex flex-col gap-5 p-4">
+      <div>
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          About
+        </h3>
+        <p className="mt-2 text-sm font-medium">{title}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Members · {members.length}
+        </h3>
+        <div className="mt-3 flex flex-col gap-0.5">
+          {members.map((member) => (
+            <div
+              key={member.id}
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50"
+            >
+              <UserAvatar name={member.name} avatarUrl={member.avatarUrl} />
+              <div className="min-w-0">
+                <div className="truncate text-sm">{member.name}</div>
+                {member.title ? (
+                  <div className="truncate text-[11px] text-muted-foreground">
+                    {member.title}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MembersSidebar(props: {
+  title: string
+  description: string
+  members: ReturnType<typeof getConversationParticipants>
+}) {
+  return (
     <div className="hidden min-h-0 self-stretch flex-col border-l xl:flex">
       <ScrollArea className="flex-1">
-        <div className="flex flex-col gap-5 p-4">
-          {/* About */}
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              About
-            </h3>
-            <p className="mt-2 text-sm font-medium">{title}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-          </div>
-
-          {/* Members */}
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Members · {members.length}
-            </h3>
-            <div className="mt-3 flex flex-col gap-0.5">
-              {members.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50"
-                >
-                  <UserAvatar initials={member.avatarUrl} />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm">{member.name}</div>
-                    {member.title ? (
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {member.title}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <MembersSidebarContent {...props} />
       </ScrollArea>
     </div>
   )
@@ -283,7 +324,7 @@ function TeamSurfaceSidebarContent({
               key={member.id}
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
             >
-              <UserAvatar initials={member.avatarUrl} />
+              <UserAvatar name={member.name} avatarUrl={member.avatarUrl} />
               <div className="min-w-0">
                 <p className="truncate text-sm">{member.name}</p>
                 {member.title ? (
@@ -593,110 +634,133 @@ function ForumPostCard({ postId }: { postId: string }) {
   const post = data.channelPosts.find((entry) => entry.id === postId) ?? null
   const [reply, setReply] = useState("")
   const [showReplies, setShowReplies] = useState(false)
+  const [replyOpen, setReplyOpen] = useState(false)
 
   if (!post) return null
 
   const author = getUser(data, post.createdBy)
+  const conversation =
+    data.conversations.find((entry) => entry.id === post.conversationId) ?? null
   const comments = getChannelPostComments(data, post.id)
-
-  // Unique reply authors (first 2 for the "Open replies" label)
-  const replyAuthors = [
-    ...new Map(
-      comments.map((c) => {
-        const u = getUser(data, c.createdBy)
-        return [c.createdBy, u?.name ?? "Unknown"]
-      })
-    ).values(),
-  ].slice(0, 2)
+  const mentionCandidates =
+    conversation && conversation.kind === "channel"
+      ? getConversationParticipants(data, conversation)
+      : []
+  const replyText = getPlainTextContent(reply)
+  const canDeletePost = post.createdBy === data.currentUserId
 
   const handleReply = () => {
-    if (!reply.trim()) return
+    if (!replyText) return
     useAppStore.getState().addChannelPostComment({
       postId: post.id,
-      content: reply.trim(),
+      content: reply,
     })
     setReply("")
+    setReplyOpen(false)
   }
 
   const previewComments = comments.slice(-3)
   const hiddenCount = comments.length - previewComments.length
 
   return (
-    <div className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md">
-      {/* Hover actions — floated top-right over the card */}
+    <div
+      id={post.id}
+      className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md"
+    >
       <div className="absolute -top-3 right-3 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm opacity-0 transition-opacity group-hover/post:opacity-100">
         <button
           type="button"
-          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <Smiley className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowReplies(true)}
+          onClick={() => {
+            setShowReplies(true)
+            setReplyOpen(true)
+          }}
           className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <ChatCircle className="size-4" />
         </button>
-        <button
-          type="button"
-          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <DotsThree className="size-4" />
-        </button>
+        {canDeletePost ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <DotsThree className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => {
+                  if (window.confirm("Delete this post and its comments?")) {
+                    useAppStore.getState().deleteChannelPost(post.id)
+                  }
+                }}
+              >
+                <Trash className="size-4" />
+                Delete post
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
-      {/* Left accent border + post content */}
       <div className="border-l-[3px] border-transparent px-4 py-4 transition-colors hover:border-primary/40">
-        {/* Author line — avatar + name centered */}
         <div className="flex items-center gap-2.5">
-          <UserAvatar initials={author?.avatarUrl ?? "?"} size="default" />
+          <UserAvatar
+            name={author?.name}
+            avatarUrl={author?.avatarUrl}
+            size="default"
+          />
           <span className="text-sm font-semibold">{author?.name ?? "Unknown"}</span>
           <span className="text-xs text-muted-foreground">
             {formatTimestamp(post.createdAt)}
           </span>
         </div>
 
-        {/* Title */}
         {post.title ? (
           <h3 className="mt-3 text-base font-bold leading-snug">
             {post.title}
           </h3>
         ) : null}
 
-        {/* Body */}
-        <p
+        <RichTextContent
+          content={post.content}
           className={cn(
-            "whitespace-pre-wrap text-sm leading-relaxed text-foreground/90",
+            "text-sm leading-relaxed text-foreground/90 [&_p]:leading-relaxed",
             post.title ? "mt-2" : "mt-3"
           )}
-        >
-          {post.content}
-        </p>
+        />
 
-        {/* Reaction row */}
         <div className="mt-3 flex items-center gap-1.5">
-          {["👍", "❤️", "😊"].map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              className="flex h-7 items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs transition-colors hover:bg-accent"
-            >
-              <span>{emoji}</span>
-            </button>
-          ))}
-          <button
-            type="button"
-            className="flex h-7 items-center rounded-full border bg-background px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Smiley className="size-3.5" />
-          </button>
+          {CHANNEL_REACTIONS.map((emoji) => {
+            const reaction = post.reactions.find((entry) => entry.emoji === emoji)
+            const count = reaction?.userIds.length ?? 0
+            const active = reaction?.userIds.includes(data.currentUserId) ?? false
+
+            return (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() =>
+                  useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
+                }
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors",
+                  active
+                    ? "border-primary/40 bg-primary/10 text-foreground"
+                    : "bg-background hover:bg-accent"
+                )}
+              >
+                <span>{emoji}</span>
+                {count > 0 ? <span>{count}</span> : null}
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      {/* Replies + comment input — always visible */}
       <div className="border-t px-4 py-3">
-        {/* Expand older replies */}
         {hiddenCount > 0 ? (
           <button
             type="button"
@@ -709,17 +773,20 @@ function ForumPostCard({ postId }: { postId: string }) {
           </button>
         ) : null}
 
-        {/* Expanded older replies */}
         {showReplies && hiddenCount > 0 ? (
           <div className="mb-2 flex flex-col gap-0.5">
             {comments.slice(0, hiddenCount).map((comment) => {
               const commentAuthor = getUser(data, comment.createdBy)
+
               return (
                 <div
                   key={comment.id}
                   className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
                 >
-                  <UserAvatar initials={commentAuthor?.avatarUrl ?? "?"} />
+                  <UserAvatar
+                    name={commentAuthor?.name}
+                    avatarUrl={commentAuthor?.avatarUrl}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium">
@@ -729,9 +796,10 @@ function ForumPostCard({ postId }: { postId: string }) {
                         {formatTimestamp(comment.createdAt)}
                       </span>
                     </div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">
-                      {comment.content}
-                    </p>
+                    <RichTextContent
+                      content={comment.content}
+                      className="mt-0.5 text-sm leading-relaxed"
+                    />
                   </div>
                 </div>
               )
@@ -739,17 +807,20 @@ function ForumPostCard({ postId }: { postId: string }) {
           </div>
         ) : null}
 
-        {/* Latest 3 comments — always visible */}
         {previewComments.length > 0 ? (
           <div className="flex flex-col gap-0.5">
             {previewComments.map((comment) => {
               const commentAuthor = getUser(data, comment.createdBy)
+
               return (
                 <div
                   key={comment.id}
                   className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
                 >
-                  <UserAvatar initials={commentAuthor?.avatarUrl ?? "?"} />
+                  <UserAvatar
+                    name={commentAuthor?.name}
+                    avatarUrl={commentAuthor?.avatarUrl}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium">
@@ -759,9 +830,10 @@ function ForumPostCard({ postId }: { postId: string }) {
                         {formatTimestamp(comment.createdAt)}
                       </span>
                     </div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">
-                      {comment.content}
-                    </p>
+                    <RichTextContent
+                      content={comment.content}
+                      className="mt-0.5 text-sm leading-relaxed"
+                    />
                   </div>
                 </div>
               )
@@ -769,36 +841,65 @@ function ForumPostCard({ postId }: { postId: string }) {
           </div>
         ) : null}
 
-        {/* Reply input — always visible */}
-        <div className={cn("flex items-center gap-2", previewComments.length > 0 && "mt-2.5")}>
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-background px-3 py-1.5">
-            <input
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault()
-                  handleReply()
-                }
-              }}
-              placeholder="Reply…"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-            />
-            <button
-              type="button"
-              onClick={handleReply}
-              disabled={!reply.trim()}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
-                reply.trim()
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground/40"
-              )}
-            >
-              <ArrowUp className="size-3.5" weight="bold" />
-            </button>
+        {replyOpen ? (
+          <div className={cn(previewComments.length > 0 && "mt-3")}>
+            <div className="rounded-md border bg-background px-3 py-2">
+              <RichTextEditor
+                content={reply}
+                onChange={setReply}
+                compact
+                autoFocus
+                showToolbar={false}
+                placeholder="Reply with @mentions or /commands…"
+                mentionCandidates={mentionCandidates}
+                onSubmitShortcut={handleReply}
+                className="[&_.ProseMirror]:min-h-[2.5rem]"
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">
+                Use `@` to mention people. Press Cmd/Ctrl + Enter to send.
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setReply("")
+                    setReplyOpen(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={handleReply}
+                  disabled={!replyText}
+                >
+                  <ArrowUp className="size-3.5" weight="bold" />
+                  Reply
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setShowReplies(true)
+              setReplyOpen(true)
+            }}
+            className={cn(
+              "mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+              previewComments.length === 0 && "mt-0"
+            )}
+          >
+            <ChatCircle className="size-3.5" />
+            Add comment
+          </button>
+        )}
       </div>
     </div>
   )
@@ -905,7 +1006,7 @@ function CreateWorkspaceChatDialog({
                 key={user.id}
                 className="flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs"
               >
-                <UserAvatar initials={user.avatarUrl} />
+                <UserAvatar name={user.name} avatarUrl={user.avatarUrl} />
                 <span className="font-medium">{user.name}</span>
                 <button
                   type="button"
@@ -979,7 +1080,11 @@ function CreateWorkspaceChatDialog({
                   onClick={() => addUser(user.id)}
                   className="flex items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-accent/50"
                 >
-                  <UserAvatar initials={user.avatarUrl} size="default" />
+                  <UserAvatar
+                    name={user.name}
+                    avatarUrl={user.avatarUrl}
+                    size="default"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
                       {user.name}
@@ -1023,24 +1128,23 @@ function NewPostComposer({
 }) {
   const data = useAppStore()
   const currentUser = getUser(data, data.currentUserId)
+  const conversation =
+    data.conversations.find((entry) => entry.id === channelId) ?? null
+  const mentionCandidates =
+    conversation && conversation.kind === "channel"
+      ? getConversationParticipants(data, conversation)
+      : []
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-  }, [content])
+  const contentText = getPlainTextContent(content)
 
   const handlePost = () => {
-    if (!content.trim()) return
+    if (!contentText) return
     useAppStore.getState().createChannelPost({
       conversationId: channelId,
       title: title.trim(),
-      content: content.trim(),
+      content,
     })
     setTitle("")
     setContent("")
@@ -1053,7 +1157,11 @@ function NewPostComposer({
         onClick={() => setOpen(true)}
         className="flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-accent/30"
       >
-        <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
+        <UserAvatar
+          name={currentUser?.name}
+          avatarUrl={currentUser?.avatarUrl}
+          size="default"
+        />
         <span className="text-sm text-muted-foreground">Post in channel</span>
       </button>
     )
@@ -1062,29 +1170,34 @@ function NewPostComposer({
   return (
     <div className="rounded-lg border border-border/70 bg-card shadow-sm">
       <div className="flex items-start gap-3 px-4 pt-4">
-        <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
+        <UserAvatar
+          name={currentUser?.name}
+          avatarUrl={currentUser?.avatarUrl}
+          size="default"
+        />
         <div className="min-w-0 flex-1 space-y-2">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Title (optional)"
             className="w-full bg-transparent text-sm font-semibold outline-none placeholder:text-muted-foreground/50"
-            autoFocus
           />
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && e.metaKey) {
-                e.preventDefault()
-                handlePost()
-              }
-            }}
-            placeholder="Write your post…"
-            rows={3}
-            className="w-full min-h-[4rem] max-h-[200px] resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50"
-          />
+          <div className="rounded-md border bg-background px-3 py-2">
+            <RichTextEditor
+              content={content}
+              onChange={setContent}
+              compact
+              autoFocus
+              showToolbar={false}
+              placeholder="Write your post with @mentions or /commands…"
+              mentionCandidates={mentionCandidates}
+              onSubmitShortcut={handlePost}
+              className="[&_.ProseMirror]:min-h-[5rem]"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Use `@` to mention people. Press Cmd/Ctrl + Enter to publish.
+          </p>
         </div>
       </div>
       <div className="flex items-center justify-end gap-2 border-t px-4 py-2.5">
@@ -1104,7 +1217,7 @@ function NewPostComposer({
           size="sm"
           className="h-7 text-xs"
           onClick={handlePost}
-          disabled={!content.trim()}
+          disabled={!contentText}
         >
           Post
         </Button>
@@ -1124,6 +1237,8 @@ export function WorkspaceChatsScreen() {
   const workspace = getCurrentWorkspace(data)
   const chats = workspace ? getWorkspaceChats(data, workspace.id) : []
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
   if (!workspace) {
     return (
@@ -1149,15 +1264,35 @@ export function WorkspaceChatsScreen() {
         title="Chats"
         subtitle="Direct and group conversations"
         actions={
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => setDialogOpen(true)}
-          >
-            <Plus className="size-3.5" />
-            New chat
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 text-xs xl:hidden"
+              onClick={() => setMobileSidebarOpen(true)}
+            >
+              <UsersThree className="size-3.5" />
+              Details
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
+              onClick={() => setSidebarOpen((current) => !current)}
+            >
+              <UsersThree className="size-3.5" />
+              {sidebarOpen ? "Hide details" : "Show details"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setDialogOpen(true)}
+            >
+              <Plus className="size-3.5" />
+              New chat
+            </Button>
+          </>
         }
       />
       <CreateWorkspaceChatDialog
@@ -1183,7 +1318,12 @@ export function WorkspaceChatsScreen() {
           }
         />
       ) : (
-        <div className="grid min-h-0 flex-1 overflow-hidden grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_16rem]">
+        <div
+          className={cn(
+            "grid min-h-0 flex-1 overflow-hidden grid-cols-[16rem_minmax(0,1fr)]",
+            sidebarOpen && "xl:grid-cols-[16rem_minmax(0,1fr)_16rem]"
+          )}
+        >
           <ConversationList
             conversations={chats}
             selectedId={activeChat?.id ?? null}
@@ -1205,15 +1345,170 @@ export function WorkspaceChatsScreen() {
               />
             ) : null}
           </div>
-          <MembersSidebar
-            title={activeChat?.title ?? "Chat"}
-            description={
-              activeChat?.description || "Workspace conversation"
-            }
-            members={members}
-          />
+          {sidebarOpen ? (
+            <MembersSidebar
+              title={activeChat?.title ?? "Chat"}
+              description={activeChat?.description || "Workspace conversation"}
+              members={members}
+            />
+          ) : null}
         </div>
       )}
+
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent side="right" className="w-full max-w-sm p-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>{activeChat?.title ?? "Chat"}</SheetTitle>
+            <SheetDescription>Conversation details</SheetDescription>
+          </SheetHeader>
+          <ScrollArea className="flex-1">
+            <MembersSidebarContent
+              title={activeChat?.title ?? "Chat"}
+              description={activeChat?.description || "Workspace conversation"}
+              members={members}
+            />
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Screen: Workspace channel                                          */
+/* ------------------------------------------------------------------ */
+
+export function WorkspaceChannelsScreen() {
+  const data = useAppStore()
+  const workspace = getCurrentWorkspace(data)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
+  const channels = workspace ? getWorkspaceChannels(data, workspace.id) : []
+  const activeChannel = workspace
+    ? getPrimaryWorkspaceChannel(data, workspace.id)
+    : null
+  const members = activeChannel
+    ? getConversationParticipants(data, activeChannel)
+    : []
+  const posts = channels
+    .flatMap((channel) => getChannelPosts(data, channel.id))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+  const workspaceDescription =
+    workspace?.settings.description ||
+    "Forum-style updates, questions, and threaded decisions for the entire workspace."
+
+  useEffect(() => {
+    if (!workspace || activeChannel) {
+      return
+    }
+
+    useAppStore.getState().createChannel({
+      workspaceId: workspace.id,
+      silent: true,
+      title: "",
+      description: "",
+    })
+  }, [activeChannel, workspace])
+
+  if (!workspace) {
+    return (
+      <EmptyState
+        title="Workspace not found"
+        description="Select a workspace first."
+      />
+    )
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PageHeader
+        title="Channel"
+        subtitle="Workspace-wide updates"
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 text-xs xl:hidden"
+              onClick={() => setMobileSidebarOpen(true)}
+            >
+              <UsersThree className="size-3.5" />
+              Details
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
+              onClick={() => setSidebarOpen((current) => !current)}
+            >
+              <UsersThree className="size-3.5" />
+              {sidebarOpen ? "Hide details" : "Show details"}
+            </Button>
+          </>
+        }
+      />
+      {!activeChannel ? (
+        <EmptyState
+          title="Setting up workspace channel"
+          description="The shared workspace channel is being created automatically."
+        />
+      ) : (
+        <div
+          className={cn(
+            "grid min-h-0 flex-1 overflow-hidden grid-cols-1",
+            sidebarOpen && "xl:grid-cols-[minmax(0,1fr)_19rem]"
+          )}
+        >
+          <div className="min-h-0 overflow-y-auto">
+            <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
+              <NewPostComposer channelId={activeChannel.id} />
+
+              {posts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                    <Hash className="size-5 text-muted-foreground" />
+                  </div>
+                  <p className="mt-3 text-sm font-medium">No posts yet</p>
+                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                    Start a workspace discussion by creating the first post.
+                  </p>
+                </div>
+              ) : (
+                posts.map((post) => (
+                  <ForumPostCard key={post.id} postId={post.id} />
+                ))
+              )}
+            </div>
+          </div>
+
+          {sidebarOpen ? (
+            <TeamSurfaceSidebar
+              label="Workspace channel"
+              title={workspace.name}
+              description={workspaceDescription}
+              members={members}
+            />
+          ) : null}
+        </div>
+      )}
+
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent side="right" className="w-full max-w-sm p-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>{workspace.name}</SheetTitle>
+            <SheetDescription>Channel details</SheetDescription>
+          </SheetHeader>
+          <ScrollArea className="flex-1">
+            <TeamSurfaceSidebarContent
+              label="Workspace channel"
+              title={workspace.name}
+              description={workspaceDescription}
+              members={members}
+            />
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
@@ -1374,7 +1669,12 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
 
   useEffect(() => {
     if (!team || !teamHasFeature(team, "channels") || !editable || activeChannel) return
-    useAppStore.getState().createChannel({ teamId: team.id, title: "", description: "" })
+    useAppStore.getState().createChannel({
+      teamId: team.id,
+      silent: true,
+      title: "",
+      description: "",
+    })
   }, [activeChannel, editable, team])
 
   if (!team) {
@@ -1384,8 +1684,8 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   if (!teamHasFeature(team, "channels")) {
     return (
       <EmptyState
-        title="Channels are disabled"
-        description={`${team.name} is currently configured without forum-style channels.`}
+        title="Channel is disabled"
+        description={`${team.name} is currently configured without a forum-style channel.`}
       />
     )
   }

@@ -96,6 +96,30 @@ export function getWorkItem(data: AppData, itemId: string) {
   return data.workItems.find((item) => item.id === itemId) ?? null
 }
 
+export function getWorkItemDescendantIds(data: AppData, itemId: string) {
+  const descendants = new Set<string>()
+  const queue = [itemId]
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()
+
+    if (!currentId) {
+      continue
+    }
+
+    data.workItems.forEach((item) => {
+      if (item.parentId !== currentId || descendants.has(item.id)) {
+        return
+      }
+
+      descendants.add(item.id)
+      queue.push(item.id)
+    })
+  }
+
+  return descendants
+}
+
 export function getTeam(data: AppData, teamId: string) {
   return data.teams.find((team) => team.id === teamId) ?? null
 }
@@ -151,13 +175,20 @@ export function getConversationParticipants(
     return getTeamMembers(data, conversation.scopeId)
   }
 
+  if (conversation.kind === "channel") {
+    return getWorkspaceUsers(data, conversation.scopeId)
+  }
+
   return conversation.participantIds
     .map((userId) => getUser(data, userId))
     .filter((user): user is UserProfile => Boolean(user))
 }
 
 export function getTeamWorkflowSettings(team: Team | null | undefined): TeamWorkflowSettings {
-  return team?.settings.workflow ?? createDefaultTeamWorkflowSettings()
+  return (
+    team?.settings.workflow ??
+    createDefaultTeamWorkflowSettings(team?.settings.experience ?? "software-development")
+  )
 }
 
 export function getStatusOrderForTeam(team: Team | null | undefined): WorkStatus[] {
@@ -302,6 +333,21 @@ export function getWorkspaceChats(data: AppData, workspaceId: string) {
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
 }
 
+export function getWorkspaceChannels(data: AppData, workspaceId: string) {
+  return data.conversations
+    .filter(
+      (conversation) =>
+        conversation.kind === "channel" &&
+        conversation.scopeType === "workspace" &&
+        conversation.scopeId === workspaceId
+    )
+    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+}
+
+export function getPrimaryWorkspaceChannel(data: AppData, workspaceId: string) {
+  return getWorkspaceChannels(data, workspaceId)[0] ?? null
+}
+
 export function getTeamChatConversation(data: AppData, teamId: string) {
   return (
     data.conversations.find(
@@ -359,7 +405,7 @@ export function getTeamSurfaceDisableReason(
   }
 
   return data.channelPosts.some((post) => channelIds.has(post.conversationId))
-    ? "Channels cannot be turned off while channel posts exist."
+    ? "Channel cannot be turned off while posts exist."
     : null
 }
 
@@ -387,6 +433,34 @@ export function getChannelPostComments(data: AppData, postId: string) {
   return data.channelPostComments
     .filter((comment) => comment.postId === postId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
+export function getChannelPostHref(data: AppData, postId: string) {
+  const post = data.channelPosts.find((entry) => entry.id === postId)
+
+  if (!post) {
+    return null
+  }
+
+  const conversation = data.conversations.find(
+    (entry) => entry.id === post.conversationId
+  )
+
+  if (!conversation || conversation.kind !== "channel") {
+    return null
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return `/workspace/channel#${post.id}`
+  }
+
+  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+
+  if (!team) {
+    return null
+  }
+
+  return `/team/${team.slug}/channel#${post.id}`
 }
 
 export function getAttachmentsForTarget(
@@ -772,12 +846,36 @@ export function searchWorkspace(data: AppData, query: string) {
       keywords: ["notifications", "mentions", "inbox"],
     },
     {
+      id: "nav-chats",
+      kind: "navigation",
+      title: "Chats",
+      subtitle: "Direct and group conversations across the workspace",
+      href: "/chats",
+      keywords: ["chat", "messages", "direct", "group"],
+    },
+    {
       id: "nav-assigned",
       kind: "navigation",
-      title: "Assigned to Me",
+      title: "My items",
       subtitle: "Cross-team work assigned to the current user",
       href: "/assigned",
-      keywords: ["assigned", "tasks", "issues"],
+      keywords: ["assigned", "tasks", "items", "issues"],
+    },
+    {
+      id: "nav-channels",
+      kind: "navigation",
+      title: "Workspace Channel",
+      subtitle: "Shared updates and threaded decisions for the whole workspace",
+      href: "/workspace/channel",
+      keywords: ["workspace", "channel", "channels", "announcements"],
+    },
+    {
+      id: "nav-docs",
+      kind: "navigation",
+      title: "Workspace Docs",
+      subtitle: "Workspace knowledge plus your private notes",
+      href: "/workspace/docs",
+      keywords: ["docs", "documents", "knowledge"],
     },
     {
       id: "nav-projects",
@@ -794,14 +892,6 @@ export function searchWorkspace(data: AppData, query: string) {
       subtitle: "Saved list, board, and timeline views",
       href: "/workspace/views",
       keywords: ["views", "boards", "timeline"],
-    },
-    {
-      id: "nav-docs",
-      kind: "navigation",
-      title: "Workspace Docs",
-      subtitle: "Workspace knowledge plus your private notes",
-      href: "/workspace/docs",
-      keywords: ["docs", "documents", "knowledge"],
     },
     {
       id: "nav-search",

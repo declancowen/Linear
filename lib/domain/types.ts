@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { getPlainTextContent } from "@/lib/utils"
+
 export const roles = ["admin", "member", "viewer", "guest"] as const
 export type Role = (typeof roles)[number]
 
@@ -16,9 +18,20 @@ export type TemplateType = (typeof templateTypes)[number]
 export const teamExperienceTypes = [
   "software-development",
   "issue-analysis",
+  "project-management",
   "community",
 ] as const
 export type TeamExperienceType = (typeof teamExperienceTypes)[number]
+
+export const teamIconTokens = [
+  "robot",
+  "code",
+  "qa",
+  "kanban",
+  "briefcase",
+  "users",
+] as const
+export type TeamIconToken = (typeof teamIconTokens)[number]
 
 export const workItemTypes = [
   "epic",
@@ -69,6 +82,15 @@ export const notificationTypes = [
   "status-change",
 ] as const
 export type NotificationType = (typeof notificationTypes)[number]
+
+export const notificationEntityTypes = [
+  "workItem",
+  "document",
+  "project",
+  "invite",
+  "channelPost",
+] as const
+export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 
 export const entityKinds = ["items", "projects", "docs"] as const
 export type EntityKind = (typeof entityKinds)[number]
@@ -353,7 +375,7 @@ export interface Notification {
   id: string
   userId: string
   type: NotificationType
-  entityType: "workItem" | "document" | "project" | "invite"
+  entityType: NotificationEntityType
   entityId: string
   actorId: string
   message: string
@@ -407,11 +429,17 @@ export interface ChatMessage {
   createdAt: string
 }
 
+export interface ChannelPostReaction {
+  emoji: string
+  userIds: string[]
+}
+
 export interface ChannelPost {
   id: string
   conversationId: string
   title: string
   content: string
+  reactions: ChannelPostReaction[]
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -465,24 +493,151 @@ export const templateMeta: Record<
   {
     label: string
     description: string
+    icon: TeamIconToken
     itemTypes: WorkItemType[]
   }
 > = {
   "software-delivery": {
     label: "Software Delivery",
     description: "Epics, features, requirements, tasks, and bugs.",
+    icon: "code",
     itemTypes: ["epic", "feature", "requirement", "task", "bug", "sub-task"],
   },
   "bug-tracking": {
     label: "Bug Tracking / QA",
     description: "Bugs, QA tasks, and test cases.",
+    icon: "qa",
     itemTypes: ["bug", "qa-task", "test-case", "sub-task"],
   },
   "project-management": {
     label: "Project Management",
     description: "Tasks and sub-tasks with milestones.",
+    icon: "kanban",
     itemTypes: ["task", "sub-task"],
   },
+}
+
+export function getAllowedWorkItemTypesForTemplate(templateType: TemplateType) {
+  return [...templateMeta[templateType].itemTypes]
+}
+
+export function getDefaultWorkItemTypesForTeamExperience(
+  experience: TeamExperienceType | null | undefined
+) {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (resolvedExperience === "issue-analysis") {
+    return getAllowedWorkItemTypesForTemplate("bug-tracking")
+  }
+
+  if (resolvedExperience === "project-management") {
+    return getAllowedWorkItemTypesForTemplate("project-management")
+  }
+
+  if (resolvedExperience === "community") {
+    return []
+  }
+
+  return getAllowedWorkItemTypesForTemplate("software-delivery")
+}
+
+export function getDefaultTemplateTypeForTeamExperience(
+  experience: TeamExperienceType | null | undefined
+): TemplateType {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (resolvedExperience === "issue-analysis") {
+    return "bug-tracking"
+  }
+
+  if (resolvedExperience === "project-management") {
+    return "project-management"
+  }
+
+  return "software-delivery"
+}
+
+export const teamIconMeta: Record<
+  TeamIconToken,
+  {
+    label: string
+    description: string
+  }
+> = {
+  robot: {
+    label: "Product",
+    description: "Broad product delivery and cross-functional software work.",
+  },
+  code: {
+    label: "Engineering",
+    description: "Platform, implementation, and code-centric delivery.",
+  },
+  qa: {
+    label: "Quality Assurance",
+    description: "Bug triage, verification, and testing-focused work.",
+  },
+  kanban: {
+    label: "Project Management",
+    description: "Planning, coordination, milestones, and follow-through.",
+  },
+  briefcase: {
+    label: "Operations",
+    description:
+      "Business operations, launch readiness, and execution support.",
+  },
+  users: {
+    label: "Community",
+    description: "People, communication, and community-facing collaboration.",
+  },
+}
+
+export function isTeamIconToken(value: string): value is TeamIconToken {
+  return (teamIconTokens as readonly string[]).includes(value)
+}
+
+export function getDefaultTeamIconForExperience(
+  experience: TeamExperienceType | null | undefined
+): TeamIconToken {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (resolvedExperience === "issue-analysis") {
+    return "qa"
+  }
+
+  if (resolvedExperience === "project-management") {
+    return "kanban"
+  }
+
+  if (resolvedExperience === "community") {
+    return "users"
+  }
+
+  return "code"
+}
+
+export function normalizeTeamIconToken(
+  value: string | null | undefined,
+  experience: TeamExperienceType | null | undefined
+): TeamIconToken {
+  const normalized = value?.trim().toLowerCase()
+
+  if (normalized && isTeamIconToken(normalized)) {
+    return normalized
+  }
+
+  switch (normalized) {
+    case "issue-analysis":
+    case "quality-assurance":
+      return "qa"
+    case "project-management":
+      return "kanban"
+    case "software-development":
+      return "code"
+    case "community":
+      return "users"
+    default:
+      return getDefaultTeamIconForExperience(experience)
+  }
 }
 
 export const teamExperienceMeta: Record<
@@ -495,17 +650,22 @@ export const teamExperienceMeta: Record<
   "software-development": {
     label: "Software Development",
     description:
-      "Issues, projects, and views are always enabled. Docs, chat, and channels are optional.",
+      "Issues, projects, and views are always enabled. Docs, chat, and channel are optional.",
   },
   "issue-analysis": {
-    label: "Issue Analysis",
+    label: "Quality Assurance",
     description:
-      "Operational triage and analysis. Issues, projects, and views stay on; docs, chat, and channels are optional.",
+      "Bug triage, QA verification, and issue analysis. Issues, projects, and views stay on; docs, chat, and channel are optional.",
+  },
+  "project-management": {
+    label: "Project Management",
+    description:
+      "Planning, coordination, milestones, and delivery follow-through. Issues, projects, and views stay on; docs, chat, and channel are optional.",
   },
   community: {
     label: "Community",
     description:
-      "A lighter collaboration space that supports either chat or channels, but never both at once.",
+      "A lighter collaboration space that supports either chat or channel, but never both at once.",
   },
 }
 
@@ -537,7 +697,7 @@ export const teamFeatureMeta: Record<
     description: "Real-time threaded messaging.",
   },
   channels: {
-    label: "Channels",
+    label: "Channel",
     description: "Forum-style posts with comments.",
   },
 }
@@ -571,19 +731,24 @@ export function getTeamFeatureValidationMessage(
   features: TeamFeatureSettings
 ) {
   if (experience === "community") {
-    if (features.issues || features.projects || features.views || features.docs) {
-      return "Community teams can only enable chat or channels."
+    if (
+      features.issues ||
+      features.projects ||
+      features.views ||
+      features.docs
+    ) {
+      return "Community teams can only enable chat or channel."
     }
 
     if (Number(features.chat) + Number(features.channels) !== 1) {
-      return "Community teams must enable exactly one of chat or channels."
+      return "Community teams must enable exactly one of chat or channel."
     }
 
     return null
   }
 
   if (!features.issues || !features.projects || !features.views) {
-    return "Software development and issue analysis teams must include issues, projects, and views."
+    return "Software development, quality assurance, and project management teams must include issues, projects, and views."
   }
 
   return null
@@ -614,8 +779,10 @@ export function normalizeTeamFeatureSettings(
   return merged
 }
 
-export function createDefaultTeamWorkflowSettings(): TeamWorkflowSettings {
-  return {
+export function createDefaultTeamWorkflowSettings(
+  experience: TeamExperienceType = "software-development"
+): TeamWorkflowSettings {
+  const workflow: TeamWorkflowSettings = {
     statusOrder: [...workStatuses],
     templateDefaults: {
       "software-delivery": {
@@ -651,6 +818,30 @@ export function createDefaultTeamWorkflowSettings(): TeamWorkflowSettings {
       },
     },
   }
+
+  if (experience === "issue-analysis") {
+    workflow.templateDefaults["bug-tracking"] = {
+      ...workflow.templateDefaults["bug-tracking"],
+      defaultPriority: "high",
+      targetWindowDays: 10,
+      defaultViewLayout: "list",
+      summaryHint:
+        "QA backlog focused on defects, verification steps, and regression control.",
+    }
+  }
+
+  if (experience === "project-management") {
+    workflow.templateDefaults["project-management"] = {
+      ...workflow.templateDefaults["project-management"],
+      defaultPriority: "medium",
+      targetWindowDays: 45,
+      defaultViewLayout: "timeline",
+      summaryHint:
+        "Program plan for milestones, risks, owners, and cross-team delivery coordination.",
+    }
+  }
+
+  return workflow
 }
 
 export const statusMeta: Record<WorkStatus, { label: string }> = {
@@ -662,13 +853,14 @@ export const statusMeta: Record<WorkStatus, { label: string }> = {
   duplicate: { label: "Duplicate" },
 }
 
-export const priorityMeta: Record<Priority, { label: string; weight: number }> = {
-  urgent: { label: "Urgent", weight: 4 },
-  high: { label: "High", weight: 3 },
-  medium: { label: "Medium", weight: 2 },
-  low: { label: "Low", weight: 1 },
-  none: { label: "None", weight: 0 },
-}
+export const priorityMeta: Record<Priority, { label: string; weight: number }> =
+  {
+    urgent: { label: "Urgent", weight: 4 },
+    high: { label: "High", weight: 3 },
+    medium: { label: "Medium", weight: 2 },
+    low: { label: "Low", weight: 1 },
+    none: { label: "None", weight: 0 },
+  }
 
 export const projectHealthMeta: Record<ProjectHealth, { label: string }> = {
   "no-update": { label: "No updates" },
@@ -688,6 +880,34 @@ export const workItemTypeMeta: Record<WorkItemType, { label: string }> = {
   "test-case": { label: "Test Case" },
 }
 
+export const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {
+  epic: ["feature", "requirement", "task", "bug"],
+  feature: ["requirement", "task", "bug"],
+  requirement: ["task", "bug", "qa-task", "test-case", "sub-task"],
+  task: ["sub-task"],
+  bug: ["qa-task", "test-case", "sub-task"],
+  "sub-task": [],
+  "qa-task": ["test-case", "sub-task"],
+  "test-case": [],
+}
+
+export function getAllowedChildWorkItemTypes(parentType: WorkItemType) {
+  return [...workItemChildTypeMeta[parentType]]
+}
+
+export function getAllowedChildWorkItemTypesForItem(
+  item: Pick<WorkItem, "type" | "parentId">
+) {
+  return item.parentId ? [] : getAllowedChildWorkItemTypes(item.type)
+}
+
+export function canParentWorkItemTypeAcceptChild(
+  parentType: WorkItemType,
+  childType: WorkItemType
+) {
+  return workItemChildTypeMeta[parentType].includes(childType)
+}
+
 export const inviteSchema = z.object({
   teamIds: z.array(z.string().min(1)).min(1).max(12),
   email: z.email(),
@@ -705,39 +925,44 @@ export const workspaceBrandingSchema = z.object({
   description: z.string().trim().min(8).max(220),
 })
 
-export const teamDetailsSchema = z.object({
-  name: z.string().trim().min(2).max(48),
-  icon: z.string().trim().min(1).max(32),
-  summary: z.string().trim().min(8).max(180),
-  joinCode: z
-    .string()
-    .trim()
-    .min(4)
-    .max(24)
-    .regex(/^[a-zA-Z0-9_-]+$/, "Join code can only contain letters, numbers, dashes, and underscores"),
-  experience: z.enum(teamExperienceTypes),
-  features: z.object({
-    issues: z.boolean(),
-    projects: z.boolean(),
-    views: z.boolean(),
-    docs: z.boolean(),
-    chat: z.boolean(),
-    channels: z.boolean(),
-  }),
-}).superRefine((value, ctx) => {
-  const validationMessage = getTeamFeatureValidationMessage(
-    value.experience,
-    value.features
-  )
+export const teamDetailsSchema = z
+  .object({
+    name: z.string().trim().min(2).max(48),
+    icon: z.enum(teamIconTokens),
+    summary: z.string().trim().min(8).max(180),
+    joinCode: z
+      .string()
+      .trim()
+      .min(4)
+      .max(24)
+      .regex(
+        /^[a-zA-Z0-9_-]+$/,
+        "Join code can only contain letters, numbers, dashes, and underscores"
+      ),
+    experience: z.enum(teamExperienceTypes),
+    features: z.object({
+      issues: z.boolean(),
+      projects: z.boolean(),
+      views: z.boolean(),
+      docs: z.boolean(),
+      chat: z.boolean(),
+      channels: z.boolean(),
+    }),
+  })
+  .superRefine((value, ctx) => {
+    const validationMessage = getTeamFeatureValidationMessage(
+      value.experience,
+      value.features
+    )
 
-  if (validationMessage) {
-    ctx.addIssue({
-      code: "custom",
-      message: validationMessage,
-      path: ["features"],
-    })
-  }
-})
+    if (validationMessage) {
+      ctx.addIssue({
+        code: "custom",
+        message: validationMessage,
+        path: ["features"],
+      })
+    }
+  })
 
 export const appWorkspaceBootstrapSchema = z.object({
   workspaceSlug: z.string().trim().min(2).max(64),
@@ -747,18 +972,22 @@ export const appWorkspaceBootstrapSchema = z.object({
   workspaceDescription: z.string().trim().min(8).max(220),
   teamSlug: z.string().trim().min(2).max(64),
   teamName: z.string().trim().min(2).max(64),
-  teamIcon: z.string().trim().min(1).max(32),
+  teamIcon: z.enum(teamIconTokens),
   teamSummary: z.string().trim().min(8).max(180),
   teamJoinCode: z
     .string()
     .trim()
     .min(4)
     .max(24)
-    .regex(/^[a-zA-Z0-9_-]+$/, "Join code can only contain letters, numbers, dashes, and underscores"),
+    .regex(
+      /^[a-zA-Z0-9_-]+$/,
+      "Join code can only contain letters, numbers, dashes, and underscores"
+    ),
   email: z.email(),
   userName: z.string().trim().min(2).max(80),
   avatarUrl: z.string().trim().min(1).max(24),
   workosUserId: z.string().trim().min(1),
+  teamExperience: z.enum(teamExperienceTypes).default("software-development"),
   role: z.enum(roles).default("admin"),
 })
 
@@ -787,6 +1016,7 @@ export const workItemSchema = z.object({
   teamId: z.string().min(1),
   type: z.enum(workItemTypes),
   title: z.string().trim().min(2).max(96),
+  parentId: z.string().nullable().optional(),
   primaryProjectId: z.string().nullable(),
   assigneeId: z.string().nullable(),
   priority: z.enum(priorities),
@@ -833,11 +1063,24 @@ export const teamChatSchema = z.object({
   description: z.string().trim().max(180).default(""),
 })
 
-export const channelSchema = z.object({
-  teamId: z.string().min(1),
-  title: z.string().trim().max(80).default(""),
-  description: z.string().trim().max(180).default(""),
-})
+export const channelSchema = z
+  .object({
+    teamId: z.string().min(1).optional(),
+    workspaceId: z.string().min(1).optional(),
+    title: z.string().trim().max(80).default(""),
+    description: z.string().trim().max(180).default(""),
+  })
+  .superRefine((value, ctx) => {
+    const targets =
+      Number(Boolean(value.teamId)) + Number(Boolean(value.workspaceId))
+
+    if (targets !== 1) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Channel must target exactly one team or workspace",
+      })
+    }
+  })
 
 export const chatMessageSchema = z.object({
   conversationId: z.string().min(1),
@@ -846,13 +1089,25 @@ export const chatMessageSchema = z.object({
 
 export const channelPostSchema = z.object({
   conversationId: z.string().min(1),
-  title: z.string().trim().min(2).max(120),
-  content: z.string().trim().min(2).max(8000),
+  title: z.string().trim().max(120).default(""),
+  content: z
+    .string()
+    .trim()
+    .max(8000)
+    .refine((value) => getPlainTextContent(value).length >= 2, {
+      message: "Post content must include at least 2 characters",
+    }),
 })
 
 export const channelPostCommentSchema = z.object({
   postId: z.string().min(1),
-  content: z.string().trim().min(1).max(4000),
+  content: z
+    .string()
+    .trim()
+    .max(4000)
+    .refine((value) => getPlainTextContent(value).length >= 1, {
+      message: "Comment content must include at least 1 character",
+    }),
 })
 
 export const attachmentUploadUrlSchema = z.object({
@@ -866,7 +1121,11 @@ export const attachmentSchema = z.object({
   storageId: z.string().min(1),
   fileName: z.string().trim().min(1).max(180),
   contentType: z.string().trim().min(1).max(120),
-  size: z.number().int().min(1).max(25 * 1024 * 1024),
+  size: z
+    .number()
+    .int()
+    .min(1)
+    .max(25 * 1024 * 1024),
 })
 
 const teamTemplateConfigSchema = z.object({

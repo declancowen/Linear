@@ -1,13 +1,23 @@
 import { addDays, differenceInCalendarDays } from "date-fns"
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
+import {
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server"
 import { v } from "convex/values"
 
 import { createSeedState } from "../lib/domain/seed"
 import {
+  canParentWorkItemTypeAcceptChild,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  getAllowedWorkItemTypesForTemplate,
+  getDefaultWorkItemTypesForTeamExperience,
   getTeamFeatureValidationMessage,
+  normalizeTeamIconToken,
 } from "../lib/domain/types"
+import { getPlainTextContent } from "../lib/utils"
 import {
   attachmentTargetTypeValidator,
   commentTargetTypeValidator,
@@ -32,6 +42,13 @@ function getNow() {
 
 function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+const rolePriority: Record<"guest" | "viewer" | "member" | "admin", number> = {
+  guest: 0,
+  viewer: 1,
+  member: 2,
+  admin: 3,
 }
 
 function createHandle(email: string) {
@@ -62,6 +79,74 @@ function normalizeJoinCode(value: string) {
     .slice(0, 24)
 }
 
+function normalizeTeamIcon(
+  icon: string | null | undefined,
+  experience:
+    | "software-development"
+    | "issue-analysis"
+    | "project-management"
+    | "community"
+    | null
+    | undefined
+) {
+  return normalizeTeamIconToken(icon, experience)
+}
+
+function mergeMembershipRole(
+  currentRole: "admin" | "member" | "viewer" | "guest" | null | undefined,
+  requestedRole: "admin" | "member" | "viewer" | "guest"
+) {
+  if (!currentRole) {
+    return requestedRole
+  }
+
+  return rolePriority[currentRole] >= rolePriority[requestedRole]
+    ? currentRole
+    : requestedRole
+}
+
+function createUniqueTeamSlug(
+  teams: Array<{ slug: string }>,
+  name: string,
+  joinCode: string
+) {
+  const baseSlug = createSlug(name) || createSlug(joinCode) || "team"
+  const takenSlugs = new Set(teams.map((team) => team.slug))
+
+  if (!takenSlugs.has(baseSlug)) {
+    return baseSlug
+  }
+
+  let suffix = 2
+
+  while (suffix < 1000) {
+    const suffixText = `-${suffix}`
+    const candidate = `${baseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
+
+    if (!takenSlugs.has(candidate)) {
+      return candidate
+    }
+
+    suffix += 1
+  }
+
+  throw new Error("Unable to generate a unique team slug")
+}
+
+function ensureJoinCodeAvailable(
+  teams: Array<{ id: string; settings: { joinCode: string } }>,
+  joinCode: string,
+  excludedTeamId?: string
+) {
+  const duplicate = teams.find(
+    (team) => team.settings.joinCode === joinCode && team.id !== excludedTeamId
+  )
+
+  if (duplicate) {
+    throw new Error("Join code is already in use")
+  }
+}
+
 function toKeyPrefix(teamId: string) {
   if (teamId === "team_development") {
     return "DEV"
@@ -74,7 +159,10 @@ function toKeyPrefix(teamId: string) {
   return "REC"
 }
 
-function matchesTeamAccessIdentifier(team: { id: string; slug: string; settings: { joinCode: string } }, value: string) {
+function matchesTeamAccessIdentifier(
+  team: { id: string; slug: string; settings: { joinCode: string } },
+  value: string
+) {
   const normalized = value.trim().toLowerCase()
 
   return (
@@ -103,6 +191,13 @@ async function getTeamDoc(ctx: AppCtx, id: string) {
 async function getUserDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("users")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+async function getProjectDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("projects")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
 }
@@ -192,22 +287,21 @@ async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
     .collect()
   const teams = await ctx.db.query("teams").collect()
 
-  return memberships.reduce<Record<string, Array<(typeof memberships)[number]["role"]>>>(
-    (accumulator, membership) => {
-      const team = teams.find((entry) => entry.id === membership.teamId)
-      if (!team) {
-        return accumulator
-      }
-
-      accumulator[team.workspaceId] = [
-        ...(accumulator[team.workspaceId] ?? []),
-        membership.role,
-      ]
-
+  return memberships.reduce<
+    Record<string, Array<(typeof memberships)[number]["role"]>>
+  >((accumulator, membership) => {
+    const team = teams.find((entry) => entry.id === membership.teamId)
+    if (!team) {
       return accumulator
-    },
-    {}
-  )
+    }
+
+    accumulator[team.workspaceId] = [
+      ...(accumulator[team.workspaceId] ?? []),
+      membership.role,
+    ]
+
+    return accumulator
+  }, {})
 }
 
 async function hasBootstrappedAdmin(ctx: AppCtx) {
@@ -227,7 +321,10 @@ async function hasBootstrappedAdmin(ctx: AppCtx) {
   )
 }
 
-async function bootstrapFirstAuthenticatedUser(ctx: MutationCtx, userId: string) {
+async function bootstrapFirstAuthenticatedUser(
+  ctx: MutationCtx,
+  userId: string
+) {
   if (await hasBootstrappedAdmin(ctx)) {
     return false
   }
@@ -277,6 +374,17 @@ async function getEffectiveRole(ctx: AppCtx, teamId: string, userId: string) {
   return membership?.role ?? null
 }
 
+async function isTeamMember(ctx: AppCtx, teamId: string, userId: string) {
+  const membership = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team_and_user", (q) =>
+      q.eq("teamId", teamId).eq("userId", userId)
+    )
+    .unique()
+
+  return Boolean(membership)
+}
+
 function isReadOnlyRole(role: Awaited<ReturnType<typeof getEffectiveRole>>) {
   return role === "viewer" || role === "guest" || !role
 }
@@ -314,8 +422,11 @@ async function requireEditableWorkspaceAccess(
   workspaceId: string,
   userId: string
 ) {
-  const workspaceRoles = (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
-  const canEdit = workspaceRoles.some((role) => role === "admin" || role === "member")
+  const workspaceRoles =
+    (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
+  const canEdit = workspaceRoles.some(
+    (role) => role === "admin" || role === "member"
+  )
 
   if (!canEdit) {
     throw new Error("Your current role is read-only")
@@ -331,7 +442,10 @@ async function requireEditableDocumentAccess(
     throw new Error("Document not found")
   }
 
-  if (document.kind === "team-document" || document.kind === "item-description") {
+  if (
+    document.kind === "team-document" ||
+    document.kind === "item-description"
+  ) {
     if (!document.teamId) {
       throw new Error("Document is missing a team")
     }
@@ -352,11 +466,128 @@ async function requireWorkspaceAdminAccess(
   workspaceId: string,
   userId: string
 ) {
-  const workspaceRoles = (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
+  const workspaceRoles =
+    (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
 
   if (!workspaceRoles.includes("admin")) {
     throw new Error("Only workspace admins can perform this action")
   }
+}
+
+function projectBelongsToTeamScope(
+  team: { id: string; workspaceId: string },
+  project: { scopeType: "team" | "workspace"; scopeId: string }
+) {
+  return (
+    (project.scopeType === "team" && project.scopeId === team.id) ||
+    (project.scopeType === "workspace" && project.scopeId === team.workspaceId)
+  )
+}
+
+async function validateWorkItemParent(
+  ctx: AppCtx,
+  options: {
+    teamId: string
+    itemType:
+      | "epic"
+      | "feature"
+      | "requirement"
+      | "task"
+      | "bug"
+      | "sub-task"
+      | "qa-task"
+      | "test-case"
+    parentId: string | null
+    currentItemId?: string
+  }
+) {
+  if (!options.parentId) {
+    return null
+  }
+
+  const parent = await getWorkItemDoc(ctx, options.parentId)
+
+  if (!parent) {
+    throw new Error("Parent issue not found")
+  }
+
+  if (parent.teamId !== options.teamId) {
+    throw new Error("Parent issue must belong to the same team")
+  }
+
+  if (parent.parentId) {
+    throw new Error("Sub-issues can't contain other sub-issues")
+  }
+
+  if (options.currentItemId && parent.id === options.currentItemId) {
+    throw new Error("An issue cannot be its own parent")
+  }
+
+  if (!canParentWorkItemTypeAcceptChild(parent.type, options.itemType)) {
+    throw new Error("Parent issue type cannot contain this child type")
+  }
+
+  if (!options.currentItemId) {
+    return parent
+  }
+
+  const teamItems = await ctx.db
+    .query("workItems")
+    .withIndex("by_team_id", (q) => q.eq("teamId", options.teamId))
+    .collect()
+
+  if (teamItems.some((item) => item.parentId === options.currentItemId)) {
+    throw new Error(
+      "Issues with sub-issues can't be nested under another issue"
+    )
+  }
+
+  const visited = new Set<string>([options.currentItemId])
+  let cursor = parent
+
+  while (cursor.parentId) {
+    if (visited.has(cursor.parentId)) {
+      throw new Error("Parent issue would create a cycle")
+    }
+
+    visited.add(cursor.parentId)
+    const nextParent = await getWorkItemDoc(ctx, cursor.parentId)
+
+    if (!nextParent) {
+      break
+    }
+
+    cursor = nextParent
+  }
+
+  return parent
+}
+
+function collectWorkItemCascadeIds(
+  items: Array<{ id: string; parentId: string | null }>,
+  rootItemId: string
+) {
+  const deletedItemIds = new Set<string>([rootItemId])
+  const queue = [rootItemId]
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()
+
+    if (!currentId) {
+      continue
+    }
+
+    for (const item of items) {
+      if (item.parentId !== currentId || deletedItemIds.has(item.id)) {
+        continue
+      }
+
+      deletedItemIds.add(item.id)
+      queue.push(item.id)
+    }
+  }
+
+  return deletedItemIds
 }
 
 async function requireViewMutationAccess(
@@ -473,18 +704,40 @@ async function findTeamChatConversation(ctx: AppCtx, teamId: string) {
     )
     .collect()
 
-  return conversations.find((conversation) => conversation.variant === "team") ?? null
+  return (
+    conversations.find((conversation) => conversation.variant === "team") ??
+    null
+  )
 }
 
-async function findPrimaryTeamChannelConversation(ctx: AppCtx, teamId: string) {
+async function findPrimaryChannelConversation(
+  ctx: AppCtx,
+  scopeType: "team" | "workspace",
+  scopeId: string
+) {
   const conversations = await ctx.db
     .query("conversations")
     .withIndex("by_kind_scope", (q) =>
-      q.eq("kind", "channel").eq("scopeType", "team").eq("scopeId", teamId)
+      q.eq("kind", "channel").eq("scopeType", scopeType).eq("scopeId", scopeId)
     )
     .collect()
 
-  return conversations.sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null
+  return (
+    conversations.sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt)
+    )[0] ?? null
+  )
+}
+
+async function findPrimaryTeamChannelConversation(ctx: AppCtx, teamId: string) {
+  return findPrimaryChannelConversation(ctx, "team", teamId)
+}
+
+async function findPrimaryWorkspaceChannelConversation(
+  ctx: AppCtx,
+  workspaceId: string
+) {
+  return findPrimaryChannelConversation(ctx, "workspace", workspaceId)
 }
 
 async function ensureTeamChatConversation(
@@ -565,6 +818,51 @@ async function ensureTeamChannelConversation(
   return conversationId
 }
 
+async function ensureWorkspaceChannelConversation(
+  ctx: MutationCtx,
+  input: {
+    workspaceId: string
+    currentUserId: string
+    workspaceName: string
+    workspaceDescription: string
+    title?: string
+    description?: string
+  }
+) {
+  const existing = await findPrimaryWorkspaceChannelConversation(
+    ctx,
+    input.workspaceId
+  )
+
+  if (existing) {
+    return existing.id
+  }
+
+  const participantIds = await getWorkspaceUserIds(ctx, input.workspaceId)
+  const now = getNow()
+  const conversationId = createId("conversation")
+
+  await ctx.db.insert("conversations", {
+    id: conversationId,
+    kind: "channel",
+    scopeType: "workspace",
+    scopeId: input.workspaceId,
+    variant: "team",
+    title: input.title?.trim() || input.workspaceName.trim(),
+    description:
+      input.description?.trim() ||
+      input.workspaceDescription.trim() ||
+      "Shared updates and threaded decisions for the whole workspace.",
+    participantIds,
+    createdBy: input.currentUserId,
+    createdAt: now,
+    updatedAt: now,
+    lastActivityAt: now,
+  })
+
+  return conversationId
+}
+
 async function requireConversationAccess(
   ctx: AppCtx,
   conversation: Awaited<ReturnType<typeof getConversationDoc>>,
@@ -576,11 +874,18 @@ async function requireConversationAccess(
   }
 
   if (conversation.scopeType === "workspace") {
-    const workspaceRoles = (await getWorkspaceRoleMapForUser(ctx, userId))[
-      conversation.scopeId
-    ] ?? []
+    const workspaceRoles =
+      (await getWorkspaceRoleMapForUser(ctx, userId))[conversation.scopeId] ??
+      []
 
-    if (workspaceRoles.length === 0 || !conversation.participantIds.includes(userId)) {
+    if (workspaceRoles.length === 0) {
+      throw new Error("You do not have access to this conversation")
+    }
+
+    if (
+      conversation.kind === "chat" &&
+      !conversation.participantIds.includes(userId)
+    ) {
       throw new Error("You do not have access to this conversation")
     }
 
@@ -596,7 +901,10 @@ async function requireConversationAccess(
   return conversation
 }
 
-function createMentionIds(content: string, users: Array<{ id: string; handle: string }>) {
+function createMentionIds(
+  content: string,
+  users: Array<{ id: string; handle: string }>
+) {
   const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
     match[1]?.toLowerCase()
   )
@@ -606,11 +914,70 @@ function createMentionIds(content: string, users: Array<{ id: string; handle: st
     .map((user) => user.id)
 }
 
+function toggleReactionUsers(
+  reactions: Array<{ emoji: string; userIds: string[] }> | undefined,
+  emoji: string,
+  userId: string
+) {
+  const nextReactions = [...(reactions ?? [])]
+  const reactionIndex = nextReactions.findIndex((entry) => entry.emoji === emoji)
+
+  if (reactionIndex === -1) {
+    return [
+      ...nextReactions,
+      {
+        emoji,
+        userIds: [userId],
+      },
+    ]
+  }
+
+  const reaction = nextReactions[reactionIndex]
+  const hasReacted = reaction.userIds.includes(userId)
+  const userIds = hasReacted
+    ? reaction.userIds.filter((entry) => entry !== userId)
+    : [...reaction.userIds, userId]
+
+  if (userIds.length === 0) {
+    nextReactions.splice(reactionIndex, 1)
+    return nextReactions
+  }
+
+  nextReactions[reactionIndex] = {
+    ...reaction,
+    userIds,
+  }
+
+  return nextReactions
+}
+
+async function getChannelConversationPath(
+  ctx: AppCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>,
+  postId: string
+) {
+  if (!conversation || conversation.kind !== "channel") {
+    return `/inbox#${postId}`
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return `/workspace/channel#${postId}`
+  }
+
+  const team = await getTeamDoc(ctx, conversation.scopeId)
+
+  if (!team) {
+    return `/inbox#${postId}`
+  }
+
+  return `/team/${team.slug}/channel#${postId}`
+}
+
 function createNotification(
   userId: string,
   actorId: string,
   message: string,
-  entityType: "workItem" | "document" | "project" | "invite",
+  entityType: "workItem" | "document" | "project" | "invite" | "channelPost",
   entityId: string,
   type: "mention" | "assignment" | "comment" | "invite" | "status-change"
 ) {
@@ -645,32 +1012,49 @@ function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
 }
 
 function normalizeTeamWorkflowSettings(
-  workflow: {
-    statusOrder: Array<
-      "backlog" | "todo" | "in-progress" | "done" | "cancelled" | "duplicate"
-    >
-    templateDefaults: Record<
-      "software-delivery" | "bug-tracking" | "project-management",
-      {
-        defaultPriority: "none" | "low" | "medium" | "high" | "urgent"
-        targetWindowDays: number
-        defaultViewLayout: "list" | "board" | "timeline"
-        recommendedItemTypes: Array<
-          | "epic"
-          | "feature"
-          | "requirement"
-          | "task"
-          | "bug"
-          | "sub-task"
-          | "qa-task"
-          | "test-case"
+  workflow:
+    | {
+        statusOrder: Array<
+          | "backlog"
+          | "todo"
+          | "in-progress"
+          | "done"
+          | "cancelled"
+          | "duplicate"
         >
-        summaryHint: string
+        templateDefaults: Record<
+          "software-delivery" | "bug-tracking" | "project-management",
+          {
+            defaultPriority: "none" | "low" | "medium" | "high" | "urgent"
+            targetWindowDays: number
+            defaultViewLayout: "list" | "board" | "timeline"
+            recommendedItemTypes: Array<
+              | "epic"
+              | "feature"
+              | "requirement"
+              | "task"
+              | "bug"
+              | "sub-task"
+              | "qa-task"
+              | "test-case"
+            >
+            summaryHint: string
+          }
+        >
       }
-    >
-  } | null | undefined
+    | null
+    | undefined,
+  experience:
+    | "software-development"
+    | "issue-analysis"
+    | "project-management"
+    | "community"
+    | null
+    | undefined = "software-development"
 ) {
-  const defaults = createDefaultTeamWorkflowSettings()
+  const defaults = createDefaultTeamWorkflowSettings(
+    experience ?? "software-development"
+  )
 
   if (!workflow) {
     return defaults
@@ -699,7 +1083,13 @@ function normalizeTeamWorkflowSettings(
 }
 
 function normalizeTeamFeatures(
-  experience: "software-development" | "issue-analysis" | "community" | null | undefined,
+  experience:
+    | "software-development"
+    | "issue-analysis"
+    | "project-management"
+    | "community"
+    | null
+    | undefined,
   features:
     | {
         issues: boolean
@@ -729,9 +1119,15 @@ function normalizeTeamFeatures(
   return merged
 }
 
-function normalizeTeam<T extends { settings: Record<string, unknown> }>(team: T) {
+function normalizeTeam<T extends { settings: Record<string, unknown> }>(
+  team: T
+) {
   const settings = team.settings as {
-    experience?: "software-development" | "issue-analysis" | "community"
+    experience?:
+      | "software-development"
+      | "issue-analysis"
+      | "project-management"
+      | "community"
     features?: {
       issues: boolean
       projects: boolean
@@ -745,21 +1141,25 @@ function normalizeTeam<T extends { settings: Record<string, unknown> }>(team: T)
 
   return {
     ...team,
+    icon: normalizeTeamIcon(
+      (team as T & { icon?: string }).icon,
+      settings.experience ?? "software-development"
+    ),
     settings: {
       ...team.settings,
       experience: settings.experience ?? "software-development",
       features: normalizeTeamFeatures(settings.experience, settings.features),
       workflow: normalizeTeamWorkflowSettings(
-        settings.workflow
+        settings.workflow,
+        settings.experience
       ),
     },
   }
 }
 
-function normalizeDocument<T extends { workspaceId?: string; teamId?: string | null }>(
-  document: T,
-  teams: Array<{ id: string; workspaceId: string }>
-) {
+function normalizeDocument<
+  T extends { workspaceId?: string; teamId?: string | null },
+>(document: T, teams: Array<{ id: string; workspaceId: string }>) {
   return {
     ...document,
     workspaceId:
@@ -774,7 +1174,11 @@ async function getTeamSurfaceDisableMessage(
   team: {
     id: string
     settings: {
-      experience?: "software-development" | "issue-analysis" | "community"
+      experience?:
+        | "software-development"
+        | "issue-analysis"
+        | "community"
+        | "project-management"
       features?: {
         issues: boolean
         projects: boolean
@@ -802,7 +1206,8 @@ async function getTeamSurfaceDisableMessage(
   if (currentFeatures.docs && !nextFeatures.docs) {
     const documents = await ctx.db.query("documents").collect()
     const hasTeamDocuments = documents.some(
-      (document) => document.kind === "team-document" && document.teamId === team.id
+      (document) =>
+        document.kind === "team-document" && document.teamId === team.id
     )
 
     if (hasTeamDocuments) {
@@ -817,12 +1222,16 @@ async function getTeamSurfaceDisableMessage(
         q.eq("kind", "chat").eq("scopeType", "team").eq("scopeId", team.id)
       )
       .collect()
-    const teamChat = conversations.find((conversation) => conversation.variant === "team")
+    const teamChat = conversations.find(
+      (conversation) => conversation.variant === "team"
+    )
 
     if (teamChat) {
       const messages = await ctx.db
         .query("chatMessages")
-        .withIndex("by_conversation", (q) => q.eq("conversationId", teamChat.id))
+        .withIndex("by_conversation", (q) =>
+          q.eq("conversationId", teamChat.id)
+        )
         .take(1)
 
       if (messages.length > 0) {
@@ -846,7 +1255,7 @@ async function getTeamSurfaceDisableMessage(
         .take(1)
 
       if (posts.length > 0) {
-        return "Channels cannot be turned off while channel posts exist."
+        return "Channel cannot be turned off while posts exist."
       }
     }
   }
@@ -974,6 +1383,7 @@ export const bootstrapAppWorkspace = mutation({
     userName: v.string(),
     avatarUrl: v.string(),
     workosUserId: v.string(),
+    teamExperience: v.optional(teamExperienceTypeValidator),
     role: v.optional(roleValidator),
   },
   handler: async (ctx, args) => {
@@ -985,8 +1395,10 @@ export const bootstrapAppWorkspace = mutation({
     const teams = await ctx.db.query("teams").collect()
     const role = args.role ?? "admin"
 
-    const workspace = workspaces.find((entry) => entry.slug === workspaceSlug) ?? null
-    const workspaceId = workspace?.id ?? `workspace_${workspaceSlug.replace(/-/g, "_")}`
+    const workspace =
+      workspaces.find((entry) => entry.slug === workspaceSlug) ?? null
+    const workspaceId =
+      workspace?.id ?? `workspace_${workspaceSlug.replace(/-/g, "_")}`
     const workosOrganizationId = workspace?.workosOrganizationId ?? null
 
     if (workspace) {
@@ -1019,36 +1431,49 @@ export const bootstrapAppWorkspace = mutation({
         (entry) => entry.workspaceId === workspaceId && entry.slug === teamSlug
       ) ?? null
     const teamId = team?.id ?? `team_${teamSlug.replace(/-/g, "_")}`
+    const teamExperience =
+      args.teamExperience ??
+      (
+        team?.settings as
+          | {
+              experience?:
+                | "software-development"
+                | "issue-analysis"
+                | "project-management"
+                | "community"
+            }
+          | undefined
+      )?.experience ??
+      "software-development"
     const workflow = team
-      ? normalizeTeamWorkflowSettings(team.settings.workflow)
-      : createDefaultTeamWorkflowSettings()
+      ? normalizeTeamWorkflowSettings(team.settings.workflow, teamExperience)
+      : createDefaultTeamWorkflowSettings(teamExperience)
+    const teamIcon = normalizeTeamIcon(args.teamIcon, teamExperience)
 
     if (team) {
       await ctx.db.patch(team._id, {
         slug: teamSlug,
         name: args.teamName,
-        icon: args.teamIcon,
+        icon: teamIcon,
         settings: {
           ...team.settings,
           joinCode,
           summary: args.teamSummary,
-          experience:
-            (team.settings as { experience?: "software-development" }).experience ??
-            "software-development",
+          experience: teamExperience,
           features: normalizeTeamFeatures(
-            (team.settings as {
-              experience?: "software-development" | "issue-analysis" | "community"
-            }).experience,
-            (team.settings as {
-              features?: {
-                issues: boolean
-                projects: boolean
-                views: boolean
-                docs: boolean
-                chat: boolean
-                channels: boolean
+            teamExperience,
+            (
+              team.settings as {
+                features?: {
+                  issues: boolean
+                  projects: boolean
+                  views: boolean
+                  docs: boolean
+                  chat: boolean
+                  channels: boolean
+                }
               }
-            }).features
+            ).features
           ),
           workflow,
         },
@@ -1059,15 +1484,15 @@ export const bootstrapAppWorkspace = mutation({
         workspaceId,
         slug: teamSlug,
         name: args.teamName,
-        icon: args.teamIcon,
+        icon: teamIcon,
         settings: {
           joinCode,
           summary: args.teamSummary,
           guestProjectIds: [],
           guestDocumentIds: [],
           guestWorkItemIds: [],
-          experience: "software-development",
-          features: createDefaultTeamFeatureSettings("software-development"),
+          experience: teamExperience,
+          features: createDefaultTeamFeatureSettings(teamExperience),
           workflow,
         },
       })
@@ -1158,18 +1583,24 @@ export const getSnapshot = query({
     const workspaces = await ctx.db.query("workspaces").collect()
     const teams = await ctx.db.query("teams").collect()
     const teamMemberships = await ctx.db.query("teamMemberships").collect()
-    const authenticatedUser = args.email ? await getUserByEmail(ctx, args.email) : null
+    const authenticatedUser = args.email
+      ? await getUserByEmail(ctx, args.email)
+      : null
     const firstUser = (await ctx.db.query("users").take(1))[0]
-    const currentUserId = authenticatedUser?.id ?? config?.currentUserId ?? firstUser?.id ?? ""
+    const currentUserId =
+      authenticatedUser?.id ?? config?.currentUserId ?? firstUser?.id ?? ""
     const currentUserMembership = teamMemberships.find(
       (membership) => membership.userId === currentUserId
     )
     const membershipWorkspaceId =
-      teams.find((team) => team.id === currentUserMembership?.teamId)?.workspaceId ?? null
+      teams.find((team) => team.id === currentUserMembership?.teamId)
+        ?.workspaceId ?? null
     const fallbackWorkspaceId =
-      membershipWorkspaceId ?? config?.currentWorkspaceId ?? workspaces[0]?.id ?? ""
-    const currentWorkspaceId =
-      membershipWorkspaceId ?? fallbackWorkspaceId
+      membershipWorkspaceId ??
+      config?.currentWorkspaceId ??
+      workspaces[0]?.id ??
+      ""
+    const currentWorkspaceId = membershipWorkspaceId ?? fallbackWorkspaceId
 
     const attachments = await Promise.all(
       (await ctx.db.query("attachments").collect()).map(async (attachment) => ({
@@ -1202,7 +1633,10 @@ export const getSnapshot = query({
       projectUpdates: await ctx.db.query("projectUpdates").collect(),
       conversations: await ctx.db.query("conversations").collect(),
       chatMessages: await ctx.db.query("chatMessages").collect(),
-      channelPosts: await ctx.db.query("channelPosts").collect(),
+      channelPosts: (await ctx.db.query("channelPosts").collect()).map((post) => ({
+        ...post,
+        reactions: post.reactions ?? [],
+      })),
       channelPostComments: await ctx.db.query("channelPostComments").collect(),
     }
   },
@@ -1226,16 +1660,21 @@ export const getAuthContext = query({
       .withIndex("by_user", (q) => q.eq("userId", user.id))
       .collect()
     const workspaceRoleMap = await getWorkspaceRoleMapForUser(ctx, user.id)
-    const accessibleWorkspaceIds = [...new Set(
-      memberships
-        .map((membership) => teams.find((team) => team.id === membership.teamId)?.workspaceId)
-        .filter(Boolean)
-    )]
+    const accessibleWorkspaceIds = [
+      ...new Set(
+        memberships
+          .map(
+            (membership) =>
+              teams.find((team) => team.id === membership.teamId)?.workspaceId
+          )
+          .filter(Boolean)
+      ),
+    ]
     const preferredWorkspaceId = accessibleWorkspaceIds.includes(
       config?.currentWorkspaceId ?? ""
     )
-      ? config?.currentWorkspaceId ?? null
-      : accessibleWorkspaceIds[0] ?? config?.currentWorkspaceId ?? null
+      ? (config?.currentWorkspaceId ?? null)
+      : (accessibleWorkspaceIds[0] ?? config?.currentWorkspaceId ?? null)
     const currentWorkspace = preferredWorkspaceId
       ? await getWorkspaceDoc(ctx, preferredWorkspaceId)
       : null
@@ -1333,7 +1772,9 @@ export const bootstrapWorkspaceUser = mutation({
   },
   handler: async (ctx, args) => {
     const workspaces = await ctx.db.query("workspaces").collect()
-    const workspace = workspaces.find((entry) => entry.slug === args.workspaceSlug)
+    const workspace = workspaces.find(
+      (entry) => entry.slug === args.workspaceSlug
+    )
 
     if (!workspace) {
       throw new Error("Workspace not found")
@@ -1349,7 +1790,10 @@ export const bootstrapWorkspaceUser = mutation({
       throw new Error("Team not found")
     }
 
-    const existingByWorkOSUserId = await getUserByWorkOSUserId(ctx, args.workosUserId)
+    const existingByWorkOSUserId = await getUserByWorkOSUserId(
+      ctx,
+      args.workosUserId
+    )
     const existingByEmail = await getUserByEmail(ctx, args.email)
     const preferredUser = args.existingUserId
       ? await getUserDoc(ctx, args.existingUserId)
@@ -1359,10 +1803,13 @@ export const bootstrapWorkspaceUser = mutation({
 
     if (
       preferredUser &&
-      ((existingByWorkOSUserId && existingByWorkOSUserId.id !== preferredUser.id) ||
+      ((existingByWorkOSUserId &&
+        existingByWorkOSUserId.id !== preferredUser.id) ||
         (existingByEmail && existingByEmail.id !== preferredUser.id))
     ) {
-      throw new Error("A different Convex user already matches this WorkOS identity")
+      throw new Error(
+        "A different Convex user already matches this WorkOS identity"
+      )
     }
 
     const userId = resolvedUser?.id ?? createId("user")
@@ -1476,7 +1923,9 @@ export const lookupTeamByJoinCode = query({
   },
   handler: async (ctx, args) => {
     const teams = await ctx.db.query("teams").collect()
-    const team = teams.find((entry) => matchesTeamAccessIdentifier(entry, args.code))
+    const team = teams.find((entry) =>
+      matchesTeamAccessIdentifier(entry, args.code)
+    )
 
     if (!team) {
       return null
@@ -1488,6 +1937,17 @@ export const lookupTeamByJoinCode = query({
       return null
     }
 
+    const teamExperience =
+      (
+        team.settings as {
+          experience?:
+            | "software-development"
+            | "issue-analysis"
+            | "project-management"
+            | "community"
+        }
+      ).experience ?? "software-development"
+
     return {
       team: {
         id: team.id,
@@ -1495,7 +1955,10 @@ export const lookupTeamByJoinCode = query({
         name: team.name,
         summary: team.settings.summary,
         joinCode: team.settings.joinCode,
-        workflow: normalizeTeamWorkflowSettings(team.settings.workflow),
+        workflow: normalizeTeamWorkflowSettings(
+          team.settings.workflow,
+          teamExperience
+        ),
       },
       workspace: {
         id: workspace.id,
@@ -1706,6 +2169,99 @@ export const updateCurrentUserProfile = mutation({
   },
 })
 
+export const createTeam = mutation({
+  args: {
+    currentUserId: v.string(),
+    workspaceId: v.string(),
+    name: v.string(),
+    icon: v.string(),
+    summary: v.string(),
+    joinCode: v.string(),
+    experience: teamExperienceTypeValidator,
+    features: teamFeatureSettingsValidator,
+  },
+  handler: async (ctx, args) => {
+    const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
+
+    if (!workspace) {
+      throw new Error("Workspace not found")
+    }
+
+    await requireWorkspaceAdminAccess(ctx, args.workspaceId, args.currentUserId)
+
+    const validationMessage = getTeamFeatureValidationMessage(
+      args.experience,
+      args.features
+    )
+
+    if (validationMessage) {
+      throw new Error(validationMessage)
+    }
+
+    const normalizedFeatures = normalizeTeamFeatures(
+      args.experience,
+      args.features
+    )
+    const normalizedJoinCode = normalizeJoinCode(args.joinCode)
+    const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
+    const teams = await ctx.db.query("teams").collect()
+
+    ensureJoinCodeAvailable(teams, normalizedJoinCode)
+
+    const teamSlug = createUniqueTeamSlug(teams, args.name, normalizedJoinCode)
+    const teamId = createId("team")
+
+    await ctx.db.insert("teams", {
+      id: teamId,
+      workspaceId: workspace.id,
+      slug: teamSlug,
+      name: args.name,
+      icon: normalizedIcon,
+      settings: {
+        joinCode: normalizedJoinCode,
+        summary: args.summary,
+        guestProjectIds: [],
+        guestDocumentIds: [],
+        guestWorkItemIds: [],
+        experience: args.experience,
+        features: normalizedFeatures,
+        workflow: createDefaultTeamWorkflowSettings(args.experience),
+      },
+    })
+
+    await ctx.db.insert("teamMemberships", {
+      teamId,
+      userId: args.currentUserId,
+      role: "admin",
+    })
+
+    if (normalizedFeatures.chat) {
+      await ensureTeamChatConversation(ctx, {
+        teamId,
+        currentUserId: args.currentUserId,
+        teamName: args.name,
+        teamSummary: args.summary,
+      })
+    }
+
+    if (normalizedFeatures.channels) {
+      await ensureTeamChannelConversation(ctx, {
+        teamId,
+        currentUserId: args.currentUserId,
+        teamName: args.name,
+        teamSummary: args.summary,
+      })
+    }
+
+    return {
+      teamId,
+      teamSlug,
+      joinCode: normalizedJoinCode,
+      features: normalizedFeatures,
+    }
+  },
+})
+
 export const updateTeamDetails = mutation({
   args: {
     currentUserId: v.string(),
@@ -1743,6 +2299,12 @@ export const updateTeamDetails = mutation({
       args.experience,
       args.features
     )
+    const normalizedJoinCode = normalizeJoinCode(args.joinCode)
+    const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
+    const teams = await ctx.db.query("teams").collect()
+
+    ensureJoinCodeAvailable(teams, normalizedJoinCode, team.id)
+
     const disableMessage = await getTeamSurfaceDisableMessage(
       ctx,
       team,
@@ -1755,11 +2317,11 @@ export const updateTeamDetails = mutation({
 
     await ctx.db.patch(team._id, {
       name: args.name,
-      icon: args.icon,
+      icon: normalizedIcon,
       settings: {
         ...team.settings,
         summary: args.summary,
-        joinCode: normalizeJoinCode(args.joinCode),
+        joinCode: normalizedJoinCode,
         experience: args.experience,
         features: normalizedFeatures,
       },
@@ -1785,7 +2347,7 @@ export const updateTeamDetails = mutation({
 
     return {
       teamId: team.id,
-      joinCode: normalizeJoinCode(args.joinCode),
+      joinCode: normalizedJoinCode,
       experience: args.experience,
       features: normalizedFeatures,
     }
@@ -1829,14 +2391,20 @@ export const updateViewConfig = mutation({
   args: {
     currentUserId: v.string(),
     viewId: v.string(),
-    layout: v.optional(v.union(v.literal("list"), v.literal("board"), v.literal("timeline"))),
+    layout: v.optional(
+      v.union(v.literal("list"), v.literal("board"), v.literal("timeline"))
+    ),
     grouping: v.optional(groupFieldValidator),
     subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
     ordering: v.optional(orderingFieldValidator),
     showCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const view = await requireViewMutationAccess(ctx, args.viewId, args.currentUserId)
+    const view = await requireViewMutationAccess(
+      ctx,
+      args.viewId,
+      args.currentUserId
+    )
 
     await ctx.db.patch(view._id, {
       layout: args.layout ?? view.layout,
@@ -1863,7 +2431,11 @@ export const toggleViewDisplayProperty = mutation({
     property: displayPropertyValidator,
   },
   handler: async (ctx, args) => {
-    const view = await requireViewMutationAccess(ctx, args.viewId, args.currentUserId)
+    const view = await requireViewMutationAccess(
+      ctx,
+      args.viewId,
+      args.currentUserId
+    )
 
     const nextDisplayProps = view.displayProps.includes(args.property)
       ? view.displayProps.filter((value: string) => value !== args.property)
@@ -1884,7 +2456,11 @@ export const toggleViewHiddenValue = mutation({
     value: v.string(),
   },
   handler: async (ctx, args) => {
-    const view = await requireViewMutationAccess(ctx, args.viewId, args.currentUserId)
+    const view = await requireViewMutationAccess(
+      ctx,
+      args.viewId,
+      args.currentUserId
+    )
 
     const current = view.hiddenState[args.key]
     const nextValues = current.includes(args.value)
@@ -1916,7 +2492,11 @@ export const toggleViewFilterValue = mutation({
     value: v.string(),
   },
   handler: async (ctx, args) => {
-    const view = await requireViewMutationAccess(ctx, args.viewId, args.currentUserId)
+    const view = await requireViewMutationAccess(
+      ctx,
+      args.viewId,
+      args.currentUserId
+    )
 
     const current = [...(view.filters[args.key] as string[])]
     const next = current.includes(args.value)
@@ -1933,6 +2513,33 @@ export const toggleViewFilterValue = mutation({
   },
 })
 
+export const clearViewFilters = mutation({
+  args: {
+    currentUserId: v.string(),
+    viewId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const view = await requireViewMutationAccess(
+      ctx,
+      args.viewId,
+      args.currentUserId
+    )
+
+    await ctx.db.patch(view._id, {
+      filters: {
+        ...view.filters,
+        status: [],
+        priority: [],
+        assigneeIds: [],
+        projectIds: [],
+        itemTypes: [],
+        labelIds: [],
+      },
+      updatedAt: getNow(),
+    })
+  },
+})
+
 export const updateWorkItem = mutation({
   args: {
     currentUserId: v.string(),
@@ -1941,6 +2548,7 @@ export const updateWorkItem = mutation({
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),
       assigneeId: v.optional(nullableStringValidator),
+      parentId: v.optional(nullableStringValidator),
       primaryProjectId: v.optional(nullableStringValidator),
       startDate: v.optional(nullableStringValidator),
       dueDate: v.optional(nullableStringValidator),
@@ -1957,6 +2565,54 @@ export const updateWorkItem = mutation({
     }
 
     await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
+    const team = await getTeamDoc(ctx, existing.teamId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    await validateWorkItemParent(ctx, {
+      teamId: existing.teamId,
+      itemType: existing.type,
+      parentId:
+        args.patch.parentId === undefined
+          ? existing.parentId
+          : args.patch.parentId,
+      currentItemId: existing.id,
+    })
+
+    if (
+      args.patch.assigneeId !== undefined &&
+      args.patch.assigneeId &&
+      !(await isTeamMember(ctx, existing.teamId, args.patch.assigneeId))
+    ) {
+      throw new Error("Assignee must belong to the selected team")
+    }
+
+    if (
+      args.patch.primaryProjectId !== undefined &&
+      args.patch.primaryProjectId
+    ) {
+      const project = await getProjectDoc(ctx, args.patch.primaryProjectId)
+
+      if (!project) {
+        throw new Error("Project not found")
+      }
+
+      if (!projectBelongsToTeamScope(team, project)) {
+        throw new Error("Project must belong to the same team or workspace")
+      }
+
+      if (
+        !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+          existing.type
+        )
+      ) {
+        throw new Error(
+          "Work item type is not allowed for the selected project template"
+        )
+      }
+    }
 
     const actor = await getUserDoc(ctx, args.currentUserId)
     const assignmentEmails: Array<{
@@ -1989,10 +2645,7 @@ export const updateWorkItem = mutation({
         "assignment"
       )
 
-      await ctx.db.insert(
-        "notifications",
-        notification
-      )
+      await ctx.db.insert("notifications", notification)
 
       if (assignee?.preferences.emailAssignments) {
         assignmentEmails.push({
@@ -2026,6 +2679,136 @@ export const updateWorkItem = mutation({
 
     return {
       assignmentEmails,
+    }
+  },
+})
+
+export const deleteWorkItem = mutation({
+  args: {
+    currentUserId: v.string(),
+    itemId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const item = await getWorkItemDoc(ctx, args.itemId)
+
+    if (!item) {
+      throw new Error("Work item not found")
+    }
+
+    await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+
+    const teamItems = await ctx.db
+      .query("workItems")
+      .withIndex("by_team_id", (q) => q.eq("teamId", item.teamId))
+      .collect()
+    const deletedItemIds = collectWorkItemCascadeIds(teamItems, item.id)
+    const deletedWorkItems = teamItems.filter((entry) =>
+      deletedItemIds.has(entry.id)
+    )
+    const deletedDescriptionDocIds = new Set(
+      deletedWorkItems.map((entry) => entry.descriptionDocId)
+    )
+    const comments = await ctx.db.query("comments").collect()
+    const attachments = await ctx.db.query("attachments").collect()
+    const notifications = await ctx.db.query("notifications").collect()
+    const documents = await ctx.db.query("documents").collect()
+
+    for (const attachment of attachments) {
+      const targetsDeletedItem =
+        attachment.targetType === "workItem" &&
+        deletedItemIds.has(attachment.targetId)
+      const targetsDeletedDescription =
+        attachment.targetType === "document" &&
+        deletedDescriptionDocIds.has(attachment.targetId)
+
+      if (!targetsDeletedItem && !targetsDeletedDescription) {
+        continue
+      }
+
+      await ctx.storage.delete(attachment.storageId)
+      await ctx.db.delete(attachment._id)
+    }
+
+    for (const comment of comments) {
+      const targetsDeletedItem =
+        comment.targetType === "workItem" &&
+        deletedItemIds.has(comment.targetId)
+      const targetsDeletedDescription =
+        comment.targetType === "document" &&
+        deletedDescriptionDocIds.has(comment.targetId)
+
+      if (!targetsDeletedItem && !targetsDeletedDescription) {
+        continue
+      }
+
+      await ctx.db.delete(comment._id)
+    }
+
+    for (const notification of notifications) {
+      const targetsDeletedItem =
+        notification.entityType === "workItem" &&
+        deletedItemIds.has(notification.entityId)
+      const targetsDeletedDescription =
+        notification.entityType === "document" &&
+        deletedDescriptionDocIds.has(notification.entityId)
+
+      if (!targetsDeletedItem && !targetsDeletedDescription) {
+        continue
+      }
+
+      await ctx.db.delete(notification._id)
+    }
+
+    for (const workItem of teamItems) {
+      if (deletedItemIds.has(workItem.id)) {
+        continue
+      }
+
+      const nextLinkedDocumentIds = workItem.linkedDocumentIds.filter(
+        (documentId) => !deletedDescriptionDocIds.has(documentId)
+      )
+
+      if (nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length) {
+        continue
+      }
+
+      await ctx.db.patch(workItem._id, {
+        linkedDocumentIds: nextLinkedDocumentIds,
+        updatedAt: getNow(),
+      })
+    }
+
+    for (const document of documents) {
+      if (deletedDescriptionDocIds.has(document.id)) {
+        await ctx.db.delete(document._id)
+        continue
+      }
+
+      const nextLinkedWorkItemIds = document.linkedWorkItemIds.filter(
+        (linkedItemId) => !deletedItemIds.has(linkedItemId)
+      )
+
+      if (nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length) {
+        continue
+      }
+
+      await ctx.db.patch(document._id, {
+        linkedWorkItemIds: nextLinkedWorkItemIds,
+        updatedAt: getNow(),
+        updatedBy: args.currentUserId,
+      })
+    }
+
+    for (const workItem of deletedWorkItems) {
+      const workItemDoc = await getWorkItemDoc(ctx, workItem.id)
+
+      if (workItemDoc) {
+        await ctx.db.delete(workItemDoc._id)
+      }
+    }
+
+    return {
+      deletedItemIds: [...deletedItemIds],
     }
   },
 })
@@ -2178,7 +2961,11 @@ export const generateAttachmentUploadUrl = mutation({
     targetId: v.string(),
   },
   handler: async (ctx, args) => {
-    const target = await resolveAttachmentTarget(ctx, args.targetType, args.targetId)
+    const target = await resolveAttachmentTarget(
+      ctx,
+      args.targetType,
+      args.targetId
+    )
     await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
 
     return {
@@ -2198,7 +2985,11 @@ export const createAttachment = mutation({
     size: v.number(),
   },
   handler: async (ctx, args) => {
-    const target = await resolveAttachmentTarget(ctx, args.targetType, args.targetId)
+    const target = await resolveAttachmentTarget(
+      ctx,
+      args.targetType,
+      args.targetId
+    )
     await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
 
     const metadata = await ctx.storage.getMetadata(args.storageId)
@@ -2218,7 +3009,8 @@ export const createAttachment = mutation({
       teamId: target.teamId,
       storageId: args.storageId,
       fileName: args.fileName,
-      contentType: args.contentType || metadata.contentType || "application/octet-stream",
+      contentType:
+        args.contentType || metadata.contentType || "application/octet-stream",
       size: metadata.size ?? args.size,
       uploadedBy: args.currentUserId,
       createdAt: getNow(),
@@ -2302,9 +3094,11 @@ export const addComment = mutation({
       }
 
       teamId = item.teamId
-      followerIds = [...item.subscriberIds, item.creatorId, item.assigneeId ?? ""].filter(
-        Boolean
-      )
+      followerIds = [
+        ...item.subscriberIds,
+        item.creatorId,
+        item.assigneeId ?? "",
+      ].filter(Boolean)
       entityTitle = item.title
 
       await ctx.db.patch(item._id, {
@@ -2345,7 +3139,7 @@ export const addComment = mutation({
       entityType: "workItem" | "document"
       entityId: string
       actorName: string
-      commentHtml: string
+      commentText: string
     }> = []
 
     await ctx.db.insert("comments", {
@@ -2360,7 +3154,10 @@ export const addComment = mutation({
     })
 
     for (const mentionedUserId of mentionUserIds) {
-      if (mentionedUserId === args.currentUserId || notifiedUserIds.has(mentionedUserId)) {
+      if (
+        mentionedUserId === args.currentUserId ||
+        notifiedUserIds.has(mentionedUserId)
+      ) {
         continue
       }
 
@@ -2374,10 +3171,7 @@ export const addComment = mutation({
         "mention"
       )
 
-      await ctx.db.insert(
-        "notifications",
-        notification
-      )
+      await ctx.db.insert("notifications", notification)
 
       if (mentionedUser?.preferences.emailMentions) {
         mentionEmails.push({
@@ -2388,14 +3182,18 @@ export const addComment = mutation({
           entityType,
           entityId: args.targetId,
           actorName: actor?.name ?? "Someone",
-          commentHtml: args.content.trim(),
+          commentText: getPlainTextContent(args.content),
         })
       }
       notifiedUserIds.add(mentionedUserId)
     }
 
     for (const followerId of followerIds) {
-      if (!followerId || followerId === args.currentUserId || notifiedUserIds.has(followerId)) {
+      if (
+        !followerId ||
+        followerId === args.currentUserId ||
+        notifiedUserIds.has(followerId)
+      ) {
         continue
       }
 
@@ -2493,16 +3291,22 @@ export const acceptInvite = mutation({
         q.eq("teamId", invite.teamId).eq("userId", args.currentUserId)
       )
       .unique()
+    const resolvedRole = mergeMembershipRole(
+      existingMembership?.role,
+      invite.role
+    )
 
     if (existingMembership) {
-      await ctx.db.patch(existingMembership._id, {
-        role: invite.role,
-      })
+      if (existingMembership.role !== resolvedRole) {
+        await ctx.db.patch(existingMembership._id, {
+          role: resolvedRole,
+        })
+      }
     } else {
       await ctx.db.insert("teamMemberships", {
         teamId: invite.teamId,
         userId: args.currentUserId,
-        role: invite.role,
+        role: resolvedRole,
       })
     }
 
@@ -2520,17 +3324,19 @@ export const acceptInvite = mutation({
       })
     }
 
-    await ctx.db.insert(
-      "notifications",
-      createNotification(
-        args.currentUserId,
-        args.currentUserId,
-        `You joined ${team?.name ?? "the team"} as ${invite.role}`,
-        "invite",
-        invite.teamId,
-        "invite"
+    if (!existingMembership || existingMembership.role !== resolvedRole) {
+      await ctx.db.insert(
+        "notifications",
+        createNotification(
+          args.currentUserId,
+          args.currentUserId,
+          `You joined ${team?.name ?? "the team"} as ${resolvedRole}`,
+          "invite",
+          invite.teamId,
+          "invite"
+        )
       )
-    )
+    }
 
     return {
       teamSlug: team?.slug ?? null,
@@ -2548,7 +3354,9 @@ export const joinTeamByCode = mutation({
   },
   handler: async (ctx, args) => {
     const teams = await ctx.db.query("teams").collect()
-    const team = teams.find((entry) => matchesTeamAccessIdentifier(entry, args.code))
+    const team = teams.find((entry) =>
+      matchesTeamAccessIdentifier(entry, args.code)
+    )
 
     if (!team) {
       throw new Error("Join code not found")
@@ -2560,16 +3368,19 @@ export const joinTeamByCode = mutation({
         q.eq("teamId", team.id).eq("userId", args.currentUserId)
       )
       .unique()
+    const resolvedRole = mergeMembershipRole(existingMembership?.role, "viewer")
 
     if (existingMembership) {
-      await ctx.db.patch(existingMembership._id, {
-        role: "viewer",
-      })
+      if (existingMembership.role !== resolvedRole) {
+        await ctx.db.patch(existingMembership._id, {
+          role: resolvedRole,
+        })
+      }
     } else {
       await ctx.db.insert("teamMemberships", {
         teamId: team.id,
         userId: args.currentUserId,
-        role: "viewer",
+        role: resolvedRole,
       })
     }
 
@@ -2580,17 +3391,19 @@ export const joinTeamByCode = mutation({
       })
     }
 
-    await ctx.db.insert(
-      "notifications",
-      createNotification(
-        args.currentUserId,
-        args.currentUserId,
-        `You joined ${team.name} as a viewer`,
-        "invite",
-        team.id,
-        "invite"
+    if (!existingMembership || existingMembership.role !== resolvedRole) {
+      await ctx.db.insert(
+        "notifications",
+        createNotification(
+          args.currentUserId,
+          args.currentUserId,
+          `You joined ${team.name} as ${resolvedRole}`,
+          "invite",
+          team.id,
+          "invite"
+        )
       )
-    )
+    }
 
     const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
 
@@ -2621,8 +3434,20 @@ export const createProject = mutation({
     if (args.scopeType === "team") {
       await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
       settingsTeam = await getTeamDoc(ctx, args.scopeId)
+
+      if (!settingsTeam) {
+        throw new Error("Team not found")
+      }
+
+      if (!normalizeTeam(settingsTeam).settings.features.projects) {
+        throw new Error("Projects are disabled for this team")
+      }
     } else {
-      await requireEditableWorkspaceAccess(ctx, args.scopeId, args.currentUserId)
+      await requireEditableWorkspaceAccess(
+        ctx,
+        args.scopeId,
+        args.currentUserId
+      )
 
       if (args.settingsTeamId) {
         settingsTeam = await getTeamDoc(ctx, args.settingsTeamId)
@@ -2635,11 +3460,32 @@ export const createProject = mutation({
           throw new Error("Settings team must belong to the current workspace")
         }
 
-        await requireEditableTeamAccess(ctx, settingsTeam.id, args.currentUserId)
+        await requireEditableTeamAccess(
+          ctx,
+          settingsTeam.id,
+          args.currentUserId
+        )
+
+        if (!normalizeTeam(settingsTeam).settings.features.projects) {
+          throw new Error("Projects are disabled for the selected team")
+        }
       }
     }
 
-    const workflow = normalizeTeamWorkflowSettings(settingsTeam?.settings.workflow)
+    const settingsTeamExperience =
+      (
+        settingsTeam?.settings as {
+          experience?:
+            | "software-development"
+            | "issue-analysis"
+            | "project-management"
+            | "community"
+        } | null
+      )?.experience ?? "software-development"
+    const workflow = normalizeTeamWorkflowSettings(
+      settingsTeam?.settings.workflow,
+      settingsTeamExperience
+    )
     const templateDefaults = workflow.templateDefaults[args.templateType]
     const now = new Date()
 
@@ -2679,8 +3525,8 @@ export const createDocument = mutation({
   handler: async (ctx, args) => {
     const workspaceId =
       args.kind === "team-document"
-        ? (await getTeamDoc(ctx, args.teamId ?? ""))?.workspaceId ?? ""
-        : args.workspaceId ?? ""
+        ? ((await getTeamDoc(ctx, args.teamId ?? ""))?.workspaceId ?? "")
+        : (args.workspaceId ?? "")
 
     if (args.kind === "team-document") {
       if (!args.teamId) {
@@ -2688,6 +3534,15 @@ export const createDocument = mutation({
       }
 
       await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+      const team = await getTeamDoc(ctx, args.teamId)
+
+      if (!team) {
+        throw new Error("Team not found")
+      }
+
+      if (!normalizeTeam(team).settings.features.docs) {
+        throw new Error("Docs are disabled for this team")
+      }
     } else {
       if (!workspaceId) {
         throw new Error("Workspace is required")
@@ -2707,7 +3562,7 @@ export const createDocument = mutation({
       id: createId("document"),
       kind: args.kind,
       workspaceId,
-      teamId: args.kind === "team-document" ? args.teamId ?? null : null,
+      teamId: args.kind === "team-document" ? (args.teamId ?? null) : null,
       title: args.title,
       content: `<h1>${args.title}</h1><p>${contentTemplate}</p>`,
       linkedProjectIds: [],
@@ -2726,6 +3581,7 @@ export const createWorkItem = mutation({
     teamId: v.string(),
     type: workItemTypeValidator,
     title: v.string(),
+    parentId: v.optional(nullableStringValidator),
     primaryProjectId: nullableStringValidator,
     assigneeId: nullableStringValidator,
     priority: priorityValidator,
@@ -2733,6 +3589,58 @@ export const createWorkItem = mutation({
   handler: async (ctx, args) => {
     await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
     const team = await getTeamDoc(ctx, args.teamId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    const normalizedTeam = normalizeTeam(team)
+    const parent = await validateWorkItemParent(ctx, {
+      teamId: args.teamId,
+      itemType: args.type,
+      parentId: args.parentId ?? null,
+    })
+    const resolvedPrimaryProjectId =
+      args.primaryProjectId ?? parent?.primaryProjectId ?? null
+
+    if (!normalizedTeam.settings.features.issues) {
+      throw new Error("Issues are disabled for this team")
+    }
+
+    if (
+      args.assigneeId &&
+      !(await isTeamMember(ctx, args.teamId, args.assigneeId))
+    ) {
+      throw new Error("Assignee must belong to the selected team")
+    }
+
+    if (resolvedPrimaryProjectId) {
+      const project = await getProjectDoc(ctx, resolvedPrimaryProjectId)
+
+      if (!project) {
+        throw new Error("Project not found")
+      }
+
+      if (!projectBelongsToTeamScope(team, project)) {
+        throw new Error("Project must belong to the same team or workspace")
+      }
+
+      if (
+        !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+          args.type
+        )
+      ) {
+        throw new Error(
+          "Work item type is not allowed for the selected project template"
+        )
+      }
+    } else if (
+      !getDefaultWorkItemTypesForTeamExperience(
+        normalizedTeam.settings.experience
+      ).includes(args.type)
+    ) {
+      throw new Error("Work item type is not allowed for this team")
+    }
 
     const teamItems = await ctx.db
       .query("workItems")
@@ -2750,7 +3658,9 @@ export const createWorkItem = mutation({
       teamId: args.teamId,
       title: `${args.title} description`,
       content: `<p>Add a fuller description for ${args.title}.</p>`,
-      linkedProjectIds: args.primaryProjectId ? [args.primaryProjectId] : [],
+      linkedProjectIds: resolvedPrimaryProjectId
+        ? [resolvedPrimaryProjectId]
+        : [],
       linkedWorkItemIds: [],
       createdBy: args.currentUserId,
       updatedBy: args.currentUserId,
@@ -2769,8 +3679,8 @@ export const createWorkItem = mutation({
       priority: args.priority,
       assigneeId: args.assigneeId,
       creatorId: args.currentUserId,
-      parentId: null,
-      primaryProjectId: args.primaryProjectId,
+      parentId: parent?.id ?? null,
+      primaryProjectId: resolvedPrimaryProjectId,
       linkedProjectIds: [],
       linkedDocumentIds: [],
       labelIds: [],
@@ -2836,18 +3746,21 @@ export const createWorkspaceChat = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    const workspaceRoles = (await getWorkspaceRoleMapForUser(ctx, args.currentUserId))[
-      args.workspaceId
-    ] ?? []
+    const workspaceRoles =
+      (await getWorkspaceRoleMapForUser(ctx, args.currentUserId))[
+        args.workspaceId
+      ] ?? []
 
     if (workspaceRoles.length === 0) {
       throw new Error("You do not have access to this workspace")
     }
 
-    const workspaceUserIds = new Set(await getWorkspaceUserIds(ctx, args.workspaceId))
-    const participantIds = [...new Set([args.currentUserId, ...args.participantIds])].filter(
-      (userId) => workspaceUserIds.has(userId)
+    const workspaceUserIds = new Set(
+      await getWorkspaceUserIds(ctx, args.workspaceId)
     )
+    const participantIds = [
+      ...new Set([args.currentUserId, ...args.participantIds]),
+    ].filter((userId) => workspaceUserIds.has(userId))
 
     if (participantIds.length < 2) {
       throw new Error("Chats need at least two workspace members")
@@ -2861,10 +3774,12 @@ export const createWorkspaceChat = mutation({
     const resolvedTitle =
       args.title.trim() ||
       (variant === "direct"
-        ? users.find((user) => user.id === otherParticipantIds[0])?.name ??
-          "Direct chat"
+        ? (users.find((user) => user.id === otherParticipantIds[0])?.name ??
+          "Direct chat")
         : otherParticipantIds
-            .map((userId) => users.find((user) => user.id === userId)?.name ?? "")
+            .map(
+              (userId) => users.find((user) => user.id === userId)?.name ?? ""
+            )
             .filter(Boolean)
             .join(", ")
             .slice(0, 80) || "Group chat")
@@ -2940,25 +3855,83 @@ export const ensureTeamChat = mutation({
 export const createChannel = mutation({
   args: {
     currentUserId: v.string(),
-    teamId: v.string(),
+    teamId: v.optional(v.string()),
+    workspaceId: v.optional(v.string()),
     title: v.string(),
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
-    const team = await getTeamDoc(ctx, args.teamId)
+    const targets =
+      Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
 
-    if (!team) {
-      throw new Error("Team not found")
+    if (targets !== 1) {
+      throw new Error("Channel must target exactly one team or workspace")
     }
 
-    const normalizedTeam = normalizeTeam(team)
+    if (args.teamId) {
+      await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
+      const team = await getTeamDoc(ctx, args.teamId)
 
-    if (!normalizedTeam.settings.features.channels) {
-      throw new Error("Channels are disabled for this team")
+      if (!team) {
+        throw new Error("Team not found")
+      }
+
+      const normalizedTeam = normalizeTeam(team)
+
+      if (!normalizedTeam.settings.features.channels) {
+        throw new Error("Channel is disabled for this team")
+      }
+
+      const existing = await findPrimaryTeamChannelConversation(
+        ctx,
+        args.teamId
+      )
+
+      if (existing) {
+        return {
+          conversationId: existing.id,
+        }
+      }
+
+      await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+      const conversationId = await ensureTeamChannelConversation(ctx, {
+        teamId: args.teamId,
+        currentUserId: args.currentUserId,
+        teamName: team.name,
+        teamSummary: team.settings.summary,
+        title: args.title,
+        description: args.description,
+      })
+
+      return {
+        conversationId,
+      }
     }
 
-    const existing = await findPrimaryTeamChannelConversation(ctx, args.teamId)
+    const workspaceId = args.workspaceId
+    if (!workspaceId) {
+      throw new Error("Workspace not found")
+    }
+
+    const workspaceRoles =
+      (await getWorkspaceRoleMapForUser(ctx, args.currentUserId))[
+        workspaceId
+      ] ?? []
+
+    if (workspaceRoles.length === 0) {
+      throw new Error("You do not have access to this workspace")
+    }
+
+    const workspace = await getWorkspaceDoc(ctx, workspaceId)
+
+    if (!workspace) {
+      throw new Error("Workspace not found")
+    }
+
+    const existing = await findPrimaryWorkspaceChannelConversation(
+      ctx,
+      workspaceId
+    )
 
     if (existing) {
       return {
@@ -2966,12 +3939,11 @@ export const createChannel = mutation({
       }
     }
 
-    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-    const conversationId = await ensureTeamChannelConversation(ctx, {
-      teamId: args.teamId,
+    const conversationId = await ensureWorkspaceChannelConversation(ctx, {
+      workspaceId,
       currentUserId: args.currentUserId,
-      teamName: team.name,
-      teamSummary: team.settings.summary,
+      workspaceName: workspace.name,
+      workspaceDescription: workspace.settings.description,
       title: args.title,
       description: args.description,
     })
@@ -3043,18 +4015,76 @@ export const createChannelPost = mutation({
       throw new Error("Posts can only be created in channels")
     }
 
+    const users = await ctx.db.query("users").collect()
     const now = getNow()
     const postId = createId("channel_post")
+    const actor = users.find((user) => user.id === args.currentUserId)
+    const mentionUserIds = createMentionIds(args.content, users)
+    const mentionEmails: Array<{
+      notificationId: string
+      email: string
+      name: string
+      entityTitle: string
+      entityType: "channelPost"
+      entityId: string
+      entityPath: string
+      entityLabel: string
+      actorName: string
+      commentText: string
+    }> = []
+    const notifiedUserIds = new Set<string>()
+    const entityTitle = args.title.trim() || "a channel post"
+    const entityPath = await getChannelConversationPath(ctx, conversation, postId)
+    const commentText = getPlainTextContent(args.content)
 
     await ctx.db.insert("channelPosts", {
       id: postId,
       conversationId: conversation.id,
       title: args.title.trim(),
       content: args.content.trim(),
+      reactions: [],
       createdBy: args.currentUserId,
       createdAt: now,
       updatedAt: now,
     })
+
+    for (const mentionedUserId of mentionUserIds) {
+      if (
+        mentionedUserId === args.currentUserId ||
+        notifiedUserIds.has(mentionedUserId)
+      ) {
+        continue
+      }
+
+      const mentionedUser = users.find((user) => user.id === mentionedUserId)
+      const notification = createNotification(
+        mentionedUserId,
+        args.currentUserId,
+        `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+        "channelPost",
+        postId,
+        "mention"
+      )
+
+      await ctx.db.insert("notifications", notification)
+
+      if (mentionedUser?.preferences.emailMentions) {
+        mentionEmails.push({
+          notificationId: notification.id,
+          email: mentionedUser.email,
+          name: mentionedUser.name,
+          entityTitle,
+          entityType: "channelPost",
+          entityId: postId,
+          entityPath,
+          entityLabel: "channel post",
+          actorName: actor?.name ?? "Someone",
+          commentText,
+        })
+      }
+
+      notifiedUserIds.add(mentionedUserId)
+    }
 
     await ctx.db.patch(conversation._id, {
       updatedAt: now,
@@ -3063,6 +4093,7 @@ export const createChannelPost = mutation({
 
     return {
       postId,
+      mentionEmails,
     }
   },
 })
@@ -3092,17 +4123,106 @@ export const addChannelPostComment = mutation({
     }
 
     const users = await ctx.db.query("users").collect()
+    const actor = users.find((user) => user.id === args.currentUserId)
+    const existingComments = await ctx.db
+      .query("channelPostComments")
+      .withIndex("by_post", (q) => q.eq("postId", post.id))
+      .collect()
     const now = getNow()
     const commentId = createId("channel_comment")
+    const mentionUserIds = createMentionIds(args.content, users)
+    const notifiedUserIds = new Set<string>()
+    const entityTitle = post.title.trim() || "a channel post"
+    const entityPath = await getChannelConversationPath(ctx, conversation, post.id)
+    const commentText = getPlainTextContent(args.content)
+    const mentionEmails: Array<{
+      notificationId: string
+      email: string
+      name: string
+      entityTitle: string
+      entityType: "channelPost"
+      entityId: string
+      entityPath: string
+      entityLabel: string
+      actorName: string
+      commentText: string
+    }> = []
 
     await ctx.db.insert("channelPostComments", {
       id: commentId,
       postId: post.id,
       content: args.content.trim(),
-      mentionUserIds: createMentionIds(args.content, users),
+      mentionUserIds,
       createdBy: args.currentUserId,
       createdAt: now,
     })
+
+    for (const mentionedUserId of mentionUserIds) {
+      if (
+        mentionedUserId === args.currentUserId ||
+        notifiedUserIds.has(mentionedUserId)
+      ) {
+        continue
+      }
+
+      const mentionedUser = users.find((user) => user.id === mentionedUserId)
+      const notification = createNotification(
+        mentionedUserId,
+        args.currentUserId,
+        `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+        "channelPost",
+        post.id,
+        "mention"
+      )
+
+      await ctx.db.insert("notifications", notification)
+
+      if (mentionedUser?.preferences.emailMentions) {
+        mentionEmails.push({
+          notificationId: notification.id,
+          email: mentionedUser.email,
+          name: mentionedUser.name,
+          entityTitle,
+          entityType: "channelPost",
+          entityId: post.id,
+          entityPath,
+          entityLabel: "channel post",
+          actorName: actor?.name ?? "Someone",
+          commentText,
+        })
+      }
+
+      notifiedUserIds.add(mentionedUserId)
+    }
+
+    const followerIds = [
+      post.createdBy,
+      ...existingComments.map((comment) => comment.createdBy),
+    ]
+
+    for (const followerId of followerIds) {
+      if (
+        !followerId ||
+        followerId === args.currentUserId ||
+        notifiedUserIds.has(followerId)
+      ) {
+        continue
+      }
+
+      await ctx.db.insert(
+        "notifications",
+        createNotification(
+          followerId,
+          args.currentUserId,
+          `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
+          "channelPost",
+          post.id,
+          "comment"
+        )
+      )
+
+      notifiedUserIds.add(followerId)
+    }
 
     await ctx.db.patch(post._id, {
       updatedAt: now,
@@ -3115,6 +4235,91 @@ export const addChannelPostComment = mutation({
 
     return {
       commentId,
+      mentionEmails,
+    }
+  },
+})
+
+export const deleteChannelPost = mutation({
+  args: {
+    currentUserId: v.string(),
+    postId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const post = await getChannelPostDoc(ctx, args.postId)
+
+    if (!post) {
+      throw new Error("Post not found")
+    }
+
+    const conversation = await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, post.conversationId),
+      args.currentUserId,
+      "write"
+    )
+
+    if (post.createdBy !== args.currentUserId) {
+      throw new Error("You can only delete your own posts")
+    }
+
+    const comments = await ctx.db
+      .query("channelPostComments")
+      .withIndex("by_post", (q) => q.eq("postId", post.id))
+      .collect()
+    const notifications = (await ctx.db.query("notifications").collect()).filter(
+      (notification) =>
+        notification.entityType === "channelPost" &&
+        notification.entityId === post.id
+    )
+
+    for (const comment of comments) {
+      await ctx.db.delete(comment._id)
+    }
+
+    for (const notification of notifications) {
+      await ctx.db.delete(notification._id)
+    }
+
+    await ctx.db.delete(post._id)
+
+    await ctx.db.patch(conversation._id, {
+      updatedAt: getNow(),
+      lastActivityAt: getNow(),
+    })
+
+    return {
+      ok: true,
+    }
+  },
+})
+
+export const toggleChannelPostReaction = mutation({
+  args: {
+    currentUserId: v.string(),
+    postId: v.string(),
+    emoji: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const post = await getChannelPostDoc(ctx, args.postId)
+
+    if (!post) {
+      throw new Error("Post not found")
+    }
+
+    await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, post.conversationId),
+      args.currentUserId,
+      "write"
+    )
+
+    await ctx.db.patch(post._id, {
+      reactions: toggleReactionUsers(post.reactions, args.emoji.trim(), args.currentUserId),
+    })
+
+    return {
+      ok: true,
     }
   },
 })

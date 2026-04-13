@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { channelPostCommentSchema } from "@/lib/domain/types"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { addChannelPostCommentServer } from "@/lib/server/convex"
+import {
+  addChannelPostCommentServer,
+  markNotificationsEmailedServer,
+} from "@/lib/server/convex"
+import { sendMentionEmails } from "@/lib/server/email"
 
 export async function POST(
   request: NextRequest,
@@ -36,6 +40,14 @@ export async function POST(
       currentUserId: ensuredUser.userId,
       ...parsed.data,
     })
+    const emailedNotificationIds = await sendMentionEmails({
+      origin: new URL(request.url).origin,
+      emails: result?.mentionEmails ?? [],
+    })
+
+    if (emailedNotificationIds.length > 0) {
+      await markNotificationsEmailedServer(emailedNotificationIds)
+    }
 
     return NextResponse.json({
       ok: true,

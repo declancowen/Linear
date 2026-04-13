@@ -40,7 +40,10 @@ export async function listWorkspacesForSyncServer() {
 }
 
 export async function listPendingNotificationDigestsServer() {
-  return getConvexServerClient().query(api.app.listPendingNotificationDigests, {})
+  return getConvexServerClient().query(
+    api.app.listPendingNotificationDigests,
+    {}
+  )
 }
 
 export async function createInviteServer(input: {
@@ -59,7 +62,9 @@ export async function acceptInviteServer(input: {
   return getConvexServerClient().mutation(api.app.acceptInvite, input)
 }
 
-export async function markNotificationsEmailedServer(notificationIds: string[]) {
+export async function markNotificationsEmailedServer(
+  notificationIds: string[]
+) {
   return getConvexServerClient().mutation(api.app.markNotificationsEmailed, {
     notificationIds,
   })
@@ -87,7 +92,10 @@ export async function updateWorkspaceBrandingServer(input: {
   accent: string
   description: string
 }) {
-  return getConvexServerClient().mutation(api.app.updateWorkspaceBranding, input)
+  return getConvexServerClient().mutation(
+    api.app.updateWorkspaceBranding,
+    input
+  )
 }
 
 export async function setWorkspaceWorkosOrganizationServer(input: {
@@ -112,7 +120,10 @@ export async function updateCurrentUserProfileServer(input: {
     emailDigest: boolean
   }
 }) {
-  return getConvexServerClient().mutation(api.app.updateCurrentUserProfile, input)
+  return getConvexServerClient().mutation(
+    api.app.updateCurrentUserProfile,
+    input
+  )
 }
 
 export async function joinTeamByCodeServer(input: {
@@ -126,9 +137,16 @@ export async function updateWorkItemServer(input: {
   currentUserId: string
   itemId: string
   patch: {
-    status?: "backlog" | "todo" | "in-progress" | "done" | "cancelled" | "duplicate"
+    status?:
+      | "backlog"
+      | "todo"
+      | "in-progress"
+      | "done"
+      | "cancelled"
+      | "duplicate"
     priority?: "none" | "low" | "medium" | "high" | "urgent"
     assigneeId?: string | null
+    parentId?: string | null
     primaryProjectId?: string | null
     startDate?: string | null
     dueDate?: string | null
@@ -138,13 +156,33 @@ export async function updateWorkItemServer(input: {
   return getConvexServerClient().mutation(api.app.updateWorkItem, input)
 }
 
+export async function deleteWorkItemServer(input: {
+  currentUserId: string
+  itemId: string
+}) {
+  return getConvexServerClient().mutation(api.app.deleteWorkItem, input)
+}
+
 export async function updateViewConfigServer(input: {
   currentUserId: string
   viewId: string
   layout?: "list" | "board" | "timeline"
   grouping?: "project" | "status" | "assignee" | "priority" | "team" | "type"
-  subGrouping?: "project" | "status" | "assignee" | "priority" | "team" | "type" | null
-  ordering?: "priority" | "updatedAt" | "createdAt" | "dueDate" | "targetDate" | "title"
+  subGrouping?:
+    | "project"
+    | "status"
+    | "assignee"
+    | "priority"
+    | "team"
+    | "type"
+    | null
+  ordering?:
+    | "priority"
+    | "updatedAt"
+    | "createdAt"
+    | "dueDate"
+    | "targetDate"
+    | "title"
   showCompleted?: boolean
 }) {
   return getConvexServerClient().mutation(api.app.updateViewConfig, input)
@@ -166,7 +204,10 @@ export async function toggleViewDisplayPropertyServer(input: {
     | "created"
     | "updated"
 }) {
-  return getConvexServerClient().mutation(api.app.toggleViewDisplayProperty, input)
+  return getConvexServerClient().mutation(
+    api.app.toggleViewDisplayProperty,
+    input
+  )
 }
 
 export async function toggleViewHiddenValueServer(input: {
@@ -191,6 +232,13 @@ export async function toggleViewFilterValueServer(input: {
   value: string
 }) {
   return getConvexServerClient().mutation(api.app.toggleViewFilterValue, input)
+}
+
+export async function clearViewFiltersServer(input: {
+  currentUserId: string
+  viewId: string
+}) {
+  return getConvexServerClient().mutation(api.app.clearViewFilters, input)
 }
 
 export async function shiftTimelineItemServer(input: {
@@ -264,7 +312,10 @@ export async function generateAttachmentUploadUrlServer(input: {
   targetType: "workItem" | "document"
   targetId: string
 }) {
-  return getConvexServerClient().mutation(api.app.generateAttachmentUploadUrl, input)
+  return getConvexServerClient().mutation(
+    api.app.generateAttachmentUploadUrl,
+    input
+  )
 }
 
 export async function createAttachmentServer(input: {
@@ -293,10 +344,7 @@ export async function createProjectServer(input: {
   currentUserId: string
   scopeType: "team" | "workspace"
   scopeId: string
-  templateType:
-    | "software-delivery"
-    | "bug-tracking"
-    | "project-management"
+  templateType: "software-delivery" | "bug-tracking" | "project-management"
   name: string
   summary: string
   priority: "none" | "low" | "medium" | "high" | "urgent"
@@ -364,7 +412,10 @@ export async function updateTeamWorkflowSettingsServer(input: {
     }
   }
 }) {
-  return getConvexServerClient().mutation(api.app.updateTeamWorkflowSettings, input)
+  return getConvexServerClient().mutation(
+    api.app.updateTeamWorkflowSettings,
+    input
+  )
 }
 
 export async function updateTeamDetailsServer(input: {
@@ -374,7 +425,11 @@ export async function updateTeamDetailsServer(input: {
   icon: string
   summary: string
   joinCode: string
-  experience: "software-development" | "issue-analysis" | "community"
+  experience:
+    | "software-development"
+    | "issue-analysis"
+    | "project-management"
+    | "community"
   features: {
     issues: boolean
     projects: boolean
@@ -385,6 +440,30 @@ export async function updateTeamDetailsServer(input: {
   }
 }) {
   return getConvexServerClient().mutation(api.app.updateTeamDetails, input)
+}
+
+export async function createTeamServer(input: {
+  currentUserId: string
+  workspaceId: string
+  name: string
+  icon: string
+  summary: string
+  joinCode: string
+  experience:
+    | "software-development"
+    | "issue-analysis"
+    | "project-management"
+    | "community"
+  features: {
+    issues: boolean
+    projects: boolean
+    views: boolean
+    docs: boolean
+    chat: boolean
+    channels: boolean
+  }
+}) {
+  return getConvexServerClient().mutation(api.app.createTeam, input)
 }
 
 export async function createWorkspaceChatServer(input: {
@@ -408,7 +487,8 @@ export async function ensureTeamChatServer(input: {
 
 export async function createChannelServer(input: {
   currentUserId: string
-  teamId: string
+  teamId?: string
+  workspaceId?: string
   title: string
   description: string
 }) {
@@ -437,8 +517,23 @@ export async function addChannelPostCommentServer(input: {
   postId: string
   content: string
 }) {
+  return getConvexServerClient().mutation(api.app.addChannelPostComment, input)
+}
+
+export async function deleteChannelPostServer(input: {
+  currentUserId: string
+  postId: string
+}) {
+  return getConvexServerClient().mutation(api.app.deleteChannelPost, input)
+}
+
+export async function toggleChannelPostReactionServer(input: {
+  currentUserId: string
+  postId: string
+  emoji: string
+}) {
   return getConvexServerClient().mutation(
-    api.app.addChannelPostComment,
+    api.app.toggleChannelPostReaction,
     input
   )
 }
@@ -466,6 +561,7 @@ export async function createWorkItemServer(input: {
     | "qa-task"
     | "test-case"
   title: string
+  parentId?: string | null
   primaryProjectId: string | null
   assigneeId: string | null
   priority: "none" | "low" | "medium" | "high" | "urgent"

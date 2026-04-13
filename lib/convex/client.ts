@@ -37,11 +37,9 @@ async function runRouteMutation<T>(
   }
 
   const response = await fetch(input, init)
-  const payload = (await response.json().catch(() => null)) as
-    | {
-        error?: string
-      }
-    | null
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string
+  } | null
 
   if (!response.ok) {
     throw new Error(payload?.error ?? "Request failed")
@@ -64,6 +62,7 @@ type WorkItemPatch = {
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
+  parentId?: string | null
   primaryProjectId?: string | null
   startDate?: string | null
   dueDate?: string | null
@@ -148,7 +147,10 @@ export function syncUpdateCurrentUserProfile(
   })
 }
 
-export function syncUpdateViewConfig(viewId: string, patch: UpdateViewConfigPatch) {
+export function syncUpdateViewConfig(
+  viewId: string,
+  patch: UpdateViewConfigPatch
+) {
   return runRouteMutation(`/api/views/${viewId}`, {
     method: "PATCH",
     headers: {
@@ -215,6 +217,18 @@ export function syncToggleViewFilterValue(
       action: "toggleFilterValue",
       key,
       value,
+    }),
+  })
+}
+
+export function syncClearViewFilters(viewId: string) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "clearFilters",
     }),
   })
 }
@@ -320,16 +334,19 @@ export function syncGenerateAttachmentUploadUrl(
   targetType: AttachmentTargetType,
   targetId: string
 ) {
-  return runRouteMutation<{ uploadUrl: string }>("/api/attachments/upload-url", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      targetType,
-      targetId,
-    }),
-  })
+  return runRouteMutation<{ uploadUrl: string }>(
+    "/api/attachments/upload-url",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        targetType,
+        targetId,
+      }),
+    }
+  )
 }
 
 export function syncCreateAttachment(input: {
@@ -389,6 +406,32 @@ export function syncJoinTeamByCode(_currentUserId: string, code: string) {
   })
 }
 
+export function syncCreateTeam(input: {
+  name: string
+  icon: string
+  summary: string
+  joinCode: string
+  experience:
+    | "software-development"
+    | "issue-analysis"
+    | "project-management"
+    | "community"
+  features: TeamFeatureSettings
+}) {
+  return runRouteMutation<{
+    teamId: string
+    teamSlug: string
+    joinCode: string
+    features: TeamFeatureSettings
+  }>("/api/teams", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  })
+}
+
 export function syncCreateProject(
   _currentUserId: string,
   scopeType: ScopeType,
@@ -436,7 +479,11 @@ export function syncUpdateTeamDetails(
     icon: string
     summary: string
     joinCode: string
-    experience: "software-development" | "issue-analysis" | "community"
+    experience:
+      | "software-development"
+      | "issue-analysis"
+      | "project-management"
+      | "community"
     features: TeamFeatureSettings
   }
 ) {
@@ -494,7 +541,8 @@ export function syncSendChatMessage(conversationId: string, content: string) {
 }
 
 export function syncCreateChannel(input: {
-  teamId: string
+  teamId?: string
+  workspaceId?: string
   title: string
   description: string
 }) {
@@ -542,6 +590,27 @@ export function syncAddChannelPostComment(postId: string, content: string) {
   )
 }
 
+export function syncDeleteChannelPost(postId: string) {
+  return runRouteMutation<{ ok: true }>(`/api/channel-posts/${postId}`, {
+    method: "DELETE",
+  })
+}
+
+export function syncToggleChannelPostReaction(postId: string, emoji: string) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/channel-posts/${postId}/reactions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        emoji,
+      }),
+    }
+  )
+}
+
 export function syncCreateDocument(
   _currentUserId: string,
   input:
@@ -570,6 +639,7 @@ export function syncCreateWorkItem(
   teamId: string,
   type: WorkItemType,
   title: string,
+  parentId: string | null,
   primaryProjectId: string | null,
   assigneeId: string | null,
   priority: Priority
@@ -583,9 +653,16 @@ export function syncCreateWorkItem(
       teamId,
       type,
       title,
+      parentId,
       primaryProjectId,
       assigneeId,
       priority,
     }),
+  })
+}
+
+export function syncDeleteWorkItem(itemId: string) {
+  return runRouteMutation(`/api/items/${itemId}`, {
+    method: "DELETE",
   })
 }

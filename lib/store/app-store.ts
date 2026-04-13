@@ -2,7 +2,11 @@
 
 import { addDays, differenceInCalendarDays } from "date-fns"
 import { create } from "zustand"
-import { createJSONStorage, persist, type StateStorage } from "zustand/middleware"
+import {
+  createJSONStorage,
+  persist,
+  type StateStorage,
+} from "zustand/middleware"
 import { toast } from "sonner"
 
 import {
@@ -10,21 +14,26 @@ import {
   hasConvex,
   syncAddComment,
   syncAddChannelPostComment,
+  syncClearViewFilters,
   syncCreateAttachment,
   syncCreateChannel,
   syncCreateChannelPost,
   syncCreateDocument,
   syncCreateInvite,
   syncCreateProject,
+  syncCreateTeam,
   syncCreateWorkspaceChat,
   syncCreateWorkItem,
   syncDeleteAttachment,
+  syncDeleteChannelPost,
+  syncDeleteWorkItem,
   syncEnsureTeamChat,
   syncGenerateAttachmentUploadUrl,
   syncJoinTeamByCode,
   syncMarkNotificationRead,
   syncSendChatMessage,
   syncShiftTimelineItem,
+  syncToggleChannelPostReaction,
   syncToggleNotificationRead,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
@@ -40,10 +49,12 @@ import {
 } from "@/lib/convex/client"
 import {
   getTeamFeatureSettings,
+  getWorkItemDescendantIds,
   getTeamSurfaceDisableReason,
 } from "@/lib/domain/selectors"
 import { createSeedState } from "@/lib/domain/seed"
 import {
+  canParentWorkItemTypeAcceptChild,
   type AttachmentTargetType,
   type AppSnapshot,
   channelPostCommentSchema,
@@ -53,8 +64,11 @@ import {
   commentSchema,
   createDefaultTeamWorkflowSettings,
   documentSchema,
+  getAllowedWorkItemTypesForTemplate,
+  getDefaultWorkItemTypesForTeamExperience,
   inviteSchema,
   joinCodeSchema,
+  normalizeTeamIconToken,
   normalizeTeamFeatureSettings,
   profileSchema,
   projectSchema,
@@ -66,6 +80,7 @@ import {
   type Priority,
   type Role,
   type ScopeType,
+  type TeamFeatureSettings,
   teamDetailsSchema,
   type TeamWorkflowSettings,
   type WorkItemType,
@@ -81,6 +96,7 @@ type WorkItemPatch = {
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
+  parentId?: string | null
   primaryProjectId?: string | null
   startDate?: string | null
   dueDate?: string | null
@@ -101,6 +117,7 @@ type CreateWorkItemInput = {
   teamId: string
   type: WorkItemType
   title: string
+  parentId?: string | null
   primaryProjectId: string | null
   assigneeId: string | null
   priority: Priority
@@ -131,7 +148,7 @@ type UpdateWorkspaceBrandingInput = {
   description: string
 }
 
-type UpdateTeamDetailsInput = {
+type TeamDetailsInput = {
   name: string
   icon: string
   summary: string
@@ -139,6 +156,10 @@ type UpdateTeamDetailsInput = {
   experience: AppData["teams"][number]["settings"]["experience"]
   features: AppData["teams"][number]["settings"]["features"]
 }
+
+type CreateTeamInput = TeamDetailsInput
+
+type UpdateTeamDetailsInput = TeamDetailsInput
 
 type UpdateProfileInput = {
   name: string
@@ -170,11 +191,21 @@ type EnsureTeamChatInput = {
   description: string
 }
 
-type CreateChannelInput = {
-  teamId: string
-  title: string
-  description: string
-}
+type CreateChannelInput =
+  | {
+      teamId: string
+      workspaceId?: never
+      silent?: boolean
+      title: string
+      description: string
+    }
+  | {
+      workspaceId: string
+      teamId?: never
+      silent?: boolean
+      title: string
+      description: string
+    }
 
 type SendChatMessageInput = {
   conversationId: string
@@ -202,6 +233,11 @@ export type AppStore = AppData & {
   markNotificationRead: (notificationId: string) => void
   toggleNotificationRead: (notificationId: string) => void
   updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
+  createTeam: (input: CreateTeamInput) => Promise<{
+    teamId: string
+    teamSlug: string
+    features: TeamFeatureSettings
+  } | null>
   updateTeamDetails: (
     teamId: string,
     input: UpdateTeamDetailsInput
@@ -234,7 +270,9 @@ export type AppStore = AppData & {
       | "labelIds",
     value: string
   ) => void
+  clearViewFilters: (viewId: string) => void
   updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
+  deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
   renameDocument: (documentId: string, title: string) => void
@@ -252,12 +290,17 @@ export type AppStore = AppData & {
   sendChatMessage: (input: SendChatMessageInput) => void
   createChannelPost: (input: CreateChannelPostInput) => void
   addChannelPostComment: (input: AddChannelPostCommentInput) => void
+  deleteChannelPost: (postId: string) => void
+  toggleChannelPostReaction: (postId: string, emoji: string) => void
   createInvite: (input: CreateInviteInput) => void
   joinTeamByCode: (code: string) => void
   createProject: (input: CreateProjectInput) => void
   createDocument: (input: CreateDocumentInput) => void
-  createWorkItem: (input: CreateWorkItemInput) => void
-  updateTeamWorkflowSettings: (teamId: string, workflow: TeamWorkflowSettings) => void
+  createWorkItem: (input: CreateWorkItemInput) => string | null
+  updateTeamWorkflowSettings: (
+    teamId: string,
+    workflow: TeamWorkflowSettings
+  ) => void
 }
 
 function getNow() {
@@ -390,10 +433,292 @@ function createMentionIds(content: string, users: AppData["users"]) {
     .map((user) => user.id)
 }
 
+function toggleReactionUsers(
+  reactions: Array<{ emoji: string; userIds: string[] }> | undefined,
+  emoji: string,
+  userId: string
+) {
+  const nextReactions = [...(reactions ?? [])]
+  const reactionIndex = nextReactions.findIndex((entry) => entry.emoji === emoji)
+
+  if (reactionIndex === -1) {
+    return [
+      ...nextReactions,
+      {
+        emoji,
+        userIds: [userId],
+      },
+    ]
+  }
+
+  const reaction = nextReactions[reactionIndex]
+  const hasReacted = reaction.userIds.includes(userId)
+  const userIds = hasReacted
+    ? reaction.userIds.filter((entry) => entry !== userId)
+    : [...reaction.userIds, userId]
+
+  if (userIds.length === 0) {
+    nextReactions.splice(reactionIndex, 1)
+    return nextReactions
+  }
+
+  nextReactions[reactionIndex] = {
+    ...reaction,
+    userIds,
+  }
+
+  return nextReactions
+}
+
 function getTeamMemberIds(state: AppData, teamId: string) {
   return state.teamMemberships
     .filter((membership) => membership.teamId === teamId)
     .map((membership) => membership.userId)
+}
+
+function getProjectsForTeamScope(state: AppData, teamId: string) {
+  const team = state.teams.find((entry) => entry.id === teamId)
+
+  if (!team) {
+    return []
+  }
+
+  return state.projects.filter(
+    (project) =>
+      (project.scopeType === "team" && project.scopeId === teamId) ||
+      (project.scopeType === "workspace" &&
+        project.scopeId === team.workspaceId)
+  )
+}
+
+function getProjectCreationValidationMessage(
+  state: AppData,
+  input: CreateProjectInput
+) {
+  if (input.scopeType !== "team") {
+    return null
+  }
+
+  const team = state.teams.find((entry) => entry.id === input.scopeId)
+
+  if (!team) {
+    return "Team not found"
+  }
+
+  return getTeamFeatureSettings(team).projects
+    ? null
+    : "Projects are disabled for this team"
+}
+
+function getDocumentCreationValidationMessage(
+  state: AppData,
+  input: CreateDocumentInput
+) {
+  if (input.kind !== "team-document") {
+    return null
+  }
+
+  const team = state.teams.find((entry) => entry.id === input.teamId)
+
+  if (!team) {
+    return "Team not found"
+  }
+
+  return getTeamFeatureSettings(team).docs
+    ? null
+    : "Docs are disabled for this team"
+}
+
+function getWorkItemValidationMessage(
+  state: AppData,
+  input: CreateWorkItemInput & { currentItemId?: string | null }
+) {
+  const team = state.teams.find((entry) => entry.id === input.teamId)
+
+  if (!team) {
+    return "Team not found"
+  }
+
+  if (!getTeamFeatureSettings(team).issues) {
+    return "Issues are disabled for this team"
+  }
+
+  if (
+    input.assigneeId &&
+    !getTeamMemberIds(state, input.teamId).includes(input.assigneeId)
+  ) {
+    return "Assignee must belong to the selected team"
+  }
+
+  const parent = input.parentId
+    ? (state.workItems.find((entry) => entry.id === input.parentId) ?? null)
+    : null
+
+  if (input.parentId) {
+    if (!parent) {
+      return "Parent issue not found"
+    }
+
+    if (parent.teamId !== input.teamId) {
+      return "Parent issue must belong to the same team"
+    }
+
+    if (parent.parentId) {
+      return "Sub-issues can't contain other sub-issues"
+    }
+
+    if (input.currentItemId && parent.id === input.currentItemId) {
+      return "Issue cannot be its own parent"
+    }
+
+    if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
+      return "Selected parent cannot contain this work item type"
+    }
+
+    if (
+      input.currentItemId &&
+      getWorkItemDescendantIds(state, input.currentItemId).has(parent.id)
+    ) {
+      return "Issue hierarchy cannot contain cycles"
+    }
+
+    if (
+      input.currentItemId &&
+      getWorkItemDescendantIds(state, input.currentItemId).size > 0
+    ) {
+      return "Issues with sub-issues can't be nested under another issue"
+    }
+  }
+
+  const resolvedPrimaryProjectId =
+    input.primaryProjectId ?? parent?.primaryProjectId ?? null
+
+  if (resolvedPrimaryProjectId) {
+    const project = getProjectsForTeamScope(state, input.teamId).find(
+      (entry) => entry.id === resolvedPrimaryProjectId
+    )
+
+    if (!project) {
+      return "Project must belong to the same team or workspace"
+    }
+
+    return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+      input.type
+    )
+      ? null
+      : "Work item type is not allowed for the selected project template"
+  }
+
+  return getDefaultWorkItemTypesForTeamExperience(
+    team.settings.experience
+  ).includes(input.type)
+    ? null
+    : "Work item type is not allowed for this team"
+}
+
+function getWorkItemCascadeDeletePlan(state: AppData, itemId: string) {
+  const item = state.workItems.find((entry) => entry.id === itemId) ?? null
+
+  if (!item) {
+    return null
+  }
+
+  const deletedItemIds = new Set<string>([
+    itemId,
+    ...getWorkItemDescendantIds(state, itemId),
+  ])
+  const deletedDescriptionDocIds = new Set(
+    state.workItems
+      .filter((entry) => deletedItemIds.has(entry.id))
+      .map((entry) => entry.descriptionDocId)
+  )
+  const deletedCommentIds = new Set(
+    state.comments
+      .filter((comment) => {
+        const targetsDeletedItem =
+          comment.targetType === "workItem" &&
+          deletedItemIds.has(comment.targetId)
+        const targetsDeletedDescription =
+          comment.targetType === "document" &&
+          deletedDescriptionDocIds.has(comment.targetId)
+
+        return targetsDeletedItem || targetsDeletedDescription
+      })
+      .map((comment) => comment.id)
+  )
+  const deletedAttachmentIds = new Set(
+    state.attachments
+      .filter((attachment) => {
+        const targetsDeletedItem =
+          attachment.targetType === "workItem" &&
+          deletedItemIds.has(attachment.targetId)
+        const targetsDeletedDescription =
+          attachment.targetType === "document" &&
+          deletedDescriptionDocIds.has(attachment.targetId)
+
+        return targetsDeletedItem || targetsDeletedDescription
+      })
+      .map((attachment) => attachment.id)
+  )
+  const deletedNotificationIds = new Set(
+    state.notifications
+      .filter((notification) => {
+        const targetsDeletedItem =
+          notification.entityType === "workItem" &&
+          deletedItemIds.has(notification.entityId)
+        const targetsDeletedDescription =
+          notification.entityType === "document" &&
+          deletedDescriptionDocIds.has(notification.entityId)
+
+        return targetsDeletedItem || targetsDeletedDescription
+      })
+      .map((notification) => notification.id)
+  )
+  const nextWorkItems = state.workItems
+    .filter((entry) => !deletedItemIds.has(entry.id))
+    .map((entry) => {
+      const nextLinkedDocumentIds = entry.linkedDocumentIds.filter(
+        (documentId) => !deletedDescriptionDocIds.has(documentId)
+      )
+
+      if (nextLinkedDocumentIds.length === entry.linkedDocumentIds.length) {
+        return entry
+      }
+
+      return {
+        ...entry,
+        linkedDocumentIds: nextLinkedDocumentIds,
+        updatedAt: getNow(),
+      }
+    })
+  const nextDocuments = state.documents
+    .filter((document) => !deletedDescriptionDocIds.has(document.id))
+    .map((document) => {
+      const nextLinkedWorkItemIds = document.linkedWorkItemIds.filter(
+        (linkedItemId) => !deletedItemIds.has(linkedItemId)
+      )
+
+      if (nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length) {
+        return document
+      }
+
+      return {
+        ...document,
+        linkedWorkItemIds: nextLinkedWorkItemIds,
+        updatedAt: getNow(),
+        updatedBy: state.currentUserId,
+      }
+    })
+
+  return {
+    item,
+    deletedItemIds,
+    deletedCommentIds,
+    deletedAttachmentIds,
+    deletedNotificationIds,
+    nextWorkItems,
+    nextDocuments,
+  }
 }
 
 function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
@@ -401,11 +726,13 @@ function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
 
-  return [...new Set(
-    state.teamMemberships
-      .filter((membership) => workspaceTeamIds.includes(membership.teamId))
-      .map((membership) => membership.userId)
-  )]
+  return [
+    ...new Set(
+      state.teamMemberships
+        .filter((membership) => workspaceTeamIds.includes(membership.teamId))
+        .map((membership) => membership.userId)
+    ),
+  ]
 }
 
 function buildWorkspaceChatTitle(
@@ -420,11 +747,14 @@ function buildWorkspaceChatTitle(
     return trimmedTitle
   }
 
-  const otherParticipants = participantIds.filter((userId) => userId !== currentUserId)
+  const otherParticipants = participantIds.filter(
+    (userId) => userId !== currentUserId
+  )
 
   if (otherParticipants.length === 1) {
     return (
-      state.users.find((user) => user.id === otherParticipants[0])?.name ?? "Direct chat"
+      state.users.find((user) => user.id === otherParticipants[0])?.name ??
+      "Direct chat"
     )
   }
 
@@ -449,6 +779,26 @@ function effectiveRole(data: AppData, teamId: string) {
   )
 }
 
+const rolePriority: Record<Role, number> = {
+  guest: 0,
+  viewer: 1,
+  member: 2,
+  admin: 3,
+}
+
+function mergeMembershipRole(
+  currentRole: Role | null | undefined,
+  requestedRole: Role
+) {
+  if (!currentRole) {
+    return requestedRole
+  }
+
+  return rolePriority[currentRole] >= rolePriority[requestedRole]
+    ? currentRole
+    : requestedRole
+}
+
 function canEditWorkspaceDocuments(data: AppData, workspaceId: string) {
   return data.teams.some((team) => {
     if (team.workspaceId !== workspaceId) {
@@ -460,14 +810,19 @@ function canEditWorkspaceDocuments(data: AppData, workspaceId: string) {
   })
 }
 
-function getTeamWorkflowSettings(state: AppData, teamId: string | null | undefined) {
-  if (!teamId) {
-    return createDefaultTeamWorkflowSettings()
-  }
+function getTeamWorkflowSettings(
+  state: AppData,
+  teamId: string | null | undefined
+) {
+  const team = teamId
+    ? (state.teams.find((entry) => entry.id === teamId) ?? null)
+    : null
 
   return (
-    state.teams.find((team) => team.id === teamId)?.settings.workflow ??
-    createDefaultTeamWorkflowSettings()
+    team?.settings.workflow ??
+    createDefaultTeamWorkflowSettings(
+      team?.settings.experience ?? "software-development"
+    )
   )
 }
 
@@ -475,7 +830,7 @@ function createNotification(
   userId: string,
   actorId: string,
   message: string,
-  entityType: "workItem" | "document" | "project" | "invite",
+  entityType: "workItem" | "document" | "project" | "invite" | "channelPost",
   entityId: string,
   type: "mention" | "assignment" | "comment" | "invite" | "status-change"
 ) {
@@ -493,7 +848,10 @@ function createNotification(
   }
 }
 
-function syncInBackground(task: Promise<unknown> | null, fallbackMessage: string) {
+function syncInBackground(
+  task: Promise<unknown> | null,
+  fallbackMessage: string
+) {
   if (!task) {
     return
   }
@@ -543,7 +901,7 @@ async function refreshFromServer() {
 
 export const useAppStore = create<AppStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...createSeedState(),
       replaceDomainData(data) {
         set((state) => ({
@@ -670,15 +1028,54 @@ export const useAppStore = create<AppStore>()(
 
         toast.success("Workspace updated")
       },
+      async createTeam(input) {
+        const parsed = teamDetailsSchema.safeParse({
+          ...input,
+          icon: normalizeTeamIconToken(input.icon, input.experience),
+        })
+        if (!parsed.success) {
+          toast.error("Team details are invalid")
+          return null
+        }
+
+        try {
+          const result = await syncCreateTeam(parsed.data)
+
+          if (!result?.teamId || !result.teamSlug) {
+            throw new Error("Failed to create team")
+          }
+
+          await refreshFromServer()
+          useAppStore.getState().setActiveTeam(result.teamId)
+          toast.success("Team created")
+
+          return {
+            teamId: result.teamId,
+            teamSlug: result.teamSlug,
+            features: result.features,
+          }
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error ? error.message : "Failed to create team"
+          )
+          return null
+        }
+      },
       async updateTeamDetails(teamId, input) {
-        const parsed = teamDetailsSchema.safeParse(input)
+        const parsed = teamDetailsSchema.safeParse({
+          ...input,
+          icon: normalizeTeamIconToken(input.icon, input.experience),
+        })
         if (!parsed.success) {
           toast.error("Team details are invalid")
           return false
         }
 
         const stateBeforeUpdate = useAppStore.getState()
-        const team = stateBeforeUpdate.teams.find((entry) => entry.id === teamId)
+        const team = stateBeforeUpdate.teams.find(
+          (entry) => entry.id === teamId
+        )
 
         if (!team) {
           toast.error("Team not found")
@@ -750,7 +1147,9 @@ export const useAppStore = create<AppStore>()(
           }
 
           toast.error(
-            error instanceof Error ? error.message : "Failed to update team details"
+            error instanceof Error
+              ? error.message
+              : "Failed to update team details"
           )
           return false
         }
@@ -866,10 +1265,9 @@ export const useAppStore = create<AppStore>()(
             }
 
             const current = view.filters[key]
-            const next =
-              current.includes(value as never)
-                ? current.filter((entry) => entry !== value)
-                : [...current, value]
+            const next = current.includes(value as never)
+              ? current.filter((entry) => entry !== value)
+              : [...current, value]
 
             return {
               ...view,
@@ -887,7 +1285,65 @@ export const useAppStore = create<AppStore>()(
           "Failed to update filters"
         )
       },
+      clearViewFilters(viewId) {
+        set((state) => ({
+          views: state.views.map((view) => {
+            if (view.id !== viewId) {
+              return view
+            }
+
+            return {
+              ...view,
+              filters: {
+                ...view.filters,
+                status: [],
+                priority: [],
+                assigneeIds: [],
+                projectIds: [],
+                itemTypes: [],
+                labelIds: [],
+              },
+              updatedAt: getNow(),
+            }
+          }),
+        }))
+
+        syncInBackground(
+          syncClearViewFilters(viewId),
+          "Failed to update filters"
+        )
+      },
       updateWorkItem(itemId, patch) {
+        const state = get()
+        const existing = state.workItems.find((item) => item.id === itemId)
+
+        if (!existing) {
+          return
+        }
+
+        const validationMessage = getWorkItemValidationMessage(state, {
+          teamId: existing.teamId,
+          type: existing.type,
+          title: existing.title,
+          priority: patch.priority ?? existing.priority,
+          assigneeId:
+            patch.assigneeId === undefined
+              ? existing.assigneeId
+              : patch.assigneeId,
+          parentId:
+            patch.parentId === undefined ? existing.parentId : patch.parentId,
+          primaryProjectId:
+            patch.primaryProjectId === undefined
+              ? existing.primaryProjectId
+              : patch.primaryProjectId,
+          currentItemId: existing.id,
+        })
+
+        if (validationMessage) {
+          toast.error(validationMessage)
+          return
+        }
+
         set((state) => {
           const existing = state.workItems.find((item) => item.id === itemId)
           if (!existing) {
@@ -895,11 +1351,15 @@ export const useAppStore = create<AppStore>()(
           }
 
           const nextItems = state.workItems.map((item) =>
-            item.id === itemId ? { ...item, ...patch, updatedAt: getNow() } : item
+            item.id === itemId
+              ? { ...item, ...patch, updatedAt: getNow() }
+              : item
           )
 
           const notifications = [...state.notifications]
-          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const actor = state.users.find(
+            (user) => user.id === state.currentUserId
+          )
 
           if (
             patch.assigneeId !== undefined &&
@@ -944,9 +1404,79 @@ export const useAppStore = create<AppStore>()(
         })
 
         syncInBackground(
-          syncUpdateWorkItem(useAppStore.getState().currentUserId, itemId, patch),
+          syncUpdateWorkItem(
+            useAppStore.getState().currentUserId,
+            itemId,
+            patch
+          ),
           "Failed to update work item"
         )
+      },
+      async deleteWorkItem(itemId) {
+        const state = get()
+        const deletionPlan = getWorkItemCascadeDeletePlan(state, itemId)
+
+        if (!deletionPlan) {
+          return false
+        }
+
+        const role = effectiveRole(state, deletionPlan.item.teamId)
+
+        if (role === "viewer" || role === "guest" || !role) {
+          toast.error("Your current role is read-only")
+          return false
+        }
+
+        const previousState = {
+          workItems: state.workItems,
+          documents: state.documents,
+          comments: state.comments,
+          attachments: state.attachments,
+          notifications: state.notifications,
+        }
+
+        set((current) => {
+          const nextPlan = getWorkItemCascadeDeletePlan(current, itemId)
+
+          if (!nextPlan) {
+            return current
+          }
+
+          return {
+            ...current,
+            workItems: nextPlan.nextWorkItems,
+            documents: nextPlan.nextDocuments,
+            comments: current.comments.filter(
+              (entry) => !nextPlan.deletedCommentIds.has(entry.id)
+            ),
+            attachments: current.attachments.filter(
+              (entry) => !nextPlan.deletedAttachmentIds.has(entry.id)
+            ),
+            notifications: current.notifications.filter(
+              (entry) => !nextPlan.deletedNotificationIds.has(entry.id)
+            ),
+          }
+        })
+
+        try {
+          await syncDeleteWorkItem(itemId)
+          await refreshFromServer()
+          toast.success(
+            deletionPlan.deletedItemIds.size > 1
+              ? `Deleted ${deletionPlan.deletedItemIds.size} items`
+              : "Item deleted"
+          )
+          return true
+        } catch (error) {
+          console.error(error)
+          set((current) => ({
+            ...current,
+            ...previousState,
+          }))
+          await refreshFromServer()
+          toast.error("Failed to delete item")
+          return false
+        }
       },
       shiftTimelineItem(itemId, nextStartDate) {
         set((state) => {
@@ -1009,7 +1539,9 @@ export const useAppStore = create<AppStore>()(
           `document:${documentId}`,
           () => {
             const state = useAppStore.getState()
-            const document = state.documents.find((entry) => entry.id === documentId)
+            const document = state.documents.find(
+              (entry) => entry.id === documentId
+            )
 
             if (!document || document.kind === "item-description") {
               return null
@@ -1043,7 +1575,9 @@ export const useAppStore = create<AppStore>()(
           `document:${documentId}`,
           () => {
             const state = useAppStore.getState()
-            const document = state.documents.find((entry) => entry.id === documentId)
+            const document = state.documents.find(
+              (entry) => entry.id === documentId
+            )
 
             if (!document || document.kind === "item-description") {
               return null
@@ -1121,7 +1655,8 @@ export const useAppStore = create<AppStore>()(
             state.workItems.find((item) => item.id === targetId)?.teamId ?? ""
         } else {
           teamId =
-            state.documents.find((document) => document.id === targetId)?.teamId ?? ""
+            state.documents.find((document) => document.id === targetId)
+              ?.teamId ?? ""
         }
 
         const role = effectiveRole(state, teamId)
@@ -1142,7 +1677,10 @@ export const useAppStore = create<AppStore>()(
         }
 
         try {
-          const upload = await syncGenerateAttachmentUploadUrl(targetType, targetId)
+          const upload = await syncGenerateAttachmentUploadUrl(
+            targetType,
+            targetId
+          )
 
           if (!upload?.uploadUrl) {
             throw new Error("Upload URL was not returned")
@@ -1186,7 +1724,9 @@ export const useAppStore = create<AppStore>()(
       },
       async deleteAttachment(attachmentId) {
         const state = useAppStore.getState()
-        const attachment = state.attachments.find((entry) => entry.id === attachmentId)
+        const attachment = state.attachments.find(
+          (entry) => entry.id === attachmentId
+        )
 
         if (!attachment) {
           return
@@ -1229,7 +1769,9 @@ export const useAppStore = create<AppStore>()(
           let entityTitle = "item"
 
           if (parsed.data.targetType === "workItem") {
-            const item = state.workItems.find((entry) => entry.id === parsed.data.targetId)
+            const item = state.workItems.find(
+              (entry) => entry.id === parsed.data.targetId
+            )
             if (!item) {
               return state
             }
@@ -1262,7 +1804,10 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
-          const mentionUserIds = createMentionIds(parsed.data.content, state.users)
+          const mentionUserIds = createMentionIds(
+            parsed.data.content,
+            state.users
+          )
           const comment = {
             id: createId("comment"),
             targetType: parsed.data.targetType,
@@ -1275,11 +1820,16 @@ export const useAppStore = create<AppStore>()(
           }
 
           const notifications = [...state.notifications]
-          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const actor = state.users.find(
+            (user) => user.id === state.currentUserId
+          )
           const notifiedUserIds = new Set<string>()
 
           for (const mentionedUserId of mentionUserIds) {
-            if (mentionedUserId === state.currentUserId || notifiedUserIds.has(mentionedUserId)) {
+            if (
+              mentionedUserId === state.currentUserId ||
+              notifiedUserIds.has(mentionedUserId)
+            ) {
               continue
             }
 
@@ -1323,11 +1873,17 @@ export const useAppStore = create<AppStore>()(
             comments: [...state.comments, comment],
             notifications,
             workItems: state.workItems.map((item) =>
-              item.id === parsed.data.targetId ? { ...item, updatedAt: getNow() } : item
+              item.id === parsed.data.targetId
+                ? { ...item, updatedAt: getNow() }
+                : item
             ),
             documents: state.documents.map((document) =>
               document.id === parsed.data.targetId
-                ? { ...document, updatedAt: getNow(), updatedBy: state.currentUserId }
+                ? {
+                    ...document,
+                    updatedAt: getNow(),
+                    updatedBy: state.currentUserId,
+                  }
                 : document
             ),
           }
@@ -1359,10 +1915,9 @@ export const useAppStore = create<AppStore>()(
           const workspaceMemberIds = new Set(
             getWorkspaceMemberIds(state, parsed.data.workspaceId)
           )
-          const participantIds = [...new Set([
-            state.currentUserId,
-            ...parsed.data.participantIds,
-          ])].filter((userId) => workspaceMemberIds.has(userId))
+          const participantIds = [
+            ...new Set([state.currentUserId, ...parsed.data.participantIds]),
+          ].filter((userId) => workspaceMemberIds.has(userId))
 
           if (participantIds.length < 2) {
             toast.error("Select at least one other workspace member")
@@ -1430,7 +1985,9 @@ export const useAppStore = create<AppStore>()(
         let shouldSync = false
 
         set((state) => {
-          const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+          const team = state.teams.find(
+            (entry) => entry.id === parsed.data.teamId
+          )
           if (!team) {
             toast.error("Team not found")
             return state
@@ -1474,7 +2031,8 @@ export const useAppStore = create<AppStore>()(
                 scopeId: parsed.data.teamId,
                 variant: "team",
                 title: parsed.data.title.trim() || team.name,
-                description: parsed.data.description.trim() || team.settings.summary,
+                description:
+                  parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, parsed.data.teamId),
                 createdBy: state.currentUserId,
                 createdAt: now,
@@ -1501,6 +2059,7 @@ export const useAppStore = create<AppStore>()(
         return conversationId
       },
       createChannel(input) {
+        const silent = input.silent ?? false
         const parsed = channelSchema.safeParse(input)
         if (!parsed.success) {
           toast.error("Channel details are invalid")
@@ -1510,14 +2069,71 @@ export const useAppStore = create<AppStore>()(
         let conversationId: string | null = null
 
         set((state) => {
-          const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+          if (parsed.data.workspaceId) {
+            const workspace = state.workspaces.find(
+              (entry) => entry.id === parsed.data.workspaceId
+            )
+            if (!workspace) {
+              toast.error("Workspace not found")
+              return state
+            }
+
+            const existingConversation = state.conversations.find(
+              (conversation) =>
+                conversation.kind === "channel" &&
+                conversation.scopeType === "workspace" &&
+                conversation.scopeId === parsed.data.workspaceId
+            )
+
+            if (existingConversation) {
+              conversationId = existingConversation.id
+              return state
+            }
+
+            const now = getNow()
+            conversationId = createId("conversation")
+
+            return {
+              ...state,
+              conversations: [
+                {
+                  id: conversationId,
+                  kind: "channel",
+                  scopeType: "workspace",
+                  scopeId: parsed.data.workspaceId,
+                  variant: "team",
+                  title: parsed.data.title.trim() || workspace.name,
+                  description:
+                    parsed.data.description.trim() ||
+                    workspace.settings.description ||
+                    "Shared updates and threaded decisions for the whole workspace.",
+                  participantIds: getWorkspaceMemberIds(
+                    state,
+                    parsed.data.workspaceId
+                  ),
+                  createdBy: state.currentUserId,
+                  createdAt: now,
+                  updatedAt: now,
+                  lastActivityAt: now,
+                },
+                ...state.conversations,
+              ],
+            }
+          }
+
+          const teamId = parsed.data.teamId
+          if (!teamId) {
+            return state
+          }
+
+          const team = state.teams.find((entry) => entry.id === teamId)
           if (!team) {
             toast.error("Team not found")
             return state
           }
 
           if (!team.settings.features.channels) {
-            toast.error("Channels are disabled for this team")
+            toast.error("Channel is disabled for this team")
             return state
           }
 
@@ -1525,7 +2141,7 @@ export const useAppStore = create<AppStore>()(
             (conversation) =>
               conversation.kind === "channel" &&
               conversation.scopeType === "team" &&
-              conversation.scopeId === parsed.data.teamId
+              conversation.scopeId === teamId
           )
 
           if (existingConversation) {
@@ -1533,7 +2149,7 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
-          const role = effectiveRole(state, parsed.data.teamId)
+          const role = effectiveRole(state, teamId)
           if (role === "viewer" || role === "guest" || !role) {
             toast.error("Your current role is read-only")
             return state
@@ -1549,11 +2165,12 @@ export const useAppStore = create<AppStore>()(
                 id: conversationId,
                 kind: "channel",
                 scopeType: "team",
-                scopeId: parsed.data.teamId,
+                scopeId: teamId,
                 variant: "team",
                 title: parsed.data.title.trim() || team.name,
-                description: parsed.data.description.trim() || team.settings.summary,
-                participantIds: getTeamMemberIds(state, parsed.data.teamId),
+                description:
+                  parsed.data.description.trim() || team.settings.summary,
+                participantIds: getTeamMemberIds(state, teamId),
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -1573,7 +2190,9 @@ export const useAppStore = create<AppStore>()(
           "Failed to create channel"
         )
 
-        toast.success("Channel ready")
+        if (!silent) {
+          toast.success("Channel ready")
+        }
         return conversationId
       },
       sendChatMessage(input) {
@@ -1614,7 +2233,10 @@ export const useAppStore = create<AppStore>()(
                 id: createId("chat_message"),
                 conversationId: conversation.id,
                 content: parsed.data.content.trim(),
-                mentionUserIds: createMentionIds(parsed.data.content, state.users),
+                mentionUserIds: createMentionIds(
+                  parsed.data.content,
+                  state.users
+                ),
                 createdBy: state.currentUserId,
                 createdAt: now,
               },
@@ -1652,28 +2274,63 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
-          const role = effectiveRole(state, conversation.scopeId)
-          if (role === "viewer" || role === "guest" || !role) {
-            toast.error("Your current role is read-only")
-            return state
+          if (conversation.scopeType === "team") {
+            const role = effectiveRole(state, conversation.scopeId)
+            if (role === "viewer" || role === "guest" || !role) {
+              toast.error("Your current role is read-only")
+              return state
+            }
           }
 
           const now = getNow()
+          const postId = createId("channel_post")
+          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const mentionUserIds = createMentionIds(
+            parsed.data.content,
+            state.users
+          )
+          const notifications = [...state.notifications]
+          const entityTitle = parsed.data.title.trim() || "a channel post"
+          const notifiedUserIds = new Set<string>()
+
+          for (const mentionedUserId of mentionUserIds) {
+            if (
+              mentionedUserId === state.currentUserId ||
+              notifiedUserIds.has(mentionedUserId)
+            ) {
+              continue
+            }
+
+            notifications.unshift(
+              createNotification(
+                mentionedUserId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+                "channelPost",
+                postId,
+                "mention"
+              )
+            )
+
+            notifiedUserIds.add(mentionedUserId)
+          }
 
           return {
             ...state,
             channelPosts: [
               {
-                id: createId("channel_post"),
+                id: postId,
                 conversationId: conversation.id,
                 title: parsed.data.title,
                 content: parsed.data.content.trim(),
+                reactions: [],
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
               },
               ...state.channelPosts,
             ],
+            notifications,
             conversations: state.conversations.map((entry) =>
               entry.id === conversation.id
                 ? {
@@ -1700,7 +2357,9 @@ export const useAppStore = create<AppStore>()(
         }
 
         set((state) => {
-          const post = state.channelPosts.find((entry) => entry.id === parsed.data.postId)
+          const post = state.channelPosts.find(
+            (entry) => entry.id === parsed.data.postId
+          )
           if (!post) {
             return state
           }
@@ -1712,13 +2371,72 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
-          const role = effectiveRole(state, conversation.scopeId)
-          if (role === "viewer" || role === "guest" || !role) {
-            toast.error("Your current role is read-only")
-            return state
+          if (conversation.scopeType === "team") {
+            const role = effectiveRole(state, conversation.scopeId)
+            if (role === "viewer" || role === "guest" || !role) {
+              toast.error("Your current role is read-only")
+              return state
+            }
           }
 
           const now = getNow()
+          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const mentionUserIds = createMentionIds(
+            parsed.data.content,
+            state.users
+          )
+          const notifications = [...state.notifications]
+          const notifiedUserIds = new Set<string>()
+          const followerIds = [
+            post.createdBy,
+            ...state.channelPostComments
+              .filter((entry) => entry.postId === post.id)
+              .map((entry) => entry.createdBy),
+          ]
+          const entityTitle = post.title.trim() || "a channel post"
+
+          for (const mentionedUserId of mentionUserIds) {
+            if (
+              mentionedUserId === state.currentUserId ||
+              notifiedUserIds.has(mentionedUserId)
+            ) {
+              continue
+            }
+
+            notifications.unshift(
+              createNotification(
+                mentionedUserId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+                "channelPost",
+                post.id,
+                "mention"
+              )
+            )
+            notifiedUserIds.add(mentionedUserId)
+          }
+
+          for (const followerId of followerIds) {
+            if (
+              !followerId ||
+              followerId === state.currentUserId ||
+              notifiedUserIds.has(followerId)
+            ) {
+              continue
+            }
+
+            notifications.unshift(
+              createNotification(
+                followerId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
+                "channelPost",
+                post.id,
+                "comment"
+              )
+            )
+            notifiedUserIds.add(followerId)
+          }
 
           return {
             ...state,
@@ -1728,11 +2446,12 @@ export const useAppStore = create<AppStore>()(
                 id: createId("channel_comment"),
                 postId: post.id,
                 content: parsed.data.content.trim(),
-                mentionUserIds: createMentionIds(parsed.data.content, state.users),
+                mentionUserIds,
                 createdBy: state.currentUserId,
                 createdAt: now,
               },
             ],
+            notifications,
             channelPosts: state.channelPosts.map((entry) =>
               entry.id === post.id ? { ...entry, updatedAt: now } : entry
             ),
@@ -1751,6 +2470,102 @@ export const useAppStore = create<AppStore>()(
         syncInBackground(
           syncAddChannelPostComment(parsed.data.postId, parsed.data.content),
           "Failed to post reply"
+        )
+      },
+      deleteChannelPost(postId) {
+        set((state) => {
+          const post = state.channelPosts.find((entry) => entry.id === postId)
+
+          if (!post) {
+            return state
+          }
+
+          if (post.createdBy !== state.currentUserId) {
+            toast.error("You can only delete your own posts")
+            return state
+          }
+
+          const now = getNow()
+
+          return {
+            ...state,
+            channelPosts: state.channelPosts.filter((entry) => entry.id !== postId),
+            channelPostComments: state.channelPostComments.filter(
+              (entry) => entry.postId !== postId
+            ),
+            notifications: state.notifications.filter(
+              (entry) =>
+                !(entry.entityType === "channelPost" && entry.entityId === postId)
+            ),
+            conversations: state.conversations.map((entry) =>
+              entry.id === post.conversationId
+                ? {
+                    ...entry,
+                    updatedAt: now,
+                    lastActivityAt: now,
+                  }
+                : entry
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncDeleteChannelPost(postId),
+          "Failed to delete post"
+        )
+
+        toast.success("Post deleted")
+      },
+      toggleChannelPostReaction(postId, emoji) {
+        const nextEmoji = emoji.trim()
+
+        if (!nextEmoji) {
+          return
+        }
+
+        set((state) => {
+          const post = state.channelPosts.find((entry) => entry.id === postId)
+
+          if (!post) {
+            return state
+          }
+
+          const conversation = state.conversations.find(
+            (entry) => entry.id === post.conversationId
+          )
+
+          if (!conversation || conversation.kind !== "channel") {
+            return state
+          }
+
+          if (conversation.scopeType === "team") {
+            const role = effectiveRole(state, conversation.scopeId)
+            if (role === "viewer" || role === "guest" || !role) {
+              toast.error("Your current role is read-only")
+              return state
+            }
+          }
+
+          return {
+            ...state,
+            channelPosts: state.channelPosts.map((entry) =>
+              entry.id === postId
+                ? {
+                    ...entry,
+                    reactions: toggleReactionUsers(
+                      entry.reactions,
+                      nextEmoji,
+                      state.currentUserId
+                    ),
+                  }
+                : entry
+            ),
+          }
+        })
+
+        syncInBackground(
+          syncToggleChannelPostReaction(postId, nextEmoji),
+          "Failed to update reaction"
         )
       },
       createInvite(input) {
@@ -1820,48 +2635,62 @@ export const useAppStore = create<AppStore>()(
           return
         }
 
+        const stateBeforeJoin = get()
+        const team = stateBeforeJoin.teams.find(
+          (entry) =>
+            entry.settings.joinCode.toLowerCase() ===
+            parsed.data.code.toLowerCase()
+        )
+
+        if (!team) {
+          toast.error("Join code not found")
+          return
+        }
+
+        const existingMembership = stateBeforeJoin.teamMemberships.find(
+          (membership) =>
+            membership.teamId === team.id &&
+            membership.userId === stateBeforeJoin.currentUserId
+        )
+        const resolvedRole = mergeMembershipRole(
+          existingMembership?.role,
+          "viewer"
+        )
+        const membershipChanged =
+          !existingMembership || existingMembership.role !== resolvedRole
+
         set((state) => {
-          const team = state.teams.find(
-            (entry) =>
-              entry.settings.joinCode.toLowerCase() === parsed.data.code.toLowerCase()
-          )
+          const nextMemberships = membershipChanged
+            ? existingMembership
+              ? state.teamMemberships.map((membership) =>
+                  membership.teamId === team.id &&
+                  membership.userId === state.currentUserId
+                    ? { ...membership, role: resolvedRole }
+                    : membership
+                )
+              : [
+                  ...state.teamMemberships,
+                  {
+                    teamId: team.id,
+                    userId: state.currentUserId,
+                    role: resolvedRole,
+                  },
+                ]
+            : state.teamMemberships
 
-          if (!team) {
-            toast.error("Join code not found")
-            return state
-          }
-
-          const existingMembership = state.teamMemberships.find(
-            (membership) =>
-              membership.teamId === team.id && membership.userId === state.currentUserId
-          )
-
-          const nextMemberships = existingMembership
-            ? state.teamMemberships.map((membership) =>
-                membership.teamId === team.id && membership.userId === state.currentUserId
-                  ? { ...membership, role: "viewer" as const }
-                  : membership
-              )
-            : [
-                ...state.teamMemberships,
-                {
-                  teamId: team.id,
-                  userId: state.currentUserId,
-                  role: "viewer" as const,
-                },
+          const notifications = membershipChanged
+            ? [
+                createNotification(
+                  state.currentUserId,
+                  state.currentUserId,
+                  `You joined ${team.name} as ${resolvedRole}`,
+                  "invite",
+                  team.id,
+                  "invite"
+                ),
+                ...state.notifications,
               ]
-
-          const notifications = [
-            createNotification(
-              state.currentUserId,
-              state.currentUserId,
-              `You joined ${team.name} as a viewer`,
-              "invite",
-              team.id,
-              "invite"
-            ),
-            ...state.notifications,
-          ]
+            : state.notifications
 
           return {
             ...state,
@@ -1875,11 +2704,18 @@ export const useAppStore = create<AppStore>()(
         })
 
         syncInBackground(
-          syncJoinTeamByCode(useAppStore.getState().currentUserId, parsed.data.code),
+          syncJoinTeamByCode(
+            useAppStore.getState().currentUserId,
+            parsed.data.code
+          ),
           "Failed to join team"
         )
 
-        toast.success("Joined team as viewer")
+        toast.success(
+          membershipChanged
+            ? `Joined team as ${resolvedRole}`
+            : "Already a member of this team"
+        )
       },
       createProject(input) {
         const parsed = projectSchema.safeParse(input)
@@ -1888,11 +2724,24 @@ export const useAppStore = create<AppStore>()(
           return
         }
 
+        const validationMessage = getProjectCreationValidationMessage(
+          get(),
+          parsed.data
+        )
+
+        if (validationMessage) {
+          toast.error(validationMessage)
+          return
+        }
+
         set((state) => {
           const settingsTeamId =
             parsed.data.settingsTeamId ??
             (parsed.data.scopeType === "team" ? parsed.data.scopeId : null)
-          const workflowSettings = getTeamWorkflowSettings(state, settingsTeamId)
+          const workflowSettings = getTeamWorkflowSettings(
+            state,
+            settingsTeamId
+          )
           const templateDefaults =
             workflowSettings.templateDefaults[parsed.data.templateType]
           const project = {
@@ -1968,11 +2817,21 @@ export const useAppStore = create<AppStore>()(
           return
         }
         const documentInput = parsed.data
+        const validationMessage = getDocumentCreationValidationMessage(
+          get(),
+          documentInput
+        )
+
+        if (validationMessage) {
+          toast.error(validationMessage)
+          return
+        }
 
         set((state) => {
           if (documentInput.kind === "team-document") {
             const workspaceId =
-              state.teams.find((team) => team.id === documentInput.teamId)?.workspaceId ?? ""
+              state.teams.find((team) => team.id === documentInput.teamId)
+                ?.workspaceId ?? ""
             const role = effectiveRole(state, documentInput.teamId)
             if (role === "viewer" || role === "guest" || !role) {
               toast.error("Your current role is read-only")
@@ -2031,7 +2890,10 @@ export const useAppStore = create<AppStore>()(
         })
 
         syncInBackground(
-          syncCreateDocument(useAppStore.getState().currentUserId, documentInput),
+          syncCreateDocument(
+            useAppStore.getState().currentUserId,
+            documentInput
+          ),
           "Failed to create document"
         )
 
@@ -2041,8 +2903,20 @@ export const useAppStore = create<AppStore>()(
         const parsed = workItemSchema.safeParse(input)
         if (!parsed.success) {
           toast.error("Work item input is invalid")
-          return
+          return null
         }
+
+        const validationMessage = getWorkItemValidationMessage(
+          get(),
+          parsed.data
+        )
+
+        if (validationMessage) {
+          toast.error(validationMessage)
+          return null
+        }
+
+        let createdItemId: string | null = null
 
         set((state) => {
           const role = effectiveRole(state, parsed.data.teamId)
@@ -2051,23 +2925,31 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
+          const parent = parsed.data.parentId
+            ? (state.workItems.find(
+                (item) => item.id === parsed.data.parentId
+              ) ?? null)
+            : null
           const teamItems = state.workItems.filter(
             (item) => item.teamId === parsed.data.teamId
           )
           const prefix = toKeyPrefix(parsed.data.teamId)
           const nextNumber = 1 + teamItems.length + 100
           const descriptionDocId = createId("doc")
+          const resolvedPrimaryProjectId =
+            parsed.data.primaryProjectId ?? parent?.primaryProjectId ?? null
 
           const descriptionDoc = {
             id: descriptionDocId,
             kind: "item-description" as const,
             workspaceId:
-              state.teams.find((team) => team.id === parsed.data.teamId)?.workspaceId ?? "",
+              state.teams.find((team) => team.id === parsed.data.teamId)
+                ?.workspaceId ?? "",
             teamId: parsed.data.teamId,
             title: `${parsed.data.title} description`,
             content: `<p>Add a fuller description for ${parsed.data.title}.</p>`,
-            linkedProjectIds: parsed.data.primaryProjectId
-              ? [parsed.data.primaryProjectId]
+            linkedProjectIds: resolvedPrimaryProjectId
+              ? [resolvedPrimaryProjectId]
               : [],
             linkedWorkItemIds: [],
             createdBy: state.currentUserId,
@@ -2087,8 +2969,8 @@ export const useAppStore = create<AppStore>()(
             priority: parsed.data.priority,
             assigneeId: parsed.data.assigneeId,
             creatorId: state.currentUserId,
-            parentId: null,
-            primaryProjectId: parsed.data.primaryProjectId,
+            parentId: parent?.id ?? null,
+            primaryProjectId: resolvedPrimaryProjectId,
             linkedProjectIds: [],
             linkedDocumentIds: [],
             labelIds: [],
@@ -2101,6 +2983,8 @@ export const useAppStore = create<AppStore>()(
             updatedAt: getNow(),
           }
 
+          createdItemId = workItem.id
+
           return {
             ...state,
             documents: [descriptionDoc, ...state.documents],
@@ -2108,12 +2992,17 @@ export const useAppStore = create<AppStore>()(
           }
         })
 
+        if (!createdItemId) {
+          return null
+        }
+
         syncInBackground(
           syncCreateWorkItem(
             useAppStore.getState().currentUserId,
             parsed.data.teamId,
             parsed.data.type,
             parsed.data.title,
+            parsed.data.parentId ?? null,
             parsed.data.primaryProjectId,
             parsed.data.assigneeId,
             parsed.data.priority
@@ -2122,6 +3011,7 @@ export const useAppStore = create<AppStore>()(
         )
 
         toast.success("Work item created")
+        return createdItemId
       },
     }),
     {

@@ -31,9 +31,9 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 import {
   createDefaultTeamWorkflowSettings,
+  getDefaultTemplateTypeForTeamExperience,
   priorityMeta,
   statusMeta,
   templateMeta,
@@ -43,8 +43,11 @@ import {
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 
-function cloneWorkflowSettings(source: TeamWorkflowSettings | undefined): TeamWorkflowSettings {
-  const workflow = source ?? createDefaultTeamWorkflowSettings()
+function cloneWorkflowSettings(
+  source: TeamWorkflowSettings | undefined,
+  experience: "software-development" | "issue-analysis" | "project-management" | "community"
+): TeamWorkflowSettings {
+  const workflow = source ?? createDefaultTeamWorkflowSettings(experience)
 
   return {
     statusOrder: [...workflow.statusOrder],
@@ -127,10 +130,12 @@ export function TeamWorkflowSettingsDialog({
   teamId: string
 }) {
   const team = useAppStore((state) => state.teams.find((entry) => entry.id === teamId) ?? null)
-  const [activeTemplate, setActiveTemplate] =
-    useState<keyof TeamWorkflowSettings["templateDefaults"]>("software-delivery")
+  const teamExperience = team?.settings.experience ?? "software-development"
+  const [activeTemplate, setActiveTemplate] = useState<
+    keyof TeamWorkflowSettings["templateDefaults"]
+  >(() => getDefaultTemplateTypeForTeamExperience(teamExperience))
   const [workflow, setWorkflow] = useState<TeamWorkflowSettings>(() =>
-    cloneWorkflowSettings(team?.settings.workflow)
+    cloneWorkflowSettings(team?.settings.workflow, teamExperience)
   )
 
   if (!team) {

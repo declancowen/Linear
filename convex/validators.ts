@@ -20,6 +20,7 @@ const templateTypeLiterals = [
 const teamExperienceTypeLiterals = [
   v.literal("software-development"),
   v.literal("issue-analysis"),
+  v.literal("project-management"),
   v.literal("community"),
 ] as const
 
@@ -161,6 +162,7 @@ const notificationEntityTypeLiterals = [
   v.literal("document"),
   v.literal("project"),
   v.literal("invite"),
+  v.literal("channelPost"),
 ] as const
 
 export const roleValidator = v.union(...roleLiterals)
@@ -458,11 +460,17 @@ export const chatMessageFields = {
   createdAt: v.string(),
 }
 
+const channelPostReactionValidator = v.object({
+  emoji: v.string(),
+  userIds: v.array(v.string()),
+})
+
 export const channelPostFields = {
   id: v.string(),
   conversationId: v.string(),
   title: v.string(),
   content: v.string(),
+  reactions: v.array(channelPostReactionValidator),
   createdBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),

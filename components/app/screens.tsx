@@ -1,11 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 import {
   closestCorners,
   DndContext,
   DragOverlay,
+  pointerWithin,
   type DragEndEvent,
   type DragStartEvent,
   useDraggable,
@@ -38,6 +40,8 @@ import {
   NotePencil,
   Plus,
   Rows,
+  SidebarSimple,
+  Trash,
   XCircle,
 } from "@phosphor-icons/react"
 
@@ -45,6 +49,7 @@ import {
   buildItemGroups,
   canAdminTeam,
   canEditTeam,
+  getChannelPostHref,
   getCommentsForTarget,
   getDocumentContextLabel,
   getDocument,
@@ -56,11 +61,15 @@ import {
   getTeam,
   getTeamBySlug,
   getTeamDocuments,
+  getTeamMembers,
   getTemplateDefaultsForTeam,
   getUser,
   getViewByRoute,
   getViewsForScope,
   getVisibleWorkItems,
+  getWorkItem,
+  getWorkItemDescendantIds,
+  getWorkspaceUsers,
   getWorkspaceDocuments,
   getStatusOrderForTeam,
   itemMatchesView,
@@ -68,6 +77,11 @@ import {
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import {
+  canParentWorkItemTypeAcceptChild,
+  getAllowedChildWorkItemTypesForItem,
+  getAllowedWorkItemTypesForTemplate,
+  getDefaultTemplateTypeForTeamExperience,
+  getDefaultWorkItemTypesForTeamExperience,
   priorityMeta,
   projectHealthMeta,
   statusMeta,
@@ -87,6 +101,7 @@ import {
   workItemTypeMeta,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-settings-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -94,18 +109,22 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  Field,
-  FieldContent,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+// Field components available from @/components/ui/field if needed
 import { Input } from "@/components/ui/input"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
@@ -167,7 +186,7 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
   const hasSelectedView = selectedView
     ? views.some((view) => view.id === selectedView.id)
     : false
-  const activeView = hasSelectedView ? selectedView : views[0] ?? null
+  const activeView = hasSelectedView ? selectedView : (views[0] ?? null)
   const [localLayout, setLocalLayout] = useState<"list" | "board">("list")
 
   useEffect(() => {
@@ -235,7 +254,7 @@ export function AssignedScreen() {
 
   return (
     <WorkSurface
-      title="My issues"
+      title="My items"
       routeKey="/assigned"
       views={views}
       items={getVisibleWorkItems(data, { assignedToCurrentUser: true })}
@@ -254,11 +273,14 @@ export function InboxScreen() {
     data.ui.activeInboxNotificationId ?? notifications[0]?.id ?? null
   const activeNotification =
     notifications.find((notification) => notification.id === activeId) ?? null
+  const activeChannelPostHref = activeNotification
+    ? getChannelPostHref(data, activeNotification.entityId)
+    : null
 
   return (
     <div className="flex h-[calc(100svh-3rem)] flex-col">
       <ScreenHeader title="Inbox" />
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 flex-1">
         {/* Notification list */}
         <div className="w-[22rem] shrink-0 border-r">
           <div className="flex items-center justify-between border-b px-4 py-2">
@@ -284,20 +306,27 @@ export function InboxScreen() {
                       : "hover:bg-accent/50"
                   )}
                   onClick={() => {
-                    useAppStore.getState().setActiveInboxNotification(notification.id)
+                    useAppStore
+                      .getState()
+                      .setActiveInboxNotification(notification.id)
                     useAppStore.getState().markNotificationRead(notification.id)
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className={cn(
-                        "text-sm truncate",
-                        !notification.readAt && "font-medium"
-                      )}>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span
+                        className={cn(
+                          "truncate text-sm",
+                          !notification.readAt && "font-medium"
+                        )}
+                      >
                         {notification.message}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {format(new Date(notification.createdAt), "MMM d, h:mm a")}
+                        {format(
+                          new Date(notification.createdAt),
+                          "MMM d, h:mm a"
+                        )}
                       </span>
                     </div>
                     {notification.readAt ? null : (
@@ -315,15 +344,19 @@ export function InboxScreen() {
           </ScrollArea>
         </div>
         {/* Detail pane */}
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           {activeNotification ? (
             <div className="p-6">
-              <div className="flex items-center gap-2 mb-4">
+              <div className="mb-4 flex items-center gap-2">
                 <Badge variant="outline">{activeNotification.type}</Badge>
-                <Badge variant="secondary">{activeNotification.entityType}</Badge>
+                <Badge variant="secondary">
+                  {activeNotification.entityType}
+                </Badge>
               </div>
-              <p className="max-w-2xl text-sm leading-7 mb-4">{activeNotification.message}</p>
-              <div className="flex flex-wrap gap-2 mb-6">
+              <p className="mb-4 max-w-2xl text-sm leading-7">
+                {activeNotification.message}
+              </p>
+              <div className="mb-6 flex flex-wrap gap-2">
                 {activeNotification.entityType === "workItem" ? (
                   <Button size="sm" asChild>
                     <Link href={`/items/${activeNotification.entityId}`}>
@@ -333,7 +366,15 @@ export function InboxScreen() {
                 ) : null}
                 {activeNotification.entityType === "document" ? (
                   <Button size="sm" asChild>
-                    <Link href={`/docs/${activeNotification.entityId}`}>Open document</Link>
+                    <Link href={`/docs/${activeNotification.entityId}`}>
+                      Open document
+                    </Link>
+                  </Button>
+                ) : null}
+                {activeNotification.entityType === "channelPost" &&
+                activeChannelPostHref ? (
+                  <Button size="sm" asChild>
+                    <Link href={activeChannelPostHref}>Open channel post</Link>
                   </Button>
                 ) : null}
                 {activeNotification.entityType === "invite" ? (
@@ -341,10 +382,13 @@ export function InboxScreen() {
                     size="sm"
                     variant="outline"
                     onClick={() =>
-                      useAppStore.getState().joinTeamByCode(
-                        data.teams.find((team) => team.id === activeNotification.entityId)
-                          ?.settings.joinCode ?? ""
-                      )
+                      useAppStore
+                        .getState()
+                        .joinTeamByCode(
+                          data.teams.find(
+                            (team) => team.id === activeNotification.entityId
+                          )?.settings.joinCode ?? ""
+                        )
                     }
                   >
                     Accept join code
@@ -356,13 +400,19 @@ export function InboxScreen() {
                 <span>
                   Read:{" "}
                   {activeNotification.readAt
-                    ? format(new Date(activeNotification.readAt), "MMM d, h:mm a")
+                    ? format(
+                        new Date(activeNotification.readAt),
+                        "MMM d, h:mm a"
+                      )
                     : "Unread"}
                 </span>
                 <span>
                   Email:{" "}
                   {activeNotification.emailedAt
-                    ? format(new Date(activeNotification.emailedAt), "MMM d, h:mm a")
+                    ? format(
+                        new Date(activeNotification.emailedAt),
+                        "MMM d, h:mm a"
+                      )
                     : "In-app only"}
                 </span>
               </div>
@@ -431,7 +481,11 @@ export function ProjectsScreen({
                 ) : null
               }
             />
-            <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => setDialogOpen(true)}
+            >
               <Plus className="size-3.5" />
             </Button>
           </div>
@@ -463,12 +517,24 @@ export function ProjectsScreen({
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Health</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Priority</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Lead</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Target date</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Status</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Name
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Health
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Priority
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Lead
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Target date
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Status
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -536,8 +602,9 @@ export function ViewsScreen({
 
     if (sortBy === "entity") {
       return (
-        formatEntityKind(left.entityKind).localeCompare(formatEntityKind(right.entityKind)) ||
-        left.name.localeCompare(right.name)
+        formatEntityKind(left.entityKind).localeCompare(
+          formatEntityKind(right.entityKind)
+        ) || left.name.localeCompare(right.name)
       )
     }
 
@@ -564,17 +631,30 @@ export function ViewsScreen({
       {views.length === 0 ? (
         <MissingState title="No saved views yet" />
       ) : layout === "board" ? (
-        <SavedViewsBoard views={orderedViews} showDescriptions={showDescriptions} />
+        <SavedViewsBoard
+          views={orderedViews}
+          showDescriptions={showDescriptions}
+        />
       ) : (
         <div className="px-6">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="text-xs font-normal text-muted-foreground">Name</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Entity</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Layout</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Grouping</TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">Sharing</TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Name
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Entity
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Layout
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Grouping
+                </TableHead>
+                <TableHead className="text-xs font-normal text-muted-foreground">
+                  Sharing
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -639,15 +719,22 @@ export function DocsScreen({
 }) {
   const data = useAppStore()
   const isWorkspaceDocs = scopeType === "workspace" && !team
-  const [activeTab, setActiveTab] = useState<"workspace" | "private">("workspace")
+  const [activeTab, setActiveTab] = useState<"workspace" | "private">(
+    "workspace"
+  )
   const [dialogOpen, setDialogOpen] = useState(false)
   const teamRouteKey = team ? `/team/${team.slug}/docs` : "/workspace/docs/team"
-  const teamDocViews = team ? getViewsForScope(data, "team", scopeId, "docs") : []
+  const teamDocViews = team
+    ? getViewsForScope(data, "team", scopeId, "docs")
+    : []
   const workspaceDocViews = isWorkspaceDocs
     ? getViewsForScope(data, "workspace", scopeId, "docs")
     : []
   const teamLayoutState = useCollectionLayout(teamRouteKey, teamDocViews)
-  const workspaceLayoutState = useCollectionLayout("/workspace/docs", workspaceDocViews)
+  const workspaceLayoutState = useCollectionLayout(
+    "/workspace/docs",
+    workspaceDocViews
+  )
   const privateLayoutState = useCollectionLayout("/workspace/docs/private", [])
   const documents = isWorkspaceDocs
     ? activeTab === "workspace"
@@ -663,7 +750,10 @@ export function DocsScreen({
     ? activeTab === "workspace"
       ? ({ kind: "workspace-document", workspaceId: scopeId } as const)
       : ({ kind: "private-document", workspaceId: scopeId } as const)
-    : ({ kind: "team-document", teamId: team?.id ?? data.ui.activeTeamId } as const)
+    : ({
+        kind: "team-document",
+        teamId: team?.id ?? data.ui.activeTeamId,
+      } as const)
   const editable = team ? canEditTeam(data, team.id) : true
   const emptyTitle = isWorkspaceDocs
     ? activeTab === "workspace"
@@ -703,7 +793,11 @@ export function DocsScreen({
               layout={layout}
               onLayoutChange={setLayout}
             />
-            <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => setDialogOpen(true)}
+            >
               <Plus className="size-3.5" />
             </Button>
           </div>
@@ -717,7 +811,11 @@ export function DocsScreen({
                 layout={layout}
                 onLayoutChange={setLayout}
               />
-              <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => setDialogOpen(true)}
+              >
                 <Plus className="size-3.5" />
               </Button>
             </div>
@@ -738,19 +836,24 @@ export function DocsScreen({
         <div className="flex flex-col divide-y px-6">
           {documents.map((document) => {
             const preview = extractTextContent(document.content)
-            const author = getUser(data, document.updatedBy ?? document.createdBy)
+            const author = getUser(
+              data,
+              document.updatedBy ?? document.createdBy
+            )
             return (
               <Link
                 key={document.id}
-                className="group flex items-start gap-3 px-3 py-3.5 transition-colors hover:bg-accent/40 rounded-md"
+                className="group flex items-start gap-3 rounded-md px-3 py-3.5 transition-colors hover:bg-accent/40"
                 href={`/docs/${document.id}`}
               >
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground mt-0.5">
+                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
                   <FileText className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">{document.title}</span>
+                    <span className="truncate text-sm font-medium">
+                      {document.title}
+                    </span>
                   </div>
                   {preview ? (
                     <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
@@ -795,10 +898,14 @@ function ProjectBoard({
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <span className="text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <ProjectTemplateGlyph
+                    templateType={project.templateType}
+                    className="size-3.5"
+                  />
                   {templateMeta[project.templateType].label}
                 </span>
-                <h2 className="mt-1 text-base font-medium leading-tight">
+                <h2 className="mt-1 text-base leading-tight font-medium">
                   {project.name}
                 </h2>
               </div>
@@ -808,13 +915,19 @@ function ProjectBoard({
               {project.summary}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Badge variant="secondary">{projectHealthMeta[project.health].label}</Badge>
-              <Badge variant="outline">{priorityMeta[project.priority].label}</Badge>
+              <Badge variant="secondary">
+                {projectHealthMeta[project.health].label}
+              </Badge>
+              <Badge variant="outline">
+                {priorityMeta[project.priority].label}
+              </Badge>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <div className="min-w-0">
                 <div className="text-xs text-muted-foreground">Lead</div>
-                <div className="truncate">{getUser(data, project.leadId)?.name ?? "—"}</div>
+                <div className="truncate">
+                  {getUser(data, project.leadId)?.name ?? "—"}
+                </div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Progress</div>
@@ -848,7 +961,9 @@ function SavedViewsBoard({
               <span className="text-muted-foreground">
                 {getEntityKindIcon(view.entityKind)}
               </span>
-              <h2 className="truncate text-base font-medium leading-tight">{view.name}</h2>
+              <h2 className="truncate text-base leading-tight font-medium">
+                {view.name}
+              </h2>
             </div>
             <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
           </div>
@@ -858,7 +973,9 @@ function SavedViewsBoard({
             </p>
           ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
-            <Badge variant="secondary">{formatEntityKind(view.entityKind)}</Badge>
+            <Badge variant="secondary">
+              {formatEntityKind(view.entityKind)}
+            </Badge>
             <Badge variant="outline">{view.layout}</Badge>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -906,7 +1023,7 @@ function DocumentBoard({
                   <FileText className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-medium leading-snug">
+                  <h3 className="text-sm leading-snug font-medium">
                     {document.title}
                   </h3>
                   <span className="mt-0.5 text-[11px] text-muted-foreground">
@@ -920,7 +1037,7 @@ function DocumentBoard({
                   {preview}
                 </p>
               ) : (
-                <p className="mt-3 text-xs italic text-muted-foreground/50">
+                <p className="mt-3 text-xs text-muted-foreground/50 italic">
                   Empty document
                 </p>
               )}
@@ -928,9 +1045,7 @@ function DocumentBoard({
 
             {/* Card footer */}
             <div className="flex items-center gap-2 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
-              {author ? (
-                <span className="truncate">{author.name}</span>
-              ) : null}
+              {author ? <span className="truncate">{author.name}</span> : null}
               <span className="ml-auto shrink-0">
                 {format(new Date(document.updatedAt), "MMM d")}
               </span>
@@ -942,53 +1057,247 @@ function DocumentBoard({
   )
 }
 
+function getEligibleParentWorkItems(data: AppData, item: WorkItem) {
+  const blockedIds = getWorkItemDescendantIds(data, item.id)
+
+  if (blockedIds.size > 0) {
+    return []
+  }
+
+  return sortItems(
+    data.workItems.filter(
+      (candidate) =>
+        candidate.teamId === item.teamId &&
+        candidate.id !== item.id &&
+        candidate.parentId === null &&
+        !blockedIds.has(candidate.id) &&
+        canParentWorkItemTypeAcceptChild(candidate.type, item.type)
+    ),
+    "priority"
+  )
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function formatInlineDescriptionContent(value: string) {
+  return value
+    .trim()
+    .split(/\n{2,}/)
+    .map(
+      (paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br />")}</p>`
+    )
+    .join("")
+}
+
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
+  const router = useRouter()
   const data = useAppStore()
   const item = data.workItems.find((entry) => entry.id === itemId)
+  const [deletingItem, setDeletingItem] = useState(false)
+  const [childComposerOpen, setChildComposerOpen] = useState(false)
+  const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
 
   if (!item) {
+    if (deletingItem) {
+      return null
+    }
+
     return <MissingState title="Work item not found" />
   }
 
-  const team = getTeam(data, item.teamId)
+  const currentItem = item
+  const team = getTeam(data, currentItem.teamId)
   const editable = team ? canEditTeam(data, team.id) : false
-  const description = getDocument(data, item.descriptionDocId)
+  const description = getDocument(data, currentItem.descriptionDocId)
   const statusOptions = getStatusOrderForTeam(team).map((status) => ({
     value: status,
     label: statusMeta[status].label,
   }))
+  const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const teamProjects = team
+    ? data.projects.filter(
+        (project) =>
+          (project.scopeType === "team" && project.scopeId === team.id) ||
+          (project.scopeType === "workspace" &&
+            project.scopeId === team.workspaceId)
+      )
+    : []
+  const parentItem = currentItem.parentId
+    ? getWorkItem(data, currentItem.parentId)
+    : null
+  const childItems = sortItems(
+    data.workItems.filter((entry) => entry.parentId === currentItem.id),
+    "priority"
+  )
+  const parentOptions = [
+    { value: "none", label: "No parent" },
+    ...getEligibleParentWorkItems(data, currentItem).map((candidate) => ({
+      value: candidate.id,
+      label: `${candidate.key} · ${candidate.title}`,
+    })),
+  ]
+  const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
+  const canCreateChildIssue = editable && allowedChildTypes.length > 0
+  const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
+  const completedChildItems = childItems.filter(
+    (child) => child.status === "done"
+  ).length
+  const showSubIssuesSection =
+    currentItem.parentId === null || childItems.length > 0
+  const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
+
+  function buildEndDatePatch(nextEndDate: string | null) {
+    return {
+      dueDate: currentItem.dueDate ? nextEndDate : undefined,
+      targetDate:
+        currentItem.targetDate || !currentItem.dueDate
+          ? nextEndDate
+          : undefined,
+    }
+  }
+
+  function handleStartDateChange(nextStartDate: string | null) {
+    const patch: {
+      startDate?: string | null
+      dueDate?: string | null
+      targetDate?: string | null
+    } = {
+      startDate: nextStartDate,
+    }
+
+    if (
+      nextStartDate &&
+      displayedEndDate &&
+      new Date(nextStartDate).getTime() > new Date(displayedEndDate).getTime()
+    ) {
+      Object.assign(patch, buildEndDatePatch(nextStartDate))
+    }
+
+    useAppStore.getState().updateWorkItem(currentItem.id, patch)
+  }
+
+  function handleEndDateChange(nextEndDate: string | null) {
+    const patch: {
+      startDate?: string | null
+      dueDate?: string | null
+      targetDate?: string | null
+    } = buildEndDatePatch(nextEndDate)
+
+    if (
+      nextEndDate &&
+      currentItem.startDate &&
+      new Date(nextEndDate).getTime() <
+        new Date(currentItem.startDate).getTime()
+    ) {
+      patch.startDate = nextEndDate
+    }
+
+    useAppStore.getState().updateWorkItem(currentItem.id, patch)
+  }
+
+  async function handleDeleteItem() {
+    const itemLabel = workItemTypeMeta[currentItem.type].label.toLowerCase()
+    const cascadeMessage =
+      descendantCount > 0
+        ? `Delete this ${itemLabel} and ${descendantCount} nested item${
+            descendantCount === 1 ? "" : "s"
+          }?`
+        : `Delete this ${itemLabel}?`
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`${cascadeMessage} This can't be undone.`)
+    ) {
+      return
+    }
+
+    setDeletingItem(true)
+
+    const deleted = await useAppStore.getState().deleteWorkItem(currentItem.id)
+
+    if (!deleted) {
+      setDeletingItem(false)
+      return
+    }
+
+    router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
+  }
 
   return (
-      <div className="flex flex-col h-[calc(100svh-3rem)]">
+    <div className="flex h-[calc(100svh-3rem)] flex-col">
       {/* Breadcrumb header */}
-      <div className="flex items-center justify-between border-b px-6 py-2 shrink-0">
+      <div className="flex shrink-0 items-center justify-between border-b px-6 py-2">
         <div className="flex items-center gap-2 text-sm">
           <SidebarTrigger className="size-6 shrink-0" />
-          <Link href={`/team/${team?.slug}/work`} className="text-muted-foreground hover:text-foreground">
+          <Link
+            href={`/team/${team?.slug}/work`}
+            className="text-muted-foreground hover:text-foreground"
+          >
             {team?.name}
           </Link>
           <CaretRight className="size-3 text-muted-foreground" />
-          <span>{item.key} {item.title}</span>
+          <span>
+            {currentItem.key} {currentItem.title}
+          </span>
         </div>
         <div className="flex items-center gap-1">
+          {editable ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon-sm" variant="ghost" disabled={deletingItem}>
+                  <DotsThree className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44 min-w-44">
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={deletingItem}
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    void handleDeleteItem()
+                  }}
+                >
+                  <Trash className="size-4" />
+                  Delete {workItemTypeMeta[currentItem.type].label}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           <Button
             size="icon-sm"
             variant="ghost"
-            onClick={() => setPropertiesOpen(!propertiesOpen)}
             className={cn(!propertiesOpen && "text-muted-foreground")}
+            onClick={() => setPropertiesOpen((current) => !current)}
           >
-            <GearSix className="size-4" />
+            <SidebarSimple className="size-4" />
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Main content — scrollable */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-8 py-8">
+          <div className="mx-auto max-w-3xl px-8 py-8">
             {/* Title */}
-            <h1 className="text-2xl font-semibold mb-1">{item.title}</h1>
+            {parentItem ? (
+              <Link
+                href={`/items/${parentItem.id}`}
+                className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <span>Parent issue</span>
+                <Badge variant="outline">{parentItem.key}</Badge>
+                <span className="truncate">{parentItem.title}</span>
+              </Link>
+            ) : null}
+            <h1 className="mb-1 text-2xl font-semibold">{currentItem.title}</h1>
 
             {/* Description — seamless inline editor */}
             <div className="mt-4">
@@ -996,20 +1305,101 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 content={description?.content ?? "<p>Add a description…</p>"}
                 editable={editable}
                 placeholder="Add a description…"
+                mentionCandidates={
+                  team ? getTeamMembers(data, team.id) : data.users
+                }
                 onChange={(content) =>
-                  useAppStore.getState().updateItemDescription(item.id, content)
+                  useAppStore
+                    .getState()
+                    .updateItemDescription(currentItem.id, content)
                 }
                 onUploadAttachment={(file) =>
-                  useAppStore.getState().uploadAttachment("workItem", item.id, file)
+                  useAppStore
+                    .getState()
+                    .uploadAttachment("workItem", currentItem.id, file)
                 }
               />
             </div>
 
-            {/* Sub-issues */}
-            <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground py-2 mt-4">
-              <Plus className="size-3.5" />
-              Add sub-issues
-            </button>
+            {showSubIssuesSection ? (
+              <div className="mt-8">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/80"
+                      onClick={() => setSubIssuesOpen((current) => !current)}
+                    >
+                      {subIssuesOpen ? (
+                        <CaretDown className="size-3.5 text-muted-foreground" />
+                      ) : (
+                        <CaretRight className="size-3.5 text-muted-foreground" />
+                      )}
+                      <span>Sub-issues</span>
+                    </button>
+                    <span className="text-sm text-muted-foreground">
+                      {completedChildItems}/{childItems.length}
+                    </span>
+                  </div>
+                  {canCreateChildIssue ? (
+                    <Button
+                      size="icon-sm"
+                      variant={childComposerOpen ? "outline" : "ghost"}
+                      disabled={!canCreateChildIssue}
+                      onClick={() => {
+                        setSubIssuesOpen(true)
+                        setChildComposerOpen((current) => !current)
+                      }}
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+
+                {subIssuesOpen ? (
+                  <div className="mt-4 flex flex-col gap-1">
+                    {childItems.map((child) => (
+                      <Link
+                        key={child.id}
+                        href={`/items/${child.id}`}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/40"
+                      >
+                        <StatusIcon status={child.status} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {child.title}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{child.key}</span>
+                            <span>{workItemTypeMeta[child.type].label}</span>
+                            <span>{priorityMeta[child.priority].label}</span>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+
+                    {childComposerOpen ? (
+                      <InlineChildIssueComposer
+                        teamId={currentItem.teamId}
+                        parentItem={currentItem}
+                        disabled={!editable}
+                        onCancel={() => setChildComposerOpen(false)}
+                        onCreated={() => setChildComposerOpen(false)}
+                      />
+                    ) : canCreateChildIssue ? (
+                      <button
+                        type="button"
+                        className="inline-flex w-fit items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                        onClick={() => setChildComposerOpen(true)}
+                      >
+                        <Plus className="size-3.5" />
+                        <span>Add sub-issue</span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <Separator className="my-6" />
 
@@ -1020,54 +1410,73 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               </div>
               <CommentsInline
                 targetType="workItem"
-                targetId={item.id}
+                targetId={currentItem.id}
                 editable={editable}
               />
             </div>
           </div>
         </div>
 
-        {/* Collapsible right sidebar */}
-        {propertiesOpen && (
-          <div className="w-72 shrink-0 border-l overflow-y-auto">
+        {/* Right sidebar */}
+        {propertiesOpen ? (
+          <div className="w-72 shrink-0 overflow-y-auto border-l">
             <div className="flex flex-col p-4">
               <CollapsibleSection title="Properties" defaultOpen>
                 <PropertySelect
                   label="Status"
-                  value={item.status}
+                  value={currentItem.status}
                   disabled={!editable}
                   options={statusOptions}
                   onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(item.id, {
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
                       status: value as WorkItem["status"],
                     })
                   }
                 />
                 <PropertySelect
                   label="Priority"
-                  value={item.priority}
+                  value={currentItem.priority}
                   disabled={!editable}
-                  options={Object.entries(priorityMeta).map(([value, meta]) => ({
-                    value,
-                    label: meta.label,
-                  }))}
+                  options={Object.entries(priorityMeta).map(
+                    ([value, meta]) => ({
+                      value,
+                      label: meta.label,
+                    })
+                  )}
                   onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(item.id, {
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
                       priority: value as Priority,
                     })
                   }
                 />
                 <PropertySelect
                   label="Assignee"
-                  value={item.assigneeId ?? "unassigned"}
+                  value={currentItem.assigneeId ?? "unassigned"}
                   disabled={!editable}
                   options={[
                     { value: "unassigned", label: "Assign" },
-                    ...data.users.map((user) => ({ value: user.id, label: user.name })),
+                    ...teamMembers.map((user) => ({
+                      value: user.id,
+                      label: user.name,
+                    })),
                   ]}
                   onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(item.id, {
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
                       assigneeId: value === "unassigned" ? null : value,
+                    })
+                  }
+                />
+                <PropertySelect
+                  label="Parent"
+                  value={currentItem.parentId ?? "none"}
+                  disabled={
+                    !editable ||
+                    (parentOptions.length === 1 && !currentItem.parentId)
+                  }
+                  options={parentOptions}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
+                      parentId: value === "none" ? null : value,
                     })
                   }
                 />
@@ -1075,10 +1484,27 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
               <Separator className="my-3" />
 
+              <CollapsibleSection title="Schedule" defaultOpen>
+                <PropertyDateField
+                  label="Start date"
+                  value={currentItem.startDate}
+                  disabled={!editable}
+                  onValueChange={handleStartDateChange}
+                />
+                <PropertyDateField
+                  label="End date"
+                  value={displayedEndDate}
+                  disabled={!editable}
+                  onValueChange={handleEndDateChange}
+                />
+              </CollapsibleSection>
+
+              <Separator className="my-3" />
+
               <CollapsibleSection title="Labels" defaultOpen>
                 <span className="text-sm text-muted-foreground">
-                  {item.labelIds.length > 0
-                    ? item.labelIds
+                  {currentItem.labelIds.length > 0
+                    ? currentItem.labelIds
                         .map((id) => data.labels.find((l) => l.id === id)?.name)
                         .filter(Boolean)
                         .join(", ")
@@ -1091,17 +1517,17 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               <CollapsibleSection title="Project" defaultOpen>
                 <PropertySelect
                   label=""
-                  value={item.primaryProjectId ?? "none"}
+                  value={currentItem.primaryProjectId ?? "none"}
                   disabled={!editable}
                   options={[
                     { value: "none", label: "No project" },
-                    ...data.projects.map((project) => ({
+                    ...teamProjects.map((project) => ({
                       value: project.id,
                       label: project.name,
                     })),
                   ]}
                   onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(item.id, {
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
                       primaryProjectId: value === "none" ? null : value,
                     })
                   }
@@ -1109,7 +1535,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               </CollapsibleSection>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )
@@ -1127,12 +1553,17 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const items = sortItems(
     data.workItems.filter(
       (item) =>
-        item.primaryProjectId === project.id || item.linkedProjectIds.includes(project.id)
+        item.primaryProjectId === project.id ||
+        item.linkedProjectIds.includes(project.id)
     ),
     "priority"
   )
-  const milestones = data.milestones.filter((milestone) => milestone.projectId === project.id)
-  const updates = data.projectUpdates.filter((update) => update.projectId === project.id)
+  const milestones = data.milestones.filter(
+    (milestone) => milestone.projectId === project.id
+  )
+  const updates = data.projectUpdates.filter(
+    (update) => update.projectId === project.id
+  )
 
   return (
     <div className="flex flex-col">
@@ -1146,21 +1577,37 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 
       <div className="grid flex-1 xl:grid-cols-[minmax(0,1fr)_20rem]">
         {/* Main content */}
-        <div className="flex flex-col p-6 gap-6">
+        <div className="flex flex-col gap-6 p-6">
           <div>
-            <h1 className="text-2xl font-semibold mb-1">{project.name}</h1>
+            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <ProjectTemplateGlyph
+                templateType={project.templateType}
+                className="size-3.5"
+              />
+              <span>{templateMeta[project.templateType].label}</span>
+            </div>
+            <h1 className="mb-1 text-2xl font-semibold">{project.name}</h1>
             <p className="text-sm text-muted-foreground">{project.summary}</p>
           </div>
 
           <Tabs defaultValue="overview">
-            <TabsList className="h-9 bg-transparent border-b rounded-none w-full justify-start gap-0 px-0">
-              <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+            <TabsList className="h-9 w-full justify-start gap-0 rounded-none border-b bg-transparent px-0">
+              <TabsTrigger
+                value="overview"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
                 Overview
               </TabsTrigger>
-              <TabsTrigger value="activity" className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+              <TabsTrigger
+                value="activity"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
                 Activity
               </TabsTrigger>
-              <TabsTrigger value="issues" className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+              <TabsTrigger
+                value="issues"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
                 Issues
               </TabsTrigger>
             </TabsList>
@@ -1179,14 +1626,18 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                       className="flex items-center justify-between rounded-lg border px-3 py-2"
                     >
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium">{milestone.name}</span>
+                        <span className="text-sm font-medium">
+                          {milestone.name}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {milestone.targetDate
                             ? format(new Date(milestone.targetDate), "MMM d")
                             : "No date"}
                         </span>
                       </div>
-                      <Badge variant="secondary">{statusMeta[milestone.status].label}</Badge>
+                      <Badge variant="secondary">
+                        {statusMeta[milestone.status].label}
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -1195,11 +1646,16 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
             <TabsContent value="activity" className="mt-4">
               <div className="flex flex-col gap-3">
                 {updates.map((update) => (
-                  <div key={update.id} className="flex flex-col gap-1 border-b pb-3">
+                  <div
+                    key={update.id}
+                    className="flex flex-col gap-1 border-b pb-3"
+                  >
                     <span className="text-sm font-medium">
                       {getUser(data, update.createdBy)?.name}
                     </span>
-                    <p className="text-sm text-muted-foreground">{update.content}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {update.content}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -1209,14 +1665,16 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 {items.map((item) => (
                   <Link
                     key={item.id}
-                    className="flex items-center justify-between border-b px-2 py-2.5 hover:bg-accent/50 transition-colors"
+                    className="flex items-center justify-between border-b px-2 py-2.5 transition-colors hover:bg-accent/50"
                     href={`/items/${item.id}`}
                   >
                     <div className="flex items-center gap-2">
                       <StatusIcon status={item.status} />
                       <span className="text-sm">{item.title}</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">{item.key}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {item.key}
+                    </span>
                   </Link>
                 ))}
               </div>
@@ -1228,9 +1686,18 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
         <div className="border-l">
           <div className="flex flex-col gap-1 p-4">
             <SidebarSection title="Properties">
-              <PropertyRow label="Status" value={projectHealthMeta[project.health].label} />
-              <PropertyRow label="Priority" value={priorityMeta[project.priority].label} />
-              <PropertyRow label="Lead" value={getUser(data, project.leadId)?.name ?? "—"} />
+              <PropertyRow
+                label="Status"
+                value={projectHealthMeta[project.health].label}
+              />
+              <PropertyRow
+                label="Priority"
+                value={priorityMeta[project.priority].label}
+              />
+              <PropertyRow
+                label="Lead"
+                value={getUser(data, project.leadId)?.name ?? "—"}
+              />
               <PropertyRow
                 label="Target"
                 value={
@@ -1271,19 +1738,22 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }
 
   const team = document.teamId ? getTeam(data, document.teamId) : null
-  const editable = document.kind === "team-document" ? !!team && canEditTeam(data, team.id) : true
+  const editable =
+    document.kind === "team-document"
+      ? !!team && canEditTeam(data, team.id)
+      : true
   const updater = getUser(data, document.updatedBy ?? document.createdBy)
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
 
   return (
-    <div className="flex flex-col h-[calc(100svh-3rem)]">
+    <div className="flex h-[calc(100svh-3rem)] flex-col">
       {/* Breadcrumb header */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b px-4">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <SidebarTrigger className="size-5 shrink-0" />
           <Link
             href={backHref}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground transition-colors hover:text-foreground"
           >
             {getDocumentContextLabel(data, document)}
           </Link>
@@ -1293,26 +1763,34 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
           {updater ? (
             <span>
-              Edited by {updater.name} · {format(new Date(document.updatedAt), "MMM d, h:mm a")}
+              Edited by {updater.name} ·{" "}
+              {format(new Date(document.updatedAt), "MMM d, h:mm a")}
             </span>
           ) : null}
         </div>
       </div>
 
       {/* Full canvas editor */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <RichTextEditor
           content={document.content}
           editable={editable}
           fullPage
           placeholder="Start writing…"
+          mentionCandidates={
+            team
+              ? getTeamMembers(data, team.id)
+              : getWorkspaceUsers(data, data.currentWorkspaceId)
+          }
           onChange={(content) =>
             useAppStore.getState().updateDocumentContent(document.id, content)
           }
           onUploadAttachment={
             document.kind === "team-document"
               ? (file) =>
-                  useAppStore.getState().uploadAttachment("document", document.id, file)
+                  useAppStore
+                    .getState()
+                    .uploadAttachment("document", document.id, file)
               : undefined
           }
         />
@@ -1341,8 +1819,7 @@ function WorkSurface({
   emptyLabel: string
 }) {
   const data = useAppStore()
-  const activeView =
-    getViewByRoute(data, routeKey) ?? views[0] ?? null
+  const activeView = getViewByRoute(data, routeKey) ?? views[0] ?? null
   const editable = team ? canEditTeam(data, team.id) : false
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -1355,9 +1832,13 @@ function WorkSurface({
   const filteredItems = activeView
     ? items.filter((item) => itemMatchesView(data, item, activeView))
     : items
+  const visibleItems =
+    activeView?.layout === "timeline"
+      ? filteredItems.filter((item) => item.parentId === null)
+      : filteredItems
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       {/* Screen header with tabs */}
       <div className={SCREEN_HEADER_CLASS_NAME}>
         <div className="flex min-w-0 items-center gap-2">
@@ -1373,7 +1854,9 @@ function WorkSurface({
                       ? "bg-accent font-medium"
                       : "text-muted-foreground hover:text-foreground"
                   )}
-                  onClick={() => useAppStore.getState().setSelectedView(routeKey, view.id)}
+                  onClick={() =>
+                    useAppStore.getState().setSelectedView(routeKey, view.id)
+                  }
                 >
                   {view.name}
                 </button>
@@ -1388,42 +1871,44 @@ function WorkSurface({
               <ViewConfigPopover view={activeView} />
             </>
           ) : null}
-          <Button size="icon-xs" variant="ghost" onClick={() => setDialogOpen(true)}>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            onClick={() => setDialogOpen(true)}
+          >
             <Plus className="size-3.5" />
           </Button>
         </div>
       </div>
 
-      <CreateWorkItemDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        teamId={team?.id ?? data.ui.activeTeamId}
-        disabled={!editable}
-      />
+      {dialogOpen ? (
+        <CreateWorkItemDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          teamId={team?.id ?? data.ui.activeTeamId}
+          disabled={!editable}
+        />
+      ) : null}
 
       {/* View content */}
-      <div className="flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         {activeView ? (
           <>
             {activeView.layout === "board" ? (
               <BoardView
                 data={data}
-                items={filteredItems}
+                items={visibleItems}
                 view={activeView}
                 editable={editable}
               />
             ) : null}
             {activeView.layout === "list" ? (
-              <ListView
-                data={data}
-                items={filteredItems}
-                view={activeView}
-              />
+              <ListView data={data} items={visibleItems} view={activeView} />
             ) : null}
             {activeView.layout === "timeline" ? (
               <TimelineView
                 data={data}
-                items={filteredItems}
+                items={visibleItems}
                 view={activeView}
                 editable={editable}
               />
@@ -1434,7 +1919,7 @@ function WorkSurface({
             {emptyLabel}
           </div>
         )}
-        {activeView && filteredItems.length === 0 ? (
+        {activeView && visibleItems.length === 0 ? (
           <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
             {emptyLabel}
           </div>
@@ -1480,77 +1965,136 @@ function FilterPopover({
         <Button size="icon-xs" variant="ghost" className="relative">
           <FadersHorizontal className="size-3.5" />
           {activeCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+            <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
               {activeCount}
             </span>
           ) : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
-        <div className="border-b px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">Filters</span>
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Filters
+          </span>
+          {activeCount > 0 ? (
+            <button
+              className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => useAppStore.getState().clearViewFilters(view.id)}
+            >
+              Clear all
+            </button>
+          ) : null}
         </div>
-        <div className="flex flex-col gap-0 p-2">
-          <FilterSection label="Status">
-            {statusOptions.map((status) => (
-              <FilterChip
-                key={status}
-                label={statusMeta[status].label}
-                active={view.filters.status.includes(status)}
-                onClick={() =>
-                  useAppStore.getState().toggleViewFilterValue(view.id, "status", status)
-                }
-              />
-            ))}
-          </FilterSection>
-          <FilterSection label="Priority">
-            {Object.entries(priorityMeta).map(([priority, meta]) => (
-              <FilterChip
-                key={priority}
-                label={meta.label}
-                active={view.filters.priority.includes(priority as Priority)}
-                onClick={() =>
-                  useAppStore.getState().toggleViewFilterValue(view.id, "priority", priority)
-                }
-              />
-            ))}
-          </FilterSection>
-          <FilterSection label="Assignee">
-            {assignees.map((assignee) => (
-              <FilterChip
-                key={assignee.id}
-                label={assignee.name}
-                active={view.filters.assigneeIds.includes(assignee.id)}
-                onClick={() =>
-                  useAppStore.getState().toggleViewFilterValue(view.id, "assigneeIds", assignee.id)
-                }
-              />
-            ))}
-          </FilterSection>
-          <FilterSection label="Project">
-            {projects.map((project) => (
-              <FilterChip
-                key={project.id}
-                label={project.name}
-                active={view.filters.projectIds.includes(project.id)}
-                onClick={() =>
-                  useAppStore.getState().toggleViewFilterValue(view.id, "projectIds", project.id)
-                }
-              />
-            ))}
-          </FilterSection>
-          <FilterSection label="Labels">
-            {labels.map((label) => (
-              <FilterChip
-                key={label.id}
-                label={label.name}
-                active={view.filters.labelIds.includes(label.id)}
-                onClick={() =>
-                  useAppStore.getState().toggleViewFilterValue(view.id, "labelIds", label.id)
-                }
-              />
-            ))}
-          </FilterSection>
+        <div className="flex flex-col divide-y p-0">
+          <div className="px-3 py-2.5">
+            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Status
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {statusOptions.map((status) => (
+                <FilterChip
+                  key={status}
+                  label={statusMeta[status].label}
+                  active={view.filters.status.includes(status)}
+                  onClick={() =>
+                    useAppStore
+                      .getState()
+                      .toggleViewFilterValue(view.id, "status", status)
+                  }
+                />
+              ))}
+            </div>
+          </div>
+          <div className="px-3 py-2.5">
+            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Priority
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(priorityMeta).map(([priority, meta]) => (
+                <FilterChip
+                  key={priority}
+                  label={meta.label}
+                  active={view.filters.priority.includes(priority as Priority)}
+                  onClick={() =>
+                    useAppStore
+                      .getState()
+                      .toggleViewFilterValue(view.id, "priority", priority)
+                  }
+                />
+              ))}
+            </div>
+          </div>
+          {assignees.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Assignee
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {assignees.map((assignee) => (
+                  <FilterChip
+                    key={assignee.id}
+                    label={assignee.name}
+                    active={view.filters.assigneeIds.includes(assignee.id)}
+                    onClick={() =>
+                      useAppStore
+                        .getState()
+                        .toggleViewFilterValue(
+                          view.id,
+                          "assigneeIds",
+                          assignee.id
+                        )
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {projects.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Project
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {projects.map((project) => (
+                  <FilterChip
+                    key={project.id}
+                    label={project.name}
+                    active={view.filters.projectIds.includes(project.id)}
+                    onClick={() =>
+                      useAppStore
+                        .getState()
+                        .toggleViewFilterValue(
+                          view.id,
+                          "projectIds",
+                          project.id
+                        )
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {labels.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Labels
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {labels.map((label) => (
+                  <FilterChip
+                    key={label.id}
+                    label={label.name}
+                    active={view.filters.labelIds.includes(label.id)}
+                    onClick={() =>
+                      useAppStore
+                        .getState()
+                        .toggleViewFilterValue(view.id, "labelIds", label.id)
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
@@ -1567,25 +2111,37 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
         {/* Layout toggle */}
-        <div className="border-b p-2">
-          <div className="flex rounded-md bg-muted/60 p-0.5">
+        <div className="border-b px-3 py-2.5">
+          <div className="flex rounded-md bg-muted/50 p-0.5">
             {[
-              { value: "list", label: "List", icon: <Rows className="size-3" /> },
-              { value: "board", label: "Board", icon: <Kanban className="size-3" /> },
-              { value: "timeline", label: "Timeline", icon: <CalendarDots className="size-3" /> },
+              {
+                value: "list",
+                label: "List",
+                icon: <Rows className="size-3" />,
+              },
+              {
+                value: "board",
+                label: "Board",
+                icon: <Kanban className="size-3" />,
+              },
+              {
+                value: "timeline",
+                label: "Timeline",
+                icon: <CalendarDots className="size-3" />,
+              },
             ].map((layout) => (
               <button
                 key={layout.value}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-sm py-1 text-xs transition-colors",
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
                   view.layout === layout.value
-                    ? "bg-background font-medium shadow-sm"
+                    ? "bg-background font-medium text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 onClick={() =>
-                  useAppStore
-                    .getState()
-                    .updateViewConfig(view.id, { layout: layout.value as ViewDefinition["layout"] })
+                  useAppStore.getState().updateViewConfig(view.id, {
+                    layout: layout.value as ViewDefinition["layout"],
+                  })
                 }
               >
                 {layout.icon}
@@ -1596,13 +2152,18 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
         </div>
 
         {/* Config options */}
-        <div className="flex flex-col gap-0 p-2">
+        <div className="flex flex-col px-3 py-2">
+          <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            Configuration
+          </div>
           <ConfigSelect
             label="Grouping"
             value={view.grouping}
             options={groupOptions.map((o) => ({ value: o, label: o }))}
             onValueChange={(value) =>
-              useAppStore.getState().updateViewConfig(view.id, { grouping: value as GroupField })
+              useAppStore
+                .getState()
+                .updateViewConfig(view.id, { grouping: value as GroupField })
             }
           />
           <ConfigSelect
@@ -1623,18 +2184,22 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
             value={view.ordering}
             options={orderingOptions.map((o) => ({ value: o, label: o }))}
             onValueChange={(value) =>
-              useAppStore.getState().updateViewConfig(view.id, { ordering: value as OrderingField })
+              useAppStore
+                .getState()
+                .updateViewConfig(view.id, { ordering: value as OrderingField })
             }
           />
           <ConfigSelect
             label="Completed"
             value={String(view.filters.showCompleted)}
             options={[
-              { value: "true", label: "All" },
-              { value: "false", label: "Hide" },
+              { value: "true", label: "Show all" },
+              { value: "false", label: "Hide done" },
             ]}
             onValueChange={(value) =>
-              useAppStore.getState().updateViewConfig(view.id, { showCompleted: value === "true" })
+              useAppStore
+                .getState()
+                .updateViewConfig(view.id, { showCompleted: value === "true" })
             }
           />
         </div>
@@ -1642,8 +2207,8 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
         <Separator />
 
         {/* Display properties */}
-        <div className="p-2">
-          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="px-3 py-2.5">
+          <div className="mb-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
             Properties
           </div>
           <div className="flex flex-wrap gap-1">
@@ -1651,13 +2216,15 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
               <button
                 key={property}
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-xs transition-colors",
+                  "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
                   view.displayProps.includes(property)
-                    ? "bg-accent font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    ? "border-primary/30 bg-primary/10 font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                 )}
                 onClick={() =>
-                  useAppStore.getState().toggleViewDisplayProperty(view.id, property)
+                  useAppStore
+                    .getState()
+                    .toggleViewDisplayProperty(view.id, property)
                 }
               >
                 {property}
@@ -1731,13 +2298,18 @@ function BoardView({
           {visibleGroups.map(([groupName, subgroups]) => {
             const groupCount = Array.from(subgroups.values()).flat().length
             return (
-              <div key={groupName} className="flex w-[20rem] shrink-0 flex-col rounded-lg bg-muted/50">
+              <div
+                key={groupName}
+                className="flex w-[20rem] shrink-0 flex-col rounded-lg bg-muted/50"
+              >
                 {/* Column header */}
                 <div className="flex items-center justify-between px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <StatusIcon status={groupName as WorkItem["status"]} />
                     <span className="text-sm font-medium">{groupName}</span>
-                    <span className="text-xs text-muted-foreground">{groupCount}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {groupCount}
+                    </span>
                   </div>
                   <div className="flex items-center gap-0.5">
                     <Button size="icon-xs" variant="ghost">
@@ -1750,25 +2322,28 @@ function BoardView({
                 </div>
                 {/* Column items */}
                 <div className="flex flex-col gap-1.5 px-2 pb-2">
-                  {Array.from(subgroups.entries()).map(([subgroupName, subItems]) => {
-                    const hidden = view.hiddenState.subgroups.includes(subgroupName)
-                    if (hidden) return null
+                  {Array.from(subgroups.entries()).map(
+                    ([subgroupName, subItems]) => {
+                      const hidden =
+                        view.hiddenState.subgroups.includes(subgroupName)
+                      if (hidden) return null
 
-                    return (
-                      <BoardDropLane
-                        key={`${groupName}-${subgroupName}`}
-                        id={`board::${groupName}::${subgroupName}`}
-                      >
-                        {subItems.map((item) => (
-                          <DraggableWorkCard
-                            key={item.id}
-                            item={item}
-                            data={data}
-                          />
-                        ))}
-                      </BoardDropLane>
-                    )
-                  })}
+                      return (
+                        <BoardDropLane
+                          key={`${groupName}-${subgroupName}`}
+                          id={`board::${groupName}::${subgroupName}`}
+                        >
+                          {subItems.map((item) => (
+                            <DraggableWorkCard
+                              key={item.id}
+                              item={item}
+                              data={data}
+                            />
+                          ))}
+                        </BoardDropLane>
+                      )
+                    }
+                  )}
                 </div>
               </div>
             )
@@ -1779,13 +2354,17 @@ function BoardView({
       {hiddenGroups.length > 0 ? (
         <div className="border-t px-4 py-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Hidden columns</span>
+            <span className="text-xs text-muted-foreground">
+              Hidden columns
+            </span>
             {hiddenGroups.map(([groupName]) => (
               <button
                 key={groupName}
                 className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                 onClick={() =>
-                  useAppStore.getState().toggleViewHiddenValue(view.id, "groups", groupName)
+                  useAppStore
+                    .getState()
+                    .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
                 {groupName}
@@ -1848,7 +2427,7 @@ function ListView({
           <div key={groupName}>
             {/* Group header */}
             <button
-              className="flex w-full items-center gap-2 border-b px-4 py-2 hover:bg-accent/50 transition-colors"
+              className="flex w-full items-center gap-2 border-b px-4 py-2 transition-colors hover:bg-accent/50"
               onClick={() => toggleGroup(groupName)}
             >
               {isCollapsed ? (
@@ -1858,35 +2437,39 @@ function ListView({
               )}
               <StatusIcon status={groupName as WorkItem["status"]} />
               <span className="text-sm font-medium">{groupName}</span>
-              <span className="text-xs text-muted-foreground">{groupCount}</span>
+              <span className="text-xs text-muted-foreground">
+                {groupCount}
+              </span>
             </button>
 
             {/* Group items */}
             {!isCollapsed && (
               <div className="flex flex-col">
-                {Array.from(subgroups.entries()).map(([subgroupName, subItems]) => {
-                  if (view.hiddenState.subgroups.includes(subgroupName)) {
-                    return null
-                  }
+                {Array.from(subgroups.entries()).map(
+                  ([subgroupName, subItems]) => {
+                    if (view.hiddenState.subgroups.includes(subgroupName)) {
+                      return null
+                    }
 
-                  return (
-                    <div key={`${groupName}-${subgroupName}`}>
-                      {view.subGrouping ? (
-                        <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
-                          {subgroupName}
-                        </div>
-                      ) : null}
-                      {subItems.map((item) => (
-                        <ListRow
-                          key={item.id}
-                          data={data}
-                          item={item}
-                          displayProps={view.displayProps}
-                        />
-                      ))}
-                    </div>
-                  )
-                })}
+                    return (
+                      <div key={`${groupName}-${subgroupName}`}>
+                        {view.subGrouping ? (
+                          <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
+                            {subgroupName}
+                          </div>
+                        ) : null}
+                        {subItems.map((item) => (
+                          <ListRow
+                            key={item.id}
+                            data={data}
+                            item={item}
+                            displayProps={view.displayProps}
+                          />
+                        ))}
+                      </div>
+                    )
+                  }
+                )}
               </div>
             )}
           </div>
@@ -1895,18 +2478,20 @@ function ListView({
 
       {view.hiddenState.groups.length > 0 ? (
         <div className="border-t px-4 py-3">
-          <div className="text-xs text-muted-foreground mb-2">Hidden rows</div>
+          <div className="mb-2 text-xs text-muted-foreground">Hidden rows</div>
           {view.hiddenState.groups.map((groupName) => (
             <button
               key={groupName}
-              className="flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
               onClick={() =>
-                useAppStore.getState().toggleViewHiddenValue(view.id, "groups", groupName)
+                useAppStore
+                  .getState()
+                  .toggleViewHiddenValue(view.id, "groups", groupName)
               }
             >
               <StatusIcon status={groupName as WorkItem["status"]} />
               <span>{groupName}</span>
-              <span className="text-xs text-muted-foreground ml-auto">0</span>
+              <span className="ml-auto text-xs text-muted-foreground">0</span>
             </button>
           ))}
         </div>
@@ -1918,6 +2503,79 @@ function ListView({
 /* ------------------------------------------------------------------ */
 /*  Timeline view                                                      */
 /* ------------------------------------------------------------------ */
+
+type TimelineRangeDraft = {
+  itemId: string
+  startDate: Date
+  endDate: Date
+}
+
+function parseDateOnlyValue(value: string | null | undefined, fallback: Date) {
+  if (!value) {
+    return startOfDay(fallback)
+  }
+
+  return startOfDay(new Date(`${value.slice(0, 10)}T00:00:00`))
+}
+
+function toDateOnlyIsoString(date: Date) {
+  return `${format(startOfDay(date), "yyyy-MM-dd")}T00:00:00.000Z`
+}
+
+function getTimelineRange(item: WorkItem, fallback: Date) {
+  const startDate = parseDateOnlyValue(
+    item.startDate ?? item.targetDate ?? item.dueDate,
+    fallback
+  )
+  const rawEndDate = parseDateOnlyValue(
+    item.targetDate ?? item.dueDate ?? item.startDate,
+    fallback
+  )
+
+  return {
+    startDate,
+    endDate:
+      rawEndDate.getTime() < startDate.getTime() ? startDate : rawEndDate,
+  }
+}
+
+function buildTimelineMovePatch(
+  item: WorkItem,
+  nextStartDate: Date,
+  fallback: Date
+) {
+  const { startDate } = getTimelineRange(item, fallback)
+  const delta = differenceInCalendarDays(nextStartDate, startDate)
+
+  return {
+    startDate: toDateOnlyIsoString(nextStartDate),
+    dueDate: item.dueDate
+      ? toDateOnlyIsoString(
+          addDays(parseDateOnlyValue(item.dueDate, fallback), delta)
+        )
+      : undefined,
+    targetDate: item.targetDate
+      ? toDateOnlyIsoString(
+          addDays(parseDateOnlyValue(item.targetDate, fallback), delta)
+        )
+      : undefined,
+  }
+}
+
+function buildTimelineResizePatch(
+  item: WorkItem,
+  nextStartDate: Date,
+  nextEndDate: Date
+) {
+  return {
+    startDate: toDateOnlyIsoString(nextStartDate),
+    dueDate: item.dueDate ? toDateOnlyIsoString(nextEndDate) : undefined,
+    targetDate:
+      item.targetDate || !item.dueDate
+        ? toDateOnlyIsoString(nextEndDate)
+        : undefined,
+  }
+}
 
 function TimelineView({
   data,
@@ -1931,6 +2589,15 @@ function TimelineView({
   editable: boolean
 }) {
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const [labelColWidth, setLabelColWidth] = useState(224)
+  const [resizeDraft, setResizeDraft] = useState<TimelineRangeDraft | null>(
+    null
+  )
+  const resizingRef = useRef(false)
+  const resizeStartRef = useRef({ x: 0, width: 224 })
+  const dragOffsetRef = useRef<{ itemId: string; offsetDays: number } | null>(
+    null
+  )
   const today = startOfDay(new Date())
   const timelineStart = startOfDay(subDays(new Date(), 3))
   const timelineEnd = endOfDay(addDays(new Date(), 24))
@@ -1938,24 +2605,37 @@ function TimelineView({
     start: timelineStart,
     end: timelineEnd,
   })
-  const groups = [...buildItemGroups(data, items, { ...view, subGrouping: null }).entries()]
+  const groups = [
+    ...buildItemGroups(data, items, { ...view, subGrouping: null }).entries(),
+  ]
 
   // Find week boundaries for header grouping
   const weeks: { label: string; span: number }[] = []
   let currentWeekLabel = ""
   let currentSpan = 0
   for (const day of days) {
-    const weekLabel = format(day, "MMM d")
     const weekOfYear = format(day, "'W'ww")
     if (weekOfYear !== currentWeekLabel && currentWeekLabel) {
-      weeks.push({ label: format(subDays(day, currentSpan), "MMM d") + " – " + format(subDays(day, 1), "MMM d"), span: currentSpan })
+      weeks.push({
+        label:
+          format(subDays(day, currentSpan), "MMM d") +
+          " – " +
+          format(subDays(day, 1), "MMM d"),
+        span: currentSpan,
+      })
       currentSpan = 0
     }
     currentWeekLabel = weekOfYear
     currentSpan++
   }
   if (currentSpan > 0) {
-    weeks.push({ label: format(days[days.length - currentSpan], "MMM d") + " – " + format(days[days.length - 1], "MMM d"), span: currentSpan })
+    weeks.push({
+      label:
+        format(days[days.length - currentSpan], "MMM d") +
+        " – " +
+        format(days[days.length - 1], "MMM d"),
+      span: currentSpan,
+    })
   }
 
   const todayIndex = differenceInCalendarDays(today, timelineStart)
@@ -1968,139 +2648,315 @@ function TimelineView({
     setActiveItemId(null)
 
     if (!editable || !event.over) {
+      dragOffsetRef.current = null
       return
     }
 
-    const [scope, itemId, date] = String(event.over.id).split("::")
-    if (scope !== "timeline") {
+    const activeId = String(event.active.id)
+    const activeItem = data.workItems.find((entry) => entry.id === activeId)
+    const [scope, , date] = String(event.over.id).split("::")
+
+    if (!activeItem || scope !== "timeline") {
+      dragOffsetRef.current = null
       return
     }
 
-    useAppStore.getState().shiftTimelineItem(itemId, new Date(date).toISOString())
+    const offsetDays =
+      dragOffsetRef.current?.itemId === activeId
+        ? dragOffsetRef.current.offsetDays
+        : 0
+    const nextStartDate = subDays(startOfDay(new Date(date)), offsetDays)
+
+    useAppStore
+      .getState()
+      .updateWorkItem(
+        activeId,
+        buildTimelineMovePatch(activeItem, nextStartDate, timelineStart)
+      )
+
+    dragOffsetRef.current = null
   }
+
+  function handleDragCancel() {
+    setActiveItemId(null)
+    dragOffsetRef.current = null
+  }
+
+  function captureDragOffset(
+    item: WorkItem,
+    span: number,
+    event: React.PointerEvent<HTMLButtonElement>
+  ) {
+    const target = event.target as HTMLElement
+
+    if (target.closest("[data-timeline-resize-handle]")) {
+      return
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const rawOffset = Math.floor((event.clientX - rect.left) / dayColumnWidth)
+
+    dragOffsetRef.current = {
+      itemId: item.id,
+      offsetDays: Math.max(0, Math.min(span - 1, rawOffset)),
+    }
+  }
+
+  function handleTimelineBarResizeStart(
+    item: WorkItem,
+    edge: "start" | "end",
+    clientX: number
+  ) {
+    const initialRange = getTimelineRange(item, timelineStart)
+    let nextDraft: TimelineRangeDraft = {
+      itemId: item.id,
+      startDate: initialRange.startDate,
+      endDate: initialRange.endDate,
+    }
+
+    setResizeDraft(nextDraft)
+
+    const onPointerMove = (event: PointerEvent) => {
+      const diffDays = Math.round((event.clientX - clientX) / dayColumnWidth)
+
+      if (edge === "start") {
+        const candidateStart = startOfDay(
+          addDays(initialRange.startDate, diffDays)
+        )
+        nextDraft = {
+          itemId: item.id,
+          startDate:
+            candidateStart.getTime() > initialRange.endDate.getTime()
+              ? initialRange.endDate
+              : candidateStart,
+          endDate: initialRange.endDate,
+        }
+      } else {
+        const candidateEnd = startOfDay(addDays(initialRange.endDate, diffDays))
+        nextDraft = {
+          itemId: item.id,
+          startDate: initialRange.startDate,
+          endDate:
+            candidateEnd.getTime() < initialRange.startDate.getTime()
+              ? initialRange.startDate
+              : candidateEnd,
+        }
+      }
+
+      setResizeDraft(nextDraft)
+    }
+
+    const onPointerUp = () => {
+      document.removeEventListener("pointermove", onPointerMove)
+      document.removeEventListener("pointerup", onPointerUp)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+      setResizeDraft(null)
+
+      if (
+        nextDraft.startDate.getTime() === initialRange.startDate.getTime() &&
+        nextDraft.endDate.getTime() === initialRange.endDate.getTime()
+      ) {
+        return
+      }
+
+      useAppStore
+        .getState()
+        .updateWorkItem(
+          item.id,
+          buildTimelineResizePatch(item, nextDraft.startDate, nextDraft.endDate)
+        )
+    }
+
+    document.body.style.setProperty("cursor", "ew-resize")
+    document.body.style.setProperty("user-select", "none")
+    document.addEventListener("pointermove", onPointerMove)
+    document.addEventListener("pointerup", onPointerUp)
+  }
+
+  function handleResizeStart(e: React.MouseEvent) {
+    e.preventDefault()
+    resizingRef.current = true
+    resizeStartRef.current = { x: e.clientX, width: labelColWidth }
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!resizingRef.current) return
+      const diff = ev.clientX - resizeStartRef.current.x
+      setLabelColWidth(
+        Math.max(160, Math.min(480, resizeStartRef.current.width + diff))
+      )
+    }
+
+    const onMouseUp = () => {
+      resizingRef.current = false
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+  }
+
+  const dayColumnWidth = 56
+  const timelineGridTemplateColumns = `repeat(${days.length}, ${dayColumnWidth}px)`
+  const timelineCanvasWidth = dayColumnWidth * days.length
+  const visibleGroups = groups.filter(
+    ([groupName]) => !view.hiddenState.groups.includes(groupName)
+  )
+  const activeDragItem = activeItemId
+    ? (data.workItems.find((entry) => entry.id === activeItemId) ?? null)
+    : null
+  const activeDragRange = activeDragItem
+    ? getTimelineRange(activeDragItem, timelineStart)
+    : null
+  const activeDragSpan = activeDragRange
+    ? Math.max(
+        1,
+        differenceInCalendarDays(
+          activeDragRange.endDate,
+          activeDragRange.startDate
+        ) + 1
+      )
+    : 1
 
   return (
     <DndContext
-      collisionDetection={closestCorners}
+      collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
-      <div className="flex flex-col overflow-x-auto">
-        {/* Sticky header */}
+      <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] overflow-hidden">
         <div
-          className="sticky top-0 z-10 grid min-w-[90rem] border-b bg-background"
-          style={{ gridTemplateColumns: "14rem 1fr" }}
+          className="relative z-10 shrink-0 overflow-hidden border-r bg-background"
+          style={{ width: labelColWidth }}
         >
-          {/* Label column header */}
-          <div className="flex items-end border-r px-3 py-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Items
-            </span>
-          </div>
-          {/* Week + day headers */}
-          <div className="flex flex-col">
-            {/* Week row */}
-            <div
-              className="grid"
-              style={{
-                gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
-              }}
-            >
-              {weeks.map((week, i) => (
-                <div
-                  key={i}
-                  className="border-b border-r px-2 py-1.5 text-center text-[10px] font-medium text-muted-foreground"
-                  style={{ gridColumn: `span ${week.span}` }}
-                >
-                  {week.label}
-                </div>
-              ))}
+          <div className="sticky top-0 z-30 bg-background">
+            <div className="relative flex h-10 items-end border-b px-3 py-2">
+              <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                Items
+              </span>
+              <div
+                className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/40"
+                onMouseDown={handleResizeStart}
+              />
             </div>
-            {/* Day row */}
-            <div
-              className="grid"
-              style={{
-                gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
-              }}
-            >
-              {days.map((day, i) => {
-                const isToday_ = differenceInCalendarDays(day, today) === 0
-                const isWeekend = day.getDay() === 0 || day.getDay() === 6
-                return (
+            <div className="h-9 border-b bg-background" />
+          </div>
+
+          {visibleGroups.map(([groupName, subgroups]) => {
+            const groupItems = Array.from(subgroups.values()).flat()
+
+            return (
+              <div key={groupName}>
+                <div className="flex h-10 items-center gap-2 border-b bg-muted/30 px-3">
+                  <span className="text-xs font-medium">{groupName}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {groupItems.length}
+                  </span>
+                </div>
+
+                {groupItems.map((item) => (
+                  <TimelineLabelRow key={item.id} data={data} item={item} />
+                ))}
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain">
+          <div
+            className="relative min-w-max"
+            style={{ width: timelineCanvasWidth }}
+          >
+            <div className="sticky top-0 z-20 bg-background">
+              <div
+                className="grid border-b"
+                style={{ gridTemplateColumns: timelineGridTemplateColumns }}
+              >
+                {weeks.map((week, i) => (
                   <div
-                    key={day.toISOString()}
-                    className={cn(
-                      "border-r px-1 py-1.5 text-center text-[10px]",
-                      isToday_
-                        ? "bg-primary/10 font-semibold text-primary"
-                        : isWeekend
-                          ? "text-muted-foreground/50"
-                          : "text-muted-foreground"
-                    )}
+                    key={i}
+                    className="flex h-10 items-center justify-center border-r px-2 text-center text-[10px] font-medium text-muted-foreground"
+                    style={{ gridColumn: `span ${week.span}` }}
                   >
-                    {format(day, "EEE")[0]} {format(day, "d")}
+                    {week.label}
+                  </div>
+                ))}
+              </div>
+              <div
+                className="grid border-b"
+                style={{ gridTemplateColumns: timelineGridTemplateColumns }}
+              >
+                {days.map((day) => {
+                  const isToday_ = differenceInCalendarDays(day, today) === 0
+                  const isWeekend = day.getDay() === 0 || day.getDay() === 6
+                  return (
+                    <div
+                      key={day.toISOString()}
+                      className={cn(
+                        "flex h-9 items-center justify-center border-r px-1 text-center text-[10px]",
+                        isToday_
+                          ? "bg-primary/10 font-semibold text-primary"
+                          : isWeekend
+                            ? "text-muted-foreground/50"
+                            : "text-muted-foreground"
+                      )}
+                    >
+                      {format(day, "EEE")[0]} {format(day, "d")}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="relative">
+              {todayIndex >= 0 && todayIndex < days.length ? (
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
+                  style={{ left: (todayIndex + 0.5) * dayColumnWidth }}
+                />
+              ) : null}
+
+              {visibleGroups.map(([groupName, subgroups]) => {
+                const groupItems = Array.from(subgroups.values()).flat()
+
+                return (
+                  <div key={groupName}>
+                    <div className="h-10 border-b bg-muted/30" />
+
+                    {groupItems.map((item) => (
+                      <TimelineGridRow
+                        key={item.id}
+                        days={days}
+                        gridTemplateColumns={timelineGridTemplateColumns}
+                        item={item}
+                        onCaptureDragOffset={captureDragOffset}
+                        onResizeStart={handleTimelineBarResizeStart}
+                        rangeOverride={
+                          resizeDraft?.itemId === item.id ? resizeDraft : null
+                        }
+                      />
+                    ))}
                   </div>
                 )
               })}
             </div>
           </div>
         </div>
-
-        {/* Body */}
-        <div className="relative min-w-[90rem]">
-          {/* Today marker */}
-          {todayIndex >= 0 && todayIndex < days.length ? (
-            <div
-              className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
-              style={{
-                left: `calc(14rem + (${todayIndex} + 0.5) * ((100% - 14rem) / ${days.length}))`,
-              }}
-            />
-          ) : null}
-
-          {groups.map(([groupName, subgroups]) => {
-            if (view.hiddenState.groups.includes(groupName)) {
-              return null
-            }
-
-            const groupItems = Array.from(subgroups.values()).flat()
-
-            return (
-              <div key={groupName}>
-                {/* Group header */}
-                <div
-                  className="grid min-w-[90rem] border-b bg-muted/30"
-                  style={{ gridTemplateColumns: "14rem 1fr" }}
-                >
-                  <div className="flex items-center gap-2 px-3 py-2">
-                    <span className="text-xs font-medium">{groupName}</span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {groupItems.length}
-                    </span>
-                  </div>
-                  <div />
-                </div>
-
-                {/* Rows */}
-                {groupItems.map((item) => (
-                  <TimelineRow
-                    key={item.id}
-                    data={data}
-                    days={days}
-                    item={item}
-                    timelineStart={timelineStart}
-                  />
-                ))}
-              </div>
-            )
-          })}
-        </div>
       </div>
 
       <DragOverlay>
-        {activeItemId ? (
-          <div className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium shadow-lg">
-            {data.workItems.find((item) => item.id === activeItemId)?.title}
+        {activeDragItem ? (
+          <div
+            className="h-9 px-0.5 py-1"
+            style={{ width: activeDragSpan * dayColumnWidth }}
+          >
+            <TimelineBarPreview item={activeDragItem} span={activeDragSpan} />
           </div>
         ) : null}
       </DragOverlay>
@@ -2124,50 +2980,52 @@ function ListRow({
   return (
     <Link
       href={`/items/${item.id}`}
-      className="flex items-center gap-3 border-b px-4 py-2 hover:bg-accent/50 transition-colors group"
+      className="group flex items-center gap-3 border-b px-4 py-2 transition-colors hover:bg-accent/50"
     >
       {/* Three-dot menu */}
       <button
-        className="opacity-0 group-hover:opacity-100 transition-opacity"
+        className="opacity-0 transition-opacity group-hover:opacity-100"
         onClick={(e) => e.preventDefault()}
       >
         <DotsThree className="size-4 text-muted-foreground" />
       </button>
 
       {/* Issue key */}
-      <span className="w-20 shrink-0 text-xs text-muted-foreground">{item.key}</span>
+      <span className="w-20 shrink-0 text-xs text-muted-foreground">
+        {item.key}
+      </span>
 
       {/* Status icon */}
       <StatusIcon status={item.status} />
 
       {/* Title */}
-      <span className="flex-1 text-sm truncate">{item.title}</span>
+      <span className="flex-1 truncate text-sm">{item.title}</span>
 
       {/* Display properties */}
       {displayProps.includes("priority") && (
-        <span className="text-xs text-muted-foreground shrink-0">
+        <span className="shrink-0 text-xs text-muted-foreground">
           {priorityMeta[item.priority].label}
         </span>
       )}
       {displayProps.includes("assignee") && (
         <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
           {item.assigneeId
-            ? getUser(data, item.assigneeId)?.avatarUrl ?? "?"
+            ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
             : ""}
         </div>
       )}
       {displayProps.includes("project") && (
-        <span className="text-xs text-muted-foreground shrink-0">
+        <span className="shrink-0 text-xs text-muted-foreground">
           {getProject(data, item.primaryProjectId)?.name ?? ""}
         </span>
       )}
       {displayProps.includes("created") && (
-        <span className="text-xs text-muted-foreground shrink-0">
+        <span className="shrink-0 text-xs text-muted-foreground">
           {format(new Date(item.createdAt), "MMM d")}
         </span>
       )}
       {displayProps.includes("updated") && (
-        <span className="text-xs text-muted-foreground shrink-0">
+        <span className="shrink-0 text-xs text-muted-foreground">
           {format(new Date(item.updatedAt), "MMM d")}
         </span>
       )}
@@ -2197,16 +3055,11 @@ function BoardDropLane({
   )
 }
 
-function DraggableWorkCard({
-  data,
-  item,
-}: {
-  data: AppData
-  item: WorkItem
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: item.id,
-  })
+function DraggableWorkCard({ data, item }: { data: AppData; item: WorkItem }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: item.id,
+    })
 
   return (
     <div
@@ -2249,17 +3102,17 @@ function BoardCardBody({
         <div className="flex items-center gap-1.5">
           <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
             {item.assigneeId
-              ? getUser(data, item.assigneeId)?.avatarUrl ?? "?"
+              ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
               : ""}
           </div>
           {dragHandle}
         </div>
       </div>
       <Link
-        className="flex flex-col rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         href={`/items/${item.id}`}
       >
-        <div className="text-sm font-medium leading-snug hover:underline">
+        <div className="text-sm leading-snug font-medium hover:underline">
           {item.title}
         </div>
         <div className="mt-2 flex items-center gap-1.5">
@@ -2278,100 +3131,114 @@ function BoardCardBody({
   )
 }
 
-function TimelineRow({
-  data,
+function TimelineLabelRow({ data, item }: { data: AppData; item: WorkItem }) {
+  const assignees = getItemAssignees(data, [item])
+
+  return (
+    <div className="flex h-9 items-center gap-2.5 border-b bg-background px-3">
+      <div
+        className={cn(
+          "size-2 shrink-0 rounded-full",
+          item.status === "done"
+            ? "bg-green-500"
+            : item.status === "in-progress"
+              ? "bg-blue-500"
+              : item.status === "cancelled"
+                ? "bg-red-500"
+                : "bg-muted-foreground/30"
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <Link
+          className="block truncate text-xs hover:underline"
+          href={`/items/${item.id}`}
+        >
+          {item.title}
+        </Link>
+      </div>
+      {assignees[0] ? (
+        <span className="shrink-0 text-[10px] text-muted-foreground">
+          {assignees[0].name.split(" ")[0]}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function TimelineGridRow({
   item,
   days,
-  timelineStart,
+  gridTemplateColumns,
+  onCaptureDragOffset,
+  onResizeStart,
+  rangeOverride,
 }: {
-  data: AppData
   item: WorkItem
   days: Date[]
-  timelineStart: Date
+  gridTemplateColumns: string
+  onCaptureDragOffset: (
+    item: WorkItem,
+    span: number,
+    event: React.PointerEvent<HTMLButtonElement>
+  ) => void
+  onResizeStart: (
+    item: WorkItem,
+    edge: "start" | "end",
+    clientX: number
+  ) => void
+  rangeOverride: TimelineRangeDraft | null
 }) {
-  const startDate = startOfDay(new Date(item.startDate ?? item.targetDate ?? days[0]))
-  const endDate = startOfDay(
-    new Date(item.targetDate ?? item.dueDate ?? item.startDate ?? days[0])
-  )
+  const range = rangeOverride ?? {
+    itemId: item.id,
+    ...getTimelineRange(item, days[0]),
+  }
+  const startDate = range.startDate
+  const endDate = range.endDate
   const startIndex = Math.max(
     0,
     differenceInCalendarDays(startDate, startOfDay(days[0]))
   )
   const span = Math.max(1, differenceInCalendarDays(endDate, startDate) + 1)
-  const assignees = getItemAssignees(data, [item])
 
   return (
-    <div
-      className="group/row grid min-w-[90rem] border-b transition-colors hover:bg-accent/20"
-      style={{ gridTemplateColumns: "14rem 1fr" }}
-    >
-      {/* Left label */}
-      <div className="flex items-center gap-2.5 border-r px-3 py-2">
-        <div
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            item.status === "done"
-              ? "bg-green-500"
-              : item.status === "in-progress"
-                ? "bg-blue-500"
-                : item.status === "cancelled"
-                  ? "bg-red-500"
-                  : "bg-muted-foreground/30"
-          )}
-        />
-        <div className="min-w-0 flex-1">
-          <Link
-            className="block truncate text-sm hover:underline"
-            href={`/items/${item.id}`}
-          >
-            {item.title}
-          </Link>
-        </div>
-        {assignees[0] ? (
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {assignees[0].name.split(" ")[0]}
-          </span>
-        ) : null}
+    <div className="relative h-9 border-b">
+      <div className="grid h-full" style={{ gridTemplateColumns }}>
+        {days.map((day) => (
+          <TimelineDropCell
+            key={`${item.id}-${day.toISOString()}`}
+            id={`timeline::${item.id}::${day.toISOString()}`}
+            isWeekend={day.getDay() === 0 || day.getDay() === 6}
+          />
+        ))}
       </div>
 
-      {/* Grid area */}
-      <div className="relative">
-        {/* Drop cells */}
+      <div
+        className="pointer-events-none absolute inset-0 grid"
+        style={{ gridTemplateColumns }}
+      >
         <div
-          className="grid"
-          style={{
-            gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
-          }}
+          className="pointer-events-auto flex h-full items-center px-0.5 py-1"
+          style={{ gridColumn: `${startIndex + 1} / span ${span}` }}
         >
-          {days.map((day) => (
-            <TimelineDropCell
-              key={`${item.id}-${day.toISOString()}`}
-              id={`timeline::${item.id}::${day.toISOString()}`}
-              isWeekend={day.getDay() === 0 || day.getDay() === 6}
-            />
-          ))}
-        </div>
-
-        {/* Bar overlay */}
-        <div
-          className="pointer-events-none absolute inset-0 grid"
-          style={{
-            gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
-          }}
-        >
-          <div
-            className="pointer-events-auto flex h-full items-center px-0.5 py-1.5"
-            style={{ gridColumn: `${startIndex + 1} / span ${span}` }}
-          >
-            <TimelineBar item={item} span={span} />
-          </div>
+          <TimelineBar
+            item={item}
+            span={span}
+            onCaptureDragOffset={onCaptureDragOffset}
+            onResizeStart={onResizeStart}
+          />
         </div>
       </div>
     </div>
   )
 }
 
-function TimelineDropCell({ id, isWeekend }: { id: string; isWeekend: boolean }) {
+function TimelineDropCell({
+  id,
+  isWeekend,
+}: {
+  id: string
+  isWeekend: boolean
+}) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
   return (
@@ -2387,36 +3254,92 @@ function TimelineDropCell({ id, isWeekend }: { id: string; isWeekend: boolean })
 }
 
 const barColors: Record<string, string> = {
-  "backlog": "bg-muted-foreground/20 text-foreground",
-  "todo": "bg-muted-foreground/30 text-foreground",
+  backlog: "bg-muted-foreground/20 text-foreground",
+  todo: "bg-muted-foreground/30 text-foreground",
   "in-progress": "bg-blue-500/90 text-white",
   "in-review": "bg-violet-500/90 text-white",
-  "done": "bg-green-500/80 text-white",
-  "cancelled": "bg-red-400/60 text-white",
+  done: "bg-green-500/80 text-white",
+  cancelled: "bg-red-400/60 text-white",
 }
 
-function TimelineBar({ item, span }: { item: WorkItem; span: number }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: item.id,
-  })
+function TimelineBarPreview({ item, span }: { item: WorkItem; span: number }) {
+  const colorClass =
+    barColors[item.status] ?? "bg-primary text-primary-foreground"
 
-  const colorClass = barColors[item.status] ?? "bg-primary text-primary-foreground"
+  return (
+    <div
+      className={cn(
+        "flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm",
+        colorClass
+      )}
+    >
+      <span className="truncate">{span >= 3 ? item.title : item.key}</span>
+    </div>
+  )
+}
+
+function TimelineBar({
+  item,
+  span,
+  onCaptureDragOffset,
+  onResizeStart,
+}: {
+  item: WorkItem
+  span: number
+  onCaptureDragOffset: (
+    item: WorkItem,
+    span: number,
+    event: React.PointerEvent<HTMLButtonElement>
+  ) => void
+  onResizeStart: (
+    item: WorkItem,
+    edge: "start" | "end",
+    clientX: number
+  ) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: item.id,
+    })
+
+  const colorClass =
+    barColors[item.status] ?? "bg-primary text-primary-foreground"
 
   return (
     <button
       ref={setNodeRef}
       type="button"
       className={cn(
-        "flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm transition-shadow hover:shadow-md",
+        "group/timeline-bar relative flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm transition-shadow hover:shadow-md",
+        isDragging && "opacity-0",
         colorClass
       )}
-      style={{ transform: CSS.Translate.toString(transform) }}
+      style={{
+        transform: isDragging ? undefined : CSS.Translate.toString(transform),
+      }}
+      onPointerDownCapture={(event) => onCaptureDragOffset(item, span, event)}
       {...listeners}
       {...attributes}
     >
-      <span className="truncate">
-        {span >= 3 ? item.title : item.key}
-      </span>
+      <span
+        data-timeline-resize-handle="start"
+        className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize rounded-l-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+        onPointerDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onResizeStart(item, "start", event.clientX)
+        }}
+      />
+      <span className="truncate">{span >= 3 ? item.title : item.key}</span>
+      <span
+        data-timeline-resize-handle="end"
+        className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize rounded-r-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+        onPointerDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onResizeStart(item, "end", event.clientX)
+        }}
+      />
     </button>
   )
 }
@@ -2450,7 +3373,9 @@ function CommentsInline({
               {format(new Date(comment.createdAt), "MMM d, h:mm a")}
             </span>
           </div>
-          <p className="text-sm leading-7 text-muted-foreground">{comment.content}</p>
+          <p className="text-sm leading-7 text-muted-foreground">
+            {comment.content}
+          </p>
         </div>
       ))}
       <div className="flex flex-col gap-2">
@@ -2466,7 +3391,9 @@ function CommentsInline({
             size="sm"
             disabled={!editable || !content.trim()}
             onClick={() => {
-              useAppStore.getState().addComment({ targetType, targetId, content })
+              useAppStore
+                .getState()
+                .addComment({ targetType, targetId, content })
               setContent("")
             }}
           >
@@ -2499,7 +3426,9 @@ function CreateProjectDialog({
 }) {
   const data = useAppStore()
   const settingsTeam = settingsTeamId ? getTeam(data, settingsTeamId) : null
-  const initialTemplateType: Project["templateType"] = "software-delivery"
+  const initialTemplateType = getDefaultTemplateTypeForTeamExperience(
+    settingsTeam?.settings.experience
+  )
   const initialTemplateDefaults = getTemplateDefaultsForTeam(
     settingsTeam,
     initialTemplateType
@@ -2514,82 +3443,100 @@ function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create project</DialogTitle>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>Name</FieldLabel>
-            <FieldContent>
-              <Input value={name} onChange={(event) => setName(event.target.value)} />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Summary</FieldLabel>
-            <FieldContent>
-              <Input value={summary} onChange={(event) => setSummary(event.target.value)} />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Template</FieldLabel>
-            <FieldContent>
-              <Select
-                value={templateType}
-                onValueChange={(value) => {
-                  const nextTemplateType = value as Project["templateType"]
-                  const nextDefaults = getTemplateDefaultsForTeam(
-                    settingsTeam,
-                    nextTemplateType
-                  )
-                  setTemplateType(nextTemplateType)
-                  setPriority(nextDefaults.defaultPriority)
-                  setSummary(nextDefaults.summaryHint)
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {Object.entries(templateMeta).map(([value, meta]) => (
-                      <SelectItem key={value} value={value}>
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Priority</FieldLabel>
-            <FieldContent>
-              <Select
-                value={priority}
-                onValueChange={(value) => setPriority(value as Priority)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {Object.entries(priorityMeta).map(([value, meta]) => (
-                      <SelectItem key={value} value={value}>
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
+        <div className="px-5 pt-5 pb-1">
+          <DialogHeader className="mb-3 p-0">
+            <DialogTitle className="text-base">New project</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Project name"
+            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            autoFocus
+          />
+          <Input
+            value={summary}
+            onChange={(event) => setSummary(event.target.value)}
+            placeholder="Add a summary..."
+            className="h-auto border-none bg-transparent px-0 py-1 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+          />
+        </div>
+
+        <Separator />
+
+        <div className="flex flex-col px-5 py-2">
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Template</span>
+            <Select
+              value={templateType}
+              onValueChange={(value) => {
+                const nextTemplateType = value as Project["templateType"]
+                const nextDefaults = getTemplateDefaultsForTeam(
+                  settingsTeam,
+                  nextTemplateType
+                )
+                setTemplateType(nextTemplateType)
+                setPriority(nextDefaults.defaultPriority)
+                setSummary(nextDefaults.summaryHint)
+              }}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <div className="flex items-center gap-1.5">
+                  <ProjectTemplateGlyph
+                    templateType={templateType}
+                    className="size-3.5"
+                  />
+                  <span>{templateMeta[templateType].label}</span>
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {Object.entries(templateMeta).map(([value, meta]) => (
+                    <SelectItem key={value} value={value}>
+                      <div className="flex items-center gap-2">
+                        <ProjectTemplateGlyph
+                          templateType={value as Project["templateType"]}
+                          className="size-3.5"
+                        />
+                        <span>{meta.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Priority</span>
+            <Select
+              value={priority}
+              onValueChange={(value) => setPriority(value as Priority)}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {Object.entries(priorityMeta).map(([value, meta]) => (
+                    <SelectItem key={value} value={value}>
+                      {meta.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            size="sm"
             disabled={disabled}
             onClick={() => {
               useAppStore.getState().createProject({
@@ -2604,9 +3551,9 @@ function CreateProjectDialog({
               onOpenChange(false)
             }}
           >
-            Create
+            Create project
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -2641,34 +3588,217 @@ function CreateDocumentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create document</DialogTitle>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>Title</FieldLabel>
-            <FieldContent>
-              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+      <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
+        <div className="px-5 pt-5 pb-4">
+          <DialogHeader className="mb-3 p-0">
+            <DialogTitle className="text-base">New document</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Document title"
+            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            autoFocus
+          />
+        </div>
+
+        <Separator />
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            size="sm"
             disabled={disabled}
             onClick={() => {
               useAppStore.getState().createDocument({ ...input, title })
               onOpenChange(false)
             }}
           >
-            Create
+            Create document
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function InlineChildIssueComposer({
+  teamId,
+  parentItem,
+  disabled,
+  onCancel,
+  onCreated,
+}: {
+  teamId: string
+  parentItem: WorkItem
+  disabled: boolean
+  onCancel: () => void
+  onCreated: () => void
+}) {
+  const data = useAppStore()
+  const team = getTeam(data, teamId)
+  const teamProjects = data.projects.filter(
+    (project) =>
+      (project.scopeType === "team" && project.scopeId === teamId) ||
+      (project.scopeType === "workspace" &&
+        team?.workspaceId === project.scopeId)
+  )
+  const teamMembers = team ? getTeamMembers(data, teamId) : []
+  const [type, setType] = useState<WorkItemType>("task")
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [priority, setPriority] = useState<Priority>("medium")
+  const [assigneeId, setAssigneeId] = useState<string>("none")
+  const [projectId, setProjectId] = useState<string>(
+    parentItem.primaryProjectId ?? "none"
+  )
+  const selectedProject =
+    projectId === "none"
+      ? null
+      : (teamProjects.find((project) => project.id === projectId) ?? null)
+  const baseItemTypes = selectedProject
+    ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
+    : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
+  const availableItemTypes = baseItemTypes.filter((value) =>
+    getAllowedChildWorkItemTypesForItem(parentItem).includes(value)
+  )
+  const selectedType = availableItemTypes.includes(type)
+    ? type
+    : (availableItemTypes[0] ?? "task")
+  const normalizedTitle = title.trim()
+  const canCreate =
+    !disabled && normalizedTitle.length >= 2 && availableItemTypes.length > 0
+
+  function handleCreate() {
+    const createdItemId = useAppStore.getState().createWorkItem({
+      teamId,
+      type: selectedType,
+      title: normalizedTitle,
+      priority,
+      parentId: parentItem.id,
+      assigneeId: assigneeId === "none" ? null : assigneeId,
+      primaryProjectId: projectId === "none" ? null : projectId,
+    })
+
+    if (!createdItemId) {
+      return
+    }
+
+    if (description.trim()) {
+      useAppStore
+        .getState()
+        .updateItemDescription(
+          createdItemId,
+          formatInlineDescriptionContent(description)
+        )
+    }
+
+    onCreated()
+  }
+
+  return (
+    <div className="rounded-2xl border bg-background shadow-sm">
+      <div className="flex gap-3 px-4 py-4">
+        <Circle className="mt-1 size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Issue title"
+            className="h-auto border-none px-0 py-0 text-sm font-medium shadow-none placeholder:text-muted-foreground/55 focus-visible:ring-0"
+            autoFocus
+          />
+          <Textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Add description..."
+            rows={1}
+            className="mt-2 min-h-0 resize-none border-none px-0 py-0 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
+        <Select
+          value={selectedType}
+          onValueChange={(value) => setType(value as WorkItemType)}
+        >
+          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {availableItemTypes.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {workItemTypeMeta[value].label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={priority}
+          onValueChange={(value) => setPriority(value as Priority)}
+        >
+          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {Object.entries(priorityMeta).map(([value, meta]) => (
+                <SelectItem key={value} value={value}>
+                  {meta.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select value={assigneeId} onValueChange={setAssigneeId}>
+          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="none">Unassigned</SelectItem>
+              {teamMembers.map((user) => (
+                <SelectItem key={user.id} value={user.id}>
+                  {user.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select value={projectId} onValueChange={setProjectId}>
+          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="none">No project</SelectItem>
+              {teamProjects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
+            Create
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -2676,145 +3806,180 @@ function CreateWorkItemDialog({
   open,
   onOpenChange,
   teamId,
+  parentItem = null,
   disabled,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   teamId: string
+  parentItem?: WorkItem | null
   disabled: boolean
 }) {
   const data = useAppStore()
+  const team = getTeam(data, teamId)
   const teamProjects = data.projects.filter(
     (project) =>
       (project.scopeType === "team" && project.scopeId === teamId) ||
       (project.scopeType === "workspace" &&
-        getTeam(data, teamId)?.workspaceId === project.scopeId)
+        team?.workspaceId === project.scopeId)
   )
+  const teamMembers = team ? getTeamMembers(data, teamId) : []
+  const defaultProjectId = parentItem?.primaryProjectId ?? "none"
   const [type, setType] = useState<WorkItemType>("task")
-  const [title, setTitle] = useState("New work item")
+  const [title, setTitle] = useState(
+    parentItem ? `Follow-up for ${parentItem.title}` : "New work item"
+  )
   const [priority, setPriority] = useState<Priority>("medium")
-  const [assigneeId, setAssigneeId] = useState<string>("user_declan")
-  const [projectId, setProjectId] = useState<string>("none")
+  const [assigneeId, setAssigneeId] = useState<string>("none")
+  const [projectId, setProjectId] = useState<string>(defaultProjectId)
+  const selectedProject =
+    projectId === "none"
+      ? null
+      : (teamProjects.find((project) => project.id === projectId) ?? null)
+  const baseItemTypes = selectedProject
+    ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
+    : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
+  const allowedChildTypes = parentItem
+    ? getAllowedChildWorkItemTypesForItem(parentItem)
+    : null
+  const availableItemTypes = allowedChildTypes
+    ? baseItemTypes.filter((value) => allowedChildTypes.includes(value))
+    : baseItemTypes
+  const selectedType = availableItemTypes.includes(type)
+    ? type
+    : (availableItemTypes[0] ?? "task")
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create work item</DialogTitle>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>Title</FieldLabel>
-            <FieldContent>
-              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Type</FieldLabel>
-            <FieldContent>
-              <Select
-                value={type}
-                onValueChange={(value) => setType(value as WorkItemType)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {Object.entries(workItemTypeMeta).map(([value, meta]) => (
-                      <SelectItem key={value} value={value}>
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Priority</FieldLabel>
-            <FieldContent>
-              <Select
-                value={priority}
-                onValueChange={(value) => setPriority(value as Priority)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {Object.entries(priorityMeta).map(([value, meta]) => (
-                      <SelectItem key={value} value={value}>
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Assignee</FieldLabel>
-            <FieldContent>
-              <Select value={assigneeId} onValueChange={setAssigneeId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="none">Unassigned</SelectItem>
-                    {data.users.map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {user.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Primary project</FieldLabel>
-            <FieldContent>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="none">No project</SelectItem>
-                    {teamProjects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
+        <div className="px-5 pt-5 pb-1">
+          <DialogHeader className="mb-3 p-0">
+            <DialogTitle className="text-base">
+              {parentItem ? "New child issue" : "New issue"}
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Issue title"
+            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            autoFocus
+          />
+          {parentItem ? (
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Parent</span>
+              <Badge variant="outline">{parentItem.key}</Badge>
+              <span className="truncate">{parentItem.title}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <Separator />
+
+        <div className="flex flex-col px-5 py-2">
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Type</span>
+            <Select
+              value={selectedType}
+              onValueChange={(value) => setType(value as WorkItemType)}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {availableItemTypes.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {workItemTypeMeta[value].label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Priority</span>
+            <Select
+              value={priority}
+              onValueChange={(value) => setPriority(value as Priority)}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {Object.entries(priorityMeta).map(([value, meta]) => (
+                    <SelectItem key={value} value={value}>
+                      {meta.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Assignee</span>
+            <Select value={assigneeId} onValueChange={setAssigneeId}>
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {teamMembers.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Project</span>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">No project</SelectItem>
+                  {teamProjects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
-            disabled={disabled}
+            size="sm"
+            disabled={disabled || availableItemTypes.length === 0}
             onClick={() => {
               useAppStore.getState().createWorkItem({
                 teamId,
-                type,
+                type: selectedType,
                 title,
                 priority,
+                parentId: parentItem?.id ?? null,
                 assigneeId: assigneeId === "none" ? null : assigneeId,
                 primaryProjectId: projectId === "none" ? null : projectId,
               })
               onOpenChange(false)
             }}
           >
-            Create
+            Create issue
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -2864,21 +4029,39 @@ function ViewsDisplaySettingsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-0">
-        <div className="border-b px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">Display</span>
+        <div className="border-b px-3 py-2.5">
+          <div className="flex rounded-md bg-muted/50 p-0.5">
+            {[
+              {
+                value: "list",
+                label: "List",
+                icon: <Rows className="size-3" />,
+              },
+              {
+                value: "board",
+                label: "Board",
+                icon: <Kanban className="size-3" />,
+              },
+            ].map((l) => (
+              <button
+                key={l.value}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
+                  layout === l.value
+                    ? "bg-background font-medium text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => onLayoutChange(l.value as "list" | "board")}
+              >
+                {l.icon}
+                {l.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-col gap-0 p-2">
+        <div className="flex flex-col px-3 py-2">
           <ConfigSelect
-            label="Layout"
-            value={layout}
-            options={[
-              { value: "list", label: "List" },
-              { value: "board", label: "Board" },
-            ]}
-            onValueChange={(value) => onLayoutChange(value as "list" | "board")}
-          />
-          <ConfigSelect
-            label="Sort"
+            label="Sort by"
             value={sortBy}
             options={[
               { value: "updated", label: "Updated" },
@@ -2890,13 +4073,15 @@ function ViewsDisplaySettingsPopover({
             }
           />
           <ConfigSelect
-            label="Descriptions"
+            label="Details"
             value={showDescriptions ? "show" : "hide"}
             options={[
-              { value: "show", label: "Show" },
-              { value: "hide", label: "Hide" },
+              { value: "show", label: "Visible" },
+              { value: "hide", label: "Hidden" },
             ]}
-            onValueChange={(value) => onShowDescriptionsChange(value === "show")}
+            onValueChange={(value) =>
+              onShowDescriptionsChange(value === "show")
+            }
           />
         </div>
       </PopoverContent>
@@ -2921,26 +4106,42 @@ function CollectionDisplaySettingsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-52 p-0">
-        <div className="border-b px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">Display</span>
+        <div className="px-3 py-2.5">
+          <div className="flex rounded-md bg-muted/50 p-0.5">
+            {[
+              {
+                value: "list",
+                label: "List",
+                icon: <Rows className="size-3" />,
+              },
+              {
+                value: "board",
+                label: "Grid",
+                icon: <Kanban className="size-3" />,
+              },
+            ].map((l) => (
+              <button
+                key={l.value}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
+                  layout === l.value
+                    ? "bg-background font-medium text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => onLayoutChange(l.value as "list" | "board")}
+              >
+                {l.icon}
+                {l.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="p-2">
-          <ConfigSelect
-            label="Layout"
-            value={layout}
-            options={[
-              { value: "list", label: "List" },
-              { value: "board", label: "Board" },
-            ]}
-            onValueChange={(value) => onLayoutChange(value as "list" | "board")}
-          />
-          {extraAction ? (
-            <>
-              <Separator className="my-1" />
-              {extraAction}
-            </>
-          ) : null}
-        </div>
+        {extraAction ? (
+          <>
+            <Separator />
+            <div className="px-3 py-2">{extraAction}</div>
+          </>
+        ) : null}
       </PopoverContent>
     </Popover>
   )
@@ -2959,7 +4160,9 @@ function HeaderTitle({
   return (
     <div className="flex min-w-0 items-center gap-2">
       <SidebarTrigger className="size-6 shrink-0" />
-      {icon ? <span className="shrink-0 text-muted-foreground">{icon}</span> : null}
+      {icon ? (
+        <span className="shrink-0 text-muted-foreground">{icon}</span>
+      ) : null}
       <h1 className="truncate text-sm font-medium">{title}</h1>
     </div>
   )
@@ -2968,13 +4171,22 @@ function HeaderTitle({
 function StatusIcon({ status }: { status: string }) {
   const statusLower = status.toLowerCase()
   if (statusLower === "done" || statusLower === "completed") {
-    return <CheckCircle className="size-3.5 shrink-0 text-green-600" weight="fill" />
+    return (
+      <CheckCircle className="size-3.5 shrink-0 text-green-600" weight="fill" />
+    )
   }
   if (statusLower === "in-progress" || statusLower === "in progress") {
-    return <Circle className="size-3.5 shrink-0 text-yellow-500" weight="fill" />
+    return (
+      <Circle className="size-3.5 shrink-0 text-yellow-500" weight="fill" />
+    )
   }
   if (statusLower === "cancelled" || statusLower === "duplicate") {
-    return <XCircle className="size-3.5 shrink-0 text-muted-foreground" weight="fill" />
+    return (
+      <XCircle
+        className="size-3.5 shrink-0 text-muted-foreground"
+        weight="fill"
+      />
+    )
   }
   if (statusLower === "todo") {
     return <Circle className="size-3.5 shrink-0 text-muted-foreground" />
@@ -2992,7 +4204,7 @@ function SidebarSection({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+      <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
         {title}
       </span>
       {children}
@@ -3014,7 +4226,7 @@ function CollapsibleSection({
   return (
     <div className="flex flex-col">
       <button
-        className="flex items-center gap-1.5 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 py-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase transition-colors hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         {open ? (
@@ -3024,7 +4236,7 @@ function CollapsibleSection({
         )}
         {title}
       </button>
-      {open && <div className="flex flex-col gap-0.5 mt-0.5">{children}</div>}
+      {open && <div className="mt-0.5 flex flex-col gap-0.5">{children}</div>}
     </div>
   )
 }
@@ -3046,7 +4258,7 @@ function PropertySelect({
     <div className="flex items-center justify-between py-1">
       {label && <span className="text-sm text-muted-foreground">{label}</span>}
       <Select disabled={disabled} value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent shadow-none text-sm">
+        <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-sm shadow-none">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -3068,6 +4280,35 @@ function PropertyRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between py-1">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
+    </div>
+  )
+}
+
+function PropertyDateField({
+  label,
+  value,
+  onValueChange,
+  disabled,
+}: {
+  label: string
+  value: string | null
+  onValueChange: (value: string | null) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <Input
+        type="date"
+        disabled={disabled}
+        value={value ? value.slice(0, 10) : ""}
+        onChange={(event) =>
+          onValueChange(
+            event.target.value ? `${event.target.value}T00:00:00.000Z` : null
+          )
+        }
+        className="h-7 w-[9.5rem] border-none bg-transparent px-0 text-right text-sm shadow-none"
+      />
     </div>
   )
 }
@@ -3104,22 +4345,7 @@ function ConfigSelect({
   )
 }
 
-function FilterSection({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="py-1.5">
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex flex-wrap gap-1">{children}</div>
-    </div>
-  )
-}
+/* FilterSection removed — filter sections now inlined in FilterPopover */
 
 function FilterChip({
   label,
@@ -3133,10 +4359,10 @@ function FilterChip({
   return (
     <button
       className={cn(
-        "rounded-md px-2 py-0.5 text-xs transition-colors",
+        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
         active
-          ? "bg-accent font-medium text-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          ? "border-primary/30 bg-primary/10 font-medium text-foreground"
+          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
       )}
       onClick={onClick}
     >

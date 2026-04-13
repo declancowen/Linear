@@ -29,9 +29,16 @@ function escapeHtml(input: string) {
     .replaceAll("'", "&#39;")
 }
 
-function buildEntityPath(entityType: "workItem" | "document", entityId: string) {
+function buildEntityPath(
+  entityType: "workItem" | "document" | "channelPost",
+  entityId: string
+) {
   if (entityType === "document") {
     return `/docs/${entityId}`
+  }
+
+  if (entityType === "channelPost") {
+    return "/inbox"
   }
 
   return `/items/${entityId}`
@@ -86,10 +93,12 @@ export async function sendMentionEmails(input: {
     email: string
     name: string
     entityTitle: string
-    entityType: "workItem" | "document"
+    entityType: "workItem" | "document" | "channelPost"
     entityId: string
+    entityPath?: string
+    entityLabel?: string
     actorName: string
-    commentHtml: string
+    commentText: string
   }>
 }) {
   if (input.emails.length === 0) {
@@ -100,8 +109,17 @@ export async function sendMentionEmails(input: {
   const from = getFromEmail()
 
   await Promise.all(
-    input.emails.map((entry) =>
-      resend.emails.send({
+    input.emails.map((entry) => {
+      const path = entry.entityPath ?? buildEntityPath(entry.entityType, entry.entityId)
+      const entityLabel =
+        entry.entityLabel ??
+        (entry.entityType === "document"
+          ? "document"
+          : entry.entityType === "channelPost"
+            ? "channel post"
+            : "work item")
+
+      return resend.emails.send({
         from,
         to: entry.email,
         subject: `${entry.actorName} mentioned you in ${entry.entityTitle}`,
@@ -109,16 +127,19 @@ export async function sendMentionEmails(input: {
           `Hi ${entry.name},`,
           "",
           `${entry.actorName} mentioned you in ${entry.entityTitle}.`,
-          `${input.origin}${buildEntityPath(entry.entityType, entry.entityId)}`,
+          "",
+          entry.commentText,
+          "",
+          `${input.origin}${path}`,
         ].join("\n"),
         html: [
           `<p>Hi ${escapeHtml(entry.name)},</p>`,
           `<p><strong>${escapeHtml(entry.actorName)}</strong> mentioned you in <strong>${escapeHtml(entry.entityTitle)}</strong>.</p>`,
-          `<div>${entry.commentHtml}</div>`,
-          `<p><a href="${input.origin}${buildEntityPath(entry.entityType, entry.entityId)}">Open ${entry.entityType === "document" ? "document" : "work item"}</a></p>`,
+          `<blockquote>${escapeHtml(entry.commentText).replaceAll("\n", "<br />")}</blockquote>`,
+          `<p><a href="${input.origin}${path}">Open ${entityLabel}</a></p>`,
         ].join(""),
       })
-    )
+    })
   )
 
   return input.emails.map((entry) => entry.notificationId)
@@ -136,7 +157,7 @@ export async function sendNotificationDigestEmails(input: {
       id: string
       message: string
       entityId: string
-      entityType: "workItem" | "document" | "project" | "invite"
+      entityType: "workItem" | "document" | "project" | "invite" | "channelPost"
       type: string
       createdAt: string
     }>
