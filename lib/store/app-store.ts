@@ -31,9 +31,11 @@ import {
   syncGenerateAttachmentUploadUrl,
   syncJoinTeamByCode,
   syncMarkNotificationRead,
+  syncRegenerateTeamJoinCode,
   syncSendChatMessage,
   syncShiftTimelineItem,
   syncToggleChannelPostReaction,
+  syncToggleCommentReaction,
   syncToggleNotificationRead,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
@@ -152,7 +154,6 @@ type TeamDetailsInput = {
   name: string
   icon: string
   summary: string
-  joinCode: string
   experience: AppData["teams"][number]["settings"]["experience"]
   features: AppData["teams"][number]["settings"]["features"]
 }
@@ -175,6 +176,7 @@ type UpdateProfileInput = {
 type AddCommentInput = {
   targetType: CommentTargetType
   targetId: string
+  parentCommentId?: string | null
   content: string
 }
 
@@ -242,6 +244,7 @@ export type AppStore = AppData & {
     teamId: string,
     input: UpdateTeamDetailsInput
   ) => Promise<boolean>
+  regenerateTeamJoinCode: (teamId: string) => Promise<boolean>
   updateCurrentUserProfile: (input: UpdateProfileInput) => void
   updateViewConfig: (
     viewId: string,
@@ -284,6 +287,7 @@ export type AppStore = AppData & {
   ) => Promise<{ fileName: string; fileUrl: string | null } | null>
   deleteAttachment: (attachmentId: string) => Promise<void>
   addComment: (input: AddCommentInput) => void
+  toggleCommentReaction: (commentId: string, emoji: string) => void
   createWorkspaceChat: (input: CreateWorkspaceChatInput) => string | null
   ensureTeamChat: (input: EnsureTeamChatInput) => string | null
   createChannel: (input: CreateChannelInput) => string | null
@@ -293,7 +297,7 @@ export type AppStore = AppData & {
   deleteChannelPost: (postId: string) => void
   toggleChannelPostReaction: (postId: string, emoji: string) => void
   createInvite: (input: CreateInviteInput) => void
-  joinTeamByCode: (code: string) => void
+  joinTeamByCode: (code: string) => Promise<boolean>
   createProject: (input: CreateProjectInput) => void
   createDocument: (input: CreateDocumentInput) => void
   createWorkItem: (input: CreateWorkItemInput) => string | null
@@ -439,7 +443,9 @@ function toggleReactionUsers(
   userId: string
 ) {
   const nextReactions = [...(reactions ?? [])]
-  const reactionIndex = nextReactions.findIndex((entry) => entry.emoji === emoji)
+  const reactionIndex = nextReactions.findIndex(
+    (entry) => entry.emoji === emoji
+  )
 
   if (reactionIndex === -1) {
     return [
@@ -779,26 +785,6 @@ function effectiveRole(data: AppData, teamId: string) {
   )
 }
 
-const rolePriority: Record<Role, number> = {
-  guest: 0,
-  viewer: 1,
-  member: 2,
-  admin: 3,
-}
-
-function mergeMembershipRole(
-  currentRole: Role | null | undefined,
-  requestedRole: Role
-) {
-  if (!currentRole) {
-    return requestedRole
-  }
-
-  return rolePriority[currentRole] >= rolePriority[requestedRole]
-    ? currentRole
-    : requestedRole
-}
-
 function canEditWorkspaceDocuments(data: AppData, workspaceId: string) {
   return data.teams.some((team) => {
     if (team.workspaceId !== workspaceId) {
@@ -830,7 +816,13 @@ function createNotification(
   userId: string,
   actorId: string,
   message: string,
-  entityType: "workItem" | "document" | "project" | "invite" | "channelPost",
+  entityType:
+    | "workItem"
+    | "document"
+    | "project"
+    | "invite"
+    | "channelPost"
+    | "chat",
   entityId: string,
   type: "mention" | "assignment" | "comment" | "invite" | "status-change"
 ) {
@@ -846,6 +838,46 @@ function createNotification(
     emailedAt: null,
     createdAt: getNow(),
   }
+}
+
+function normalizeChannelPosts<
+  T extends { reactions?: { emoji: string; userIds: string[] }[] },
+>(channelPosts: T[]) {
+  return channelPosts.map((post) => ({
+    ...post,
+    reactions: post.reactions ?? [],
+  }))
+}
+
+function normalizeComments<
+  T extends {
+    mentionUserIds?: string[]
+    reactions?: { emoji: string; userIds: string[] }[]
+  },
+>(comments: T[]) {
+  return comments.map((comment) => ({
+    ...comment,
+    mentionUserIds: comment.mentionUserIds ?? [],
+    reactions: comment.reactions ?? [],
+  }))
+}
+
+function normalizeChatMessages<T extends { mentionUserIds?: string[] }>(
+  chatMessages: T[]
+) {
+  return chatMessages.map((message) => ({
+    ...message,
+    mentionUserIds: message.mentionUserIds ?? [],
+  }))
+}
+
+function normalizeChannelPostComments<T extends { mentionUserIds?: string[] }>(
+  channelPostComments: T[]
+) {
+  return channelPostComments.map((comment) => ({
+    ...comment,
+    mentionUserIds: comment.mentionUserIds ?? [],
+  }))
 }
 
 function syncInBackground(
@@ -907,6 +939,12 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           ...state,
           ...data,
+          comments: normalizeComments(data.comments),
+          chatMessages: normalizeChatMessages(data.chatMessages),
+          channelPosts: normalizeChannelPosts(data.channelPosts),
+          channelPostComments: normalizeChannelPostComments(
+            data.channelPostComments
+          ),
           ui: {
             ...state.ui,
             activeTeamId:
@@ -1108,7 +1146,6 @@ export const useAppStore = create<AppStore>()(
                   settings: {
                     ...team.settings,
                     summary: parsed.data.summary,
-                    joinCode: parsed.data.joinCode.toUpperCase(),
                     experience: parsed.data.experience,
                     features: nextFeatures,
                   },
@@ -1150,6 +1187,47 @@ export const useAppStore = create<AppStore>()(
             error instanceof Error
               ? error.message
               : "Failed to update team details"
+          )
+          return false
+        }
+      },
+      async regenerateTeamJoinCode(teamId) {
+        const team = get().teams.find((entry) => entry.id === teamId)
+
+        if (!team) {
+          toast.error("Team not found")
+          return false
+        }
+
+        try {
+          const result = await syncRegenerateTeamJoinCode(teamId)
+
+          if (!result) {
+            throw new Error("Failed to regenerate join code")
+          }
+
+          set((state) => ({
+            teams: state.teams.map((entry) =>
+              entry.id === teamId
+                ? {
+                    ...entry,
+                    settings: {
+                      ...entry.settings,
+                      joinCode: result.joinCode,
+                    },
+                  }
+                : entry
+            ),
+          }))
+
+          toast.success("Join code regenerated")
+          return true
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to regenerate join code"
           )
           return false
         }
@@ -1767,6 +1845,21 @@ export const useAppStore = create<AppStore>()(
           let followerIds: string[] = []
           let entityType: "workItem" | "document" = "workItem"
           let entityTitle = "item"
+          const existingComments = state.comments.filter(
+            (comment) =>
+              comment.targetType === parsed.data.targetType &&
+              comment.targetId === parsed.data.targetId
+          )
+          const parentComment = parsed.data.parentCommentId
+            ? (existingComments.find(
+                (comment) => comment.id === parsed.data.parentCommentId
+              ) ?? null)
+            : null
+
+          if (parsed.data.parentCommentId && !parentComment) {
+            toast.error("Reply target no longer exists")
+            return state
+          }
 
           if (parsed.data.targetType === "workItem") {
             const item = state.workItems.find(
@@ -1781,6 +1874,7 @@ export const useAppStore = create<AppStore>()(
               ...item.subscriberIds,
               item.creatorId,
               item.assigneeId ?? "",
+              ...existingComments.map((comment) => comment.createdBy),
             ].filter(Boolean)
             entityType = "workItem"
             entityTitle = item.title
@@ -1793,7 +1887,11 @@ export const useAppStore = create<AppStore>()(
             }
 
             teamId = document.teamId ?? ""
-            followerIds = [document.createdBy, document.updatedBy]
+            followerIds = [
+              document.createdBy,
+              document.updatedBy,
+              ...existingComments.map((comment) => comment.createdBy),
+            ]
             entityType = "document"
             entityTitle = document.title
           }
@@ -1812,9 +1910,10 @@ export const useAppStore = create<AppStore>()(
             id: createId("comment"),
             targetType: parsed.data.targetType,
             targetId: parsed.data.targetId,
-            parentCommentId: null,
+            parentCommentId: parsed.data.parentCommentId ?? null,
             content: parsed.data.content.trim(),
             mentionUserIds,
+            reactions: [],
             createdBy: state.currentUserId,
             createdAt: getNow(),
           }
@@ -1846,6 +1945,10 @@ export const useAppStore = create<AppStore>()(
             notifiedUserIds.add(mentionedUserId)
           }
 
+          const followerMessage = parsed.data.parentCommentId
+            ? `${actor?.name ?? "Someone"} replied in ${entityTitle}`
+            : `${actor?.name ?? "Someone"} commented on ${entityTitle}`
+
           for (const followerId of followerIds) {
             if (
               !followerId ||
@@ -1859,7 +1962,7 @@ export const useAppStore = create<AppStore>()(
               createNotification(
                 followerId,
                 state.currentUserId,
-                `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
+                followerMessage,
                 entityType,
                 parsed.data.targetId,
                 "comment"
@@ -1894,12 +1997,34 @@ export const useAppStore = create<AppStore>()(
             useAppStore.getState().currentUserId,
             parsed.data.targetType,
             parsed.data.targetId,
-            parsed.data.content
+            parsed.data.content,
+            parsed.data.parentCommentId
           ),
           "Failed to post comment"
         )
 
         toast.success("Comment posted")
+      },
+      toggleCommentReaction(commentId, emoji) {
+        set((state) => ({
+          comments: state.comments.map((comment) =>
+            comment.id === commentId
+              ? {
+                  ...comment,
+                  reactions: toggleReactionUsers(
+                    comment.reactions,
+                    emoji,
+                    state.currentUserId
+                  ),
+                }
+              : comment
+          ),
+        }))
+
+        syncInBackground(
+          syncToggleCommentReaction(commentId, emoji),
+          "Failed to update reaction"
+        )
       },
       createWorkspaceChat(input) {
         const parsed = workspaceChatSchema.safeParse(input)
@@ -2224,19 +2349,48 @@ export const useAppStore = create<AppStore>()(
           }
 
           const now = getNow()
+          const actor = state.users.find(
+            (user) => user.id === state.currentUserId
+          )
+          const mentionUserIds = createMentionIds(
+            parsed.data.content,
+            state.users
+          ).filter((userId) => conversation.participantIds.includes(userId))
+          const notifications = [...state.notifications]
+          const notifiedUserIds = new Set<string>()
+
+          for (const mentionedUserId of mentionUserIds) {
+            if (
+              mentionedUserId === state.currentUserId ||
+              notifiedUserIds.has(mentionedUserId)
+            ) {
+              continue
+            }
+
+            notifications.unshift(
+              createNotification(
+                mentionedUserId,
+                state.currentUserId,
+                `${actor?.name ?? "Someone"} mentioned you in ${conversation.title || "a chat"}`,
+                "chat",
+                conversation.id,
+                "mention"
+              )
+            )
+
+            notifiedUserIds.add(mentionedUserId)
+          }
 
           return {
             ...state,
+            notifications,
             chatMessages: [
               ...state.chatMessages,
               {
                 id: createId("chat_message"),
                 conversationId: conversation.id,
                 content: parsed.data.content.trim(),
-                mentionUserIds: createMentionIds(
-                  parsed.data.content,
-                  state.users
-                ),
+                mentionUserIds,
                 createdBy: state.currentUserId,
                 createdAt: now,
               },
@@ -2284,7 +2438,9 @@ export const useAppStore = create<AppStore>()(
 
           const now = getNow()
           const postId = createId("channel_post")
-          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const actor = state.users.find(
+            (user) => user.id === state.currentUserId
+          )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
             state.users
@@ -2380,7 +2536,9 @@ export const useAppStore = create<AppStore>()(
           }
 
           const now = getNow()
-          const actor = state.users.find((user) => user.id === state.currentUserId)
+          const actor = state.users.find(
+            (user) => user.id === state.currentUserId
+          )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
             state.users
@@ -2489,13 +2647,18 @@ export const useAppStore = create<AppStore>()(
 
           return {
             ...state,
-            channelPosts: state.channelPosts.filter((entry) => entry.id !== postId),
+            channelPosts: state.channelPosts.filter(
+              (entry) => entry.id !== postId
+            ),
             channelPostComments: state.channelPostComments.filter(
               (entry) => entry.postId !== postId
             ),
             notifications: state.notifications.filter(
               (entry) =>
-                !(entry.entityType === "channelPost" && entry.entityId === postId)
+                !(
+                  entry.entityType === "channelPost" &&
+                  entry.entityId === postId
+                )
             ),
             conversations: state.conversations.map((entry) =>
               entry.id === post.conversationId
@@ -2509,10 +2672,7 @@ export const useAppStore = create<AppStore>()(
           }
         })
 
-        syncInBackground(
-          syncDeleteChannelPost(postId),
-          "Failed to delete post"
-        )
+        syncInBackground(syncDeleteChannelPost(postId), "Failed to delete post")
 
         toast.success("Post deleted")
       },
@@ -2604,6 +2764,7 @@ export const useAppStore = create<AppStore>()(
             invitedBy: state.currentUserId,
             expiresAt: addDays(new Date(), 7).toISOString(),
             acceptedAt: null,
+            declinedAt: null,
           }))
 
           return {
@@ -2628,94 +2789,28 @@ export const useAppStore = create<AppStore>()(
             : `Invites created for ${parsed.data.teamIds.length} teams`
         )
       },
-      joinTeamByCode(code) {
+      async joinTeamByCode(code) {
         const parsed = joinCodeSchema.safeParse({ code })
         if (!parsed.success) {
           toast.error("Join code is invalid")
-          return
+          return false
         }
 
-        const stateBeforeJoin = get()
-        const team = stateBeforeJoin.teams.find(
-          (entry) =>
-            entry.settings.joinCode.toLowerCase() ===
-            parsed.data.code.toLowerCase()
-        )
-
-        if (!team) {
-          toast.error("Join code not found")
-          return
-        }
-
-        const existingMembership = stateBeforeJoin.teamMemberships.find(
-          (membership) =>
-            membership.teamId === team.id &&
-            membership.userId === stateBeforeJoin.currentUserId
-        )
-        const resolvedRole = mergeMembershipRole(
-          existingMembership?.role,
-          "viewer"
-        )
-        const membershipChanged =
-          !existingMembership || existingMembership.role !== resolvedRole
-
-        set((state) => {
-          const nextMemberships = membershipChanged
-            ? existingMembership
-              ? state.teamMemberships.map((membership) =>
-                  membership.teamId === team.id &&
-                  membership.userId === state.currentUserId
-                    ? { ...membership, role: resolvedRole }
-                    : membership
-                )
-              : [
-                  ...state.teamMemberships,
-                  {
-                    teamId: team.id,
-                    userId: state.currentUserId,
-                    role: resolvedRole,
-                  },
-                ]
-            : state.teamMemberships
-
-          const notifications = membershipChanged
-            ? [
-                createNotification(
-                  state.currentUserId,
-                  state.currentUserId,
-                  `You joined ${team.name} as ${resolvedRole}`,
-                  "invite",
-                  team.id,
-                  "invite"
-                ),
-                ...state.notifications,
-              ]
-            : state.notifications
-
-          return {
-            ...state,
-            teamMemberships: nextMemberships,
-            notifications,
-            ui: {
-              ...state.ui,
-              activeTeamId: team.id,
-            },
-          }
-        })
-
-        syncInBackground(
-          syncJoinTeamByCode(
+        try {
+          await syncJoinTeamByCode(
             useAppStore.getState().currentUserId,
             parsed.data.code
-          ),
-          "Failed to join team"
-        )
-
-        toast.success(
-          membershipChanged
-            ? `Joined team as ${resolvedRole}`
-            : "Already a member of this team"
-        )
+          )
+          await refreshFromServer()
+          toast.success("Joined team")
+          return true
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error ? error.message : "Failed to join team"
+          )
+          return false
+        }
       },
       createProject(input) {
         const parsed = projectSchema.safeParse(input)

@@ -25,6 +25,22 @@ function isNotFoundError(error: unknown) {
   )
 }
 
+function getWorkOSErrorCode(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "rawData" in error &&
+    typeof error.rawData === "object" &&
+    error.rawData !== null &&
+    "error" in error.rawData &&
+    typeof error.rawData.error === "string"
+  ) {
+    return error.rawData.error
+  }
+
+  return null
+}
+
 async function getOrganizationByWorkspaceExternalId(workspaceId: string) {
   try {
     return await getWorkOSClient().organizations.getOrganizationByExternalId(
@@ -97,6 +113,63 @@ export async function syncUserProfileToWorkOS(input: {
     firstName,
     lastName,
   })
+}
+
+export async function requestWorkOSPasswordReset(email: string) {
+  return getWorkOSClient().userManagement.createPasswordReset({
+    email,
+  })
+}
+
+export async function updateWorkOSUserEmail(input: {
+  workosUserId: string | null
+  email: string
+}) {
+  if (!input.workosUserId) {
+    throw new Error("This account is not linked to WorkOS")
+  }
+
+  await getWorkOSClient().userManagement.updateUser({
+    userId: input.workosUserId,
+    email: input.email,
+    emailVerified: false,
+  })
+
+  await getWorkOSClient().userManagement.sendVerificationEmail({
+    userId: input.workosUserId,
+  })
+}
+
+export async function resetWorkOSPassword(input: {
+  token: string
+  newPassword: string
+}) {
+  return getWorkOSClient().userManagement.resetPassword({
+    token: input.token,
+    newPassword: input.newPassword,
+  })
+}
+
+export function mapWorkOSAccountError(error: unknown, fallback: string) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    error.status === 409
+  ) {
+    return "That email address is already in use."
+  }
+
+  switch (getWorkOSErrorCode(error)) {
+    case "user_not_found":
+      return "We couldn't find an account for that email."
+    case "invalid_password":
+      return "The new password does not meet the current requirements."
+    case "invalid_token":
+      return "That password reset link is no longer valid."
+    default:
+      return fallback
+  }
 }
 
 export async function ensureUserOrganizationMembership(input: {

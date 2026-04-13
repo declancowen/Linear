@@ -1,5 +1,7 @@
 import { Resend } from "resend"
 
+import { buildAppDestination } from "@/lib/auth-routing"
+
 function getResendClient() {
   const apiKey = process.env.RESEND_API_KEY
 
@@ -30,7 +32,7 @@ function escapeHtml(input: string) {
 }
 
 function buildEntityPath(
-  entityType: "workItem" | "document" | "channelPost",
+  entityType: "workItem" | "document" | "channelPost" | "chat",
   entityId: string
 ) {
   if (entityType === "document") {
@@ -39,6 +41,10 @@ function buildEntityPath(
 
   if (entityType === "channelPost") {
     return "/inbox"
+  }
+
+  if (entityType === "chat") {
+    return `/chats?chatId=${entityId}`
   }
 
   return `/items/${entityId}`
@@ -93,7 +99,7 @@ export async function sendMentionEmails(input: {
     email: string
     name: string
     entityTitle: string
-    entityType: "workItem" | "document" | "channelPost"
+    entityType: "workItem" | "document" | "channelPost" | "chat"
     entityId: string
     entityPath?: string
     entityLabel?: string
@@ -110,14 +116,17 @@ export async function sendMentionEmails(input: {
 
   await Promise.all(
     input.emails.map((entry) => {
-      const path = entry.entityPath ?? buildEntityPath(entry.entityType, entry.entityId)
+      const path =
+        entry.entityPath ?? buildEntityPath(entry.entityType, entry.entityId)
       const entityLabel =
         entry.entityLabel ??
         (entry.entityType === "document"
           ? "document"
           : entry.entityType === "channelPost"
             ? "channel post"
-            : "work item")
+            : entry.entityType === "chat"
+              ? "chat"
+              : "work item")
 
       return resend.emails.send({
         from,
@@ -157,7 +166,13 @@ export async function sendNotificationDigestEmails(input: {
       id: string
       message: string
       entityId: string
-      entityType: "workItem" | "document" | "project" | "invite" | "channelPost"
+      entityType:
+        | "workItem"
+        | "document"
+        | "project"
+        | "invite"
+        | "channelPost"
+        | "chat"
       type: string
       createdAt: string
     }>
@@ -181,7 +196,9 @@ export async function sendNotificationDigestEmails(input: {
               ? buildEntityPath("document", notification.entityId)
               : notification.entityType === "workItem"
                 ? buildEntityPath("workItem", notification.entityId)
-                : "/inbox"
+                : notification.entityType === "chat"
+                  ? "/inbox"
+                  : "/inbox"
 
           return `<li><a href="${input.origin}${path}">${escapeHtml(notification.message)}</a></li>`
         })
@@ -205,9 +222,62 @@ export async function sendNotificationDigestEmails(input: {
         ].join(""),
       })
 
-      emailedNotificationIds.push(...digest.notifications.map((notification) => notification.id))
+      emailedNotificationIds.push(
+        ...digest.notifications.map((notification) => notification.id)
+      )
     })
   )
 
   return emailedNotificationIds
+}
+
+export async function sendTeamInviteEmails(input: {
+  invites: Array<{
+    email: string
+    workspaceName: string
+    teamName: string
+    role: "admin" | "member" | "viewer" | "guest"
+    inviteToken: string
+    joinCode: string
+  }>
+}) {
+  if (input.invites.length === 0) {
+    return
+  }
+
+  const resend = getResendClient()
+  const from = getFromEmail()
+
+  await Promise.all(
+    input.invites.map((entry) => {
+      const acceptUrl = buildAppDestination(
+        `/onboarding?invite=${encodeURIComponent(entry.inviteToken)}`
+      )
+      const joinCodeUrl = buildAppDestination(
+        `/onboarding?code=${encodeURIComponent(entry.joinCode)}`
+      )
+
+      return resend.emails.send({
+        from,
+        to: entry.email,
+        subject: `You're invited to join ${entry.teamName} in ${entry.workspaceName}`,
+        text: [
+          `You've been invited to join ${entry.teamName} in ${entry.workspaceName}.`,
+          `Role: ${entry.role}`,
+          "This access is issued at the workspace team level.",
+          `Accept the invite: ${acceptUrl}`,
+          `Join with team code: ${entry.joinCode}`,
+          `Open code-based join: ${joinCodeUrl}`,
+        ].join("\n"),
+        html: [
+          `<p>You've been invited to join <strong>${escapeHtml(entry.teamName)}</strong> in <strong>${escapeHtml(entry.workspaceName)}</strong>.</p>`,
+          `<p>Role: <strong>${escapeHtml(entry.role)}</strong></p>`,
+          `<p>This access is issued at the workspace team level.</p>`,
+          `<p><a href="${acceptUrl}">Accept your invite</a></p>`,
+          `<p>If you prefer, you can join with team code <strong>${escapeHtml(entry.joinCode)}</strong>.</p>`,
+          `<p><a href="${joinCodeUrl}">Open the team code join flow</a></p>`,
+        ].join(""),
+      })
+    })
+  )
 }

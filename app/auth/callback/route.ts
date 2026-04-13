@@ -4,14 +4,14 @@ import { NextResponse } from "next/server"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
-  buildPortalPageHref,
-  buildPortalPostAuthPath,
-  getPortalOrigin,
-  parsePortalAuthState,
-} from "@/lib/portal"
+  buildAuthPageHref,
+  buildPostAuthPath,
+  getAppOrigin,
+  parseAuthState,
+} from "@/lib/auth-routing"
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getPortalOrigin()))
+  return NextResponse.redirect(new URL(path, getAppOrigin()))
 }
 
 function getRequestMetadata(request: Request) {
@@ -28,15 +28,14 @@ function getRequestMetadata(request: Request) {
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const code = url.searchParams.get("code")
-  const state = parsePortalAuthState(url.searchParams.get("state") ?? undefined)
+  const state = parseAuthState(url.searchParams.get("state") ?? undefined)
   const error = url.searchParams.get("error")
   const errorDescription = url.searchParams.get("error_description")
 
   if (error) {
     return redirectTo(
       request,
-      buildPortalPageHref(state?.mode ?? "login", {
-        appId: state?.appId,
+      buildAuthPageHref(state?.mode ?? "login", {
         nextPath: state?.nextPath,
         error:
           errorDescription ??
@@ -48,8 +47,7 @@ export async function GET(request: Request) {
   if (!code) {
     return redirectTo(
       request,
-      buildPortalPageHref(state?.mode ?? "login", {
-        appId: state?.appId,
+      buildAuthPageHref(state?.mode ?? "login", {
         nextPath: state?.nextPath,
         error: "Missing authorization code from WorkOS.",
       })
@@ -72,13 +70,12 @@ export async function GET(request: Request) {
 
     return redirectTo(
       request,
-      buildPortalPostAuthPath(state?.appId, state?.nextPath)
+      buildPostAuthPath(state?.nextPath)
     )
   } catch {
     return redirectTo(
       request,
-      buildPortalPageHref(state?.mode ?? "login", {
-        appId: state?.appId,
+      buildAuthPageHref(state?.mode ?? "login", {
         nextPath: state?.nextPath,
         error: "We couldn't complete authentication with that provider.",
       })

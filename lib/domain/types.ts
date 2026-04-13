@@ -89,6 +89,7 @@ export const notificationEntityTypes = [
   "project",
   "invite",
   "channelPost",
+  "chat",
 ] as const
 export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 
@@ -207,6 +208,7 @@ export interface Workspace {
   slug: string
   name: string
   logoUrl: string
+  createdBy?: string | null
   workosOrganizationId: string | null
   settings: {
     accent: string
@@ -353,6 +355,7 @@ export interface Comment {
   parentCommentId: string | null
   content: string
   mentionUserIds: string[]
+  reactions: CommentReaction[]
   createdBy: string
   createdAt: string
 }
@@ -395,6 +398,7 @@ export interface Invite {
   invitedBy: string
   expiresAt: string
   acceptedAt: string | null
+  declinedAt?: string | null
 }
 
 export interface ProjectUpdate {
@@ -429,10 +433,12 @@ export interface ChatMessage {
   createdAt: string
 }
 
-export interface ChannelPostReaction {
+export interface CommentReaction {
   emoji: string
   userIds: string[]
 }
+
+export type ChannelPostReaction = CommentReaction
 
 export interface ChannelPost {
   id: string
@@ -925,20 +931,16 @@ export const workspaceBrandingSchema = z.object({
   description: z.string().trim().min(8).max(220),
 })
 
+export const workspaceSetupSchema = z.object({
+  name: z.string().trim().min(2).max(64),
+  description: z.string().trim().min(8).max(220).optional(),
+})
+
 export const teamDetailsSchema = z
   .object({
     name: z.string().trim().min(2).max(48),
     icon: z.enum(teamIconTokens),
     summary: z.string().trim().min(8).max(180),
-    joinCode: z
-      .string()
-      .trim()
-      .min(4)
-      .max(24)
-      .regex(
-        /^[a-zA-Z0-9_-]+$/,
-        "Join code can only contain letters, numbers, dashes, and underscores"
-      ),
     experience: z.enum(teamExperienceTypes),
     features: z.object({
       issues: z.boolean(),
@@ -1047,6 +1049,7 @@ export const documentSchema = z.discriminatedUnion("kind", [
 export const commentSchema = z.object({
   targetType: z.enum(commentTargetTypes),
   targetId: z.string().min(1),
+  parentCommentId: z.string().min(1).nullable().optional(),
   content: z.string().trim().min(2).max(4000),
 })
 

@@ -41,13 +41,18 @@ export async function POST(
       currentUserId: ensuredUser.userId,
       ...parsed.data,
     })
-    const emailedNotificationIds = await sendMentionEmails({
-      origin: new URL(request.url).origin,
-      emails: result?.mentionEmails ?? [],
-    })
 
-    if (emailedNotificationIds.length > 0) {
-      await markNotificationsEmailedServer(emailedNotificationIds)
+    try {
+      const emailedNotificationIds = await sendMentionEmails({
+        origin: new URL(request.url).origin,
+        emails: result?.mentionEmails ?? [],
+      })
+
+      if (emailedNotificationIds.length > 0) {
+        await markNotificationsEmailedServer(emailedNotificationIds)
+      }
+    } catch (emailError) {
+      console.error("Failed to send mention emails", emailError)
     }
 
     return NextResponse.json({
@@ -57,7 +62,9 @@ export async function POST(
   } catch (error) {
     console.error(error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create post" },
+      {
+        error: error instanceof Error ? error.message : "Failed to create post",
+      },
       { status: 500 }
     )
   }

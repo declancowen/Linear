@@ -1,8 +1,14 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ElementType,
+  type SyntheticEvent,
+} from "react"
 import {
   closestCorners,
   DndContext,
@@ -51,6 +57,7 @@ import {
   canEditTeam,
   getChannelPostHref,
   getCommentsForTarget,
+  getConversationHref,
   getDocumentContextLabel,
   getDocument,
   getItemAssignees,
@@ -75,6 +82,7 @@ import {
   itemMatchesView,
   sortItems,
   teamHasFeature,
+  getWorkspacePersonalViews,
 } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
@@ -106,6 +114,18 @@ import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-settings-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   Dialog,
   DialogContent,
@@ -116,6 +136,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 // Field components available from @/components/ui/field if needed
@@ -146,6 +171,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { getViewHref } from "@/lib/domain/default-views"
 import { cn } from "@/lib/utils"
 
 const displayPropertyOptions: DisplayProperty[] = [
@@ -182,6 +208,7 @@ const orderingOptions: OrderingField[] = [
 
 function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
   const data = useAppStore()
+  const searchParams = useSearchParams()
   const selectedView = getViewByRoute(data, routeKey)
   const hasSelectedView = selectedView
     ? views.some((view) => view.id === selectedView.id)
@@ -196,6 +223,19 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
 
     useAppStore.getState().setSelectedView(routeKey, views[0].id)
   }, [hasSelectedView, routeKey, views])
+
+  useEffect(() => {
+    const requestedViewId = searchParams.get("view")
+
+    if (
+      !requestedViewId ||
+      !views.some((view) => view.id === requestedViewId)
+    ) {
+      return
+    }
+
+    useAppStore.getState().setSelectedView(routeKey, requestedViewId)
+  }, [routeKey, searchParams, views])
 
   const layout =
     activeView?.layout === "board"
@@ -275,6 +315,9 @@ export function InboxScreen() {
     notifications.find((notification) => notification.id === activeId) ?? null
   const activeChannelPostHref = activeNotification
     ? getChannelPostHref(data, activeNotification.entityId)
+    : null
+  const activeChatHref = activeNotification
+    ? getConversationHref(data, activeNotification.entityId)
     : null
 
   return (
@@ -375,6 +418,11 @@ export function InboxScreen() {
                 activeChannelPostHref ? (
                   <Button size="sm" asChild>
                     <Link href={activeChannelPostHref}>Open channel post</Link>
+                  </Button>
+                ) : null}
+                {activeNotification.entityType === "chat" && activeChatHref ? (
+                  <Button size="sm" asChild>
+                    <Link href={activeChatHref}>Open chat</Link>
                   </Button>
                 ) : null}
                 {activeNotification.entityType === "invite" ? (
@@ -592,9 +640,12 @@ export function ViewsScreen({
   const [layout, setLayout] = useState<"list" | "board">("list")
   const [sortBy, setSortBy] = useState<"updated" | "name" | "entity">("updated")
   const [showDescriptions, setShowDescriptions] = useState(true)
-  const views = data.views.filter(
-    (view) => view.scopeType === scopeType && view.scopeId === scopeId
-  )
+  const views =
+    scopeType === "workspace"
+      ? getWorkspacePersonalViews(data)
+      : data.views.filter(
+          (view) => view.scopeType === scopeType && view.scopeId === scopeId
+        )
   const orderedViews = [...views].sort((left, right) => {
     if (sortBy === "name") {
       return left.name.localeCompare(right.name)
@@ -664,7 +715,7 @@ export function ViewsScreen({
                     <div className="flex flex-col gap-0.5">
                       <Link
                         className="flex items-center gap-2 text-sm font-medium hover:underline"
-                        href={view.route}
+                        href={getViewHref(view)}
                       >
                         <span className="text-muted-foreground">
                           {getEntityKindIcon(view.entityKind)}
@@ -954,7 +1005,7 @@ function SavedViewsBoard({
         <Link
           key={view.id}
           className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
-          href={view.route}
+          href={getViewHref(view)}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -1284,7 +1335,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Main content — scrollable */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-8 py-8">
             {/* Title */}
             {parentItem ? (
@@ -1418,8 +1469,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         </div>
 
         {/* Right sidebar */}
-        {propertiesOpen ? (
-          <div className="w-72 shrink-0 overflow-y-auto border-l">
+        <CollapsibleRightSidebar open={propertiesOpen} width="18rem">
+          <div className="flex-1 overflow-y-auto">
             <div className="flex flex-col p-4">
               <CollapsibleSection title="Properties" defaultOpen>
                 <PropertySelect
@@ -1535,7 +1586,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               </CollapsibleSection>
             </div>
           </div>
-        ) : null}
+        </CollapsibleRightSidebar>
       </div>
     </div>
   )
@@ -1819,6 +1870,7 @@ function WorkSurface({
   emptyLabel: string
 }) {
   const data = useAppStore()
+  const searchParams = useSearchParams()
   const activeView = getViewByRoute(data, routeKey) ?? views[0] ?? null
   const editable = team ? canEditTeam(data, team.id) : false
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -1828,6 +1880,19 @@ function WorkSurface({
       useAppStore.getState().setSelectedView(routeKey, views[0].id)
     }
   }, [activeView, routeKey, views])
+
+  useEffect(() => {
+    const requestedViewId = searchParams.get("view")
+
+    if (
+      !requestedViewId ||
+      !views.some((view) => view.id === requestedViewId)
+    ) {
+      return
+    }
+
+    useAppStore.getState().setSelectedView(routeKey, requestedViewId)
+  }, [routeKey, searchParams, views])
 
   const filteredItems = activeView
     ? items.filter((item) => itemMatchesView(data, item, activeView))
@@ -2968,6 +3033,185 @@ function TimelineView({
 /*  Row / card primitives                                              */
 /* ------------------------------------------------------------------ */
 
+function stopMenuEvent(event: SyntheticEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function IssueActionMenuContent({
+  data,
+  item,
+  kind,
+}: {
+  data: AppData
+  item: WorkItem
+  kind: "dropdown" | "context"
+}) {
+  const team = getTeam(data, item.teamId)
+  const editable = team ? canEditTeam(data, team.id) : false
+  const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const statusOptions = getStatusOrderForTeam(team)
+  const MenuLabel: ElementType =
+    kind === "dropdown" ? DropdownMenuLabel : ContextMenuLabel
+  const MenuSeparator: ElementType =
+    kind === "dropdown" ? DropdownMenuSeparator : ContextMenuSeparator
+  const MenuSub: ElementType =
+    kind === "dropdown" ? DropdownMenuSub : ContextMenuSub
+  const MenuSubTrigger: ElementType =
+    kind === "dropdown" ? DropdownMenuSubTrigger : ContextMenuSubTrigger
+  const MenuSubContent: ElementType =
+    kind === "dropdown" ? DropdownMenuSubContent : ContextMenuSubContent
+  const MenuItem: ElementType =
+    kind === "dropdown" ? DropdownMenuItem : ContextMenuItem
+
+  async function handleDelete() {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Delete ${item.key}? This can't be undone.`)
+    ) {
+      return
+    }
+
+    await useAppStore.getState().deleteWorkItem(item.id)
+  }
+
+  return (
+    <>
+      <MenuLabel>{item.key}</MenuLabel>
+      <MenuSeparator />
+      <MenuSub>
+        <MenuSubTrigger disabled={!editable}>Status</MenuSubTrigger>
+        <MenuSubContent>
+          {statusOptions.map((status) => (
+            <MenuItem
+              key={`${item.id}-${status}`}
+              onSelect={() =>
+                useAppStore.getState().updateWorkItem(item.id, { status })
+              }
+            >
+              {statusMeta[status].label}
+            </MenuItem>
+          ))}
+        </MenuSubContent>
+      </MenuSub>
+      <MenuSub>
+        <MenuSubTrigger disabled={!editable}>Priority</MenuSubTrigger>
+        <MenuSubContent>
+          {Object.entries(priorityMeta).map(([priority, meta]) => (
+            <MenuItem
+              key={`${item.id}-${priority}`}
+              onSelect={() =>
+                useAppStore.getState().updateWorkItem(item.id, {
+                  priority: priority as Priority,
+                })
+              }
+            >
+              {meta.label}
+            </MenuItem>
+          ))}
+        </MenuSubContent>
+      </MenuSub>
+      <MenuSub>
+        <MenuSubTrigger disabled={!editable}>Assignee</MenuSubTrigger>
+        <MenuSubContent>
+          <MenuItem
+            onSelect={() =>
+              useAppStore.getState().updateWorkItem(item.id, {
+                assigneeId: null,
+              })
+            }
+          >
+            Unassigned
+          </MenuItem>
+          <MenuItem
+            onSelect={() =>
+              useAppStore.getState().updateWorkItem(item.id, {
+                assigneeId: data.currentUserId,
+              })
+            }
+          >
+            Assign to me
+          </MenuItem>
+          <MenuSeparator />
+          {teamMembers.map((member) => (
+            <MenuItem
+              key={`${item.id}-${member.id}`}
+              onSelect={() =>
+                useAppStore.getState().updateWorkItem(item.id, {
+                  assigneeId: member.id,
+                })
+              }
+            >
+              {member.name}
+            </MenuItem>
+          ))}
+        </MenuSubContent>
+      </MenuSub>
+      {editable ? (
+        <>
+          <MenuSeparator />
+          <MenuItem
+            variant="destructive"
+            onSelect={(event: Event) => {
+              event.preventDefault()
+              void handleDelete()
+            }}
+          >
+            <Trash className="size-4" />
+            Delete issue
+          </MenuItem>
+        </>
+      ) : null}
+    </>
+  )
+}
+
+function IssueActionMenu({
+  data,
+  item,
+  triggerClassName,
+}: {
+  data: AppData
+  item: WorkItem
+  triggerClassName?: string
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={triggerClassName}
+          onClick={stopMenuEvent}
+        >
+          <DotsThree className="size-4 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <IssueActionMenuContent data={data} item={item} kind="dropdown" />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function IssueContextMenu({
+  data,
+  item,
+  children,
+}: {
+  data: AppData
+  item: WorkItem
+  children: React.ReactNode
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <IssueActionMenuContent data={data} item={item} kind="context" />
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
 function ListRow({
   data,
   item,
@@ -2978,58 +3222,58 @@ function ListRow({
   displayProps: DisplayProperty[]
 }) {
   return (
-    <Link
-      href={`/items/${item.id}`}
-      className="group flex items-center gap-3 border-b px-4 py-2 transition-colors hover:bg-accent/50"
-    >
-      {/* Three-dot menu */}
-      <button
-        className="opacity-0 transition-opacity group-hover:opacity-100"
-        onClick={(e) => e.preventDefault()}
+    <IssueContextMenu data={data} item={item}>
+      <Link
+        href={`/items/${item.id}`}
+        className="group flex items-center gap-3 border-b px-4 py-2 transition-colors hover:bg-accent/50"
       >
-        <DotsThree className="size-4 text-muted-foreground" />
-      </button>
+        <IssueActionMenu
+          data={data}
+          item={item}
+          triggerClassName="opacity-0 transition-opacity group-hover:opacity-100"
+        />
 
-      {/* Issue key */}
-      <span className="w-20 shrink-0 text-xs text-muted-foreground">
-        {item.key}
-      </span>
+        {/* Issue key */}
+        <span className="w-20 shrink-0 text-xs text-muted-foreground">
+          {item.key}
+        </span>
 
-      {/* Status icon */}
-      <StatusIcon status={item.status} />
+        {/* Status icon */}
+        <StatusIcon status={item.status} />
 
-      {/* Title */}
-      <span className="flex-1 truncate text-sm">{item.title}</span>
+        {/* Title */}
+        <span className="flex-1 truncate text-sm">{item.title}</span>
 
-      {/* Display properties */}
-      {displayProps.includes("priority") && (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {priorityMeta[item.priority].label}
-        </span>
-      )}
-      {displayProps.includes("assignee") && (
-        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-          {item.assigneeId
-            ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
-            : ""}
-        </div>
-      )}
-      {displayProps.includes("project") && (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {getProject(data, item.primaryProjectId)?.name ?? ""}
-        </span>
-      )}
-      {displayProps.includes("created") && (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {format(new Date(item.createdAt), "MMM d")}
-        </span>
-      )}
-      {displayProps.includes("updated") && (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {format(new Date(item.updatedAt), "MMM d")}
-        </span>
-      )}
-    </Link>
+        {/* Display properties */}
+        {displayProps.includes("priority") && (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {priorityMeta[item.priority].label}
+          </span>
+        )}
+        {displayProps.includes("assignee") && (
+          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+            {item.assigneeId
+              ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
+              : ""}
+          </div>
+        )}
+        {displayProps.includes("project") && (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {getProject(data, item.primaryProjectId)?.name ?? ""}
+          </span>
+        )}
+        {displayProps.includes("created") && (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {format(new Date(item.createdAt), "MMM d")}
+          </span>
+        )}
+        {displayProps.includes("updated") && (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {format(new Date(item.updatedAt), "MMM d")}
+          </span>
+        )}
+      </Link>
+    </IssueContextMenu>
   )
 }
 
@@ -3096,38 +3340,48 @@ function BoardCardBody({
   dragHandle?: React.ReactNode
 }) {
   return (
-    <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs transition-shadow hover:shadow-sm">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <span className="text-xs text-muted-foreground">{item.key}</span>
-        <div className="flex items-center gap-1.5">
-          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-            {item.assigneeId
-              ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
-              : ""}
+    <IssueContextMenu data={data} item={item}>
+      <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs transition-shadow hover:shadow-sm">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{item.key}</span>
+          <div className="flex items-center gap-1.5">
+            <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+              {item.assigneeId
+                ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
+                : ""}
+            </div>
+            <IssueActionMenu
+              data={data}
+              item={item}
+              triggerClassName="rounded-md p-1 transition-colors hover:bg-muted"
+            />
+            {dragHandle}
           </div>
-          {dragHandle}
         </div>
+        <Link
+          className="flex flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          href={`/items/${item.id}`}
+        >
+          <div className="text-sm leading-snug font-medium hover:underline">
+            {item.title}
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <StatusIcon status={item.status} />
+            {item.primaryProjectId ? (
+              <Badge
+                variant="secondary"
+                className="h-4 px-1.5 py-0 text-[10px]"
+              >
+                {getProject(data, item.primaryProjectId)?.name}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            Created {format(new Date(item.createdAt), "MMM d")}
+          </div>
+        </Link>
       </div>
-      <Link
-        className="flex flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        href={`/items/${item.id}`}
-      >
-        <div className="text-sm leading-snug font-medium hover:underline">
-          {item.title}
-        </div>
-        <div className="mt-2 flex items-center gap-1.5">
-          <StatusIcon status={item.status} />
-          {item.primaryProjectId ? (
-            <Badge variant="secondary" className="h-4 px-1.5 py-0 text-[10px]">
-              {getProject(data, item.primaryProjectId)?.name}
-            </Badge>
-          ) : null}
-        </div>
-        <div className="mt-2 text-xs text-muted-foreground">
-          Created {format(new Date(item.createdAt), "MMM d")}
-        </div>
-      </Link>
-    </div>
+    </IssueContextMenu>
   )
 }
 
@@ -3348,6 +3602,161 @@ function TimelineBar({
 /*  Comments (inline version for detail screens)                       */
 /* ------------------------------------------------------------------ */
 
+const commentReactionOptions = ["👍", "❤️", "👀"] as const
+
+function CommentThreadItem({
+  comment,
+  repliesByParentId,
+  editable,
+  targetType,
+  targetId,
+}: {
+  comment: AppData["comments"][number]
+  repliesByParentId: Record<string, AppData["comments"]>
+  editable: boolean
+  targetType: "workItem" | "document"
+  targetId: string
+}) {
+  const data = useAppStore()
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyContent, setReplyContent] = useState("")
+  const replies = repliesByParentId[comment.id] ?? []
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">
+          {getUser(data, comment.createdBy)?.name}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {format(new Date(comment.createdAt), "MMM d, h:mm a")}
+        </span>
+      </div>
+
+      <p className="text-sm leading-7 text-muted-foreground">
+        {comment.content}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {comment.reactions.map((reaction) => {
+          const active = reaction.userIds.includes(data.currentUserId)
+
+          return (
+            <button
+              key={`${comment.id}-${reaction.emoji}`}
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors",
+                active
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "hover:bg-accent"
+              )}
+              onClick={() =>
+                useAppStore
+                  .getState()
+                  .toggleCommentReaction(comment.id, reaction.emoji)
+              }
+            >
+              <span>{reaction.emoji}</span>
+              <span>{reaction.userIds.length}</span>
+            </button>
+          )
+        })}
+        {editable
+          ? commentReactionOptions.map((emoji) => {
+              const existingReaction = comment.reactions.find(
+                (reaction) => reaction.emoji === emoji
+              )
+
+              if (existingReaction) {
+                return null
+              }
+
+              return (
+                <button
+                  key={`${comment.id}-${emoji}-new`}
+                  type="button"
+                  className="rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() =>
+                    useAppStore
+                      .getState()
+                      .toggleCommentReaction(comment.id, emoji)
+                  }
+                >
+                  {emoji}
+                </button>
+              )
+            })
+          : null}
+        {editable ? (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setReplyOpen((current) => !current)}
+          >
+            Reply
+          </button>
+        ) : null}
+      </div>
+
+      {replyOpen ? (
+        <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
+          <Textarea
+            autoFocus
+            className="min-h-[4rem] resize-none"
+            placeholder="Reply to this thread..."
+            value={replyContent}
+            onChange={(event) => setReplyContent(event.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setReplyContent("")
+                setReplyOpen(false)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!replyContent.trim()}
+              onClick={() => {
+                useAppStore.getState().addComment({
+                  targetType,
+                  targetId,
+                  parentCommentId: comment.id,
+                  content: replyContent,
+                })
+                setReplyContent("")
+                setReplyOpen(false)
+              }}
+            >
+              Reply
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {replies.length > 0 ? (
+        <div className="ml-4 flex flex-col gap-3 border-l pl-4">
+          {replies.map((reply) => (
+            <CommentThreadItem
+              key={reply.id}
+              comment={reply}
+              repliesByParentId={repliesByParentId}
+              editable={editable}
+              targetType={targetType}
+              targetId={targetId}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function CommentsInline({
   targetType,
   targetId,
@@ -3359,29 +3768,41 @@ function CommentsInline({
 }) {
   const data = useAppStore()
   const comments = getCommentsForTarget(data, targetType, targetId)
+  const rootComments = comments.filter(
+    (comment) => comment.parentCommentId === null
+  )
+  const repliesByParentId = comments.reduce<
+    Record<string, AppData["comments"]>
+  >((accumulator, comment) => {
+    if (!comment.parentCommentId) {
+      return accumulator
+    }
+
+    accumulator[comment.parentCommentId] = [
+      ...(accumulator[comment.parentCommentId] ?? []),
+      comment,
+    ]
+
+    return accumulator
+  }, {})
   const [content, setContent] = useState("")
 
   return (
     <div className="flex flex-col gap-4">
-      {comments.map((comment) => (
-        <div key={comment.id} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {getUser(data, comment.createdBy)?.name}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {format(new Date(comment.createdAt), "MMM d, h:mm a")}
-            </span>
-          </div>
-          <p className="text-sm leading-7 text-muted-foreground">
-            {comment.content}
-          </p>
-        </div>
+      {rootComments.map((comment) => (
+        <CommentThreadItem
+          key={comment.id}
+          comment={comment}
+          repliesByParentId={repliesByParentId}
+          editable={editable}
+          targetType={targetType}
+          targetId={targetId}
+        />
       ))}
       <div className="flex flex-col gap-2">
         <Textarea
           disabled={!editable}
-          placeholder="Leave a comment..."
+          placeholder="Leave a comment or mention a teammate with @handle..."
           className="min-h-[4rem] resize-none"
           value={content}
           onChange={(event) => setContent(event.target.value)}

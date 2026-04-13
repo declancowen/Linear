@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { chatMessageSchema } from "@/lib/domain/types"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { sendChatMessageServer } from "@/lib/server/convex"
+import {
+  markNotificationsEmailedServer,
+  sendChatMessageServer,
+} from "@/lib/server/convex"
+import { sendMentionEmails } from "@/lib/server/email"
 
 export async function POST(
   request: NextRequest,
@@ -36,6 +40,19 @@ export async function POST(
       currentUserId: ensuredUser.userId,
       ...parsed.data,
     })
+
+    try {
+      const emailedNotificationIds = await sendMentionEmails({
+        origin: new URL(request.url).origin,
+        emails: result?.mentionEmails ?? [],
+      })
+
+      if (emailedNotificationIds.length > 0) {
+        await markNotificationsEmailedServer(emailedNotificationIds)
+      }
+    } catch (emailError) {
+      console.error("Failed to send mention emails", emailError)
+    }
 
     return NextResponse.json({
       ok: true,

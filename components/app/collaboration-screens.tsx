@@ -44,6 +44,7 @@ import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,7 +79,16 @@ function formatShortDate(value: string) {
   return format(d, "MMM d")
 }
 
-const CHANNEL_REACTIONS = ["👍", "❤️", "🎉", "👀"] as const
+const CHANNEL_REACTION_OPTIONS = [
+  { emoji: "👍", label: "Thumbs up" },
+  { emoji: "❤️", label: "Love" },
+  { emoji: "🎉", label: "Celebrate" },
+  { emoji: "👀", label: "Watching" },
+  { emoji: "🚀", label: "Ship it" },
+  { emoji: "🔥", label: "Fire" },
+  { emoji: "🙌", label: "Nice work" },
+  { emoji: "😄", label: "Smile" },
+] as const
 
 function getUserInitials(name: string | null | undefined) {
   const parts = (name ?? "")
@@ -241,7 +251,7 @@ function MembersSidebarContent({
   return (
     <div className="flex flex-col gap-5 p-4">
       <div>
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
           About
         </h3>
         <p className="mt-2 text-sm font-medium">{title}</p>
@@ -249,7 +259,7 @@ function MembersSidebarContent({
       </div>
 
       <div>
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
           Members · {members.length}
         </h3>
         <div className="mt-3 flex flex-col gap-0.5">
@@ -275,17 +285,31 @@ function MembersSidebarContent({
   )
 }
 
-function MembersSidebar(props: {
+function MembersSidebar({
+  open,
+  title,
+  description,
+  members,
+}: {
+  open: boolean
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
-    <div className="hidden min-h-0 self-stretch flex-col border-l xl:flex">
+    <CollapsibleRightSidebar
+      open={open}
+      width="16rem"
+      containerClassName="hidden xl:block"
+    >
       <ScrollArea className="flex-1">
-        <MembersSidebarContent {...props} />
+        <MembersSidebarContent
+          title={title}
+          description={description}
+          members={members}
+        />
       </ScrollArea>
-    </div>
+    </CollapsibleRightSidebar>
   )
 }
 
@@ -304,7 +328,7 @@ function TeamSurfaceSidebarContent({
     <div className="flex flex-col gap-6 p-4">
       {/* About */}
       <div>
-        <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
           {label}
         </h3>
         <p className="mt-2.5 text-sm font-medium">{title}</p>
@@ -315,7 +339,7 @@ function TeamSurfaceSidebarContent({
 
       {/* Members */}
       <div>
-        <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
           Members · {members.length}
         </h3>
         <div className="mt-3 flex flex-col gap-0.5">
@@ -342,18 +366,24 @@ function TeamSurfaceSidebarContent({
 }
 
 function TeamSurfaceSidebar({
+  open,
   label,
   title,
   description,
   members,
 }: {
+  open: boolean
   label: string
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
-    <aside className="hidden min-h-0 self-stretch border-l xl:flex xl:flex-col">
+    <CollapsibleRightSidebar
+      open={open}
+      width="19rem"
+      containerClassName="hidden xl:block"
+    >
       <ScrollArea className="flex-1">
         <TeamSurfaceSidebarContent
           label={label}
@@ -362,7 +392,7 @@ function TeamSurfaceSidebar({
           members={members}
         />
       </ScrollArea>
-    </aside>
+    </CollapsibleRightSidebar>
   )
 }
 
@@ -412,12 +442,12 @@ function ChatComposer({
           }}
           placeholder={placeholder}
           rows={1}
-          className="min-h-[1.5rem] max-h-40 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+          className="max-h-40 min-h-[1.5rem] flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
         />
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            className="rounded-md p-1 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            className="rounded-md p-1 text-muted-foreground/50 transition-colors hover:text-muted-foreground"
           >
             <Smiley className="size-4" />
           </button>
@@ -507,7 +537,10 @@ function ChatThread({
       ) : null}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+      >
         <div className="mt-auto" />
         <div className="flex flex-col gap-0.5 px-4 py-3">
           {messages.length === 0 ? (
@@ -557,7 +590,8 @@ function ChatThread({
                         <div className="size-8 shrink-0" />
                       ) : (
                         <UserAvatar
-                          initials={author?.avatarUrl ?? "?"}
+                          name={author?.name}
+                          avatarUrl={author?.avatarUrl}
                           size="default"
                         />
                       )
@@ -587,7 +621,7 @@ function ChatThread({
                       ) : null}
                       <div
                         className={cn(
-                          "whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-6 shadow-sm",
+                          "rounded-2xl px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap shadow-sm",
                           isCurrentUser
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-foreground",
@@ -642,6 +676,7 @@ function ForumPostCard({ postId }: { postId: string }) {
   const conversation =
     data.conversations.find((entry) => entry.id === post.conversationId) ?? null
   const comments = getChannelPostComments(data, post.id)
+  const reactions = post.reactions ?? []
   const mentionCandidates =
     conversation && conversation.kind === "channel"
       ? getConversationParticipants(data, conversation)
@@ -667,7 +702,7 @@ function ForumPostCard({ postId }: { postId: string }) {
       id={post.id}
       className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md"
     >
-      <div className="absolute -top-3 right-3 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm opacity-0 transition-opacity group-hover/post:opacity-100">
+      <div className="absolute -top-3 right-3 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 opacity-0 shadow-sm transition-opacity group-hover/post:opacity-100">
         <button
           type="button"
           onClick={() => {
@@ -712,14 +747,16 @@ function ForumPostCard({ postId }: { postId: string }) {
             avatarUrl={author?.avatarUrl}
             size="default"
           />
-          <span className="text-sm font-semibold">{author?.name ?? "Unknown"}</span>
+          <span className="text-sm font-semibold">
+            {author?.name ?? "Unknown"}
+          </span>
           <span className="text-xs text-muted-foreground">
             {formatTimestamp(post.createdAt)}
           </span>
         </div>
 
         {post.title ? (
-          <h3 className="mt-3 text-base font-bold leading-snug">
+          <h3 className="mt-3 text-base leading-snug font-bold">
             {post.title}
           </h3>
         ) : null}
@@ -732,18 +769,18 @@ function ForumPostCard({ postId }: { postId: string }) {
           )}
         />
 
-        <div className="mt-3 flex items-center gap-1.5">
-          {CHANNEL_REACTIONS.map((emoji) => {
-            const reaction = post.reactions.find((entry) => entry.emoji === emoji)
-            const count = reaction?.userIds.length ?? 0
-            const active = reaction?.userIds.includes(data.currentUserId) ?? false
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {reactions.map((reaction) => {
+            const active = reaction.userIds.includes(data.currentUserId)
 
             return (
               <button
-                key={emoji}
+                key={reaction.emoji}
                 type="button"
                 onClick={() =>
-                  useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
+                  useAppStore
+                    .getState()
+                    .toggleChannelPostReaction(post.id, reaction.emoji)
                 }
                 className={cn(
                   "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors",
@@ -752,11 +789,50 @@ function ForumPostCard({ postId }: { postId: string }) {
                     : "bg-background hover:bg-accent"
                 )}
               >
-                <span>{emoji}</span>
-                {count > 0 ? <span>{count}</span> : null}
+                <span>{reaction.emoji}</span>
+                <span>{reaction.userIds.length}</span>
               </button>
             )
           })}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-7 items-center gap-1.5 rounded-full border border-dashed bg-background px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Smiley className="size-3.5" />
+                <span>React</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-44 min-w-44">
+              {CHANNEL_REACTION_OPTIONS.map((option) => {
+                const active =
+                  reactions
+                    .find((entry) => entry.emoji === option.emoji)
+                    ?.userIds.includes(data.currentUserId) ?? false
+
+                return (
+                  <DropdownMenuItem
+                    key={option.emoji}
+                    onSelect={() => {
+                      useAppStore
+                        .getState()
+                        .toggleChannelPostReaction(post.id, option.emoji)
+                    }}
+                  >
+                    <span className="mr-2 text-base leading-none">
+                      {option.emoji}
+                    </span>
+                    <span className="flex-1">{option.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {active ? "Remove" : "Add"}
+                    </span>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -933,15 +1009,14 @@ function CreateWorkspaceChatDialog({
 
   const isGroup = participantIds.length > 1
   const query = search.toLowerCase().trim()
-  const filteredUsers =
-    !query
-      ? allUsers
-      : allUsers.filter(
-          (user) =>
-            user.name.toLowerCase().includes(query) ||
-            user.handle.toLowerCase().includes(query) ||
-            user.email.toLowerCase().includes(query)
-        )
+  const filteredUsers = !query
+    ? allUsers
+    : allUsers.filter(
+        (user) =>
+          user.name.toLowerCase().includes(query) ||
+          user.handle.toLowerCase().includes(query) ||
+          user.email.toLowerCase().includes(query)
+      )
 
   // Users not yet selected
   const availableUsers = filteredUsers.filter(
@@ -996,7 +1071,7 @@ function CreateWorkspaceChatDialog({
         onOpenChange(v)
       }}
     >
-      <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden">
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
         {/* To field */}
         <div className="flex items-center gap-2 border-b px-4 py-3">
           <span className="shrink-0 text-sm text-muted-foreground">To:</span>
@@ -1037,9 +1112,7 @@ function CreateWorkspaceChatDialog({
                 }
               }}
               placeholder={
-                participantIds.length === 0
-                  ? "Search people…"
-                  : "Add another…"
+                participantIds.length === 0 ? "Search people…" : "Add another…"
               }
               className="min-w-[6rem] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
             />
@@ -1121,11 +1194,7 @@ function CreateWorkspaceChatDialog({
 /*  New-post composer (forum-style, title + body)                       */
 /* ------------------------------------------------------------------ */
 
-function NewPostComposer({
-  channelId,
-}: {
-  channelId: string
-}) {
+function NewPostComposer({ channelId }: { channelId: string }) {
   const data = useAppStore()
   const currentUser = getUser(data, data.currentUserId)
   const conversation =
@@ -1253,7 +1322,7 @@ export function WorkspaceChatsScreen() {
   const activeChatId =
     selectedChatId && chats.some((c) => c.id === selectedChatId)
       ? selectedChatId
-      : chats[0]?.id ?? null
+      : (chats[0]?.id ?? null)
   const activeChat =
     chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null
   const members = getConversationParticipants(data, activeChat)
@@ -1318,24 +1387,21 @@ export function WorkspaceChatsScreen() {
           }
         />
       ) : (
-        <div
-          className={cn(
-            "grid min-h-0 flex-1 overflow-hidden grid-cols-[16rem_minmax(0,1fr)]",
-            sidebarOpen && "xl:grid-cols-[16rem_minmax(0,1fr)_16rem]"
-          )}
-        >
-          <ConversationList
-            conversations={chats}
-            selectedId={activeChat?.id ?? null}
-            onSelect={(id) =>
-              router.replace(`/chats?chatId=${id}`, { scroll: false })
-            }
-            renderPreview={(id) => {
-              const latest = getChatMessages(data, id).at(-1)
-              return latest?.content ?? "Open the conversation"
-            }}
-          />
-          <div className="flex min-h-0 flex-col">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="w-64 shrink-0">
+            <ConversationList
+              conversations={chats}
+              selectedId={activeChat?.id ?? null}
+              onSelect={(id) =>
+                router.replace(`/chats?chatId=${id}`, { scroll: false })
+              }
+              renderPreview={(id) => {
+                const latest = getChatMessages(data, id).at(-1)
+                return latest?.content ?? "Open the conversation"
+              }}
+            />
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {activeChat ? (
               <ChatThread
                 conversationId={activeChat.id}
@@ -1345,13 +1411,12 @@ export function WorkspaceChatsScreen() {
               />
             ) : null}
           </div>
-          {sidebarOpen ? (
-            <MembersSidebar
-              title={activeChat?.title ?? "Chat"}
-              description={activeChat?.description || "Workspace conversation"}
-              members={members}
-            />
-          ) : null}
+          <MembersSidebar
+            open={sidebarOpen}
+            title={activeChat?.title ?? "Chat"}
+            description={activeChat?.description || "Workspace conversation"}
+            members={members}
+          />
         </div>
       )}
 
@@ -1454,13 +1519,8 @@ export function WorkspaceChannelsScreen() {
           description="The shared workspace channel is being created automatically."
         />
       ) : (
-        <div
-          className={cn(
-            "grid min-h-0 flex-1 overflow-hidden grid-cols-1",
-            sidebarOpen && "xl:grid-cols-[minmax(0,1fr)_19rem]"
-          )}
-        >
-          <div className="min-h-0 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
               <NewPostComposer channelId={activeChannel.id} />
 
@@ -1481,15 +1541,13 @@ export function WorkspaceChannelsScreen() {
               )}
             </div>
           </div>
-
-          {sidebarOpen ? (
-            <TeamSurfaceSidebar
-              label="Workspace channel"
-              title={workspace.name}
-              description={workspaceDescription}
-              members={members}
-            />
-          ) : null}
+          <TeamSurfaceSidebar
+            open={sidebarOpen}
+            label="Workspace channel"
+            title={workspace.name}
+            description={workspaceDescription}
+            members={members}
+          />
         </div>
       )}
 
@@ -1597,13 +1655,8 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
           }
         />
       ) : (
-        <div
-          className={cn(
-            "grid min-h-0 flex-1 overflow-hidden grid-cols-1",
-            sidebarOpen && "xl:grid-cols-[minmax(0,1fr)_19rem]"
-          )}
-        >
-          <div className="min-h-0 flex flex-col">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <ChatThread
               conversationId={conversation.id}
               title="Team chat"
@@ -1612,15 +1665,13 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               showHeader
             />
           </div>
-
-          {sidebarOpen ? (
-            <TeamSurfaceSidebar
-              label="Team chat"
-              title={team.name}
-              description={teamDescription}
-              members={members}
-            />
-          ) : null}
+          <TeamSurfaceSidebar
+            open={sidebarOpen}
+            label="Team chat"
+            title={team.name}
+            description={teamDescription}
+            members={members}
+          />
         </div>
       )}
 
@@ -1668,7 +1719,13 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
     `Forum-style updates, questions, and threaded decisions for ${team?.name ?? "this team"}.`
 
   useEffect(() => {
-    if (!team || !teamHasFeature(team, "channels") || !editable || activeChannel) return
+    if (
+      !team ||
+      !teamHasFeature(team, "channels") ||
+      !editable ||
+      activeChannel
+    )
+      return
     useAppStore.getState().createChannel({
       teamId: team.id,
       silent: true,
@@ -1678,7 +1735,12 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   }, [activeChannel, editable, team])
 
   if (!team) {
-    return <EmptyState title="Team not found" description="The requested team does not exist." />
+    return (
+      <EmptyState
+        title="Team not found"
+        description="The requested team does not exist."
+      />
+    )
   }
 
   if (!teamHasFeature(team, "channels")) {
@@ -1728,13 +1790,8 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
           }
         />
       ) : (
-        <div
-          className={cn(
-            "grid min-h-0 flex-1 overflow-hidden grid-cols-1",
-            sidebarOpen && "xl:grid-cols-[minmax(0,1fr)_19rem]"
-          )}
-        >
-          <div className="min-h-0 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
               {/* Composer at top */}
               {editable ? (
@@ -1759,15 +1816,13 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
               )}
             </div>
           </div>
-
-          {sidebarOpen ? (
-            <TeamSurfaceSidebar
-              label="Team channel"
-              title={team.name}
-              description={teamDescription}
-              members={members}
-            />
-          ) : null}
+          <TeamSurfaceSidebar
+            open={sidebarOpen}
+            label="Team channel"
+            title={team.name}
+            description={teamDescription}
+            members={members}
+          />
         </div>
       )}
 

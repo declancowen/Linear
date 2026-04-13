@@ -2,15 +2,14 @@ import { NextResponse } from "next/server"
 
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
-  buildPortalPageHref,
-  getPortalOrigin,
-  normalizePortalAuthNextPath,
-  parsePortalAppId,
-  parsePortalAuthMode,
-} from "@/lib/portal"
+  buildAuthPageHref,
+  getAppOrigin,
+  normalizeAuthNextPath,
+  parseAuthMode,
+} from "@/lib/auth-routing"
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getPortalOrigin()))
+  return NextResponse.redirect(new URL(path, getAppOrigin()))
 }
 
 function isLocalRedirectUri(redirectUri: string) {
@@ -22,16 +21,14 @@ function isLocalRedirectUri(redirectUri: string) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const appId = parsePortalAppId(url.searchParams.get("app"))
-  const mode = parsePortalAuthMode(url.searchParams.get("mode")) ?? "login"
-  const nextPath = normalizePortalAuthNextPath(url.searchParams.get("next"), appId)
+  const mode = parseAuthMode(url.searchParams.get("mode")) ?? "login"
+  const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
   const redirectUri = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
 
   if (!redirectUri) {
     return redirectTo(
       request,
-      buildPortalPageHref(mode, {
-        appId,
+      buildAuthPageHref(mode, {
         nextPath,
         error: "WorkOS redirect URI is not configured.",
       })
@@ -41,11 +38,10 @@ export async function GET(request: Request) {
   if (isLocalRedirectUri(redirectUri)) {
     return redirectTo(
       request,
-      buildPortalPageHref(mode, {
-        appId,
+      buildAuthPageHref(mode, {
         nextPath,
         error:
-          "Google sign-in needs a public HTTPS callback. Use the deployed portal URL or a sandbox WorkOS client for local testing.",
+          "Google sign-in needs a public HTTPS callback. Use the deployed teams URL or a sandbox WorkOS client for local testing.",
       })
     )
   }
@@ -55,7 +51,6 @@ export async function GET(request: Request) {
     provider: "GoogleOAuth",
     redirectUri,
     state: JSON.stringify({
-      appId,
       mode,
       nextPath,
     }),

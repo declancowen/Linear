@@ -163,12 +163,15 @@ const notificationEntityTypeLiterals = [
   v.literal("project"),
   v.literal("invite"),
   v.literal("channelPost"),
+  v.literal("chat"),
 ] as const
 
 export const roleValidator = v.union(...roleLiterals)
 export const scopeTypeValidator = v.union(...scopeTypeLiterals)
 export const templateTypeValidator = v.union(...templateTypeLiterals)
-export const teamExperienceTypeValidator = v.union(...teamExperienceTypeLiterals)
+export const teamExperienceTypeValidator = v.union(
+  ...teamExperienceTypeLiterals
+)
 export const workItemTypeValidator = v.union(...workItemTypeLiterals)
 export const workStatusValidator = v.union(...workStatusLiterals)
 export const priorityValidator = v.union(...priorityLiterals)
@@ -182,7 +185,9 @@ export const displayPropertyValidator = v.union(...displayPropertyLiterals)
 export const groupFieldValidator = v.union(...groupFieldLiterals)
 export const orderingFieldValidator = v.union(...orderingFieldLiterals)
 export const commentTargetTypeValidator = v.union(...commentTargetTypeLiterals)
-export const attachmentTargetTypeValidator = v.union(...attachmentTargetTypeLiterals)
+export const attachmentTargetTypeValidator = v.union(
+  ...attachmentTargetTypeLiterals
+)
 export const documentKindValidator = v.union(...documentKindLiterals)
 export const conversationKindValidator = v.union(...conversationKindLiterals)
 export const conversationScopeTypeValidator = v.union(
@@ -220,6 +225,7 @@ export const workspaceFields = {
   slug: v.string(),
   name: v.string(),
   logoUrl: v.string(),
+  createdBy: v.optional(nullableString),
   workosOrganizationId: v.optional(nullableString),
   settings: v.object({
     accent: v.string(),
@@ -384,7 +390,15 @@ export const commentFields = {
   targetId: v.string(),
   parentCommentId: nullableString,
   content: v.string(),
-  mentionUserIds: v.array(v.string()),
+  mentionUserIds: v.optional(v.array(v.string())),
+  reactions: v.optional(
+    v.array(
+      v.object({
+        emoji: v.string(),
+        userIds: v.array(v.string()),
+      })
+    )
+  ),
   createdBy: v.string(),
   createdAt: v.string(),
 }
@@ -426,6 +440,7 @@ export const inviteFields = {
   invitedBy: v.string(),
   expiresAt: v.string(),
   acceptedAt: nullableString,
+  declinedAt: v.optional(nullableString),
 }
 
 export const projectUpdateFields = {
@@ -455,7 +470,7 @@ export const chatMessageFields = {
   id: v.string(),
   conversationId: v.string(),
   content: v.string(),
-  mentionUserIds: v.array(v.string()),
+  mentionUserIds: v.optional(v.array(v.string())),
   createdBy: v.string(),
   createdAt: v.string(),
 }
@@ -470,7 +485,7 @@ export const channelPostFields = {
   conversationId: v.string(),
   title: v.string(),
   content: v.string(),
-  reactions: v.array(channelPostReactionValidator),
+  reactions: v.optional(v.array(channelPostReactionValidator)),
   createdBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
@@ -480,7 +495,7 @@ export const channelPostCommentFields = {
   id: v.string(),
   postId: v.string(),
   content: v.string(),
-  mentionUserIds: v.array(v.string()),
+  mentionUserIds: v.optional(v.array(v.string())),
   createdBy: v.string(),
   createdAt: v.string(),
 }

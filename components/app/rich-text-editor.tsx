@@ -844,239 +844,244 @@ export function RichTextEditor({
   }
 
   // Toolbar
-  const toolbar = editable && showToolbar ? (
-    <div
-      className={cn(
-        "flex shrink-0 items-center gap-0.5 overflow-x-auto",
-        fullPage ? "mx-auto w-full max-w-3xl px-6 py-2" : "pb-1"
-      )}
-    >
-      <ToolbarButton
-        active={currentEditor.isActive("bold")}
-        onClick={() => currentEditor.chain().focus().toggleBold().run()}
-        label="Bold"
+  const toolbar =
+    editable && showToolbar ? (
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-0.5 overflow-x-auto",
+          fullPage ? "mx-auto w-full max-w-3xl px-6 py-2" : "pb-1"
+        )}
       >
-        <TextB className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={currentEditor.isActive("italic")}
-        onClick={() => currentEditor.chain().focus().toggleItalic().run()}
-        label="Italic"
-      >
-        <TextItalic className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={currentEditor.isActive("underline")}
-        onClick={() => currentEditor.chain().focus().toggleUnderline().run()}
-        label="Underline"
-      >
-        <TextUnderline className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={highlightActive}
-        onClick={() => currentEditor.chain().focus().toggleHighlight().run()}
-        label="Highlight"
-      >
-        <Highlighter className="size-3.5" />
-      </ToolbarButton>
-      <div className="mx-1 h-4 w-px bg-border" />
-      <ToolbarButton
-        active={paragraphActive}
-        onClick={() => currentEditor.chain().focus().setParagraph().run()}
-        label="Paragraph"
-      >
-        <Paragraph className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={h1Active}
-        onClick={() =>
-          currentEditor.chain().focus().toggleHeading({ level: 1 }).run()
-        }
-        label="Heading 1"
-      >
-        <TextHOne className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={h2Active}
-        onClick={() =>
-          currentEditor.chain().focus().toggleHeading({ level: 2 }).run()
-        }
-        label="Heading 2"
-      >
-        <TextHTwo className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={h3Active}
-        onClick={() =>
-          currentEditor.chain().focus().toggleHeading({ level: 3 }).run()
-        }
-        label="Heading 3"
-      >
-        <TextHThree className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={currentEditor.isActive("bulletList")}
-        onClick={() => currentEditor.chain().focus().toggleBulletList().run()}
-        label="Bulleted list"
-      >
-        <ListBullets className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={currentEditor.isActive("taskList")}
-        onClick={() => currentEditor.chain().focus().toggleTaskList().run()}
-        label="Task list"
-      >
-        <ListChecks className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={currentEditor.isActive("blockquote")}
-        onClick={() => currentEditor.chain().focus().toggleBlockquote().run()}
-        label="Quote"
-      >
-        <Quotes className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={currentEditor.isActive("link")}
-        onClick={setLink}
-        label="Link"
-      >
-        <LinkSimple className="size-3.5" />
-      </ToolbarButton>
-      <div className="mx-1 h-4 w-px bg-border" />
-      <ToolbarButton
-        active={alignLeftActive}
-        onClick={() => currentEditor.chain().focus().setTextAlign("left").run()}
-        label="Align left"
-      >
-        <TextAlignLeft className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={alignCenterActive}
-        onClick={() =>
-          currentEditor.chain().focus().setTextAlign("center").run()
-        }
-        label="Align center"
-      >
-        <TextAlignCenter className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={alignRightActive}
-        onClick={() =>
-          currentEditor.chain().focus().setTextAlign("right").run()
-        }
-        label="Align right"
-      >
-        <TextAlignRight className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={tableActive}
-        disabled={!canInsertTable}
-        onClick={() => insertDefaultTable(currentEditor)}
-        label="Insert table"
-      >
-        <TableIcon className="size-3.5" />
-      </ToolbarButton>
-      {onUploadAttachment ? (
         <ToolbarButton
-          active={false}
-          onClick={() => requestImagePicker(currentEditor)}
-          label="Insert image"
+          active={currentEditor.isActive("bold")}
+          onClick={() => currentEditor.chain().focus().toggleBold().run()}
+          label="Bold"
         >
-          <ImageSquare className="size-3.5" />
+          <TextB className="size-3.5" />
         </ToolbarButton>
-      ) : null}
-      {tableActive ? (
-        <>
-          <div className="mx-1 h-4 w-px bg-border" />
+        <ToolbarButton
+          active={currentEditor.isActive("italic")}
+          onClick={() => currentEditor.chain().focus().toggleItalic().run()}
+          label="Italic"
+        >
+          <TextItalic className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={currentEditor.isActive("underline")}
+          onClick={() => currentEditor.chain().focus().toggleUnderline().run()}
+          label="Underline"
+        >
+          <TextUnderline className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={highlightActive}
+          onClick={() => currentEditor.chain().focus().toggleHighlight().run()}
+          label="Highlight"
+        >
+          <Highlighter className="size-3.5" />
+        </ToolbarButton>
+        <div className="mx-1 h-4 w-px bg-border" />
+        <ToolbarButton
+          active={paragraphActive}
+          onClick={() => currentEditor.chain().focus().setParagraph().run()}
+          label="Paragraph"
+        >
+          <Paragraph className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={h1Active}
+          onClick={() =>
+            currentEditor.chain().focus().toggleHeading({ level: 1 }).run()
+          }
+          label="Heading 1"
+        >
+          <TextHOne className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={h2Active}
+          onClick={() =>
+            currentEditor.chain().focus().toggleHeading({ level: 2 }).run()
+          }
+          label="Heading 2"
+        >
+          <TextHTwo className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={h3Active}
+          onClick={() =>
+            currentEditor.chain().focus().toggleHeading({ level: 3 }).run()
+          }
+          label="Heading 3"
+        >
+          <TextHThree className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={currentEditor.isActive("bulletList")}
+          onClick={() => currentEditor.chain().focus().toggleBulletList().run()}
+          label="Bulleted list"
+        >
+          <ListBullets className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={currentEditor.isActive("taskList")}
+          onClick={() => currentEditor.chain().focus().toggleTaskList().run()}
+          label="Task list"
+        >
+          <ListChecks className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={currentEditor.isActive("blockquote")}
+          onClick={() => currentEditor.chain().focus().toggleBlockquote().run()}
+          label="Quote"
+        >
+          <Quotes className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={currentEditor.isActive("link")}
+          onClick={setLink}
+          label="Link"
+        >
+          <LinkSimple className="size-3.5" />
+        </ToolbarButton>
+        <div className="mx-1 h-4 w-px bg-border" />
+        <ToolbarButton
+          active={alignLeftActive}
+          onClick={() =>
+            currentEditor.chain().focus().setTextAlign("left").run()
+          }
+          label="Align left"
+        >
+          <TextAlignLeft className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={alignCenterActive}
+          onClick={() =>
+            currentEditor.chain().focus().setTextAlign("center").run()
+          }
+          label="Align center"
+        >
+          <TextAlignCenter className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={alignRightActive}
+          onClick={() =>
+            currentEditor.chain().focus().setTextAlign("right").run()
+          }
+          label="Align right"
+        >
+          <TextAlignRight className="size-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          active={tableActive}
+          disabled={!canInsertTable}
+          onClick={() => insertDefaultTable(currentEditor)}
+          label="Insert table"
+        >
+          <TableIcon className="size-3.5" />
+        </ToolbarButton>
+        {onUploadAttachment ? (
           <ToolbarButton
             active={false}
-            disabled={!canAddTableRow}
-            onClick={() => currentEditor.chain().focus().addRowAfter().run()}
-            label="Add row"
+            onClick={() => requestImagePicker(currentEditor)}
+            label="Insert image"
           >
-            <RowsPlusBottom className="size-3.5" />
+            <ImageSquare className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canAddTableColumn}
-            onClick={() => currentEditor.chain().focus().addColumnAfter().run()}
-            label="Add column"
-          >
-            <ColumnsPlusRight className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canDeleteTableRow}
-            onClick={() => currentEditor.chain().focus().deleteRow().run()}
-            label="Delete row"
-          >
-            <Trash className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canDeleteTableColumn}
-            onClick={() => currentEditor.chain().focus().deleteColumn().run()}
-            label="Delete column"
-          >
-            <Trash className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canDeleteTable}
-            onClick={() => currentEditor.chain().focus().deleteTable().run()}
-            label="Delete table"
-          >
-            <Trash className="size-3.5" />
-          </ToolbarButton>
-        </>
-      ) : null}
-      {onUploadAttachment ? (
-        <>
-          <input
-            ref={hiddenAttachmentInputRef}
-            className="hidden"
-            type="file"
-            multiple
-            onChange={(event) =>
-              void handleFiles(
-                Array.from(event.target.files ?? []),
-                pickerInsertPosition
-              )
-            }
-          />
-          <input
-            ref={hiddenImageInputRef}
-            className="hidden"
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(event) =>
-              void handleFiles(
-                Array.from(event.target.files ?? []),
-                pickerInsertPosition
-              )
-            }
-          />
-          <ToolbarButton
-            active={false}
-            onClick={() => {
-              setPickerInsertPosition(currentEditor.state.selection.from)
-              hiddenAttachmentInputRef.current?.click()
-            }}
-            label="Attach file"
-          >
-            <Paperclip className="size-3.5" />
-          </ToolbarButton>
-        </>
-      ) : null}
-      {uploadingAttachment ? (
-        <span className="ml-2 text-xs text-muted-foreground">Uploading…</span>
-      ) : null}
-      <span className="ml-auto pl-3 text-xs whitespace-nowrap text-muted-foreground">
-        {statsWords} words · {statsCharacters} characters
-      </span>
-    </div>
-  ) : null
+        ) : null}
+        {tableActive ? (
+          <>
+            <div className="mx-1 h-4 w-px bg-border" />
+            <ToolbarButton
+              active={false}
+              disabled={!canAddTableRow}
+              onClick={() => currentEditor.chain().focus().addRowAfter().run()}
+              label="Add row"
+            >
+              <RowsPlusBottom className="size-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              active={false}
+              disabled={!canAddTableColumn}
+              onClick={() =>
+                currentEditor.chain().focus().addColumnAfter().run()
+              }
+              label="Add column"
+            >
+              <ColumnsPlusRight className="size-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              active={false}
+              disabled={!canDeleteTableRow}
+              onClick={() => currentEditor.chain().focus().deleteRow().run()}
+              label="Delete row"
+            >
+              <Trash className="size-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              active={false}
+              disabled={!canDeleteTableColumn}
+              onClick={() => currentEditor.chain().focus().deleteColumn().run()}
+              label="Delete column"
+            >
+              <Trash className="size-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              active={false}
+              disabled={!canDeleteTable}
+              onClick={() => currentEditor.chain().focus().deleteTable().run()}
+              label="Delete table"
+            >
+              <Trash className="size-3.5" />
+            </ToolbarButton>
+          </>
+        ) : null}
+        {onUploadAttachment ? (
+          <>
+            <input
+              ref={hiddenAttachmentInputRef}
+              className="hidden"
+              type="file"
+              multiple
+              onChange={(event) =>
+                void handleFiles(
+                  Array.from(event.target.files ?? []),
+                  pickerInsertPosition
+                )
+              }
+            />
+            <input
+              ref={hiddenImageInputRef}
+              className="hidden"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) =>
+                void handleFiles(
+                  Array.from(event.target.files ?? []),
+                  pickerInsertPosition
+                )
+              }
+            />
+            <ToolbarButton
+              active={false}
+              onClick={() => {
+                setPickerInsertPosition(currentEditor.state.selection.from)
+                hiddenAttachmentInputRef.current?.click()
+              }}
+              label="Attach file"
+            >
+              <Paperclip className="size-3.5" />
+            </ToolbarButton>
+          </>
+        ) : null}
+        {uploadingAttachment ? (
+          <span className="ml-2 text-xs text-muted-foreground">Uploading…</span>
+        ) : null}
+        <span className="ml-auto pl-3 text-xs whitespace-nowrap text-muted-foreground">
+          {statsWords} words · {statsCharacters} characters
+        </span>
+      </div>
+    ) : null
 
   const slashMenu = slashState ? (
     <div

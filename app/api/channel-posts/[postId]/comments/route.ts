@@ -27,7 +27,10 @@ export async function POST(
   })
 
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid comment payload" }, { status: 400 })
+    return NextResponse.json(
+      { error: "Invalid comment payload" },
+      { status: 400 }
+    )
   }
 
   try {
@@ -40,13 +43,18 @@ export async function POST(
       currentUserId: ensuredUser.userId,
       ...parsed.data,
     })
-    const emailedNotificationIds = await sendMentionEmails({
-      origin: new URL(request.url).origin,
-      emails: result?.mentionEmails ?? [],
-    })
 
-    if (emailedNotificationIds.length > 0) {
-      await markNotificationsEmailedServer(emailedNotificationIds)
+    try {
+      const emailedNotificationIds = await sendMentionEmails({
+        origin: new URL(request.url).origin,
+        emails: result?.mentionEmails ?? [],
+      })
+
+      if (emailedNotificationIds.length > 0) {
+        await markNotificationsEmailedServer(emailedNotificationIds)
+      }
+    } catch (emailError) {
+      console.error("Failed to send mention emails", emailError)
     }
 
     return NextResponse.json({

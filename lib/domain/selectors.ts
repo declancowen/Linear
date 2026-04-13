@@ -27,13 +27,18 @@ import {
   workItemTypeMeta,
   workStatuses,
 } from "@/lib/domain/types"
+import { sortViewsForDisplay } from "@/lib/domain/default-views"
 
 export function getCurrentUser(data: AppData) {
-  return data.users.find((user) => user.id === data.currentUserId) ?? data.users[0]
+  return (
+    data.users.find((user) => user.id === data.currentUserId) ?? data.users[0]
+  )
 }
 
 export function getCurrentWorkspace(data: AppData) {
-  return data.workspaces.find((workspace) => workspace.id === data.currentWorkspaceId)
+  return data.workspaces.find(
+    (workspace) => workspace.id === data.currentWorkspaceId
+  )
 }
 
 export function getAccessibleTeams(data: AppData) {
@@ -77,7 +82,9 @@ export function canAdminTeam(data: AppData, teamId: string) {
 }
 
 export function canCreateWorkspace(data: AppData) {
-  return getAccessibleTeams(data).some((team) => getTeamRole(data, team.id) === "admin")
+  return getAccessibleTeams(data).some(
+    (team) => getTeamRole(data, team.id) === "admin"
+  )
 }
 
 export function getProject(data: AppData, projectId: string | null) {
@@ -184,14 +191,20 @@ export function getConversationParticipants(
     .filter((user): user is UserProfile => Boolean(user))
 }
 
-export function getTeamWorkflowSettings(team: Team | null | undefined): TeamWorkflowSettings {
+export function getTeamWorkflowSettings(
+  team: Team | null | undefined
+): TeamWorkflowSettings {
   return (
     team?.settings.workflow ??
-    createDefaultTeamWorkflowSettings(team?.settings.experience ?? "software-development")
+    createDefaultTeamWorkflowSettings(
+      team?.settings.experience ?? "software-development"
+    )
   )
 }
 
-export function getStatusOrderForTeam(team: Team | null | undefined): WorkStatus[] {
+export function getStatusOrderForTeam(
+  team: Team | null | undefined
+): WorkStatus[] {
   return [...getTeamWorkflowSettings(team).statusOrder]
 }
 
@@ -214,13 +227,19 @@ export function getLabelMap(data: AppData) {
   return Object.fromEntries(data.labels.map((label) => [label.id, label]))
 }
 
-export function getProjectsForScope(data: AppData, scopeType: "team" | "workspace", scopeId: string) {
+export function getProjectsForScope(
+  data: AppData,
+  scopeType: "team" | "workspace",
+  scopeId: string
+) {
   if (scopeType === "team") {
     return data.projects.filter(
       (project) =>
         (project.scopeType === "team" && project.scopeId === scopeId) ||
         (project.scopeType === "workspace" &&
-          getAccessibleTeams(data).some((team) => team.workspaceId === project.scopeId))
+          getAccessibleTeams(data).some(
+            (team) => team.workspaceId === project.scopeId
+          ))
     )
   }
 
@@ -228,11 +247,30 @@ export function getProjectsForScope(data: AppData, scopeType: "team" | "workspac
 
   return data.projects.filter((project) => {
     if (project.scopeType === "workspace") {
-      return project.scopeId === scopeId
+      return (
+        project.scopeId === scopeId &&
+        (project.leadId === data.currentUserId ||
+          project.memberIds.includes(data.currentUserId))
+      )
     }
 
     return accessibleTeams.includes(project.scopeId)
   })
+}
+
+export function getWorkspacePersonalViews(
+  data: AppData,
+  entityKind?: "items" | "projects" | "docs"
+) {
+  return sortViewsForDisplay(
+    data.views.filter(
+      (view) =>
+        view.scopeType === "personal" &&
+        view.scopeId === data.currentUserId &&
+        view.route.startsWith("/workspace/") &&
+        (entityKind ? view.entityKind === entityKind : true)
+    )
+  )
 }
 
 export function getDocumentsForScope(
@@ -257,14 +295,16 @@ export function getDocumentsForScope(
 
 export function getTeamDocuments(data: AppData, teamId: string) {
   return data.documents.filter(
-    (document) => document.kind === "team-document" && document.teamId === teamId
+    (document) =>
+      document.kind === "team-document" && document.teamId === teamId
   )
 }
 
 export function getWorkspaceDocuments(data: AppData, workspaceId: string) {
   return data.documents.filter(
     (document) =>
-      document.kind === "workspace-document" && document.workspaceId === workspaceId
+      document.kind === "workspace-document" &&
+      document.workspaceId === workspaceId
   )
 }
 
@@ -303,11 +343,17 @@ export function getViewsForScope(
   scopeId: string,
   entityKind: "items" | "projects" | "docs"
 ) {
-  return data.views.filter(
-    (view) =>
-      view.scopeType === scopeType &&
-      view.scopeId === scopeId &&
-      view.entityKind === entityKind
+  if (scopeType === "workspace") {
+    return getWorkspacePersonalViews(data, entityKind)
+  }
+
+  return sortViewsForDisplay(
+    data.views.filter(
+      (view) =>
+        view.scopeType === scopeType &&
+        view.scopeId === scopeId &&
+        view.entityKind === entityKind
+    )
   )
 }
 
@@ -317,7 +363,10 @@ export function getCommentsForTarget(
   targetId: string
 ) {
   return data.comments
-    .filter((comment) => comment.targetType === targetType && comment.targetId === targetId)
+    .filter(
+      (comment) =>
+        comment.targetType === targetType && comment.targetId === targetId
+    )
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
@@ -330,7 +379,9 @@ export function getWorkspaceChats(data: AppData, workspaceId: string) {
         conversation.scopeId === workspaceId &&
         conversation.participantIds.includes(data.currentUserId)
     )
-    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+    .sort((left, right) =>
+      right.lastActivityAt.localeCompare(left.lastActivityAt)
+    )
 }
 
 export function getWorkspaceChannels(data: AppData, workspaceId: string) {
@@ -341,7 +392,9 @@ export function getWorkspaceChannels(data: AppData, workspaceId: string) {
         conversation.scopeType === "workspace" &&
         conversation.scopeId === workspaceId
     )
-    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+    .sort((left, right) =>
+      right.lastActivityAt.localeCompare(left.lastActivityAt)
+    )
 }
 
 export function getPrimaryWorkspaceChannel(data: AppData, workspaceId: string) {
@@ -368,7 +421,9 @@ export function getTeamChannels(data: AppData, teamId: string) {
         conversation.scopeType === "team" &&
         conversation.scopeId === teamId
     )
-    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+    .sort((left, right) =>
+      right.lastActivityAt.localeCompare(left.lastActivityAt)
+    )
 }
 
 export function getPrimaryTeamChannel(data: AppData, teamId: string) {
@@ -398,7 +453,9 @@ export function getTeamSurfaceDisableReason(
       : null
   }
 
-  const channelIds = new Set(getTeamChannels(data, teamId).map((channel) => channel.id))
+  const channelIds = new Set(
+    getTeamChannels(data, teamId).map((channel) => channel.id)
+  )
 
   if (channelIds.size === 0) {
     return null
@@ -463,29 +520,61 @@ export function getChannelPostHref(data: AppData, postId: string) {
   return `/team/${team.slug}/channel#${post.id}`
 }
 
+export function getConversationHref(data: AppData, conversationId: string) {
+  const conversation = data.conversations.find(
+    (entry) => entry.id === conversationId
+  )
+
+  if (!conversation || conversation.kind !== "chat") {
+    return null
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return `/chats?chatId=${conversation.id}`
+  }
+
+  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+
+  if (!team) {
+    return null
+  }
+
+  return `/team/${team.slug}/chat`
+}
+
 export function getAttachmentsForTarget(
   data: AppData,
   targetType: "workItem" | "document",
   targetId: string
 ) {
   return data.attachments
-    .filter((attachment) => attachment.targetType === targetType && attachment.targetId === targetId)
+    .filter(
+      (attachment) =>
+        attachment.targetType === targetType && attachment.targetId === targetId
+    )
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
 export function getProjectProgress(data: AppData, projectId: string) {
   const items = data.workItems.filter(
-    (item) => item.primaryProjectId === projectId || item.linkedProjectIds.includes(projectId)
+    (item) =>
+      item.primaryProjectId === projectId ||
+      item.linkedProjectIds.includes(projectId)
   )
   const completed = items.filter((item) => item.status === "done").length
   return {
     scope: items.length,
     completed,
-    percent: items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
+    percent:
+      items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
   }
 }
 
-export function isGuestVisible(data: AppData, team: Team, entity: Project | Document | WorkItem) {
+export function isGuestVisible(
+  data: AppData,
+  team: Team,
+  entity: Project | Document | WorkItem
+) {
   if ("templateType" in entity) {
     return team.settings.guestProjectIds.includes(entity.id)
   }
@@ -523,10 +612,17 @@ export function getVisibleWorkItems(
   return data.workItems.filter((item) => teamIds.includes(item.teamId))
 }
 
-export function itemMatchesView(data: AppData, item: WorkItem, view: ViewDefinition) {
+export function itemMatchesView(
+  data: AppData,
+  item: WorkItem,
+  view: ViewDefinition
+) {
   const project = getProject(data, item.primaryProjectId)
 
-  if (view.filters.status.length > 0 && !view.filters.status.includes(item.status)) {
+  if (
+    view.filters.status.length > 0 &&
+    !view.filters.status.includes(item.status)
+  ) {
     return false
   }
 
@@ -595,7 +691,9 @@ export function itemMatchesView(data: AppData, item: WorkItem, view: ViewDefinit
 
   if (
     !view.filters.showCompleted &&
-    (item.status === "done" || item.status === "cancelled" || item.status === "duplicate")
+    (item.status === "done" ||
+      item.status === "cancelled" ||
+      item.status === "duplicate")
   ) {
     return false
   }
@@ -695,16 +793,18 @@ export function buildItemGroups(
   const statusOrder = getStatusOrderForItems(data, items)
 
   return new Map(
-    [...groups.entries()].sort((left, right) =>
-      compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
-    ).map(([groupKey, subgroups]) => [
-      groupKey,
-      new Map(
-        [...subgroups.entries()].sort((left, right) =>
-          compareGroupKeys(view.subGrouping, left[0], right[0], statusOrder)
-        )
-      ),
-    ])
+    [...groups.entries()]
+      .sort((left, right) =>
+        compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
+      )
+      .map(([groupKey, subgroups]) => [
+        groupKey,
+        new Map(
+          [...subgroups.entries()].sort((left, right) =>
+            compareGroupKeys(view.subGrouping, left[0], right[0], statusOrder)
+          )
+        ),
+      ])
   )
 }
 
@@ -729,7 +829,10 @@ function compareGroupKeys(
   statusOrder: WorkStatus[]
 ) {
   if (field === "status") {
-    return statusOrder.indexOf(left as WorkStatus) - statusOrder.indexOf(right as WorkStatus)
+    return (
+      statusOrder.indexOf(left as WorkStatus) -
+      statusOrder.indexOf(right as WorkStatus)
+    )
   }
 
   if (field === "priority") {
@@ -788,11 +891,7 @@ export type GlobalSearchResult = {
 }
 
 export function searchWorkspace(data: AppData, query: string) {
-  const tokens = query
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const textTokens: string[] = []
   const kinds = new Set<GlobalSearchResult["kind"]>()
   let teamToken: string | null = null
@@ -807,9 +906,17 @@ export function searchWorkspace(data: AppData, query: string) {
         kinds.add("team")
       } else if (rawKind === "project" || rawKind === "projects") {
         kinds.add("project")
-      } else if (rawKind === "item" || rawKind === "issue" || rawKind === "issues") {
+      } else if (
+        rawKind === "item" ||
+        rawKind === "issue" ||
+        rawKind === "issues"
+      ) {
         kinds.add("item")
-      } else if (rawKind === "doc" || rawKind === "docs" || rawKind === "document") {
+      } else if (
+        rawKind === "doc" ||
+        rawKind === "docs" ||
+        rawKind === "document"
+      ) {
         kinds.add("document")
       }
       continue
@@ -832,9 +939,15 @@ export function searchWorkspace(data: AppData, query: string) {
   }
 
   const accessibleTeams = getAccessibleTeams(data)
-  const projects = getProjectsForScope(data, "workspace", data.currentWorkspaceId)
+  const projects = getProjectsForScope(
+    data,
+    "workspace",
+    data.currentWorkspaceId
+  )
   const documents = getSearchableDocuments(data, data.currentWorkspaceId)
-  const items = getVisibleWorkItems(data, { workspaceId: data.currentWorkspaceId })
+  const items = getVisibleWorkItems(data, {
+    workspaceId: data.currentWorkspaceId,
+  })
 
   const navigationResults: GlobalSearchResult[] = [
     {
@@ -897,7 +1010,8 @@ export function searchWorkspace(data: AppData, query: string) {
       id: "nav-search",
       kind: "navigation",
       title: "Workspace Search",
-      subtitle: "Expanded search with faceted results across the workspace graph",
+      subtitle:
+        "Expanded search with faceted results across the workspace graph",
       href: "/workspace/search",
       keywords: ["search", "discover", "workspace"],
     },
@@ -935,8 +1049,10 @@ export function searchWorkspace(data: AppData, query: string) {
         project.summary,
         project.templateType,
         getUser(data, project.leadId)?.name ?? "",
-        getTeam(data, project.scopeType === "team" ? project.scopeId : data.ui.activeTeamId)
-          ?.name ?? "",
+        getTeam(
+          data,
+          project.scopeType === "team" ? project.scopeId : data.ui.activeTeamId
+        )?.name ?? "",
       ],
       teamId: project.scopeType === "team" ? project.scopeId : null,
       status: null,
@@ -994,13 +1110,20 @@ export function searchWorkspace(data: AppData, query: string) {
         if (!matchesTeam) {
           return false
         }
-      } else if (result.kind === "project" || result.kind === "item" || result.kind === "document") {
+      } else if (
+        result.kind === "project" ||
+        result.kind === "item" ||
+        result.kind === "document"
+      ) {
         const entityTeamId =
           result.kind === "project"
-            ? projects.find((project) => `project-${project.id}` === result.id)?.scopeId
+            ? projects.find((project) => `project-${project.id}` === result.id)
+                ?.scopeId
             : result.kind === "item"
               ? items.find((item) => `item-${item.id}` === result.id)?.teamId
-              : documents.find((document) => `document-${document.id}` === result.id)?.teamId
+              : documents.find(
+                  (document) => `document-${document.id}` === result.id
+                )?.teamId
 
         if (
           !entityTeamId ||
@@ -1058,8 +1181,8 @@ export function formatDisplayValue(
 
   if (property === "milestone") {
     return (
-      data.milestones.find((milestone) => milestone.id === item.milestoneId)?.name ??
-      "No milestone"
+      data.milestones.find((milestone) => milestone.id === item.milestoneId)
+        ?.name ?? "No milestone"
     )
   }
 

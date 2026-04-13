@@ -30,13 +30,17 @@ export async function POST(request: NextRequest) {
     })
 
     if (!joined) {
-      return NextResponse.json({ error: "Unable to join team" }, { status: 500 })
+      return NextResponse.json(
+        { error: "Unable to join team" },
+        { status: 500 }
+      )
     }
 
     await ensureAuthenticatedAppContext(session.user, session.organizationId)
 
     return NextResponse.json({
       ok: true,
+      role: joined.role,
       teamSlug: joined.teamSlug,
       workspaceId: joined.workspaceId,
     })

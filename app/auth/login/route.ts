@@ -4,12 +4,11 @@ import { NextResponse } from "next/server"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
-  buildPortalPageHref,
-  buildPortalPostAuthPath,
-  getPortalOrigin,
-  normalizePortalAuthNextPath,
-  parsePortalAppId,
-} from "@/lib/portal"
+  buildAuthPageHref,
+  buildPostAuthPath,
+  getAppOrigin,
+  normalizeAuthNextPath,
+} from "@/lib/auth-routing"
 
 function getRequestMetadata(request: Request) {
   const forwardedFor = request.headers.get("x-forwarded-for")
@@ -23,7 +22,7 @@ function getRequestMetadata(request: Request) {
 }
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getPortalOrigin()), {
+  return NextResponse.redirect(new URL(path, getAppOrigin()), {
     status: request.method === "POST" ? 303 : 307,
   })
 }
@@ -56,13 +55,11 @@ function mapLoginError(error: unknown) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const appId = parsePortalAppId(url.searchParams.get("app"))
-  const nextPath = normalizePortalAuthNextPath(url.searchParams.get("next"), appId)
+  const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
 
   return redirectTo(
     request,
-    buildPortalPageHref("login", {
-      appId,
+    buildAuthPageHref("login", {
       nextPath,
     })
   )
@@ -72,17 +69,12 @@ export async function POST(request: Request) {
   const formData = await request.formData()
   const email = String(formData.get("email") ?? "").trim()
   const password = String(formData.get("password") ?? "")
-  const appId = parsePortalAppId(String(formData.get("app") ?? ""))
-  const nextPath = normalizePortalAuthNextPath(
-    String(formData.get("next") ?? ""),
-    appId
-  )
+  const nextPath = normalizeAuthNextPath(String(formData.get("next") ?? ""))
 
   if (!email || !password) {
     return redirectTo(
       request,
-      buildPortalPageHref("login", {
-        appId,
+      buildAuthPageHref("login", {
         nextPath,
         email,
         error: "Enter your email and password.",
@@ -105,12 +97,11 @@ export async function POST(request: Request) {
       authenticationResponse.organizationId
     )
 
-    return redirectTo(request, buildPortalPostAuthPath(appId, nextPath))
+    return redirectTo(request, buildPostAuthPath(nextPath))
   } catch (error) {
     return redirectTo(
       request,
-      buildPortalPageHref("login", {
-        appId,
+      buildAuthPageHref("login", {
         nextPath,
         email,
         error: mapLoginError(error),

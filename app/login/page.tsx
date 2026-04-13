@@ -1,16 +1,11 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
-import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { AuthEntryScreen } from "@/components/app/auth-entry-screen"
 import {
-  buildPortalAuthHref,
-  buildPortalPostAuthPath,
-  getAppModeFromHeaders,
-  isSingleHostLocalDev,
-  normalizePortalAuthNextPath,
-  parsePortalAppId,
-} from "@/lib/portal"
+  buildPostAuthPath,
+  normalizeAuthNextPath,
+} from "@/lib/auth-routing"
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -24,25 +19,17 @@ type LoginPageProps = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams
-  const requestHeaders = await headers()
-  const appMode = getAppModeFromHeaders(requestHeaders)
-  const selectedAppId = parsePortalAppId(params.app)
-  const nextPath = normalizePortalAuthNextPath(params.next, selectedAppId)
-
-  if (!isSingleHostLocalDev() && appMode !== "portal") {
-    redirect(buildPortalAuthHref("login", "projects", nextPath))
-  }
+  const nextPath = normalizeAuthNextPath(params.next)
 
   const auth = await withAuth()
 
   if (auth.user) {
-    redirect(buildPortalPostAuthPath(selectedAppId, nextPath))
+    redirect(buildPostAuthPath(nextPath))
   }
 
   return (
     <AuthEntryScreen
       mode="login"
-      appId={selectedAppId}
       nextPath={nextPath}
       error={params.error}
       notice={params.notice}

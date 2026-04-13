@@ -31,6 +31,16 @@ export async function getInviteByTokenServer(token: string) {
   return getConvexServerClient().query(api.app.getInviteByToken, { token })
 }
 
+export async function createWorkspaceServer(input: {
+  currentUserId: string
+  name: string
+  logoUrl: string
+  accent: string
+  description: string
+}) {
+  return getConvexServerClient().mutation(api.app.createWorkspace, input)
+}
+
 export async function lookupTeamByJoinCodeServer(code: string) {
   return getConvexServerClient().query(api.app.lookupTeamByJoinCode, { code })
 }
@@ -60,6 +70,13 @@ export async function acceptInviteServer(input: {
   token: string
 }) {
   return getConvexServerClient().mutation(api.app.acceptInvite, input)
+}
+
+export async function declineInviteServer(input: {
+  currentUserId: string
+  token: string
+}) {
+  return getConvexServerClient().mutation(api.app.declineInvite, input)
 }
 
 export async function markNotificationsEmailedServer(
@@ -124,6 +141,29 @@ export async function updateCurrentUserProfileServer(input: {
     api.app.updateCurrentUserProfile,
     input
   )
+}
+
+export async function ensureWorkspaceScaffoldingServer(input: {
+  currentUserId: string
+  workspaceId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.ensureWorkspaceScaffolding,
+      input
+    )
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes(
+        "Could not find public function for 'app:ensureWorkspaceScaffolding'"
+      )
+    ) {
+      return null
+    }
+
+    throw error
+  }
 }
 
 export async function joinTeamByCodeServer(input: {
@@ -302,9 +342,18 @@ export async function addCommentServer(input: {
   currentUserId: string
   targetType: "workItem" | "document"
   targetId: string
+  parentCommentId?: string | null
   content: string
 }) {
   return getConvexServerClient().mutation(api.app.addComment, input)
+}
+
+export async function toggleCommentReactionServer(input: {
+  currentUserId: string
+  commentId: string
+  emoji: string
+}) {
+  return getConvexServerClient().mutation(api.app.toggleCommentReaction, input)
 }
 
 export async function generateAttachmentUploadUrlServer(input: {
@@ -424,7 +473,6 @@ export async function updateTeamDetailsServer(input: {
   name: string
   icon: string
   summary: string
-  joinCode: string
   experience:
     | "software-development"
     | "issue-analysis"
@@ -464,6 +512,14 @@ export async function createTeamServer(input: {
   }
 }) {
   return getConvexServerClient().mutation(api.app.createTeam, input)
+}
+
+export async function regenerateTeamJoinCodeServer(input: {
+  currentUserId: string
+  teamId: string
+  joinCode: string
+}) {
+  return getConvexServerClient().mutation(api.app.regenerateTeamJoinCode, input)
 }
 
 export async function createWorkspaceChatServer(input: {

@@ -29,7 +29,7 @@ export async function PATCH(
       session.organizationId
     )
 
-    const result = await updateTeamDetailsServer({
+    await updateTeamDetailsServer({
       currentUserId: ensuredUser.userId,
       teamId,
       ...parsed.data,
@@ -38,7 +38,6 @@ export async function PATCH(
     return NextResponse.json({
       ok: true,
       teamId,
-      joinCode: result?.joinCode ?? parsed.data.joinCode.toUpperCase(),
     })
   } catch (error) {
     console.error(error)

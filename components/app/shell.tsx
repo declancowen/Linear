@@ -106,7 +106,13 @@ import {
 import { Switch } from "@/components/ui/switch"
 
 const previewRoles: Role[] = ["admin", "member", "viewer", "guest"]
-const workspaceAccentOptions = ["emerald", "blue", "amber", "rose", "slate"] as const
+const workspaceAccentOptions = [
+  "emerald",
+  "blue",
+  "amber",
+  "rose",
+  "slate",
+] as const
 type TeamSurfaceDisableReasons = {
   docs: string | null
   chat: string | null
@@ -132,20 +138,36 @@ export function AppShell({ children }: AppShellProps) {
   ).length
   const workspace = getCurrentWorkspace(data)
   const currentUser = getCurrentUser(data)
+  const pendingInviteCount = data.invites.filter((invite) => {
+    if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
+      return false
+    }
+
+    if (invite.acceptedAt || invite.declinedAt) {
+      return false
+    }
+
+    return true
+  }).length
   const teams = getAccessibleTeams(data)
 
   const [inviteOpen, setInviteOpen] = useState(false)
-  const [inviteMode, setInviteMode] = useState<"workspace" | "team">("workspace")
+  const [inviteMode, setInviteMode] = useState<"workspace" | "team">(
+    "workspace"
+  )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  const [joinCodeOpen, setJoinCodeOpen] = useState(false)
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
-  const [teamDetailsTeamId, setTeamDetailsTeamId] = useState<string | null>(null)
+  const [teamDetailsTeamId, setTeamDetailsTeamId] = useState<string | null>(
+    null
+  )
   const [profileOpen, setProfileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
-  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(() => new Set(teams.map((t) => t.id)))
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
+    () => new Set(teams.map((t) => t.id))
+  )
   const canCreateTeam = teams.some(
     (team) =>
       team.workspaceId === data.currentWorkspaceId &&
@@ -193,9 +215,11 @@ export function AppShell({ children }: AppShellProps) {
         presetTeamIds={invitePresetTeamIds}
       />
       {createTeamOpen ? (
-        <CreateTeamDialog open={createTeamOpen} onOpenChange={setCreateTeamOpen} />
+        <CreateTeamDialog
+          open={createTeamOpen}
+          onOpenChange={setCreateTeamOpen}
+        />
       ) : null}
-      <JoinTeamDialog open={joinCodeOpen} onOpenChange={setJoinCodeOpen} />
       {workspaceOpen ? (
         <WorkspaceDialog
           key={`${workspace?.id ?? "workspace"}-${workspaceOpen}`}
@@ -229,7 +253,7 @@ export function AppShell({ children }: AppShellProps) {
                       <div className="flex size-5 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
                         {workspace?.logoUrl}
                       </div>
-                      <span className="truncate text-[12px] font-semibold leading-none">
+                      <span className="truncate text-[12px] leading-none font-semibold">
                         {workspace?.name}
                       </span>
                       <CaretDown
@@ -245,6 +269,22 @@ export function AppShell({ children }: AppShellProps) {
                         <Gear />
                         Workspace details
                       </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href="/invites"
+                          className="flex w-full items-center justify-between gap-3"
+                        >
+                          <span className="flex items-center gap-2">
+                            <IdentificationBadge />
+                            <span>Join workspace</span>
+                          </span>
+                          {pendingInviteCount > 0 ? (
+                            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none font-medium text-muted-foreground">
+                              {pendingInviteCount}
+                            </span>
+                          ) : null}
+                        </Link>
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onSelect={() => {
                           setInviteMode("workspace")
@@ -253,11 +293,7 @@ export function AppShell({ children }: AppShellProps) {
                         }}
                       >
                         <Plus />
-                        Invite to teams
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setJoinCodeOpen(true)}>
-                        <SignIn />
-                        Join a team with code
+                        Invite to workspace
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
@@ -305,7 +341,7 @@ export function AppShell({ children }: AppShellProps) {
             <div className="px-2">
               <button
                 type="button"
-                className="flex h-7 min-w-0 flex-1 items-center rounded-md text-left text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground"
+                className="flex h-7 min-w-0 flex-1 items-center rounded-md text-left text-[10px] font-medium tracking-[0.16em] text-sidebar-foreground/70 uppercase transition-colors hover:text-sidebar-foreground"
                 onClick={() => setWorkspaceSectionOpen((current) => !current)}
               >
                 <span className="truncate">Workspace</span>
@@ -382,7 +418,7 @@ export function AppShell({ children }: AppShellProps) {
             <div className="group/teams-header flex items-center justify-between px-2">
               <button
                 type="button"
-                className="flex h-7 min-w-0 flex-1 items-center rounded-md text-left text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground"
+                className="flex h-7 min-w-0 flex-1 items-center rounded-md text-left text-[10px] font-medium tracking-[0.16em] text-sidebar-foreground/70 uppercase transition-colors hover:text-sidebar-foreground"
                 onClick={() => setTeamsSectionOpen((current) => !current)}
               >
                 <span className="truncate">Your teams</span>
@@ -402,7 +438,7 @@ export function AppShell({ children }: AppShellProps) {
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  className="size-6 opacity-0 pointer-events-none transition-opacity group-hover/teams-header:pointer-events-auto group-hover/teams-header:opacity-100 group-focus-within/teams-header:pointer-events-auto group-focus-within/teams-header:opacity-100"
+                  className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within/teams-header:pointer-events-auto group-focus-within/teams-header:opacity-100 group-hover/teams-header:pointer-events-auto group-hover/teams-header:opacity-100"
                   onClick={() => setCreateTeamOpen(true)}
                 >
                   <Plus className="size-3.5" />
@@ -416,7 +452,8 @@ export function AppShell({ children }: AppShellProps) {
                   {teams.map((team) => {
                     const isExpanded = expandedTeams.has(team.id)
                     const teamRole = getTeamRole(data, team.id)
-                    const canInvite = teamRole === "admin" || teamRole === "member"
+                    const canInvite =
+                      teamRole === "admin" || teamRole === "member"
                     const canManage = teamRole === "admin"
                     const features = getTeamFeatureSettings(team)
 
@@ -448,7 +485,7 @@ export function AppShell({ children }: AppShellProps) {
                           </SidebarMenuButton>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <button className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover/team-row:opacity-100 group-focus-within/team-row:opacity-100 focus-visible:opacity-100">
+                              <button className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 transition-opacity group-focus-within/team-row:opacity-100 group-hover/team-row:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100">
                                 <DotsThree className="size-3.5" weight="bold" />
                               </button>
                             </DropdownMenuTrigger>
@@ -466,7 +503,9 @@ export function AppShell({ children }: AppShellProps) {
                                 </DropdownMenuItem>
                               ) : null}
                               {canManage ? (
-                                <DropdownMenuItem onSelect={() => setTeamDetailsTeamId(team.id)}>
+                                <DropdownMenuItem
+                                  onSelect={() => setTeamDetailsTeamId(team.id)}
+                                >
                                   <Gear />
                                   Team settings
                                 </DropdownMenuItem>
@@ -480,7 +519,9 @@ export function AppShell({ children }: AppShellProps) {
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
+                                  isActive={pathname.startsWith(
+                                    `/team/${team.slug}/chat`
+                                  )}
                                 >
                                   <Link href={`/team/${team.slug}/chat`}>
                                     <ChatCircleDots className="size-4" />
@@ -493,7 +534,9 @@ export function AppShell({ children }: AppShellProps) {
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={pathname.startsWith(`/team/${team.slug}/channel`)}
+                                  isActive={pathname.startsWith(
+                                    `/team/${team.slug}/channel`
+                                  )}
                                 >
                                   <Link href={`/team/${team.slug}/channel`}>
                                     <HashStraight className="size-4" />
@@ -506,7 +549,9 @@ export function AppShell({ children }: AppShellProps) {
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={pathname.startsWith(`/team/${team.slug}/work`)}
+                                  isActive={pathname.startsWith(
+                                    `/team/${team.slug}/work`
+                                  )}
                                 >
                                   <Link href={`/team/${team.slug}/work`}>
                                     <CodesandboxLogo className="size-4" />
@@ -519,7 +564,9 @@ export function AppShell({ children }: AppShellProps) {
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
+                                  isActive={pathname.startsWith(
+                                    `/team/${team.slug}/projects`
+                                  )}
                                 >
                                   <Link href={`/team/${team.slug}/projects`}>
                                     <Kanban className="size-4" />
@@ -532,7 +579,9 @@ export function AppShell({ children }: AppShellProps) {
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={pathname.startsWith(`/team/${team.slug}/views`)}
+                                  isActive={pathname.startsWith(
+                                    `/team/${team.slug}/views`
+                                  )}
                                 >
                                   <Link href={`/team/${team.slug}/views`}>
                                     <SquaresFour className="size-4" />
@@ -545,7 +594,9 @@ export function AppShell({ children }: AppShellProps) {
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
+                                  isActive={pathname.startsWith(
+                                    `/team/${team.slug}/docs`
+                                  )}
                                 >
                                   <Link href={`/team/${team.slug}/docs`}>
                                     <NotePencil className="size-4" />
@@ -563,25 +614,6 @@ export function AppShell({ children }: AppShellProps) {
               </SidebarGroupContent>
             ) : null}
           </SidebarGroup>
-          <SidebarSeparator />
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => {
-                      setInviteMode("workspace")
-                      setInvitePresetTeamIds([])
-                      setInviteOpen(true)
-                    }}
-                  >
-                    <Plus />
-                    <span>Invite people</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>
@@ -592,7 +624,9 @@ export function AppShell({ children }: AppShellProps) {
                     <div className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                       {currentUser.avatarUrl}
                     </div>
-                    <span className="truncate text-[12px]">{currentUser.name}</span>
+                    <span className="truncate text-[12px]">
+                      {currentUser.name}
+                    </span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
@@ -603,8 +637,15 @@ export function AppShell({ children }: AppShellProps) {
                       Edit profile
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <form action="/auth/logout" method="post" className="w-full">
-                        <button type="submit" className="flex w-full items-center gap-2">
+                      <form
+                        action="/auth/logout"
+                        method="post"
+                        className="w-full"
+                      >
+                        <button
+                          type="submit"
+                          className="flex w-full items-center gap-2"
+                        >
                           <SignIn />
                           Sign out
                         </button>
@@ -621,7 +662,9 @@ export function AppShell({ children }: AppShellProps) {
                   <DropdownMenuLabel>Role preview</DropdownMenuLabel>
                   <DropdownMenuGroup>
                     <DropdownMenuItem
-                      onSelect={() => useAppStore.getState().setRolePreview(null)}
+                      onSelect={() =>
+                        useAppStore.getState().setRolePreview(null)
+                      }
                     >
                       <IdentificationBadge />
                       Actual team role
@@ -629,7 +672,9 @@ export function AppShell({ children }: AppShellProps) {
                     {previewRoles.map((role) => (
                       <DropdownMenuItem
                         key={role}
-                        onSelect={() => useAppStore.getState().setRolePreview(role)}
+                        onSelect={() =>
+                          useAppStore.getState().setRolePreview(role)
+                        }
                       >
                         <IdentificationBadge />
                         Preview as {role}
@@ -644,9 +689,7 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <div className="flex min-w-0 flex-1 flex-col">
-          {children}
-        </div>
+        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   )
@@ -807,12 +850,13 @@ function TeamEditorFields({
   setName,
   setIcon,
   setSummary,
-  setJoinCode,
   setFeatures,
   savedFeatures,
   surfaceDisableReasons,
   canChangeExperience = false,
   onExperienceChange,
+  onRegenerateJoinCode,
+  joinCodeReadonlyLabel = "Generated automatically after the team is created.",
 }: {
   name: string
   icon: string
@@ -823,7 +867,6 @@ function TeamEditorFields({
   setName: (value: string) => void
   setIcon: (value: string) => void
   setSummary: (value: string) => void
-  setJoinCode: (value: string) => void
   setFeatures: (
     value:
       | TeamFeatureSettings
@@ -833,6 +876,8 @@ function TeamEditorFields({
   surfaceDisableReasons: TeamSurfaceDisableReasons
   canChangeExperience?: boolean
   onExperienceChange?: (experience: TeamExperienceType) => void
+  onRegenerateJoinCode?: (() => Promise<void>) | null
+  joinCodeReadonlyLabel?: string
 }) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
   const optionalFeatures = [
@@ -857,7 +902,7 @@ function TeamEditorFields({
     <div className="grid gap-8 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
       <div className="flex flex-col gap-8">
         <section>
-          <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             Identity
           </h3>
           <FieldGroup className="gap-4">
@@ -904,8 +949,13 @@ function TeamEditorFields({
                   </Select>
                 </FieldContent>
                 <FieldDescription>
-                  Defaults to {teamIconMeta[getDefaultTeamIconForExperience(experience)].label}{" "}
-                  for {teamExperienceMeta[experience].label.toLowerCase()} teams.
+                  Defaults to{" "}
+                  {
+                    teamIconMeta[getDefaultTeamIconForExperience(experience)]
+                      .label
+                  }{" "}
+                  for {teamExperienceMeta[experience].label.toLowerCase()}{" "}
+                  teams.
                 </FieldDescription>
               </Field>
             </div>
@@ -926,18 +976,31 @@ function TeamEditorFields({
             <Field>
               <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
               <FieldContent>
-                <Input
-                  id="team-join-code"
-                  value={joinCode}
-                  onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="team-join-code"
+                    value={joinCode || "Generated on create"}
+                    readOnly
+                  />
+                  {onRegenerateJoinCode ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void onRegenerateJoinCode()}
+                    >
+                      <ArrowsClockwise />
+                      Regenerate
+                    </Button>
+                  ) : null}
+                </div>
               </FieldContent>
+              <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
             </Field>
           </FieldGroup>
         </section>
 
         <section>
-          <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             Surfaces
           </h3>
           {experience === "community" ? (
@@ -982,7 +1045,8 @@ function TeamEditorFields({
                           : "hover:bg-accent/40"
                       )}
                       disabled={
-                        savedFeatures.chat && Boolean(surfaceDisableReasons.chat)
+                        savedFeatures.chat &&
+                        Boolean(surfaceDisableReasons.chat)
                       }
                       onClick={() =>
                         setFeatures({
@@ -1072,7 +1136,7 @@ function TeamEditorFields({
 
       <div className="flex flex-col gap-8">
         <section>
-          <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             Team type
           </h3>
           {canChangeExperience ? (
@@ -1101,7 +1165,7 @@ function TeamEditorFields({
                   </button>
                 )
               })}
-              <span className="inline-block text-[10px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="inline-block text-[10px] tracking-wider text-muted-foreground/70 uppercase">
                 Locked after creation
               </span>
             </div>
@@ -1113,7 +1177,7 @@ function TeamEditorFields({
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 {teamExperienceMeta[experience].description}
               </p>
-              <span className="mt-3 inline-block text-[10px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="mt-3 inline-block text-[10px] tracking-wider text-muted-foreground/70 uppercase">
                 Locked after creation
               </span>
             </div>
@@ -1121,7 +1185,7 @@ function TeamEditorFields({
         </section>
 
         <section>
-          <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             Notes
           </h3>
           <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
@@ -1132,9 +1196,7 @@ function TeamEditorFields({
             <p>
               Community spaces use exactly one collaboration mode at a time.
             </p>
-            <p>
-              Non-community teams can combine chat and channel.
-            </p>
+            <p>Non-community teams can combine chat and channel.</p>
           </div>
         </section>
       </div>
@@ -1157,7 +1219,6 @@ function CreateTeamDialog({
     getDefaultTeamIconForExperience("software-development")
   )
   const [summary, setSummary] = useState("")
-  const [joinCode, setJoinCode] = useState("")
   const [experience, setExperience] = useState<TeamExperienceType>(
     "software-development"
   )
@@ -1184,13 +1245,14 @@ function CreateTeamDialog({
             name={name}
             icon={icon}
             summary={summary}
-            joinCode={joinCode}
+            joinCode=""
             experience={experience}
             features={features}
             setName={setName}
-            setIcon={(value) => setIcon(normalizeTeamIconToken(value, experience))}
+            setIcon={(value) =>
+              setIcon(normalizeTeamIconToken(value, experience))
+            }
             setSummary={setSummary}
-            setJoinCode={setJoinCode}
             setFeatures={setFeatures}
             savedFeatures={features}
             surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
@@ -1200,6 +1262,7 @@ function CreateTeamDialog({
               setIcon(getDefaultTeamIconForExperience(nextExperience))
               setFeatures(createDefaultTeamFeatureSettings(nextExperience))
             }}
+            joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
           />
         </div>
 
@@ -1221,7 +1284,6 @@ function CreateTeamDialog({
                 name,
                 icon,
                 summary,
-                joinCode,
                 experience,
                 features,
               })
@@ -1229,7 +1291,9 @@ function CreateTeamDialog({
 
               if (created) {
                 onOpenChange(false)
-                router.push(getTeamLandingHref(created.teamSlug, created.features))
+                router.push(
+                  getTeamLandingHref(created.teamSlug, created.features)
+                )
               }
             }}
           >
@@ -1259,7 +1323,6 @@ function TeamDetailsDialog({
     normalizeTeamIconToken(team?.icon, experience)
   )
   const [summary, setSummary] = useState(team?.settings.summary ?? "")
-  const [joinCode, setJoinCode] = useState(team?.settings.joinCode ?? "")
   const [features, setFeatures] = useState(
     team?.settings.features ?? getTeamFeatureSettings(team)
   )
@@ -1290,16 +1353,21 @@ function TeamDetailsDialog({
             name={name}
             icon={icon}
             summary={summary}
-            joinCode={joinCode}
+            joinCode={team.settings.joinCode}
             experience={experience}
             features={features}
             setName={setName}
-            setIcon={(value) => setIcon(normalizeTeamIconToken(value, experience))}
+            setIcon={(value) =>
+              setIcon(normalizeTeamIconToken(value, experience))
+            }
             setSummary={setSummary}
-            setJoinCode={setJoinCode}
             setFeatures={setFeatures}
             savedFeatures={savedFeatures}
             surfaceDisableReasons={surfaceDisableReasons}
+            onRegenerateJoinCode={async () => {
+              await useAppStore.getState().regenerateTeamJoinCode(team.id)
+            }}
+            joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
           />
         </div>
 
@@ -1317,14 +1385,15 @@ function TeamDetailsDialog({
             disabled={saving}
             onClick={async () => {
               setSaving(true)
-              const updated = await useAppStore.getState().updateTeamDetails(team.id, {
-                name,
-                icon,
-                summary,
-                joinCode,
-                experience,
-                features,
-              })
+              const updated = await useAppStore
+                .getState()
+                .updateTeamDetails(team.id, {
+                  name,
+                  icon,
+                  summary,
+                  experience,
+                  features,
+                })
               setSaving(false)
 
               if (updated) {
@@ -1383,7 +1452,8 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite people</DialogTitle>
           <DialogDescription>
-            Invite users through one or more teams.
+            Start from the workspace invite and attach access through one or
+            more teams.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -1392,7 +1462,8 @@ function InviteDialog({
             <FieldContent>
               {lockedToTeam ? (
                 <div className="rounded-lg border px-3 py-2 text-sm">
-                  {teams.find((team) => team.id === presetTeamIds[0])?.name ?? "Selected team"}
+                  {teams.find((team) => team.id === presetTeamIds[0])?.name ??
+                    "Selected team"}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2 rounded-lg border p-3">
@@ -1434,7 +1505,10 @@ function InviteDialog({
           <Field>
             <FieldLabel>Role</FieldLabel>
             <FieldContent>
-              <Select value={role} onValueChange={(value) => setRole(value as Role)}>
+              <Select
+                value={role}
+                onValueChange={(value) => setRole(value as Role)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
@@ -1481,7 +1555,9 @@ function InviteDialog({
                 onOpenChange(false)
               } catch (error) {
                 toast.error(
-                  error instanceof Error ? error.message : "Failed to create invite"
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to create invite"
                 )
               } finally {
                 setSubmitting(false)
@@ -1489,54 +1565,6 @@ function InviteDialog({
             }}
           >
             {submitting ? "Sending..." : "Create invite"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function JoinTeamDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const [code, setCode] = useState("OPSJOIN")
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Join a team</DialogTitle>
-          <DialogDescription>
-            Enter a team join code to be added as a viewer.
-          </DialogDescription>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="join-code">Join code</FieldLabel>
-            <FieldContent>
-              <Input
-                id="join-code"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              useAppStore.getState().joinTeamByCode(code)
-              onOpenChange(false)
-            }}
-          >
-            Join team
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1556,6 +1584,7 @@ function ProfileDialog({
   const [name, setName] = useState(currentUser.name)
   const [title, setTitle] = useState(currentUser.title)
   const [avatarUrl, setAvatarUrl] = useState(currentUser.avatarUrl)
+  const [email, setEmail] = useState(currentUser.email)
   const [emailMentions, setEmailMentions] = useState(
     currentUser.preferences.emailMentions
   )
@@ -1565,6 +1594,88 @@ function ProfileDialog({
   const [emailDigest, setEmailDigest] = useState(
     currentUser.preferences.emailDigest
   )
+  const [changingEmail, setChangingEmail] = useState(false)
+  const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
+
+  async function handleEmailChange() {
+    if (email.trim().toLowerCase() === currentUser.email.toLowerCase()) {
+      toast.error("Enter a different email address")
+      return
+    }
+
+    try {
+      setChangingEmail(true)
+      const response = await fetch("/api/account/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+        }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        notice?: string
+        logoutRequired?: boolean
+      } | null
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to update your email address")
+      }
+
+      const notice =
+        payload?.notice ??
+        "Email updated. Verify the new address and then sign back in."
+
+      onOpenChange(false)
+      toast.success(notice)
+
+      if (payload?.logoutRequired && typeof document !== "undefined") {
+        const form = document.createElement("form")
+        form.method = "POST"
+        form.action = `/auth/logout?returnTo=${encodeURIComponent(
+          `/login?notice=${encodeURIComponent(notice)}`
+        )}`
+        document.body.appendChild(form)
+        form.submit()
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update your email"
+      )
+    } finally {
+      setChangingEmail(false)
+    }
+  }
+
+  async function handlePasswordReset() {
+    try {
+      setSendingPasswordReset(true)
+      const response = await fetch("/api/account/password-reset", {
+        method: "POST",
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+      } | null
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to start password reset")
+      }
+
+      toast.success("Password reset email sent")
+    } catch (error) {
+      console.error(error)
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to start password reset"
+      )
+    } finally {
+      setSendingPasswordReset(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1610,7 +1721,10 @@ function ProfileDialog({
                 <FieldDescription>
                   Send an email when someone mentions you.
                 </FieldDescription>
-                <Switch checked={emailMentions} onCheckedChange={setEmailMentions} />
+                <Switch
+                  checked={emailMentions}
+                  onCheckedChange={setEmailMentions}
+                />
               </div>
             </FieldContent>
           </Field>
@@ -1635,7 +1749,47 @@ function ProfileDialog({
                 <FieldDescription>
                   Include unread notifications in a digest email.
                 </FieldDescription>
-                <Switch checked={emailDigest} onCheckedChange={setEmailDigest} />
+                <Switch
+                  checked={emailDigest}
+                  onCheckedChange={setEmailDigest}
+                />
+              </div>
+            </FieldContent>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="profile-email">Account email</FieldLabel>
+            <FieldContent>
+              <Input
+                id="profile-email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                type="email"
+              />
+              <FieldDescription className="mt-2">
+                Updating your email sends a WorkOS verification email and then
+                signs you out so the new address can become canonical.
+              </FieldDescription>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={changingEmail}
+                  onClick={() => {
+                    void handleEmailChange()
+                  }}
+                >
+                  {changingEmail ? "Updating..." : "Change email"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={sendingPasswordReset}
+                  onClick={() => {
+                    void handlePasswordReset()
+                  }}
+                >
+                  {sendingPasswordReset ? "Sending..." : "Send password reset"}
+                </Button>
               </div>
             </FieldContent>
           </Field>

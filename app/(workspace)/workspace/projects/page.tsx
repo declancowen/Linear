@@ -17,7 +17,7 @@ export default function WorkspaceProjectsPage() {
       scopeId={workspace.id}
       scopeType="workspace"
       title="Workspace projects"
-      description="Projects created at the workspace layer plus aggregate visibility across joined teams."
+      description="Projects across the teams you belong to, plus workspace-level projects you are participating in."
     />
   )
 }

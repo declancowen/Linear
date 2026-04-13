@@ -2,6 +2,7 @@ import type { User } from "@workos-inc/node"
 
 import {
   ensureConvexUserFromAuth,
+  ensureWorkspaceScaffoldingServer,
   getAuthContextServer,
   setWorkspaceWorkosOrganizationServer,
 } from "@/lib/server/convex"
@@ -37,6 +38,10 @@ export async function ensureAuthenticatedAppContext(
     await ensureUserOrganizationMembership({
       organizationId: organization.id,
       workosUserId: authenticatedUser.workosUserId,
+    })
+    await ensureWorkspaceScaffoldingServer({
+      currentUserId: ensuredUser.userId,
+      workspaceId: authContext.currentWorkspace.id,
     })
 
     return {

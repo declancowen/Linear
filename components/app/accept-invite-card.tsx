@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useEffect, useEffectEvent, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 
 type AcceptInviteCardProps = {
   authenticated: boolean
@@ -26,6 +27,9 @@ type AcceptInviteCardProps = {
   role: string
   expired: boolean
   accepted: boolean
+  showDecline?: boolean
+  autoAccept?: boolean
+  className?: string
 }
 
 export function AcceptInviteCard({
@@ -39,9 +43,14 @@ export function AcceptInviteCard({
   role,
   expired,
   accepted,
+  showDecline = false,
+  autoAccept = false,
+  className,
 }: AcceptInviteCardProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [declining, setDeclining] = useState(false)
+  const autoAcceptStarted = useRef(false)
 
   async function handleAccept() {
     setLoading(true)
@@ -65,17 +74,68 @@ export function AcceptInviteCard({
       }
 
       toast.success("Invite accepted")
-      router.push(payload.teamSlug ? `/team/${payload.teamSlug}/work` : "/inbox")
+      router.push(
+        payload.teamSlug ? `/team/${payload.teamSlug}/work` : "/workspace/projects"
+      )
       router.refresh()
+      return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to accept invite")
+      return false
     } finally {
       setLoading(false)
     }
   }
 
+  async function handleDecline() {
+    setDeclining(true)
+
+    try {
+      const response = await fetch("/api/invites/decline", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token }),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to decline invite")
+      }
+
+      toast.success("Invite declined")
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to decline invite")
+    } finally {
+      setDeclining(false)
+    }
+  }
+
+  const handleAutoAccept = useEffectEvent(() => {
+    void handleAccept()
+  })
+
+  useEffect(() => {
+    if (
+      !authenticated ||
+      !autoAccept ||
+      expired ||
+      accepted ||
+      autoAcceptStarted.current
+    ) {
+      return
+    }
+
+    autoAcceptStarted.current = true
+    handleAutoAccept()
+  }, [accepted, authenticated, autoAccept, expired])
+
   return (
-    <Card className="mx-auto mt-16 w-full max-w-xl shadow-none">
+    <Card className={cn("w-full shadow-none", className)}>
       <CardHeader>
         <CardTitle>Join {teamName}</CardTitle>
         <CardDescription>
@@ -94,10 +154,19 @@ export function AcceptInviteCard({
       <CardFooter className="justify-end gap-2">
         {authenticated ? (
           <>
-            <Button variant="outline" onClick={() => router.push("/inbox")}>
-              Back to inbox
-            </Button>
-            <Button disabled={loading || expired} onClick={handleAccept}>
+            {showDecline ? (
+              <Button
+                variant="outline"
+                disabled={loading || declining || accepted}
+                onClick={handleDecline}
+              >
+                {declining ? "Declining..." : "Decline"}
+              </Button>
+            ) : null}
+            <Button
+              disabled={loading || declining || expired}
+              onClick={() => void handleAccept()}
+            >
               {accepted ? "Open team" : loading ? "Accepting..." : "Accept invite"}
             </Button>
           </>

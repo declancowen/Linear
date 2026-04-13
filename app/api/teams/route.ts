@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { teamDetailsSchema } from "@/lib/domain/types"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { createTeamServer } from "@/lib/server/convex"
+import { withGeneratedJoinCode } from "@/lib/server/join-codes"
 
 export async function POST(request: NextRequest) {
   const session = await withAuth()
@@ -25,24 +26,29 @@ export async function POST(request: NextRequest) {
       session.organizationId
     )
 
-    if (!authContext?.currentWorkspace) {
+    const targetWorkspace =
+      authContext?.currentWorkspace ?? authContext?.pendingWorkspace ?? null
+
+    if (!targetWorkspace) {
       return NextResponse.json(
         { error: "No active workspace" },
         { status: 400 }
       )
     }
 
-    const result = await createTeamServer({
-      currentUserId: ensuredUser.userId,
-      workspaceId: authContext.currentWorkspace.id,
-      ...parsed.data,
-    })
+    const result = await withGeneratedJoinCode((joinCode) =>
+      createTeamServer({
+        currentUserId: ensuredUser.userId,
+        workspaceId: targetWorkspace.id,
+        joinCode,
+        ...parsed.data,
+      })
+    )
 
     return NextResponse.json({
       ok: true,
       teamId: result?.teamId ?? null,
       teamSlug: result?.teamSlug ?? null,
-      joinCode: result?.joinCode ?? parsed.data.joinCode.toUpperCase(),
       features: result?.features ?? parsed.data.features,
     })
   } catch (error) {

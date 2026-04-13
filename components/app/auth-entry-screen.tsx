@@ -22,11 +22,9 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { type PortalAppId, portalApps } from "@/lib/portal"
 
 type AuthEntryScreenProps = {
   mode: "login" | "signup"
-  appId?: PortalAppId | null
   nextPath: string
   error?: string
   notice?: string
@@ -37,7 +35,6 @@ type AuthEntryScreenProps = {
 
 export function AuthEntryScreen({
   mode,
-  appId,
   nextPath,
   error,
   notice,
@@ -45,16 +42,13 @@ export function AuthEntryScreen({
   initialFirstName,
   initialLastName,
 }: AuthEntryScreenProps) {
-  const destinationLabel = appId ? portalApps[appId].name : "Portal"
   const isLogin = mode === "login"
   const googleHref = `/auth/google?${new URLSearchParams({
-    ...(appId ? { app: appId } : {}),
     next: nextPath,
     mode,
   }).toString()}`
   const alternateMode = isLogin ? "signup" : "login"
   const alternateHref = `/${alternateMode}?${new URLSearchParams({
-    ...(appId ? { app: appId } : {}),
     next: nextPath,
   }).toString()}`
 
@@ -75,8 +69,8 @@ export function AuthEntryScreen({
             </CardTitle>
             <CardDescription>
               {isLogin
-                ? `Sign in to continue to ${destinationLabel}.`
-                : `Sign up to continue to ${destinationLabel}.`}
+                ? "Sign in to continue to Recipe Room."
+                : "Sign up to continue to Recipe Room."}
             </CardDescription>
           </CardHeader>
 
@@ -86,7 +80,6 @@ export function AuthEntryScreen({
               method="post"
             >
               <input type="hidden" name="next" value={nextPath} />
-              {appId ? <input type="hidden" name="app" value={appId} /> : null}
 
               <FieldGroup>
                 {!isLogin ? (
@@ -128,7 +121,20 @@ export function AuthEntryScreen({
                 </Field>
 
                 <Field>
-                  <FieldLabel htmlFor="password">Password</FieldLabel>
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    {isLogin ? (
+                      <Link
+                        href={`/forgot-password?${new URLSearchParams({
+                          next: nextPath,
+                          ...(initialEmail ? { email: initialEmail } : {}),
+                        }).toString()}`}
+                        className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        Forgot password?
+                      </Link>
+                    ) : null}
+                  </div>
                   <Input
                     id="password"
                     name="password"

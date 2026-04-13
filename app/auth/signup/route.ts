@@ -2,14 +2,13 @@ import { NextResponse } from "next/server"
 
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
-  buildPortalPageHref,
-  getPortalOrigin,
-  normalizePortalAuthNextPath,
-  parsePortalAppId,
-} from "@/lib/portal"
+  buildAuthPageHref,
+  getAppOrigin,
+  normalizeAuthNextPath,
+} from "@/lib/auth-routing"
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getPortalOrigin()), {
+  return NextResponse.redirect(new URL(path, getAppOrigin()), {
     status: request.method === "POST" ? 303 : 307,
   })
 }
@@ -29,13 +28,11 @@ function mapSignupError(error: unknown) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const appId = parsePortalAppId(url.searchParams.get("app"))
-  const nextPath = normalizePortalAuthNextPath(url.searchParams.get("next"), appId)
+  const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
 
   return redirectTo(
     request,
-    buildPortalPageHref("signup", {
-      appId,
+    buildAuthPageHref("signup", {
       nextPath,
     })
   )
@@ -47,17 +44,12 @@ export async function POST(request: Request) {
   const lastName = String(formData.get("lastName") ?? "").trim()
   const email = String(formData.get("email") ?? "").trim()
   const password = String(formData.get("password") ?? "")
-  const appId = parsePortalAppId(String(formData.get("app") ?? ""))
-  const nextPath = normalizePortalAuthNextPath(
-    String(formData.get("next") ?? ""),
-    appId
-  )
+  const nextPath = normalizeAuthNextPath(String(formData.get("next") ?? ""))
 
   if (!firstName || !lastName || !email || !password) {
     return redirectTo(
       request,
-      buildPortalPageHref("signup", {
-        appId,
+      buildAuthPageHref("signup", {
         nextPath,
         email,
         error: "Complete every field to create your account.",
@@ -79,8 +71,7 @@ export async function POST(request: Request) {
 
     return redirectTo(
       request,
-      buildPortalPageHref("login", {
-        appId,
+      buildAuthPageHref("login", {
         nextPath,
         email,
         notice: "Account created. Sign in to continue.",
@@ -89,8 +80,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return redirectTo(
       request,
-      buildPortalPageHref("signup", {
-        appId,
+      buildAuthPageHref("signup", {
         nextPath,
         email,
         error: mapSignupError(error),

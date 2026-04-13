@@ -9,6 +9,10 @@ import { v } from "convex/values"
 
 import { createSeedState } from "../lib/domain/seed"
 import {
+  buildTeamIssueViews,
+  canonicalTeamIssueViewNames,
+} from "../lib/domain/default-views"
+import {
   canParentWorkItemTypeAcceptChild,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
@@ -16,6 +20,7 @@ import {
   getDefaultWorkItemTypesForTeamExperience,
   getTeamFeatureValidationMessage,
   normalizeTeamIconToken,
+  type ViewDefinition,
 } from "../lib/domain/types"
 import { getPlainTextContent } from "../lib/utils"
 import {
@@ -76,7 +81,7 @@ function normalizeJoinCode(value: string) {
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9_-]/g, "")
-    .slice(0, 24)
+    .slice(0, 12)
 }
 
 function normalizeTeamIcon(
@@ -131,6 +136,33 @@ function createUniqueTeamSlug(
   }
 
   throw new Error("Unable to generate a unique team slug")
+}
+
+function createUniqueWorkspaceSlug(
+  workspaces: Array<{ slug: string }>,
+  name: string
+) {
+  const baseSlug = createSlug(name) || "workspace"
+  const takenSlugs = new Set(workspaces.map((workspace) => workspace.slug))
+
+  if (!takenSlugs.has(baseSlug)) {
+    return baseSlug
+  }
+
+  let suffix = 2
+
+  while (suffix < 1000) {
+    const suffixText = `-${suffix}`
+    const candidate = `${baseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
+
+    if (!takenSlugs.has(candidate)) {
+      return candidate
+    }
+
+    suffix += 1
+  }
+
+  throw new Error("Unable to generate a unique workspace slug")
 }
 
 function ensureJoinCodeAvailable(
@@ -230,6 +262,13 @@ async function getDocumentDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+async function getCommentDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("comments")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
 async function getConversationDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("conversations")
@@ -270,6 +309,85 @@ async function getInviteByTokenDoc(ctx: AppCtx, token: string) {
     .query("invites")
     .withIndex("by_token", (q) => q.eq("token", token))
     .unique()
+}
+
+async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
+  const normalizedEmail = email.trim().toLowerCase()
+  const invites = (await ctx.db.query("invites").collect()).filter((invite) => {
+    if (invite.email.trim().toLowerCase() !== normalizedEmail) {
+      return false
+    }
+
+    if (invite.acceptedAt || invite.declinedAt) {
+      return false
+    }
+
+    return true
+  })
+
+  return Promise.all(
+    invites.map(async (invite) => {
+      const team = await getTeamDoc(ctx, invite.teamId)
+      const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
+
+      return {
+        invite: {
+          id: invite.id,
+          token: invite.token,
+          email: invite.email,
+          role: invite.role,
+          expiresAt: invite.expiresAt,
+          acceptedAt: invite.acceptedAt,
+          declinedAt: invite.declinedAt ?? null,
+          joinCode: invite.joinCode,
+        },
+        team: team
+          ? {
+              id: team.id,
+              slug: team.slug,
+              name: team.name,
+              summary: team.settings.summary,
+              joinCode: team.settings.joinCode,
+            }
+          : null,
+        workspace: workspace
+          ? {
+              id: workspace.id,
+              slug: workspace.slug,
+              name: workspace.name,
+              logoUrl: workspace.logoUrl,
+            }
+          : null,
+      }
+    })
+  )
+}
+
+async function getActiveInvitesForTeamAndEmail(
+  ctx: AppCtx,
+  input: {
+    teamId: string
+    email: string
+  }
+) {
+  const normalizedEmail = input.email.trim().toLowerCase()
+  const now = Date.now()
+
+  return (await ctx.db.query("invites").collect()).filter((invite) => {
+    if (invite.teamId !== input.teamId) {
+      return false
+    }
+
+    if (invite.email.trim().toLowerCase() !== normalizedEmail) {
+      return false
+    }
+
+    if (invite.acceptedAt || invite.declinedAt) {
+      return false
+    }
+
+    return new Date(invite.expiresAt).getTime() >= now
+  })
 }
 
 async function getAppConfig(ctx: AppCtx) {
@@ -433,6 +551,51 @@ async function requireEditableWorkspaceAccess(
   }
 }
 
+async function requireReadableWorkspaceAccess(
+  ctx: AppCtx,
+  workspaceId: string,
+  userId: string
+) {
+  const workspaceRoles =
+    (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
+
+  if (workspaceRoles.length === 0) {
+    throw new Error("You do not have access to this workspace")
+  }
+}
+
+async function requireReadableDocumentAccess(
+  ctx: AppCtx,
+  document: Awaited<ReturnType<typeof getDocumentDoc>>,
+  userId: string
+) {
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  if (
+    document.kind === "team-document" ||
+    document.kind === "item-description"
+  ) {
+    if (!document.teamId) {
+      throw new Error("Document is missing a team")
+    }
+
+    await requireReadableTeamAccess(ctx, document.teamId, userId)
+    return
+  }
+
+  if (!document.workspaceId) {
+    throw new Error("Document is missing a workspace")
+  }
+
+  if (document.kind === "private-document" && document.createdBy !== userId) {
+    throw new Error("You do not have access to this document")
+  }
+
+  await requireReadableWorkspaceAccess(ctx, document.workspaceId, userId)
+}
+
 async function requireEditableDocumentAccess(
   ctx: AppCtx,
   document: Awaited<ReturnType<typeof getDocumentDoc>>,
@@ -456,6 +619,15 @@ async function requireEditableDocumentAccess(
 
   if (!document.workspaceId) {
     throw new Error("Document is missing a workspace")
+  }
+
+  if (document.kind === "private-document" && document.createdBy !== userId) {
+    throw new Error("You can only edit your own private documents")
+  }
+
+  if (document.kind === "private-document") {
+    await requireReadableWorkspaceAccess(ctx, document.workspaceId, userId)
+    return
   }
 
   await requireEditableWorkspaceAccess(ctx, document.workspaceId, userId)
@@ -561,6 +733,91 @@ async function validateWorkItemParent(
   }
 
   return parent
+}
+
+async function ensureTeamIssueViews(
+  ctx: MutationCtx,
+  team: Awaited<ReturnType<typeof getTeamDoc>>
+) {
+  if (!team) {
+    return
+  }
+
+  const normalizedTeam = normalizeTeam(team)
+
+  if (
+    !normalizedTeam.settings.features.issues ||
+    !normalizedTeam.settings.features.views
+  ) {
+    return
+  }
+
+  const existingViews = (await ctx.db.query("views").collect()).filter(
+    (view) =>
+      view.scopeType === "team" &&
+      view.scopeId === team.id &&
+      view.entityKind === "items" &&
+      view.route === `/team/${team.slug}/work`
+  )
+  const existingByName = new Map(existingViews.map((view) => [view.name, view]))
+  const legacyAllIssuesView =
+    existingByName.get("All work") ?? existingByName.get("Platform Priorities")
+  const needsPatch = (
+    existing: (typeof existingViews)[number],
+    canonicalView: ViewDefinition
+  ) =>
+    existing.name !== canonicalView.name ||
+    existing.description !== canonicalView.description ||
+    existing.layout !== canonicalView.layout ||
+    JSON.stringify(existing.filters) !==
+      JSON.stringify(canonicalView.filters) ||
+    existing.grouping !== canonicalView.grouping ||
+    existing.subGrouping !== canonicalView.subGrouping ||
+    existing.ordering !== canonicalView.ordering ||
+    JSON.stringify(existing.displayProps) !==
+      JSON.stringify(canonicalView.displayProps) ||
+    JSON.stringify(existing.hiddenState) !==
+      JSON.stringify(canonicalView.hiddenState) ||
+    existing.isShared !== canonicalView.isShared ||
+    existing.route !== canonicalView.route
+
+  const canonicalViews = buildTeamIssueViews({
+    teamId: team.id,
+    teamSlug: team.slug,
+    createdAt: getNow(),
+    updatedAt: getNow(),
+  })
+
+  for (const canonicalView of canonicalViews) {
+    const existing =
+      existingByName.get(canonicalView.name) ??
+      (canonicalView.name === canonicalTeamIssueViewNames[0]
+        ? legacyAllIssuesView
+        : null)
+
+    if (existing) {
+      if (needsPatch(existing, canonicalView)) {
+        await ctx.db.patch(existing._id, {
+          name: canonicalView.name,
+          description: canonicalView.description,
+          layout: canonicalView.layout,
+          filters: canonicalView.filters,
+          grouping: canonicalView.grouping,
+          subGrouping: canonicalView.subGrouping,
+          ordering: canonicalView.ordering,
+          displayProps: canonicalView.displayProps,
+          hiddenState: canonicalView.hiddenState,
+          isShared: true,
+          route: canonicalView.route,
+          updatedAt: getNow(),
+        })
+      }
+      existingByName.set(canonicalView.name, existing)
+      continue
+    }
+
+    await ctx.db.insert("views", canonicalView)
+  }
 }
 
 function collectWorkItemCascadeIds(
@@ -920,7 +1177,9 @@ function toggleReactionUsers(
   userId: string
 ) {
   const nextReactions = [...(reactions ?? [])]
-  const reactionIndex = nextReactions.findIndex((entry) => entry.emoji === emoji)
+  const reactionIndex = nextReactions.findIndex(
+    (entry) => entry.emoji === emoji
+  )
 
   if (reactionIndex === -1) {
     return [
@@ -973,11 +1232,38 @@ async function getChannelConversationPath(
   return `/team/${team.slug}/channel#${postId}`
 }
 
+async function getChatConversationPath(
+  ctx: AppCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>
+) {
+  if (!conversation || conversation.kind !== "chat") {
+    return "/chats"
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return `/chats?chatId=${conversation.id}`
+  }
+
+  const team = await getTeamDoc(ctx, conversation.scopeId)
+
+  if (!team) {
+    return "/chats"
+  }
+
+  return `/team/${team.slug}/chat`
+}
+
 function createNotification(
   userId: string,
   actorId: string,
   message: string,
-  entityType: "workItem" | "document" | "project" | "invite" | "channelPost",
+  entityType:
+    | "workItem"
+    | "document"
+    | "project"
+    | "invite"
+    | "channelPost"
+    | "chat",
   entityId: string,
   type: "mention" | "assignment" | "comment" | "invite" | "status-change"
 ) {
@@ -1562,6 +1848,8 @@ export const bootstrapAppWorkspace = mutation({
       })
     }
 
+    await ensureTeamIssueViews(ctx, await getTeamDoc(ctx, teamId))
+
     return {
       workspaceId,
       workspaceSlug,
@@ -1583,61 +1871,214 @@ export const getSnapshot = query({
     const workspaces = await ctx.db.query("workspaces").collect()
     const teams = await ctx.db.query("teams").collect()
     const teamMemberships = await ctx.db.query("teamMemberships").collect()
+    const users = await ctx.db.query("users").collect()
     const authenticatedUser = args.email
       ? await getUserByEmail(ctx, args.email)
       : null
-    const firstUser = (await ctx.db.query("users").take(1))[0]
+    const firstUser = users[0]
     const currentUserId =
       authenticatedUser?.id ?? config?.currentUserId ?? firstUser?.id ?? ""
-    const currentUserMembership = teamMemberships.find(
+    const currentUserEmail =
+      authenticatedUser?.email ??
+      users.find((user) => user.id === currentUserId)?.email ??
+      ""
+    const accessibleMemberships = teamMemberships.filter(
+      (membership) => membership.userId === currentUserId
+    )
+    const accessibleTeamIds = new Set(
+      accessibleMemberships.map((membership) => membership.teamId)
+    )
+    const visibleTeams = teams.filter((team) => accessibleTeamIds.has(team.id))
+    const accessibleWorkspaceIds = new Set(
+      visibleTeams.map((team) => team.workspaceId)
+    )
+    const currentUserMembership = accessibleMemberships.find(
       (membership) => membership.userId === currentUserId
     )
     const membershipWorkspaceId =
-      teams.find((team) => team.id === currentUserMembership?.teamId)
+      visibleTeams.find((team) => team.id === currentUserMembership?.teamId)
         ?.workspaceId ?? null
     const fallbackWorkspaceId =
       membershipWorkspaceId ??
-      config?.currentWorkspaceId ??
-      workspaces[0]?.id ??
+      (config?.currentWorkspaceId &&
+      accessibleWorkspaceIds.has(config.currentWorkspaceId)
+        ? config.currentWorkspaceId
+        : null) ??
+      visibleTeams[0]?.workspaceId ??
       ""
     const currentWorkspaceId = membershipWorkspaceId ?? fallbackWorkspaceId
-
-    const attachments = await Promise.all(
-      (await ctx.db.query("attachments").collect()).map(async (attachment) => ({
-        ...attachment,
-        fileUrl: await ctx.storage.getUrl(attachment.storageId),
-      }))
+    const visibleWorkspaces = workspaces.filter((workspace) =>
+      accessibleWorkspaceIds.has(workspace.id)
     )
+    const visibleTeamMemberships = teamMemberships.filter((membership) =>
+      accessibleTeamIds.has(membership.teamId)
+    )
+    const visibleUserIds = new Set(
+      visibleTeamMemberships.map((membership) => membership.userId)
+    )
+    if (currentUserId) {
+      visibleUserIds.add(currentUserId)
+    }
 
-    const normalizedTeams = teams.map(normalizeTeam)
+    const visibleProjects = (await ctx.db.query("projects").collect()).filter(
+      (project) =>
+        (project.scopeType === "team" &&
+          accessibleTeamIds.has(project.scopeId)) ||
+        (project.scopeType === "workspace" &&
+          accessibleWorkspaceIds.has(project.scopeId))
+    )
+    const visibleProjectIds = new Set(
+      visibleProjects.map((project) => project.id)
+    )
+    const visibleWorkItems = (await ctx.db.query("workItems").collect()).filter(
+      (item) => accessibleTeamIds.has(item.teamId)
+    )
+    const visibleWorkItemIds = new Set(
+      visibleWorkItems.map((workItem) => workItem.id)
+    )
+    const visibleDocuments = (await ctx.db.query("documents").collect())
+      .filter((document) => {
+        if (
+          document.kind === "team-document" ||
+          document.kind === "item-description"
+        ) {
+          return (
+            document.teamId !== null && accessibleTeamIds.has(document.teamId)
+          )
+        }
+
+        if (document.kind === "private-document") {
+          return (
+            document.createdBy === currentUserId &&
+            accessibleWorkspaceIds.has(document.workspaceId ?? "")
+          )
+        }
+
+        return accessibleWorkspaceIds.has(document.workspaceId ?? "")
+      })
+      .map((document) => normalizeDocument(document, visibleTeams))
+    const visibleDocumentIds = new Set(
+      visibleDocuments.map((document) => document.id)
+    )
+    const visibleViews = (await ctx.db.query("views").collect()).filter(
+      (view) => {
+        if (view.scopeType === "personal") {
+          return view.scopeId === currentUserId
+        }
+
+        if (view.scopeType === "team") {
+          return accessibleTeamIds.has(view.scopeId)
+        }
+
+        return accessibleWorkspaceIds.has(view.scopeId)
+      }
+    )
+    const visibleComments = (await ctx.db.query("comments").collect())
+      .filter((comment) =>
+        comment.targetType === "workItem"
+          ? visibleWorkItemIds.has(comment.targetId)
+          : visibleDocumentIds.has(comment.targetId)
+      )
+      .map((comment) => ({
+        ...comment,
+        mentionUserIds: comment.mentionUserIds ?? [],
+        reactions: comment.reactions ?? [],
+      }))
+    const attachments = await Promise.all(
+      (await ctx.db.query("attachments").collect())
+        .filter((attachment) =>
+          attachment.targetType === "workItem"
+            ? visibleWorkItemIds.has(attachment.targetId)
+            : visibleDocumentIds.has(attachment.targetId)
+        )
+        .map(async (attachment) => ({
+          ...attachment,
+          fileUrl: await ctx.storage.getUrl(attachment.storageId),
+        }))
+    )
+    const visibleNotifications = currentUserId
+      ? await ctx.db
+          .query("notifications")
+          .withIndex("by_user", (q) => q.eq("userId", currentUserId))
+          .collect()
+      : []
+    const visibleInvites = (await ctx.db.query("invites").collect()).filter(
+      (invite) =>
+        accessibleTeamIds.has(invite.teamId) ||
+        invite.email.trim().toLowerCase() === currentUserEmail.toLowerCase()
+    )
+    const visibleProjectUpdates = (
+      await ctx.db.query("projectUpdates").collect()
+    ).filter((update) => visibleProjectIds.has(update.projectId))
+    const visibleConversations = (
+      await ctx.db.query("conversations").collect()
+    ).filter((conversation) => {
+      if (conversation.scopeType === "team") {
+        return accessibleTeamIds.has(conversation.scopeId)
+      }
+
+      if (!accessibleWorkspaceIds.has(conversation.scopeId)) {
+        return false
+      }
+
+      return (
+        conversation.kind === "channel" ||
+        conversation.participantIds.includes(currentUserId)
+      )
+    })
+    const visibleConversationIds = new Set(
+      visibleConversations.map((conversation) => conversation.id)
+    )
+    const visibleChatMessages = (await ctx.db.query("chatMessages").collect())
+      .filter((message) => visibleConversationIds.has(message.conversationId))
+      .map((message) => ({
+        ...message,
+        mentionUserIds: message.mentionUserIds ?? [],
+      }))
+    const visibleChannelPosts = (await ctx.db.query("channelPosts").collect())
+      .filter((post) => visibleConversationIds.has(post.conversationId))
+      .map((post) => ({
+        ...post,
+        reactions: post.reactions ?? [],
+      }))
+    const visibleChannelPostIds = new Set(
+      visibleChannelPosts.map((post) => post.id)
+    )
+    const visibleChannelPostComments = (
+      await ctx.db.query("channelPostComments").collect()
+    )
+      .filter((comment) => visibleChannelPostIds.has(comment.postId))
+      .map((comment) => ({
+        ...comment,
+        mentionUserIds: comment.mentionUserIds ?? [],
+      }))
 
     return {
       currentUserId,
       currentWorkspaceId,
-      workspaces: workspaces.map(normalizeWorkspace),
-      teams: normalizedTeams,
-      teamMemberships,
-      users: (await ctx.db.query("users").collect()).map(normalizeUser),
+      workspaces: visibleWorkspaces.map(normalizeWorkspace),
+      teams: visibleTeams.map(normalizeTeam),
+      teamMemberships: visibleTeamMemberships,
+      users: users
+        .filter((user) => visibleUserIds.has(user.id))
+        .map(normalizeUser),
       labels: await ctx.db.query("labels").collect(),
-      projects: await ctx.db.query("projects").collect(),
-      milestones: await ctx.db.query("milestones").collect(),
-      workItems: await ctx.db.query("workItems").collect(),
-      documents: (await ctx.db.query("documents").collect()).map((document) =>
-        normalizeDocument(document, teams)
+      projects: visibleProjects,
+      milestones: (await ctx.db.query("milestones").collect()).filter(
+        (milestone) => visibleProjectIds.has(milestone.projectId)
       ),
-      views: await ctx.db.query("views").collect(),
-      comments: await ctx.db.query("comments").collect(),
+      workItems: visibleWorkItems,
+      documents: visibleDocuments,
+      views: visibleViews,
+      comments: visibleComments,
       attachments,
-      notifications: await ctx.db.query("notifications").collect(),
-      invites: await ctx.db.query("invites").collect(),
-      projectUpdates: await ctx.db.query("projectUpdates").collect(),
-      conversations: await ctx.db.query("conversations").collect(),
-      chatMessages: await ctx.db.query("chatMessages").collect(),
-      channelPosts: (await ctx.db.query("channelPosts").collect()).map((post) => ({
-        ...post,
-        reactions: post.reactions ?? [],
-      })),
-      channelPostComments: await ctx.db.query("channelPostComments").collect(),
+      notifications: visibleNotifications,
+      invites: visibleInvites,
+      projectUpdates: visibleProjectUpdates,
+      conversations: visibleConversations,
+      chatMessages: visibleChatMessages,
+      channelPosts: visibleChannelPosts,
+      channelPostComments: visibleChannelPostComments,
     }
   },
 })
@@ -1654,12 +2095,14 @@ export const getAuthContext = query({
     }
 
     const config = await getAppConfig(ctx)
+    const workspaces = await ctx.db.query("workspaces").collect()
     const teams = await ctx.db.query("teams").collect()
     const memberships = await ctx.db
       .query("teamMemberships")
       .withIndex("by_user", (q) => q.eq("userId", user.id))
       .collect()
     const workspaceRoleMap = await getWorkspaceRoleMapForUser(ctx, user.id)
+    const pendingInvites = await getPendingInvitesForEmail(ctx, user.email)
     const accessibleWorkspaceIds = [
       ...new Set(
         memberships
@@ -1678,6 +2121,24 @@ export const getAuthContext = query({
     const currentWorkspace = preferredWorkspaceId
       ? await getWorkspaceDoc(ctx, preferredWorkspaceId)
       : null
+    const pendingWorkspaceCandidates = workspaces.filter((workspace) => {
+      if (workspace.createdBy !== user.id) {
+        return false
+      }
+
+      return !teams.some((team) => team.workspaceId === workspace.id)
+    })
+    const pendingWorkspace =
+      pendingWorkspaceCandidates.find(
+        (workspace) => workspace.id === config?.currentWorkspaceId
+      ) ??
+      pendingWorkspaceCandidates[0] ??
+      null
+    const onboardingState = currentWorkspace
+      ? "ready"
+      : pendingWorkspace
+        ? "needs-team"
+        : "needs-workspace"
 
     return {
       currentUser: {
@@ -1699,6 +2160,17 @@ export const getAuthContext = query({
             workosOrganizationId: currentWorkspace.workosOrganizationId ?? null,
           }
         : null,
+      pendingWorkspace: pendingWorkspace
+        ? {
+            id: pendingWorkspace.id,
+            slug: pendingWorkspace.slug,
+            name: pendingWorkspace.name,
+            logoUrl: pendingWorkspace.logoUrl,
+            workosOrganizationId: pendingWorkspace.workosOrganizationId ?? null,
+          }
+        : null,
+      pendingInvites,
+      onboardingState,
       isWorkspaceAdmin:
         preferredWorkspaceId === null
           ? false
@@ -1725,6 +2197,7 @@ export const ensureUserFromAuth = mutation({
         email: args.email,
         avatarUrl: args.avatarUrl,
         workosUserId: args.workosUserId,
+        handle: createHandle(args.email),
       })
 
       return {
@@ -1894,16 +2367,20 @@ export const getInviteByToken = query({
     return {
       invite: {
         id: invite.id,
+        token: invite.token,
         email: invite.email,
         role: invite.role,
+        joinCode: invite.joinCode,
         expiresAt: invite.expiresAt,
         acceptedAt: invite.acceptedAt,
+        declinedAt: invite.declinedAt ?? null,
       },
       team: team
         ? {
             id: team.id,
             slug: team.slug,
             name: team.name,
+            joinCode: team.settings.joinCode,
           }
         : null,
       workspace: workspace
@@ -1911,6 +2388,7 @@ export const getInviteByToken = query({
             id: workspace.id,
             slug: workspace.slug,
             name: workspace.name,
+            logoUrl: workspace.logoUrl,
           }
         : null,
     }
@@ -2083,6 +2561,54 @@ export const toggleNotificationRead = mutation({
   },
 })
 
+export const createWorkspace = mutation({
+  args: {
+    currentUserId: v.string(),
+    name: v.string(),
+    logoUrl: v.string(),
+    accent: v.string(),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const workspaces = await ctx.db.query("workspaces").collect()
+    const workspaceId = createId("workspace")
+    const workspaceSlug = createUniqueWorkspaceSlug(workspaces, args.name)
+
+    await ctx.db.insert("workspaces", {
+      id: workspaceId,
+      slug: workspaceSlug,
+      name: args.name,
+      logoUrl: args.logoUrl,
+      createdBy: args.currentUserId,
+      workosOrganizationId: null,
+      settings: {
+        accent: args.accent,
+        description: args.description,
+      },
+    })
+
+    const config = await getAppConfig(ctx)
+
+    if (config) {
+      await ctx.db.patch(config._id, {
+        currentUserId: args.currentUserId,
+        currentWorkspaceId: workspaceId,
+      })
+    } else {
+      await ctx.db.insert("appConfig", {
+        key: "singleton",
+        currentUserId: args.currentUserId,
+        currentWorkspaceId: workspaceId,
+      })
+    }
+
+    return {
+      workspaceId,
+      workspaceSlug,
+    }
+  },
+})
+
 export const updateWorkspaceBranding = mutation({
   args: {
     currentUserId: v.string(),
@@ -2169,6 +2695,33 @@ export const updateCurrentUserProfile = mutation({
   },
 })
 
+export const ensureWorkspaceScaffolding = mutation({
+  args: {
+    currentUserId: v.string(),
+    workspaceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireReadableWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      args.currentUserId
+    )
+
+    const teams = (await ctx.db.query("teams").collect()).filter(
+      (team) => team.workspaceId === args.workspaceId
+    )
+
+    for (const team of teams) {
+      await ensureTeamIssueViews(ctx, team)
+    }
+
+    return {
+      workspaceId: args.workspaceId,
+      ensuredTeamCount: teams.length,
+    }
+  },
+})
+
 export const createTeam = mutation({
   args: {
     currentUserId: v.string(),
@@ -2187,7 +2740,20 @@ export const createTeam = mutation({
       throw new Error("Workspace not found")
     }
 
-    await requireWorkspaceAdminAccess(ctx, args.workspaceId, args.currentUserId)
+    const teams = await ctx.db.query("teams").collect()
+    const workspaceTeams = teams.filter(
+      (team) => team.workspaceId === args.workspaceId
+    )
+    const canCreateFirstTeam =
+      workspace.createdBy === args.currentUserId && workspaceTeams.length === 0
+
+    if (!canCreateFirstTeam) {
+      await requireWorkspaceAdminAccess(
+        ctx,
+        args.workspaceId,
+        args.currentUserId
+      )
+    }
 
     const validationMessage = getTeamFeatureValidationMessage(
       args.experience,
@@ -2204,7 +2770,6 @@ export const createTeam = mutation({
     )
     const normalizedJoinCode = normalizeJoinCode(args.joinCode)
     const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
-    const teams = await ctx.db.query("teams").collect()
 
     ensureJoinCodeAvailable(teams, normalizedJoinCode)
 
@@ -2253,6 +2818,8 @@ export const createTeam = mutation({
       })
     }
 
+    await ensureTeamIssueViews(ctx, await getTeamDoc(ctx, teamId))
+
     return {
       teamId,
       teamSlug,
@@ -2269,7 +2836,6 @@ export const updateTeamDetails = mutation({
     name: v.string(),
     icon: v.string(),
     summary: v.string(),
-    joinCode: v.string(),
     experience: teamExperienceTypeValidator,
     features: teamFeatureSettingsValidator,
   },
@@ -2299,11 +2865,7 @@ export const updateTeamDetails = mutation({
       args.experience,
       args.features
     )
-    const normalizedJoinCode = normalizeJoinCode(args.joinCode)
     const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
-    const teams = await ctx.db.query("teams").collect()
-
-    ensureJoinCodeAvailable(teams, normalizedJoinCode, team.id)
 
     const disableMessage = await getTeamSurfaceDisableMessage(
       ctx,
@@ -2321,7 +2883,6 @@ export const updateTeamDetails = mutation({
       settings: {
         ...team.settings,
         summary: args.summary,
-        joinCode: normalizedJoinCode,
         experience: args.experience,
         features: normalizedFeatures,
       },
@@ -2345,11 +2906,50 @@ export const updateTeamDetails = mutation({
       })
     }
 
+    await ensureTeamIssueViews(ctx, await getTeamDoc(ctx, team.id))
+
+    return {
+      teamId: team.id,
+      experience: args.experience,
+      features: normalizedFeatures,
+    }
+  },
+})
+
+export const regenerateTeamJoinCode = mutation({
+  args: {
+    currentUserId: v.string(),
+    teamId: v.string(),
+    joinCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const team = await getTeamDoc(ctx, args.teamId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    const role = await getEffectiveRole(ctx, args.teamId, args.currentUserId)
+
+    if (role !== "admin") {
+      throw new Error("Only team admins can regenerate join codes")
+    }
+
+    const normalizedJoinCode = normalizeJoinCode(args.joinCode)
+    const teams = await ctx.db.query("teams").collect()
+
+    ensureJoinCodeAvailable(teams, normalizedJoinCode, team.id)
+
+    await ctx.db.patch(team._id, {
+      settings: {
+        ...team.settings,
+        joinCode: normalizedJoinCode,
+      },
+    })
+
     return {
       teamId: team.id,
       joinCode: normalizedJoinCode,
-      experience: args.experience,
-      features: normalizedFeatures,
     }
   },
 })
@@ -3079,6 +3679,7 @@ export const addComment = mutation({
     currentUserId: v.string(),
     targetType: commentTargetTypeValidator,
     targetId: v.string(),
+    parentCommentId: v.optional(nullableStringValidator),
     content: v.string(),
   },
   handler: async (ctx, args) => {
@@ -3086,6 +3687,27 @@ export const addComment = mutation({
     let followerIds: string[] = []
     let entityType: "workItem" | "document" = "workItem"
     let entityTitle = "item"
+    const existingComments = (await ctx.db.query("comments").collect()).filter(
+      (comment) =>
+        comment.targetType === args.targetType &&
+        comment.targetId === args.targetId
+    )
+    const parentComment = args.parentCommentId
+      ? await getCommentDoc(ctx, args.parentCommentId)
+      : null
+
+    if (args.parentCommentId) {
+      if (!parentComment) {
+        throw new Error("Parent comment not found")
+      }
+
+      if (
+        parentComment.targetType !== args.targetType ||
+        parentComment.targetId !== args.targetId
+      ) {
+        throw new Error("Reply must stay on the same thread target")
+      }
+    }
 
     if (args.targetType === "workItem") {
       const item = await getWorkItemDoc(ctx, args.targetId)
@@ -3098,6 +3720,7 @@ export const addComment = mutation({
         ...item.subscriberIds,
         item.creatorId,
         item.assigneeId ?? "",
+        ...existingComments.map((comment) => comment.createdBy),
       ].filter(Boolean)
       entityTitle = item.title
 
@@ -3115,7 +3738,11 @@ export const addComment = mutation({
       }
 
       teamId = document.teamId
-      followerIds = [document.createdBy, document.updatedBy]
+      followerIds = [
+        document.createdBy,
+        document.updatedBy,
+        ...existingComments.map((comment) => comment.createdBy),
+      ]
       entityType = "document"
       entityTitle = document.title
 
@@ -3146,9 +3773,10 @@ export const addComment = mutation({
       id: createId("comment"),
       targetType: args.targetType,
       targetId: args.targetId,
-      parentCommentId: null,
+      parentCommentId: args.parentCommentId ?? null,
       content: args.content.trim(),
       mentionUserIds,
+      reactions: [],
       createdBy: args.currentUserId,
       createdAt: getNow(),
     })
@@ -3188,6 +3816,10 @@ export const addComment = mutation({
       notifiedUserIds.add(mentionedUserId)
     }
 
+    const followerMessage = args.parentCommentId
+      ? `${actor?.name ?? "Someone"} replied in ${entityTitle}`
+      : `${actor?.name ?? "Someone"} commented on ${entityTitle}`
+
     for (const followerId of followerIds) {
       if (
         !followerId ||
@@ -3202,7 +3834,7 @@ export const addComment = mutation({
         createNotification(
           followerId,
           args.currentUserId,
-          `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
+          followerMessage,
           entityType,
           args.targetId,
           "comment"
@@ -3213,6 +3845,50 @@ export const addComment = mutation({
 
     return {
       mentionEmails,
+    }
+  },
+})
+
+export const toggleCommentReaction = mutation({
+  args: {
+    currentUserId: v.string(),
+    commentId: v.string(),
+    emoji: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const comment = await getCommentDoc(ctx, args.commentId)
+
+    if (!comment) {
+      throw new Error("Comment not found")
+    }
+
+    if (comment.targetType === "workItem") {
+      const item = await getWorkItemDoc(ctx, comment.targetId)
+
+      if (!item) {
+        throw new Error("Work item not found")
+      }
+
+      await requireReadableTeamAccess(ctx, item.teamId, args.currentUserId)
+    } else {
+      await requireReadableDocumentAccess(
+        ctx,
+        await getDocumentDoc(ctx, comment.targetId),
+        args.currentUserId
+      )
+    }
+
+    await ctx.db.patch(comment._id, {
+      reactions: toggleReactionUsers(
+        comment.reactions,
+        args.emoji.trim(),
+        args.currentUserId
+      ),
+    })
+
+    return {
+      commentId: comment.id,
+      ok: true,
     }
   },
 })
@@ -3248,6 +3924,7 @@ export const createInvite = mutation({
       invitedBy: args.currentUserId,
       expiresAt: addDays(new Date(), 7).toISOString(),
       acceptedAt: null,
+      declinedAt: null,
     }
 
     await ctx.db.insert("invites", invite)
@@ -3272,6 +3949,10 @@ export const acceptInvite = mutation({
 
     if (!invite) {
       throw new Error("Invite not found")
+    }
+
+    if (invite.declinedAt) {
+      throw new Error("Invite has been declined")
     }
 
     if (invite.acceptedAt) {
@@ -3347,6 +4028,35 @@ export const acceptInvite = mutation({
   },
 })
 
+export const declineInvite = mutation({
+  args: {
+    currentUserId: v.string(),
+    token: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const invite = await getInviteByTokenDoc(ctx, args.token)
+
+    if (!invite) {
+      throw new Error("Invite not found")
+    }
+
+    if (invite.acceptedAt) {
+      throw new Error("Invite has already been accepted")
+    }
+
+    if (!invite.declinedAt) {
+      await ctx.db.patch(invite._id, {
+        declinedAt: getNow(),
+      })
+    }
+
+    return {
+      inviteId: invite.id,
+      declinedAt: invite.declinedAt ?? getNow(),
+    }
+  },
+})
+
 export const joinTeamByCode = mutation({
   args: {
     currentUserId: v.string(),
@@ -3362,13 +4072,32 @@ export const joinTeamByCode = mutation({
       throw new Error("Join code not found")
     }
 
+    const currentUser = await getUserDoc(ctx, args.currentUserId)
+
+    if (!currentUser) {
+      throw new Error("User not found")
+    }
+
     const existingMembership = await ctx.db
       .query("teamMemberships")
       .withIndex("by_team_and_user", (q) =>
         q.eq("teamId", team.id).eq("userId", args.currentUserId)
       )
       .unique()
-    const resolvedRole = mergeMembershipRole(existingMembership?.role, "viewer")
+    const matchingInvites = await getActiveInvitesForTeamAndEmail(ctx, {
+      teamId: team.id,
+      email: currentUser.email,
+    })
+    let invitedRole: "admin" | "member" | "viewer" | "guest" | null = null
+
+    for (const invite of matchingInvites) {
+      invitedRole = mergeMembershipRole(invitedRole, invite.role)
+    }
+
+    const resolvedRole = mergeMembershipRole(
+      existingMembership?.role,
+      invitedRole ?? "viewer"
+    )
 
     if (existingMembership) {
       if (existingMembership.role !== resolvedRole) {
@@ -3382,6 +4111,18 @@ export const joinTeamByCode = mutation({
         userId: args.currentUserId,
         role: resolvedRole,
       })
+    }
+
+    if (matchingInvites.length > 0) {
+      const acceptedAt = getNow()
+
+      await Promise.all(
+        matchingInvites.map((invite) =>
+          ctx.db.patch(invite._id, {
+            acceptedAt,
+          })
+        )
+      )
     }
 
     const config = await getAppConfig(ctx)
@@ -3408,6 +4149,7 @@ export const joinTeamByCode = mutation({
     const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
 
     return {
+      role: resolvedRole,
       teamSlug: team.slug,
       workspaceId: team.workspaceId,
       workspaceSlug: workspace?.slug ?? null,
@@ -3975,15 +4717,73 @@ export const sendChatMessage = mutation({
     const users = await ctx.db.query("users").collect()
     const now = getNow()
     const messageId = createId("chat_message")
+    const actor = users.find((user) => user.id === args.currentUserId)
+    const mentionUserIds = createMentionIds(args.content, users).filter(
+      (userId) => conversation.participantIds.includes(userId)
+    )
+    const mentionEmails: Array<{
+      notificationId: string
+      email: string
+      name: string
+      entityTitle: string
+      entityType: "chat"
+      entityId: string
+      entityPath: string
+      entityLabel: string
+      actorName: string
+      commentText: string
+    }> = []
+    const entityTitle = conversation.title.trim() || "a chat"
+    const entityPath = await getChatConversationPath(ctx, conversation)
+    const messageText = args.content.trim()
+    const notifiedUserIds = new Set<string>()
 
     await ctx.db.insert("chatMessages", {
       id: messageId,
       conversationId: conversation.id,
-      content: args.content.trim(),
-      mentionUserIds: createMentionIds(args.content, users),
+      content: messageText,
+      mentionUserIds,
       createdBy: args.currentUserId,
       createdAt: now,
     })
+
+    for (const mentionedUserId of mentionUserIds) {
+      if (
+        mentionedUserId === args.currentUserId ||
+        notifiedUserIds.has(mentionedUserId)
+      ) {
+        continue
+      }
+
+      const mentionedUser = users.find((user) => user.id === mentionedUserId)
+      const notification = createNotification(
+        mentionedUserId,
+        args.currentUserId,
+        `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+        "chat",
+        conversation.id,
+        "mention"
+      )
+
+      await ctx.db.insert("notifications", notification)
+
+      if (mentionedUser?.preferences.emailMentions) {
+        mentionEmails.push({
+          notificationId: notification.id,
+          email: mentionedUser.email,
+          name: mentionedUser.name,
+          entityTitle,
+          entityType: "chat",
+          entityId: conversation.id,
+          entityPath,
+          entityLabel: "chat",
+          actorName: actor?.name ?? "Someone",
+          commentText: messageText,
+        })
+      }
+
+      notifiedUserIds.add(mentionedUserId)
+    }
 
     await ctx.db.patch(conversation._id, {
       updatedAt: now,
@@ -3992,6 +4792,7 @@ export const sendChatMessage = mutation({
 
     return {
       messageId,
+      mentionEmails,
     }
   },
 })
@@ -4034,7 +4835,11 @@ export const createChannelPost = mutation({
     }> = []
     const notifiedUserIds = new Set<string>()
     const entityTitle = args.title.trim() || "a channel post"
-    const entityPath = await getChannelConversationPath(ctx, conversation, postId)
+    const entityPath = await getChannelConversationPath(
+      ctx,
+      conversation,
+      postId
+    )
     const commentText = getPlainTextContent(args.content)
 
     await ctx.db.insert("channelPosts", {
@@ -4133,7 +4938,11 @@ export const addChannelPostComment = mutation({
     const mentionUserIds = createMentionIds(args.content, users)
     const notifiedUserIds = new Set<string>()
     const entityTitle = post.title.trim() || "a channel post"
-    const entityPath = await getChannelConversationPath(ctx, conversation, post.id)
+    const entityPath = await getChannelConversationPath(
+      ctx,
+      conversation,
+      post.id
+    )
     const commentText = getPlainTextContent(args.content)
     const mentionEmails: Array<{
       notificationId: string
@@ -4267,7 +5076,9 @@ export const deleteChannelPost = mutation({
       .query("channelPostComments")
       .withIndex("by_post", (q) => q.eq("postId", post.id))
       .collect()
-    const notifications = (await ctx.db.query("notifications").collect()).filter(
+    const notifications = (
+      await ctx.db.query("notifications").collect()
+    ).filter(
       (notification) =>
         notification.entityType === "channelPost" &&
         notification.entityId === post.id
@@ -4315,7 +5126,11 @@ export const toggleChannelPostReaction = mutation({
     )
 
     await ctx.db.patch(post._id, {
-      reactions: toggleReactionUsers(post.reactions, args.emoji.trim(), args.currentUserId),
+      reactions: toggleReactionUsers(
+        post.reactions,
+        args.emoji.trim(),
+        args.currentUserId
+      ),
     })
 
     return {

@@ -315,7 +315,8 @@ export function syncAddComment(
   _currentUserId: string,
   targetType: "workItem" | "document",
   targetId: string,
-  content: string
+  content: string,
+  parentCommentId?: string | null
 ) {
   return runRouteMutation("/api/comments", {
     method: "POST",
@@ -325,7 +326,20 @@ export function syncAddComment(
     body: JSON.stringify({
       targetType,
       targetId,
+      parentCommentId,
       content,
+    }),
+  })
+}
+
+export function syncToggleCommentReaction(commentId: string, emoji: string) {
+  return runRouteMutation(`/api/comments/${commentId}/reactions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      emoji,
     }),
   })
 }
@@ -395,7 +409,7 @@ export function syncCreateInvite(
 }
 
 export function syncJoinTeamByCode(_currentUserId: string, code: string) {
-  return runRouteMutation("/api/teams/join", {
+  return runRouteMutation<{ teamSlug?: string | null }>("/api/teams/join", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -410,7 +424,6 @@ export function syncCreateTeam(input: {
   name: string
   icon: string
   summary: string
-  joinCode: string
   experience:
     | "software-development"
     | "issue-analysis"
@@ -421,7 +434,6 @@ export function syncCreateTeam(input: {
   return runRouteMutation<{
     teamId: string
     teamSlug: string
-    joinCode: string
     features: TeamFeatureSettings
   }>("/api/teams", {
     method: "POST",
@@ -478,7 +490,6 @@ export function syncUpdateTeamDetails(
     name: string
     icon: string
     summary: string
-    joinCode: string
     experience:
       | "software-development"
       | "issue-analysis"
@@ -494,6 +505,18 @@ export function syncUpdateTeamDetails(
     },
     body: JSON.stringify(input),
   })
+}
+
+export function syncRegenerateTeamJoinCode(teamId: string) {
+  return runRouteMutation<{ joinCode: string }>(
+    `/api/teams/${teamId}/join-code`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  )
 }
 
 export function syncCreateWorkspaceChat(input: {

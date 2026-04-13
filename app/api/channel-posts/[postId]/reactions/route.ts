@@ -50,9 +50,7 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Failed to update reaction",
+          error instanceof Error ? error.message : "Failed to update reaction",
       },
       { status: 500 }
     )

@@ -33,8 +33,7 @@ export async function DELETE(
     console.error(error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to delete post",
+        error: error instanceof Error ? error.message : "Failed to delete post",
       },
       { status: 500 }
     )

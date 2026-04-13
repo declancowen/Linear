@@ -49,8 +49,9 @@ export function OnboardingJoinCard({
           <span>{workspaceName}</span>
         </CardTitle>
         <CardDescription>
-          Join <span className="font-medium text-foreground">{teamName}</span> as a
-          viewer to unlock the workspace and reach your dashboard.
+          Join <span className="font-medium text-foreground">{teamName}</span>{" "}
+          to unlock the workspace. Active team invites keep their invited role;
+          otherwise code-based joins default to viewer access.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -80,14 +81,24 @@ export function OnboardingJoinCard({
                   },
                   body: JSON.stringify({ code: joinCode }),
                 })
-                const payload = (await response.json()) as { error?: string }
+                const payload = (await response.json()) as {
+                  error?: string
+                  role?: string
+                  teamSlug?: string | null
+                }
 
                 if (!response.ok) {
                   throw new Error(payload.error ?? "Failed to join team")
                 }
 
-                toast.success(`Joined ${teamName} as viewer`)
-                router.push("/inbox")
+                toast.success(
+                  `Joined ${teamName} as ${payload.role ?? "viewer"}`
+                )
+                router.push(
+                  payload.teamSlug
+                    ? `/team/${payload.teamSlug}/work`
+                    : "/workspace/projects"
+                )
                 router.refresh()
               } catch (error) {
                 toast.error(

@@ -25,6 +25,7 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
+import { buildTeamIssueViews } from "@/lib/domain/default-views"
 
 function iso(date: Date) {
   return date.toISOString()
@@ -59,11 +60,15 @@ export function createSeedState(): AppData {
     "cancelled",
     "duplicate",
   ]
-  developmentWorkflow.templateDefaults["software-delivery"].defaultPriority = "urgent"
-  developmentWorkflow.templateDefaults["software-delivery"].targetWindowDays = 18
-  developmentWorkflow.templateDefaults["project-management"].defaultViewLayout = "list"
+  developmentWorkflow.templateDefaults["software-delivery"].defaultPriority =
+    "urgent"
+  developmentWorkflow.templateDefaults["software-delivery"].targetWindowDays =
+    18
+  developmentWorkflow.templateDefaults["project-management"].defaultViewLayout =
+    "list"
 
-  const operationsWorkflow = createDefaultTeamWorkflowSettings("project-management")
+  const operationsWorkflow =
+    createDefaultTeamWorkflowSettings("project-management")
   operationsWorkflow.statusOrder = [
     "backlog",
     "todo",
@@ -72,7 +77,8 @@ export function createSeedState(): AppData {
     "cancelled",
     "duplicate",
   ]
-  operationsWorkflow.templateDefaults["project-management"].targetWindowDays = 45
+  operationsWorkflow.templateDefaults["project-management"].targetWindowDays =
+    45
   operationsWorkflow.templateDefaults["project-management"].defaultViewLayout =
     "timeline"
 
@@ -139,7 +145,8 @@ export function createSeedState(): AppData {
       icon: "kanban",
       settings: {
         joinCode: "OPSJOIN",
-        summary: "Program planning, launch coordination, and delivery follow-through.",
+        summary:
+          "Program planning, launch coordination, and delivery follow-through.",
         guestProjectIds: [],
         guestDocumentIds: [],
         guestWorkItemIds: [],
@@ -276,7 +283,8 @@ export function createSeedState(): AppData {
       scopeId: "team_recipe_room",
       templateType: "software-delivery",
       name: "Mobile & App",
-      summary: "Bring the same experience to mobile shells and native wrappers.",
+      summary:
+        "Bring the same experience to mobile shells and native wrappers.",
       description:
         "Shared product work spanning mobile behavior, deep linking, and release stability.",
       leadId: "user_maya",
@@ -314,7 +322,8 @@ export function createSeedState(): AppData {
       scopeId: "team_recipe_room",
       templateType: "bug-tracking",
       name: "Auth & Access QA",
-      summary: "Stability work for join flows, permission edges, and sign-in polish.",
+      summary:
+        "Stability work for join flows, permission edges, and sign-in polish.",
       description:
         "Bug-tracking template focused on auth reliability, QA passes, and regression control.",
       leadId: "user_idris",
@@ -832,7 +841,12 @@ export function createSeedState(): AppData {
     },
   ]
 
-  const documents = [...descriptionDocs, ...teamDocs, ...workspaceDocs, ...privateDocs]
+  const documents = [
+    ...descriptionDocs,
+    ...teamDocs,
+    ...workspaceDocs,
+    ...privateDocs,
+  ]
 
   const comments: Comment[] = [
     {
@@ -843,6 +857,7 @@ export function createSeedState(): AppData {
       content:
         "We should audit viewer and guest role behavior here before we wire the real invite flow. @declan @idris",
       mentionUserIds: ["user_declan", "user_idris"],
+      reactions: [],
       createdBy: "user_maya",
       createdAt: iso(subDays(now, 1)),
     },
@@ -854,6 +869,7 @@ export function createSeedState(): AppData {
       content:
         "Add a short section for the Electron wrapper startup checklist before the launch review.",
       mentionUserIds: [],
+      reactions: [],
       createdBy: "user_theo",
       createdAt: iso(subDays(now, 2)),
     },
@@ -922,6 +938,7 @@ export function createSeedState(): AppData {
       invitedBy: "user_maya",
       expiresAt: iso(addDays(now, 7)),
       acceptedAt: null,
+      declinedAt: null,
     },
   ]
 
@@ -969,94 +986,30 @@ export function createSeedState(): AppData {
   }
 
   const views: ViewDefinition[] = [
-    {
-      id: "view_team_all",
-      name: "All work",
-      description: "Everything in the team grouped by project and status.",
-      scopeType: "team",
-      scopeId: "team_recipe_room",
-      entityKind: "items",
-      layout: "board",
-      filters: { ...defaultFilters },
-      grouping: "project",
-      subGrouping: "status",
-      ordering: "priority",
-      displayProps: ["id", "status", "assignee", "priority", "project", "created"],
-      hiddenState: { groups: [], subgroups: ["cancelled", "duplicate"] },
-      isShared: true,
-      route: "/team/recipe-room/work",
+    ...buildTeamIssueViews({
+      teamId: "team_recipe_room",
+      teamSlug: "recipe-room",
       createdAt: iso(subDays(now, 18)),
       updatedAt: iso(subDays(now, 1)),
-    },
-    {
-      id: "view_team_active",
-      name: "Active",
-      description: "Current work ready for execution.",
-      scopeType: "team",
-      scopeId: "team_recipe_room",
-      entityKind: "items",
-      layout: "list",
-      filters: {
-        ...defaultFilters,
-        status: ["todo", "in-progress"],
-      },
-      grouping: "project",
-      subGrouping: "status",
-      ordering: "priority",
-      displayProps: ["id", "status", "assignee", "priority", "dueDate", "updated"],
-      hiddenState: { groups: [], subgroups: [] },
-      isShared: true,
-      route: "/team/recipe-room/work",
-      createdAt: iso(subDays(now, 18)),
-      updatedAt: iso(subDays(now, 1)),
-    },
-    {
-      id: "view_team_backlog",
-      name: "Backlog",
-      description: "Upcoming work still in queue.",
-      scopeType: "team",
-      scopeId: "team_recipe_room",
-      entityKind: "items",
-      layout: "timeline",
-      filters: {
-        ...defaultFilters,
-        status: ["backlog", "todo"],
-      },
-      grouping: "project",
-      subGrouping: null,
-      ordering: "targetDate",
-      displayProps: ["id", "project", "priority", "dueDate"],
-      hiddenState: { groups: [], subgroups: [] },
-      isShared: true,
-      route: "/team/recipe-room/work",
-      createdAt: iso(subDays(now, 18)),
-      updatedAt: iso(subDays(now, 1)),
-    },
-    {
-      id: "view_dev_platform",
-      name: "Platform Priorities",
-      description: "Development team implementation work.",
-      scopeType: "team",
-      scopeId: "team_development",
-      entityKind: "items",
-      layout: "list",
-      filters: { ...defaultFilters, teamIds: ["team_development"] },
-      grouping: "status",
-      subGrouping: null,
-      ordering: "priority",
-      displayProps: ["id", "status", "assignee", "priority", "project"],
-      hiddenState: { groups: [], subgroups: [] },
-      isShared: true,
-      route: "/team/development/work",
+    }),
+    ...buildTeamIssueViews({
+      teamId: "team_development",
+      teamSlug: "development",
       createdAt: iso(subDays(now, 12)),
       updatedAt: iso(subDays(now, 2)),
-    },
+    }),
+    ...buildTeamIssueViews({
+      teamId: "team_operations",
+      teamSlug: "project-management",
+      createdAt: iso(subDays(now, 10)),
+      updatedAt: iso(subDays(now, 2)),
+    }),
     {
       id: "view_workspace_projects",
       name: "Cross-team Projects",
       description: "Workspace-level project overview.",
-      scopeType: "workspace",
-      scopeId: workspace.id,
+      scopeType: "personal",
+      scopeId: "user_declan",
       entityKind: "projects",
       layout: "list",
       filters: { ...defaultFilters },
@@ -1065,7 +1018,7 @@ export function createSeedState(): AppData {
       ordering: "updatedAt",
       displayProps: ["priority", "project", "updated"],
       hiddenState: { groups: [], subgroups: [] },
-      isShared: true,
+      isShared: false,
       route: "/workspace/projects",
       createdAt: iso(subDays(now, 15)),
       updatedAt: iso(subDays(now, 1)),
@@ -1074,8 +1027,8 @@ export function createSeedState(): AppData {
       id: "view_workspace_docs",
       name: "Team Docs",
       description: "Aggregate document space across joined teams.",
-      scopeType: "workspace",
-      scopeId: workspace.id,
+      scopeType: "personal",
+      scopeId: "user_declan",
       entityKind: "docs",
       layout: "list",
       filters: { ...defaultFilters },
@@ -1084,7 +1037,7 @@ export function createSeedState(): AppData {
       ordering: "updatedAt",
       displayProps: ["updated"],
       hiddenState: { groups: [], subgroups: [] },
-      isShared: true,
+      isShared: false,
       route: "/workspace/docs",
       createdAt: iso(subDays(now, 15)),
       updatedAt: iso(subDays(now, 1)),
@@ -1146,7 +1099,8 @@ export function createSeedState(): AppData {
       scopeId: workspace.id,
       variant: "team",
       title: "Workspace channel",
-      description: "Shared updates and threaded decisions for the whole workspace.",
+      description:
+        "Shared updates and threaded decisions for the whole workspace.",
       participantIds: [
         "user_declan",
         "user_maya",
@@ -1200,7 +1154,8 @@ export function createSeedState(): AppData {
       scopeId: "team_recipe_room",
       variant: "team",
       title: "Release Announcements",
-      description: "Launch notes, blockers, and updates that need comments instead of chat replies.",
+      description:
+        "Launch notes, blockers, and updates that need comments instead of chat replies.",
       participantIds: [
         "user_declan",
         "user_maya",
@@ -1220,7 +1175,8 @@ export function createSeedState(): AppData {
       scopeId: "team_recipe_room",
       variant: "team",
       title: "Design Reviews",
-      description: "Structured feedback threads for interaction and UI decisions.",
+      description:
+        "Structured feedback threads for interaction and UI decisions.",
       participantIds: ["user_declan", "user_maya", "user_sofia", "user_idris"],
       createdBy: "user_sofia",
       createdAt: iso(subDays(now, 5)),
@@ -1233,7 +1189,8 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_maya_1",
       conversationId: "conversation_workspace_direct_maya",
-      content: "Can we keep the launch room for blockers and use this thread for implementation decisions?",
+      content:
+        "Can we keep the launch room for blockers and use this thread for implementation decisions?",
       mentionUserIds: [],
       createdBy: "user_maya",
       createdAt: iso(subDays(now, 1)),
@@ -1241,7 +1198,8 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_maya_2",
       conversationId: "conversation_workspace_direct_maya",
-      content: "Yes. I also want the team chat to carry a video placeholder for the 100MS handoff later.",
+      content:
+        "Yes. I also want the team chat to carry a video placeholder for the 100MS handoff later.",
       mentionUserIds: [],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 0)),
@@ -1249,7 +1207,8 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_launch_1",
       conversationId: "conversation_workspace_group_launch",
-      content: "Posting final QA blockers here so launch comms and design stay aligned.",
+      content:
+        "Posting final QA blockers here so launch comms and design stay aligned.",
       mentionUserIds: [],
       createdBy: "user_idris",
       createdAt: iso(subDays(now, 0)),
@@ -1257,7 +1216,8 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_recipe_1",
       conversationId: "conversation_team_recipe_chat",
-      content: "Channel work should feel slower and structured. Team chat should stay real-time.",
+      content:
+        "Channel work should feel slower and structured. Team chat should stay real-time.",
       mentionUserIds: [],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 0)),
@@ -1265,7 +1225,8 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_dev_1",
       conversationId: "conversation_team_development_chat",
-      content: "Schema work is first. Once snapshot sync lands, the UI will follow quickly.",
+      content:
+        "Schema work is first. Once snapshot sync lands, the UI will follow quickly.",
       mentionUserIds: [],
       createdBy: "user_maya",
       createdAt: iso(subDays(now, 0)),
@@ -1322,7 +1283,8 @@ export function createSeedState(): AppData {
     {
       id: "channel_comment_workspace_1",
       postId: "channel_post_workspace_brief",
-      content: "Perfect. I’ll use this for release-wide updates instead of burying them in chat.",
+      content:
+        "Perfect. I’ll use this for release-wide updates instead of burying them in chat.",
       mentionUserIds: [],
       createdBy: "user_maya",
       createdAt: iso(subDays(now, 0)),
@@ -1330,7 +1292,8 @@ export function createSeedState(): AppData {
     {
       id: "channel_comment_release_1",
       postId: "channel_post_release_ready",
-      content: "Agreed. I’ll handle the release note polish while QA finishes the final pass.",
+      content:
+        "Agreed. I’ll handle the release note polish while QA finishes the final pass.",
       mentionUserIds: [],
       createdBy: "user_theo",
       createdAt: iso(subDays(now, 0)),
@@ -1338,7 +1301,8 @@ export function createSeedState(): AppData {
     {
       id: "channel_comment_design_1",
       postId: "channel_post_design_docs",
-      content: "That direction works. We should also show the document scope label more clearly.",
+      content:
+        "That direction works. We should also show the document scope label more clearly.",
       mentionUserIds: [],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 1)),
