@@ -35,6 +35,7 @@ import {
   scopeTypeValidator,
   teamExperienceTypeValidator,
   teamFeatureSettingsValidator,
+  themePreferenceValidator,
   teamWorkflowSettingsValidator,
   templateTypeValidator,
   workItemTypeValidator,
@@ -56,6 +57,12 @@ const rolePriority: Record<"guest" | "viewer" | "member" | "admin", number> = {
   admin: 3,
 }
 const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
+const defaultUserPreferences = {
+  emailMentions: true,
+  emailAssignments: true,
+  emailDigest: true,
+  theme: "light" as const,
+}
 
 function createHandle(email: string) {
   return email
@@ -1299,9 +1306,24 @@ function normalizeWorkspace<T extends { workosOrganizationId?: string | null }>(
 }
 
 function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
+  const preferences =
+    "preferences" in user &&
+    user.preferences &&
+    typeof user.preferences === "object"
+      ? (user.preferences as Partial<typeof defaultUserPreferences>)
+      : null
+
   return {
     ...user,
     workosUserId: user.workosUserId ?? null,
+    ...(preferences
+      ? {
+          preferences: {
+            ...defaultUserPreferences,
+            ...preferences,
+          },
+        }
+      : {}),
   }
 }
 
@@ -1869,6 +1891,10 @@ export const bootstrapAppWorkspace = mutation({
         avatarUrl: args.avatarUrl,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
+        preferences: {
+          ...defaultUserPreferences,
+          ...resolvedUser.preferences,
+        },
       })
     } else {
       await ctx.db.insert("users", {
@@ -1879,11 +1905,7 @@ export const bootstrapAppWorkspace = mutation({
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
         title: "Founder / Product",
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-        },
+        preferences: defaultUserPreferences,
       })
     }
 
@@ -2289,6 +2311,10 @@ export const ensureUserFromAuth = mutation({
         email: args.email,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
+        preferences: {
+          ...defaultUserPreferences,
+          ...existing.preferences,
+        },
       })
 
       return {
@@ -2307,11 +2333,7 @@ export const ensureUserFromAuth = mutation({
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
       title: "Member",
-      preferences: {
-        emailMentions: true,
-        emailAssignments: true,
-        emailDigest: true,
-      },
+      preferences: defaultUserPreferences,
     })
 
     const bootstrapped = await bootstrapFirstAuthenticatedUser(ctx, newUserId)
@@ -2384,6 +2406,10 @@ export const bootstrapWorkspaceUser = mutation({
         email: args.email,
         name: args.name,
         workosUserId: args.workosUserId,
+        preferences: {
+          ...defaultUserPreferences,
+          ...resolvedUser.preferences,
+        },
       })
     } else {
       await ctx.db.insert("users", {
@@ -2394,11 +2420,7 @@ export const bootstrapWorkspaceUser = mutation({
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
         title: "Founder / Product",
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-        },
+        preferences: defaultUserPreferences,
       })
     }
 
@@ -2786,6 +2808,7 @@ export const updateCurrentUserProfile = mutation({
       emailMentions: v.boolean(),
       emailAssignments: v.boolean(),
       emailDigest: v.boolean(),
+      theme: v.optional(themePreferenceValidator),
     }),
   },
   handler: async (ctx, args) => {
@@ -2822,7 +2845,10 @@ export const updateCurrentUserProfile = mutation({
       title: args.title,
       avatarUrl: args.avatarUrl,
       avatarImageStorageId: nextAvatarImageStorageId,
-      preferences: args.preferences,
+      preferences: {
+        ...defaultUserPreferences,
+        ...args.preferences,
+      },
     })
   },
 })
@@ -5076,6 +5102,57 @@ export const sendChatMessage = mutation({
     return {
       messageId,
       mentionEmails,
+    }
+  },
+})
+
+export const backfillChatMessageKinds = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const chatMessages = await ctx.db.query("chatMessages").collect()
+    let updatedCount = 0
+
+    for (const message of chatMessages) {
+      if (message.kind) {
+        continue
+      }
+
+      await ctx.db.patch(message._id, {
+        kind: "text",
+      })
+      updatedCount += 1
+    }
+
+    return {
+      updatedCount,
+      totalCount: chatMessages.length,
+    }
+  },
+})
+
+export const backfillUserPreferenceThemes = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").collect()
+    let updatedCount = 0
+
+    for (const user of users) {
+      if (user.preferences?.theme) {
+        continue
+      }
+
+      await ctx.db.patch(user._id, {
+        preferences: {
+          ...defaultUserPreferences,
+          ...user.preferences,
+        },
+      })
+      updatedCount += 1
+    }
+
+    return {
+      updatedCount,
+      totalCount: users.length,
     }
   },
 })

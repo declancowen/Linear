@@ -145,6 +145,7 @@ export async function updateCurrentUserProfileServer(input: {
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
+    theme: "light" | "dark" | "system"
   }
 }) {
   return getConvexServerClient().mutation(api.app.updateCurrentUserProfile, {

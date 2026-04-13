@@ -175,6 +175,7 @@ type UpdateProfileInput = {
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
+    theme: "light" | "dark" | "system"
   }
 }
 

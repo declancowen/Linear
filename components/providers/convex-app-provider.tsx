@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import { ConvexProvider, useQuery } from "convex/react"
+import { useTheme } from "next-themes"
 
 import { api } from "@/convex/_generated/api"
 import { convexReactClient } from "@/lib/convex/client"
@@ -18,6 +19,7 @@ function ConvexStateSync({
   authenticatedUser,
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
+  const { setTheme } = useTheme()
   const snapshot = useQuery(
     api.app.getSnapshot,
     { email: authenticatedUser?.email }
@@ -30,6 +32,20 @@ function ConvexStateSync({
 
     replaceDomainData(snapshot)
   }, [replaceDomainData, snapshot])
+
+  useEffect(() => {
+    if (!snapshot) {
+      return
+    }
+
+    const currentUser = snapshot.users.find(
+      (user) => user.id === snapshot.currentUserId
+    )
+
+    if (currentUser?.preferences.theme) {
+      setTheme(currentUser.preferences.theme)
+    }
+  }, [setTheme, snapshot])
 
   return <>{children}</>
 }

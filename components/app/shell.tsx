@@ -1891,6 +1891,7 @@ function ProfileDialog({
                   emailMentions,
                   emailAssignments,
                   emailDigest,
+                  theme: currentUser.preferences.theme,
                 },
               })
               onOpenChange(false)

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import { useTheme } from "next-themes"
 import {
   ArrowsClockwise,
   Buildings,
@@ -34,6 +35,7 @@ import {
   teamIconTokens,
   type TeamFeatureSettings,
   type TeamExperienceType,
+  type ThemePreference,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
@@ -75,6 +77,27 @@ const workspaceAccentOptions = [
   "rose",
   "slate",
 ] as const
+const themePreferenceOptions: Array<{
+  value: ThemePreference
+  label: string
+  description: string
+}> = [
+  {
+    value: "light",
+    label: "Light",
+    description: "Always use the light interface.",
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    description: "Always use the dark interface.",
+  },
+  {
+    value: "system",
+    label: "System",
+    description: "Follow your device appearance setting.",
+  },
+]
 
 type TeamSurfaceDisableReasons = {
   docs: string | null
@@ -758,6 +781,7 @@ function TeamEditorFields({
 
 export function UserSettingsScreen() {
   const router = useRouter()
+  const { setTheme } = useTheme()
   const data = useAppStore()
   const currentUser = getCurrentUser(data)
   const avatarImageSrc = resolveImageAssetSource(
@@ -783,6 +807,9 @@ export function UserSettingsScreen() {
   )
   const [emailDigest, setEmailDigest] = useState(
     currentUser.preferences.emailDigest
+  )
+  const [themePreference, setThemePreference] = useState<ThemePreference>(
+    currentUser.preferences.theme
   )
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -815,6 +842,7 @@ export function UserSettingsScreen() {
     setEmailMentions(currentUser.preferences.emailMentions)
     setEmailAssignments(currentUser.preferences.emailAssignments)
     setEmailDigest(currentUser.preferences.emailDigest)
+    setThemePreference(currentUser.preferences.theme)
   }, [currentUser.id])
 
   async function handleAvatarUpload(file: File) {
@@ -930,6 +958,7 @@ export function UserSettingsScreen() {
             emailMentions,
             emailAssignments,
             emailDigest,
+            theme: themePreference,
           },
         }),
       })
@@ -942,6 +971,26 @@ export function UserSettingsScreen() {
       }
 
       toast.success("Profile updated")
+      setTheme(themePreference)
+      useAppStore.setState((state) => ({
+        users: state.users.map((user) =>
+          user.id === currentUser.id
+            ? {
+                ...user,
+                name,
+                title,
+                avatarUrl,
+                avatarImageUrl: clearAvatarImage ? null : user.avatarImageUrl,
+                preferences: {
+                  emailMentions,
+                  emailAssignments,
+                  emailDigest,
+                  theme: themePreference,
+                },
+              }
+            : user
+        ),
+      }))
       router.refresh()
     } catch (error) {
       console.error(error)
@@ -1076,6 +1125,50 @@ export function UserSettingsScreen() {
                   onCheckedChange={setEmailDigest}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none">
+            <CardHeader>
+              <CardTitle>Appearance</CardTitle>
+              <CardDescription>
+                Choose how the interface theme should behave.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="profile-theme">Theme</FieldLabel>
+                  <FieldContent>
+                    <Select
+                      value={themePreference}
+                      onValueChange={(value) =>
+                        setThemePreference(value as ThemePreference)
+                      }
+                    >
+                      <SelectTrigger id="profile-theme">
+                        <SelectValue placeholder="Select a theme" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {themePreferenceOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </FieldContent>
+                  <FieldDescription>
+                    {
+                      themePreferenceOptions.find(
+                        (option) => option.value === themePreference
+                      )?.description
+                    }
+                  </FieldDescription>
+                </Field>
+              </FieldGroup>
             </CardContent>
           </Card>
 

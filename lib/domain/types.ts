@@ -137,6 +137,9 @@ export const orderingFields = [
 ] as const
 export type OrderingField = (typeof orderingFields)[number]
 
+export const themePreferences = ["light", "dark", "system"] as const
+export type ThemePreference = (typeof themePreferences)[number]
+
 export const commentTargetTypes = ["workItem", "document"] as const
 export type CommentTargetType = (typeof commentTargetTypes)[number]
 
@@ -257,6 +260,7 @@ export interface UserProfile {
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
+    theme: ThemePreference
   }
 }
 
@@ -1033,6 +1037,7 @@ export const profileSchema = z.object({
     emailMentions: z.boolean(),
     emailAssignments: z.boolean(),
     emailDigest: z.boolean(),
+    theme: z.enum(themePreferences).default("light"),
   }),
 })
 

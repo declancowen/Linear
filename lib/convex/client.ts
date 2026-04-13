@@ -147,6 +147,7 @@ export function syncUpdateCurrentUserProfile(
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
+    theme: "light" | "dark" | "system"
   },
   options?: {
     avatarImageStorageId?: string

@@ -175,6 +175,7 @@ export function createSeedState(): AppData {
         emailMentions: true,
         emailAssignments: true,
         emailDigest: true,
+        theme: "light",
       },
     },
     {
@@ -189,6 +190,7 @@ export function createSeedState(): AppData {
         emailMentions: true,
         emailAssignments: true,
         emailDigest: false,
+        theme: "light",
       },
     },
     {
@@ -203,6 +205,7 @@ export function createSeedState(): AppData {
         emailMentions: true,
         emailAssignments: false,
         emailDigest: true,
+        theme: "light",
       },
     },
     {
@@ -217,6 +220,7 @@ export function createSeedState(): AppData {
         emailMentions: true,
         emailAssignments: true,
         emailDigest: false,
+        theme: "light",
       },
     },
     {
@@ -231,6 +235,7 @@ export function createSeedState(): AppData {
         emailMentions: false,
         emailAssignments: true,
         emailDigest: true,
+        theme: "light",
       },
     },
   ]

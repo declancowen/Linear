@@ -125,6 +125,12 @@ const orderingFieldLiterals = [
   v.literal("title"),
 ] as const
 
+const themePreferenceLiterals = [
+  v.literal("light"),
+  v.literal("dark"),
+  v.literal("system"),
+] as const
+
 const commentTargetTypeLiterals = [
   v.literal("workItem"),
   v.literal("document"),
@@ -187,6 +193,7 @@ export const entityKindValidator = v.union(...entityKindLiterals)
 export const displayPropertyValidator = v.union(...displayPropertyLiterals)
 export const groupFieldValidator = v.union(...groupFieldLiterals)
 export const orderingFieldValidator = v.union(...orderingFieldLiterals)
+export const themePreferenceValidator = v.union(...themePreferenceLiterals)
 export const commentTargetTypeValidator = v.union(...commentTargetTypeLiterals)
 export const attachmentTargetTypeValidator = v.union(
   ...attachmentTargetTypeLiterals
@@ -275,6 +282,7 @@ export const userFields = {
     emailMentions: v.boolean(),
     emailAssignments: v.boolean(),
     emailDigest: v.boolean(),
+    theme: themePreferenceValidator,
   }),
 }
 
