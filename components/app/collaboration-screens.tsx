@@ -618,15 +618,39 @@ function ForumPostCard({ postId }: { postId: string }) {
     setReply("")
   }
 
-  return (
-    <div className="group/post relative flex gap-3 border-l-2 border-transparent py-4 pl-4 pr-4 transition-colors hover:bg-accent/30 hover:border-primary/40">
-      {/* Avatar column */}
-      <UserAvatar initials={author?.avatarUrl ?? "?"} size="default" />
+  const previewComments = comments.slice(-3)
+  const hiddenCount = comments.length - previewComments.length
 
-      {/* Content column */}
-      <div className="min-w-0 flex-1">
-        {/* Author line */}
-        <div className="flex items-center gap-2">
+  return (
+    <div className="group/post relative overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md">
+      {/* Hover actions — floated top-right over the card */}
+      <div className="absolute -top-3 right-3 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm opacity-0 transition-opacity group-hover/post:opacity-100">
+        <button
+          type="button"
+          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Smiley className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowReplies(true)}
+          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <ChatCircle className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <DotsThree className="size-4" />
+        </button>
+      </div>
+
+      {/* Left accent border + post content */}
+      <div className="border-l-[3px] border-transparent px-4 py-4 transition-colors hover:border-primary/40">
+        {/* Author line — avatar + name centered */}
+        <div className="flex items-center gap-2.5">
+          <UserAvatar initials={author?.avatarUrl ?? "?"} size="default" />
           <span className="text-sm font-semibold">{author?.name ?? "Unknown"}</span>
           <span className="text-xs text-muted-foreground">
             {formatTimestamp(post.createdAt)}
@@ -635,7 +659,7 @@ function ForumPostCard({ postId }: { postId: string }) {
 
         {/* Title */}
         {post.title ? (
-          <h3 className="mt-1.5 text-[15px] font-semibold leading-snug">
+          <h3 className="mt-3 text-base font-bold leading-snug">
             {post.title}
           </h3>
         ) : null}
@@ -644,14 +668,14 @@ function ForumPostCard({ postId }: { postId: string }) {
         <p
           className={cn(
             "whitespace-pre-wrap text-sm leading-relaxed text-foreground/90",
-            post.title ? "mt-1" : "mt-1.5"
+            post.title ? "mt-2" : "mt-3"
           )}
         >
           {post.content}
         </p>
 
         {/* Reaction row */}
-        <div className="mt-2.5 flex items-center gap-1.5">
+        <div className="mt-3 flex items-center gap-1.5">
           {["👍", "❤️", "😊"].map((emoji) => (
             <button
               key={emoji}
@@ -668,24 +692,27 @@ function ForumPostCard({ postId }: { postId: string }) {
             <Smiley className="size-3.5" />
           </button>
         </div>
+      </div>
 
-        {/* Replies toggle */}
-        {comments.length > 0 ? (
+      {/* Replies + comment input — always visible */}
+      <div className="border-t px-4 py-3">
+        {/* Expand older replies */}
+        {hiddenCount > 0 ? (
           <button
             type="button"
             onClick={() => setShowReplies(!showReplies)}
-            className="mt-2.5 text-xs font-medium text-primary hover:underline"
+            className="mb-2.5 text-xs font-medium text-primary hover:underline"
           >
             {showReplies
-              ? "Hide replies"
-              : `Open ${comments.length} ${comments.length === 1 ? "reply" : "replies"} from ${replyAuthors.join(" and ")}`}
+              ? "Show less"
+              : `Show ${hiddenCount} earlier ${hiddenCount === 1 ? "reply" : "replies"}`}
           </button>
         ) : null}
 
-        {/* Expanded replies */}
-        {showReplies && comments.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-0.5 border-l-2 border-muted pl-3">
-            {comments.map((comment) => {
+        {/* Expanded older replies */}
+        {showReplies && hiddenCount > 0 ? (
+          <div className="mb-2 flex flex-col gap-0.5">
+            {comments.slice(0, hiddenCount).map((comment) => {
               const commentAuthor = getUser(data, comment.createdBy)
               return (
                 <div
@@ -712,61 +739,66 @@ function ForumPostCard({ postId }: { postId: string }) {
           </div>
         ) : null}
 
-        {/* Reply input — always visible when expanded or no replies yet */}
-        {showReplies || comments.length === 0 ? (
-          <div className={cn("flex items-center gap-2 mt-3", comments.length > 0 && "border-l-2 border-muted pl-3")}>
-            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-background px-3 py-1.5">
-              <input
-                value={reply}
-                onChange={(e) => setReply(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    handleReply()
-                  }
-                }}
-                placeholder="Reply…"
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-              />
-              <button
-                type="button"
-                onClick={handleReply}
-                disabled={!reply.trim()}
-                className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
-                  reply.trim()
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground/40"
-                )}
-              >
-                <ArrowUp className="size-3.5" weight="bold" />
-              </button>
-            </div>
+        {/* Latest 3 comments — always visible */}
+        {previewComments.length > 0 ? (
+          <div className="flex flex-col gap-0.5">
+            {previewComments.map((comment) => {
+              const commentAuthor = getUser(data, comment.createdBy)
+              return (
+                <div
+                  key={comment.id}
+                  className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
+                >
+                  <UserAvatar initials={commentAuthor?.avatarUrl ?? "?"} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">
+                        {commentAuthor?.name ?? "Unknown"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatTimestamp(comment.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">
+                      {comment.content}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         ) : null}
-      </div>
 
-      {/* Hover actions (far right) */}
-      <div className="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/post:opacity-100">
-        <button
-          type="button"
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-        >
-          <Smiley className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowReplies(true)}
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-        >
-          <ChatCircle className="size-4" />
-        </button>
-        <button
-          type="button"
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-        >
-          <DotsThree className="size-4" />
-        </button>
+        {/* Reply input — always visible */}
+        <div className={cn("flex items-center gap-2", previewComments.length > 0 && "mt-2.5")}>
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-background px-3 py-1.5">
+            <input
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleReply()
+                }
+              }}
+              placeholder="Reply…"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+            />
+            <button
+              type="button"
+              onClick={handleReply}
+              disabled={!reply.trim()}
+              className={cn(
+                "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
+                reply.trim()
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground/40"
+              )}
+            >
+              <ArrowUp className="size-3.5" weight="bold" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1019,7 +1051,7 @@ function NewPostComposer({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-3 rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/30"
+        className="flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-accent/30"
       >
         <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
         <span className="text-sm text-muted-foreground">Post in channel</span>
@@ -1028,7 +1060,7 @@ function NewPostComposer({
   }
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg border border-border/70 bg-card shadow-sm">
       <div className="flex items-start gap-3 px-4 pt-4">
         <UserAvatar initials={currentUser?.avatarUrl ?? "?"} size="default" />
         <div className="min-w-0 flex-1 space-y-2">
@@ -1403,31 +1435,29 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
           )}
         >
           <div className="min-h-0 overflow-y-auto">
-            {/* Composer at top */}
-            {editable ? (
-              <div className="border-b px-5 py-4">
+            <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
+              {/* Composer at top */}
+              {editable ? (
                 <NewPostComposer channelId={activeChannel.id} />
-              </div>
-            ) : null}
+              ) : null}
 
-            {/* Posts feed */}
-            {posts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                  <Hash className="size-5 text-muted-foreground" />
+              {/* Posts feed */}
+              {posts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                    <Hash className="size-5 text-muted-foreground" />
+                  </div>
+                  <p className="mt-3 text-sm font-medium">No posts yet</p>
+                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                    Start a discussion by creating the first post.
+                  </p>
                 </div>
-                <p className="mt-3 text-sm font-medium">No posts yet</p>
-                <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                  Start a discussion by creating the first post.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {posts.map((post) => (
+              ) : (
+                posts.map((post) => (
                   <ForumPostCard key={post.id} postId={post.id} />
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
 
           {sidebarOpen ? (
