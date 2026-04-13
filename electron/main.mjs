@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { app, BrowserWindow, shell } from "electron"
+import { app, BrowserWindow, nativeImage, shell } from "electron"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -10,6 +10,20 @@ const isDev = !app.isPackaged
 const localServerUrl = process.env.NEXT_DEV_SERVER_URL ?? "http://127.0.0.1:3000"
 
 let nextServerProcess = null
+
+function resolveDesktopIcon() {
+  const iconPath = path.join(__dirname, "app-icon.png")
+  const icon = nativeImage.createFromPath(iconPath)
+
+  if (icon.isEmpty()) {
+    return null
+  }
+
+  return {
+    icon,
+    iconPath,
+  }
+}
 
 function sleep(duration) {
   return new Promise((resolve) => {
@@ -63,13 +77,14 @@ async function resolveRendererUrl() {
   return "http://127.0.0.1:3000"
 }
 
-async function createWindow() {
+async function createWindow(iconPath) {
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 980,
     minWidth: 1180,
     minHeight: 760,
     backgroundColor: "#f7f6f2",
+    ...(iconPath ? { icon: iconPath } : {}),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       contextIsolation: true,
@@ -95,11 +110,17 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await createWindow()
+  const desktopIcon = resolveDesktopIcon()
+
+  if (process.platform === "darwin" && desktopIcon) {
+    app.dock.setIcon(desktopIcon.icon)
+  }
+
+  await createWindow(desktopIcon?.iconPath)
 
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      await createWindow()
+      await createWindow(desktopIcon?.iconPath)
     }
   })
 })
