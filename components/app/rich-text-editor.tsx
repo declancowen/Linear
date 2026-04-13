@@ -14,9 +14,14 @@ import TaskList from "@tiptap/extension-task-list"
 import Underline from "@tiptap/extension-underline"
 import StarterKit from "@tiptap/starter-kit"
 import {
+  CheckSquare,
+  Code,
+  FileArrowUp,
+  Lightning,
   LinkSimple,
   ListBullets,
   ListChecks,
+  Minus,
   Paperclip,
   Quotes,
   TextB,
@@ -65,6 +70,7 @@ type SlashCommand = {
   label: string
   description: string
   keywords: string[]
+  icon: React.ReactNode
   run: (editor: Editor) => void
 }
 
@@ -391,7 +397,7 @@ export function RichTextEditor({
         Math.max(12, slashState.left),
         Math.max(
           12,
-          (containerRef.current?.clientWidth ?? 336) - 336
+          (containerRef.current?.clientWidth ?? 256) - 268
         )
       )
     : 12
@@ -499,45 +505,29 @@ export function RichTextEditor({
 
   const slashMenu = slashState ? (
     <div
-      className="absolute z-10 w-80 max-w-[calc(100%-1.5rem)]"
+      className="absolute z-10 w-64 max-w-[calc(100%-1rem)]"
       style={{
         left: slashMenuLeft,
         top: slashState.top,
       }}
     >
       <Command
-        className="overflow-hidden rounded-2xl border border-border/70 bg-popover/95 p-0 shadow-[0_20px_65px_-30px_rgba(15,23,42,0.75)] backdrop-blur-xl"
+        className="overflow-hidden rounded-lg border bg-popover shadow-md"
         shouldFilter={false}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-muted/35 px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-              Insert block
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {slashState.query
-                ? `Matching “${slashState.query}”`
-                : "Start with a heading, list, checklist, code block, or file."}
-            </p>
-          </div>
-          <span className="rounded-full border border-border/70 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {filteredSlashCommands.length}
-          </span>
-        </div>
-        <CommandList>
+        <CommandList className="max-h-[min(20rem,50vh)]">
           <CommandEmpty>
-            <div className="px-4 py-6 text-sm text-muted-foreground">
-              No slash commands match that search.
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              No matching blocks
             </div>
           </CommandEmpty>
-          <CommandGroup heading="Insert">
+          <CommandGroup>
             {filteredSlashCommands.map((command, index) => (
               <CommandItem
                 key={command.id}
                 className={cn(
-                  "items-start gap-3 rounded-none border-b border-border/50 px-3 py-3 last:border-b-0 data-[selected=true]:bg-accent/70 data-[selected=true]:text-accent-foreground",
-                  index === activeSlashIndex &&
-                    "bg-accent/70 text-accent-foreground"
+                  "flex items-center gap-3 rounded-md px-2 py-1.5",
+                  index === activeSlashIndex && "bg-accent"
                 )}
                 value={command.id}
                 onSelect={() => {
@@ -555,28 +545,19 @@ export function RichTextEditor({
                   previousSlashQueryRef.current = null
                 }}
               >
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{command.label}</span>
-                    <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                      {command.keywords[0]}
-                    </span>
-                  </div>
-                  <span className="text-xs leading-5 text-muted-foreground transition-colors group-data-selected/command-item:text-foreground/75">
-                    {command.description}
-                  </span>
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+                  {command.icon}
                 </div>
-                <span className="pt-0.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground transition-colors group-data-selected/command-item:text-foreground/55">
-                  Enter
-                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm">{command.label}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {command.description}
+                  </div>
+                </div>
               </CommandItem>
             ))}
           </CommandGroup>
         </CommandList>
-        <div className="flex items-center justify-between border-t border-border/60 bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
-          <span>Arrow keys to move</span>
-          <span>Esc to close</span>
-        </div>
       </Command>
     </div>
   ) : null
@@ -639,8 +620,9 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "heading-1",
       label: "Heading",
-      description: "Convert the current block into a section heading.",
+      description: "Section heading",
       keywords: ["title", "header", "section"],
+      icon: <TextHOne className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().toggleHeading({ level: 1 }).run()
       },
@@ -648,8 +630,9 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "bullet-list",
       label: "Bullet list",
-      description: "Create a bulleted list for requirements or notes.",
+      description: "Unordered list",
       keywords: ["list", "bullets", "requirements"],
+      icon: <ListBullets className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().toggleBulletList().run()
       },
@@ -657,17 +640,19 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "task-list",
       label: "Checklist",
-      description: "Insert a checklist for execution or success criteria.",
+      description: "Task list with checkboxes",
       keywords: ["tasks", "todo", "criteria"],
+      icon: <ListChecks className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().toggleTaskList().run()
       },
     },
     {
       id: "quote",
-      label: "Callout quote",
-      description: "Drop in a quote block for decisions or constraints.",
+      label: "Quote",
+      description: "Blockquote callout",
       keywords: ["callout", "note", "constraint"],
+      icon: <Quotes className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().toggleBlockquote().run()
       },
@@ -675,8 +660,9 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "code",
       label: "Code block",
-      description: "Add a code block for implementation notes.",
+      description: "Fenced code snippet",
       keywords: ["code", "snippet", "technical"],
+      icon: <Code className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().toggleCodeBlock().run()
       },
@@ -684,17 +670,19 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "divider",
       label: "Divider",
-      description: "Separate sections with a horizontal rule.",
+      description: "Horizontal separator",
       keywords: ["separator", "rule", "divider"],
+      icon: <Minus className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().setHorizontalRule().run()
       },
     },
     {
       id: "decision",
-      label: "Decision block",
-      description: "Insert a short decision template.",
+      label: "Decision",
+      description: "Decision template",
       keywords: ["decision", "adr", "context"],
+      icon: <Lightning className="size-4" />,
       run: (currentEditor) => {
         currentEditor
           .chain()
@@ -708,8 +696,9 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     {
       id: "success-criteria",
       label: "Success criteria",
-      description: "Insert a checklist template for acceptance criteria.",
+      description: "Acceptance checklist",
       keywords: ["acceptance", "criteria", "done"],
+      icon: <CheckSquare className="size-4" />,
       run: (currentEditor) => {
         currentEditor
           .chain()
@@ -722,9 +711,10 @@ function getSlashCommands(promptAttachmentUpload: () => void): SlashCommand[] {
     },
     {
       id: "attachment",
-      label: "Upload attachment",
-      description: "Store a file and insert a download link.",
+      label: "Attachment",
+      description: "Upload a file",
       keywords: ["file", "upload", "attachment"],
+      icon: <FileArrowUp className="size-4" />,
       run: () => {
         promptAttachmentUpload()
       },

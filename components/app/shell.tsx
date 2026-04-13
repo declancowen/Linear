@@ -82,7 +82,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -124,6 +123,8 @@ export function AppShell({ children }: AppShellProps) {
   const [teamDetailsTeamId, setTeamDetailsTeamId] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
+  const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(() => new Set(teams.map((t) => t.id)))
 
   useEffect(() => {
@@ -203,7 +204,10 @@ export function AppShell({ children }: AppShellProps) {
                       <span className="truncate text-[12px] font-semibold leading-none">
                         {workspace?.name}
                       </span>
-                      <CaretDown className="ml-auto size-3 text-sidebar-foreground/50" />
+                      <CaretDown
+                        className="ml-auto size-2.5 text-sidebar-foreground/50"
+                        weight="fill"
+                      />
                     </SidebarMenuButton>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-64">
@@ -264,68 +268,106 @@ export function AppShell({ children }: AppShellProps) {
           </SidebarGroup>
           <SidebarSeparator />
           <SidebarGroup>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarLink
-                  href="/workspace/projects"
-                  icon={<Kanban />}
-                  label="Projects"
-                  active={pathname.startsWith("/workspace/projects")}
-                />
-                <SidebarLink
-                  href="/workspace/views"
-                  icon={<SquaresFour />}
-                  label="Views"
-                  active={pathname.startsWith("/workspace/views")}
-                />
-                <SidebarLink
-                  href="/workspace/docs"
-                  icon={<NotePencil />}
-                  label="Docs"
-                  active={pathname.startsWith("/workspace/docs")}
-                />
-                <SidebarLink
-                  href="/chats"
-                  icon={<ChatCircleDots />}
-                  label="Chats"
-                  active={pathname.startsWith("/chats")}
-                />
-                <SidebarMenuItem>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <SidebarMenuButton>
-                        <DotsThree />
-                        <span>More</span>
-                      </SidebarMenuButton>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-48">
-                      <DropdownMenuItem asChild>
-                        <Link href="/workspace/search">
-                          <MagnifyingGlass />
-                          Search
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/workspace/reports">
-                          <Kanban />
-                          Reports
-                        </Link>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
+            <div className="px-2">
+              <button
+                type="button"
+                className="flex h-7 min-w-0 flex-1 items-center rounded-md text-left text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground"
+                onClick={() => setWorkspaceSectionOpen((current) => !current)}
+              >
+                <span className="truncate">Workspace</span>
+                {workspaceSectionOpen ? (
+                  <CaretDown
+                    className="ml-1.5 size-2.5 text-sidebar-foreground/60"
+                    weight="fill"
+                  />
+                ) : (
+                  <CaretRight
+                    className="ml-1.5 size-2.5 text-sidebar-foreground/60"
+                    weight="fill"
+                  />
+                )}
+              </button>
+            </div>
+            {workspaceSectionOpen ? (
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarLink
+                    href="/workspace/projects"
+                    icon={<Kanban />}
+                    label="Projects"
+                    active={pathname.startsWith("/workspace/projects")}
+                  />
+                  <SidebarLink
+                    href="/workspace/views"
+                    icon={<SquaresFour />}
+                    label="Views"
+                    active={pathname.startsWith("/workspace/views")}
+                  />
+                  <SidebarLink
+                    href="/workspace/docs"
+                    icon={<NotePencil />}
+                    label="Docs"
+                    active={pathname.startsWith("/workspace/docs")}
+                  />
+                  <SidebarLink
+                    href="/chats"
+                    icon={<ChatCircleDots />}
+                    label="Chats"
+                    active={pathname.startsWith("/chats")}
+                  />
+                  <SidebarMenuItem>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <SidebarMenuButton>
+                          <DotsThree />
+                          <span>More</span>
+                        </SidebarMenuButton>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-48">
+                        <DropdownMenuItem asChild>
+                          <Link href="/workspace/search">
+                            <MagnifyingGlass />
+                            Search
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/workspace/reports">
+                            <Kanban />
+                            Reports
+                          </Link>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            ) : null}
           </SidebarGroup>
           <SidebarSeparator />
           <SidebarGroup>
-            <div className="flex items-center justify-between px-2">
-              <SidebarGroupLabel>Your teams</SidebarGroupLabel>
+            <div className="group/teams-header flex items-center justify-between px-2">
+              <button
+                type="button"
+                className="flex h-7 min-w-0 flex-1 items-center rounded-md text-left text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground"
+                onClick={() => setTeamsSectionOpen((current) => !current)}
+              >
+                <span className="truncate">Your teams</span>
+                {teamsSectionOpen ? (
+                  <CaretDown
+                    className="ml-1.5 size-2.5 text-sidebar-foreground/60"
+                    weight="fill"
+                  />
+                ) : (
+                  <CaretRight
+                    className="ml-1.5 size-2.5 text-sidebar-foreground/60"
+                    weight="fill"
+                  />
+                )}
+              </button>
               <Button
                 size="icon-xs"
                 variant="ghost"
-                className="size-6"
+                className="size-6 opacity-0 pointer-events-none transition-opacity group-hover/teams-header:pointer-events-auto group-hover/teams-header:opacity-100 group-focus-within/teams-header:pointer-events-auto group-focus-within/teams-header:opacity-100"
                 onClick={() => {
                   setInviteMode("workspace")
                   setInvitePresetTeamIds([])
@@ -336,139 +378,154 @@ export function AppShell({ children }: AppShellProps) {
                 <span className="sr-only">Invite people</span>
               </Button>
             </div>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {teams.map((team) => {
-                  const isExpanded = expandedTeams.has(team.id)
-                  const teamRole = getTeamRole(data, team.id)
-                  const canInvite = teamRole === "admin" || teamRole === "member"
-                  const canManage = teamRole === "admin"
-                  const features = getTeamFeatureSettings(team)
+            {teamsSectionOpen ? (
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {teams.map((team) => {
+                    const isExpanded = expandedTeams.has(team.id)
+                    const teamRole = getTeamRole(data, team.id)
+                    const canInvite = teamRole === "admin" || teamRole === "member"
+                    const canManage = teamRole === "admin"
+                    const features = getTeamFeatureSettings(team)
 
-                  return (
-                    <SidebarMenuItem key={team.id}>
-                      <SidebarMenuButton className="font-medium" onClick={() => toggleTeam(team.id)}>
+                    return (
+                      <SidebarMenuItem key={team.id}>
+                        <div className="group/team-row relative">
+                          <SidebarMenuButton
+                            className="pr-8 font-medium [&_svg]:size-2.5"
+                            onClick={() => toggleTeam(team.id)}
+                          >
+                            <span className="inline-flex min-w-0 items-center">
+                              <span className="truncate">{team.name}</span>
+                              {isExpanded ? (
+                                <CaretDown
+                                  className="ml-1.5 shrink-0 text-sidebar-foreground/60"
+                                  weight="fill"
+                                />
+                              ) : (
+                                <CaretRight
+                                  className="ml-1.5 shrink-0 text-sidebar-foreground/60"
+                                  weight="fill"
+                                />
+                              )}
+                            </span>
+                          </SidebarMenuButton>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover/team-row:opacity-100 group-focus-within/team-row:opacity-100 focus-visible:opacity-100">
+                                <DotsThree className="size-3.5" weight="bold" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-48">
+                              {canInvite ? (
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setInviteMode("team")
+                                    setInvitePresetTeamIds([team.id])
+                                    setInviteOpen(true)
+                                  }}
+                                >
+                                  <Plus />
+                                  Invite to {team.name}
+                                </DropdownMenuItem>
+                              ) : null}
+                              {canManage ? (
+                                <DropdownMenuItem onSelect={() => setTeamDetailsTeamId(team.id)}>
+                                  <Gear />
+                                  Team settings
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                         {isExpanded ? (
-                          <CaretDown className="size-3 text-sidebar-foreground/50" />
-                        ) : (
-                          <CaretRight className="size-3 text-sidebar-foreground/50" />
-                        )}
-                        <span>{team.name}</span>
-                      </SidebarMenuButton>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="absolute right-1 top-1.5 rounded-md p-1 text-sidebar-foreground/50 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover/menu-item:opacity-100">
-                            <CaretDown className="size-3" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-48">
-                          {canInvite ? (
-                            <DropdownMenuItem
-                              onSelect={() => {
-                                setInviteMode("team")
-                                setInvitePresetTeamIds([team.id])
-                                setInviteOpen(true)
-                              }}
-                            >
-                              <Plus />
-                              Invite to {team.name}
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canManage ? (
-                            <DropdownMenuItem onSelect={() => setTeamDetailsTeamId(team.id)}>
-                              <Gear />
-                              Team settings
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      {isExpanded ? (
-                        <SidebarMenuSub>
-                          {features.chat ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
-                              >
-                                <Link href={`/team/${team.slug}/chat`}>
-                                  <ChatCircleDots className="size-4" />
-                                  <span>Chat</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.channels ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/channels`)}
-                              >
-                                <Link href={`/team/${team.slug}/channels`}>
-                                  <HashStraight className="size-4" />
-                                  <span>Channel</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.issues ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/work`)}
-                              >
-                                <Link href={`/team/${team.slug}/work`}>
-                                  <CodesandboxLogo className="size-4" />
-                                  <span>Issues</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.projects ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
-                              >
-                                <Link href={`/team/${team.slug}/projects`}>
-                                  <Kanban className="size-4" />
-                                  <span>Projects</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.views ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/views`)}
-                              >
-                                <Link href={`/team/${team.slug}/views`}>
-                                  <SquaresFour className="size-4" />
-                                  <span>Views</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                          {features.docs ? (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
-                              >
-                                <Link href={`/team/${team.slug}/docs`}>
-                                  <NotePencil className="size-4" />
-                                  <span>Docs</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ) : null}
-                        </SidebarMenuSub>
-                      ) : null}
-                    </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
+                          <SidebarMenuSub>
+                            {features.chat ? (
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
+                                >
+                                  <Link href={`/team/${team.slug}/chat`}>
+                                    <ChatCircleDots className="size-4" />
+                                    <span>Chat</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ) : null}
+                            {features.channels ? (
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname.startsWith(`/team/${team.slug}/channels`)}
+                                >
+                                  <Link href={`/team/${team.slug}/channels`}>
+                                    <HashStraight className="size-4" />
+                                    <span>Channel</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ) : null}
+                            {features.issues ? (
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname.startsWith(`/team/${team.slug}/work`)}
+                                >
+                                  <Link href={`/team/${team.slug}/work`}>
+                                    <CodesandboxLogo className="size-4" />
+                                    <span>Issues</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ) : null}
+                            {features.projects ? (
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
+                                >
+                                  <Link href={`/team/${team.slug}/projects`}>
+                                    <Kanban className="size-4" />
+                                    <span>Projects</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ) : null}
+                            {features.views ? (
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname.startsWith(`/team/${team.slug}/views`)}
+                                >
+                                  <Link href={`/team/${team.slug}/views`}>
+                                    <SquaresFour className="size-4" />
+                                    <span>Views</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ) : null}
+                            {features.docs ? (
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
+                                >
+                                  <Link href={`/team/${team.slug}/docs`}>
+                                    <NotePencil className="size-4" />
+                                    <span>Docs</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ) : null}
+                          </SidebarMenuSub>
+                        ) : null}
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            ) : null}
           </SidebarGroup>
           <SidebarSeparator />
           <SidebarGroup>
