@@ -27,6 +27,12 @@ export async function getAuthContextServer(email: string) {
   return getConvexServerClient().query(api.app.getAuthContext, { email })
 }
 
+export async function getSnapshotServer(email?: string) {
+  return getConvexServerClient().query(api.app.getSnapshot, {
+    email,
+  })
+}
+
 export async function getInviteByTokenServer(token: string) {
   return getConvexServerClient().query(api.app.getInviteByToken, { token })
 }
@@ -106,13 +112,15 @@ export async function updateWorkspaceBrandingServer(input: {
   workspaceId: string
   name: string
   logoUrl: string
+  logoImageStorageId?: string
+  clearLogoImage?: boolean
   accent: string
   description: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.updateWorkspaceBranding,
-    input
-  )
+  return getConvexServerClient().mutation(api.app.updateWorkspaceBranding, {
+    ...input,
+    logoImageStorageId: input.logoImageStorageId as Id<"_storage"> | undefined,
+  })
 }
 
 export async function setWorkspaceWorkosOrganizationServer(input: {
@@ -131,16 +139,20 @@ export async function updateCurrentUserProfileServer(input: {
   name: string
   title: string
   avatarUrl: string
+  avatarImageStorageId?: string
+  clearAvatarImage?: boolean
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
   }
 }) {
-  return getConvexServerClient().mutation(
-    api.app.updateCurrentUserProfile,
-    input
-  )
+  return getConvexServerClient().mutation(api.app.updateCurrentUserProfile, {
+    ...input,
+    avatarImageStorageId: input.avatarImageStorageId as
+      | Id<"_storage">
+      | undefined,
+  })
 }
 
 export async function ensureWorkspaceScaffoldingServer(input: {
@@ -164,6 +176,17 @@ export async function ensureWorkspaceScaffoldingServer(input: {
 
     throw error
   }
+}
+
+export async function generateSettingsImageUploadUrlServer(input: {
+  currentUserId: string
+  kind: "user-avatar" | "workspace-logo"
+  workspaceId?: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.generateSettingsImageUploadUrl,
+    input
+  )
 }
 
 export async function joinTeamByCodeServer(input: {
@@ -473,6 +496,7 @@ export async function updateTeamDetailsServer(input: {
   name: string
   icon: string
   summary: string
+  joinCode?: string
   experience:
     | "software-development"
     | "issue-analysis"

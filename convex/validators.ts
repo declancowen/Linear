@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 
 const nullableString = v.union(v.string(), v.null())
+const nullableStorageId = v.union(v.id("_storage"), v.null())
 
 const roleLiterals = [
   v.literal("admin"),
@@ -157,6 +158,8 @@ const conversationVariantLiterals = [
   v.literal("team"),
 ] as const
 
+const chatMessageKindLiterals = [v.literal("text"), v.literal("call")] as const
+
 const notificationEntityTypeLiterals = [
   v.literal("workItem"),
   v.literal("document"),
@@ -196,6 +199,7 @@ export const conversationScopeTypeValidator = v.union(
 export const conversationVariantValidator = v.union(
   ...conversationVariantLiterals
 )
+export const chatMessageKindValidator = v.union(...chatMessageKindLiterals)
 export const notificationEntityTypeValidator = v.union(
   ...notificationEntityTypeLiterals
 )
@@ -225,6 +229,7 @@ export const workspaceFields = {
   slug: v.string(),
   name: v.string(),
   logoUrl: v.string(),
+  logoImageStorageId: v.optional(nullableStorageId),
   createdBy: v.optional(nullableString),
   workosOrganizationId: v.optional(nullableString),
   settings: v.object({
@@ -263,6 +268,7 @@ export const userFields = {
   handle: v.string(),
   email: v.string(),
   avatarUrl: v.string(),
+  avatarImageStorageId: v.optional(nullableStorageId),
   workosUserId: v.optional(nullableString),
   title: v.string(),
   preferences: v.object({
@@ -469,10 +475,31 @@ export const conversationFields = {
 export const chatMessageFields = {
   id: v.string(),
   conversationId: v.string(),
+  kind: chatMessageKindValidator,
   content: v.string(),
+  callId: v.optional(nullableString),
   mentionUserIds: v.optional(v.array(v.string())),
   createdBy: v.string(),
   createdAt: v.string(),
+}
+
+export const callFields = {
+  id: v.string(),
+  conversationId: v.string(),
+  scopeType: conversationScopeTypeValidator,
+  scopeId: v.string(),
+  roomId: v.string(),
+  roomName: v.string(),
+  roomKey: v.string(),
+  roomDescription: v.string(),
+  startedBy: v.string(),
+  startedAt: v.string(),
+  updatedAt: v.string(),
+  endedAt: nullableString,
+  participantUserIds: v.optional(v.array(v.string())),
+  lastJoinedAt: nullableString,
+  lastJoinedBy: nullableString,
+  joinCount: v.optional(v.number()),
 }
 
 const channelPostReactionValidator = v.object({

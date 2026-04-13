@@ -7,16 +7,12 @@ import { Buildings, SpinnerGap, Users } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
+import { resolveImageAssetSource } from "@/lib/utils"
 
 type OnboardingJoinCardProps = {
   authenticated: boolean
+  alreadyJoined?: boolean
   workspaceName: string
   workspaceLogo: string
   teamName: string
@@ -28,6 +24,7 @@ type OnboardingJoinCardProps = {
 
 export function OnboardingJoinCard({
   authenticated,
+  alreadyJoined = false,
   workspaceName,
   workspaceLogo,
   teamName,
@@ -38,39 +35,57 @@ export function OnboardingJoinCard({
 }: OnboardingJoinCardProps) {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
+  const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
 
   return (
-    <Card className="border-border/70 bg-card/80 shadow-none backdrop-blur">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-3 text-xl">
-          <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-sm font-semibold text-primary">
-            {workspaceLogo}
-          </span>
-          <span>{workspaceName}</span>
-        </CardTitle>
-        <CardDescription>
-          Join <span className="font-medium text-foreground">{teamName}</span>{" "}
-          to unlock the workspace. Active team invites keep their invited role;
-          otherwise code-based joins default to viewer access.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-3 rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <Buildings className="size-4" />
-            <span>Workspace: {workspaceName}</span>
+    <Card className="gap-0 py-0 shadow-none ring-foreground/10">
+      <div className="flex items-center gap-3 border-b px-5 py-3.5">
+        <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+          {workspaceLogoImageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt={workspaceName}
+              className="size-full rounded-lg object-cover"
+              src={workspaceLogoImageSrc}
+            />
+          ) : (
+            workspaceLogo
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{workspaceName}</div>
+          <div className="text-xs text-muted-foreground">
+            Join <span className="font-medium text-foreground">{teamName}</span>{" "}
+            to access this workspace
           </div>
-          <div className="flex items-center gap-2">
-            <Users className="size-4" />
-            <span>Team: {teamName}</span>
-          </div>
-          <p>{teamSummary}</p>
         </div>
+      </div>
+      <div className="px-5 py-3.5">
+        <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Buildings className="size-3.5" />
+            <span>{workspaceName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Users className="size-3.5" />
+            <span>{teamName}</span>
+          </div>
+          {teamSummary ? (
+            <p className="mt-1 text-xs leading-relaxed">{teamSummary}</p>
+          ) : null}
+        </div>
+      </div>
+      <div className="border-t px-5 py-3.5">
         {authenticated ? (
           <Button
-            className="w-full"
-            disabled={submitting}
+            size="lg"
+            className="h-11 w-full text-base"
+            disabled={submitting || alreadyJoined}
             onClick={async () => {
+              if (alreadyJoined) {
+                return
+              }
+
               setSubmitting(true)
 
               try {
@@ -110,19 +125,19 @@ export function OnboardingJoinCard({
             }}
           >
             {submitting ? <SpinnerGap className="size-4 animate-spin" /> : null}
-            Join Workspace
+            {alreadyJoined ? "Joined" : "Join workspace"}
           </Button>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Button asChild variant="outline">
+          <div className="flex gap-2">
+            <Button asChild variant="ghost" size="lg" className="h-11 flex-1">
               <Link href={loginHref}>Sign in</Link>
             </Button>
-            <Button asChild>
+            <Button asChild size="lg" className="h-11 flex-1">
               <Link href={signupHref}>Create account</Link>
             </Button>
           </div>
         )}
-      </CardContent>
+      </div>
     </Card>
   )
 }

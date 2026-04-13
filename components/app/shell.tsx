@@ -9,8 +9,10 @@ import {
   CaretDown,
   CaretRight,
   ChatCircleDots,
+  Check,
   CheckCircle,
   CodesandboxLogo,
+  CopySimple,
   DotsThree,
   Gear,
   HashStraight,
@@ -18,7 +20,9 @@ import {
   Kanban,
   MagnifyingGlass,
   NotePencil,
+  PaperPlaneTilt,
   Plus,
+  PlusCircle,
   SignIn,
   SquaresFour,
   UserCircle,
@@ -46,7 +50,7 @@ import {
   teamExperienceTypes,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import { Button } from "@/components/ui/button"
@@ -138,6 +142,14 @@ export function AppShell({ children }: AppShellProps) {
   ).length
   const workspace = getCurrentWorkspace(data)
   const currentUser = getCurrentUser(data)
+  const workspaceLogoImageSrc = resolveImageAssetSource(
+    workspace?.logoImageUrl,
+    workspace?.logoUrl
+  )
+  const currentUserAvatarImageSrc = resolveImageAssetSource(
+    currentUser.avatarImageUrl,
+    currentUser.avatarUrl
+  )
   const pendingInviteCount = data.invites.filter((invite) => {
     if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
       return false
@@ -156,12 +168,6 @@ export function AppShell({ children }: AppShellProps) {
     "workspace"
   )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
-  const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  const [workspaceOpen, setWorkspaceOpen] = useState(false)
-  const [teamDetailsTeamId, setTeamDetailsTeamId] = useState<string | null>(
-    null
-  )
-  const [profileOpen, setProfileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
@@ -214,31 +220,6 @@ export function AppShell({ children }: AppShellProps) {
         mode={inviteMode}
         presetTeamIds={invitePresetTeamIds}
       />
-      {createTeamOpen ? (
-        <CreateTeamDialog
-          open={createTeamOpen}
-          onOpenChange={setCreateTeamOpen}
-        />
-      ) : null}
-      {workspaceOpen ? (
-        <WorkspaceDialog
-          key={`${workspace?.id ?? "workspace"}-${workspaceOpen}`}
-          open={workspaceOpen}
-          onOpenChange={setWorkspaceOpen}
-        />
-      ) : null}
-      {teamDetailsTeamId ? (
-        <TeamDetailsDialog
-          open={Boolean(teamDetailsTeamId)}
-          onOpenChange={(open) => {
-            if (!open) {
-              setTeamDetailsTeamId(null)
-            }
-          }}
-          teamId={teamDetailsTeamId}
-        />
-      ) : null}
-      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
       {searchOpen ? (
         <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       ) : null}
@@ -251,7 +232,16 @@ export function AppShell({ children }: AppShellProps) {
                   <DropdownMenuTrigger asChild>
                     <SidebarMenuButton className="h-9">
                       <div className="flex size-5 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
-                        {workspace?.logoUrl}
+                        {workspaceLogoImageSrc ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            alt={workspace?.name ?? "Workspace"}
+                            className="size-full rounded-[5px] object-cover"
+                            src={workspaceLogoImageSrc}
+                          />
+                        ) : (
+                          workspace?.logoUrl
+                        )}
                       </div>
                       <span className="truncate text-[12px] leading-none font-semibold">
                         {workspace?.name}
@@ -265,9 +255,11 @@ export function AppShell({ children }: AppShellProps) {
                   <DropdownMenuContent align="start" className="w-64">
                     <DropdownMenuLabel>Workspace</DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onSelect={() => setWorkspaceOpen(true)}>
-                        <Gear />
-                        Workspace details
+                      <DropdownMenuItem asChild>
+                        <Link href="/workspace/settings">
+                          <Gear />
+                          Workspace settings
+                        </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild>
                         <Link
@@ -275,8 +267,8 @@ export function AppShell({ children }: AppShellProps) {
                           className="flex w-full items-center justify-between gap-3"
                         >
                           <span className="flex items-center gap-2">
-                            <IdentificationBadge />
-                            <span>Join workspace</span>
+                            <PlusCircle />
+                            <span>Join a workspace</span>
                           </span>
                           {pendingInviteCount > 0 ? (
                             <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none font-medium text-muted-foreground">
@@ -292,7 +284,7 @@ export function AppShell({ children }: AppShellProps) {
                           setInviteOpen(true)
                         }}
                       >
-                        <Plus />
+                        <PaperPlaneTilt />
                         Invite to workspace
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
@@ -436,13 +428,15 @@ export function AppShell({ children }: AppShellProps) {
               </button>
               {canCreateTeam ? (
                 <Button
+                  asChild
                   size="icon-xs"
                   variant="ghost"
                   className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within/teams-header:pointer-events-auto group-focus-within/teams-header:opacity-100 group-hover/teams-header:pointer-events-auto group-hover/teams-header:opacity-100"
-                  onClick={() => setCreateTeamOpen(true)}
                 >
-                  <Plus className="size-3.5" />
-                  <span className="sr-only">Create team</span>
+                  <Link href="/workspace/create-team">
+                    <Plus className="size-3.5" />
+                    <span className="sr-only">Create team</span>
+                  </Link>
                 </Button>
               ) : null}
             </div>
@@ -503,11 +497,11 @@ export function AppShell({ children }: AppShellProps) {
                                 </DropdownMenuItem>
                               ) : null}
                               {canManage ? (
-                                <DropdownMenuItem
-                                  onSelect={() => setTeamDetailsTeamId(team.id)}
-                                >
-                                  <Gear />
-                                  Team settings
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/team/${team.slug}/settings`}>
+                                    <Gear />
+                                    Team settings
+                                  </Link>
                                 </DropdownMenuItem>
                               ) : null}
                             </DropdownMenuContent>
@@ -622,7 +616,16 @@ export function AppShell({ children }: AppShellProps) {
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton>
                     <div className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
-                      {currentUser.avatarUrl}
+                      {currentUserAvatarImageSrc ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          alt={currentUser.name}
+                          className="size-full rounded-full object-cover"
+                          src={currentUserAvatarImageSrc}
+                        />
+                      ) : (
+                        currentUser.avatarUrl
+                      )}
                     </div>
                     <span className="truncate text-[12px]">
                       {currentUser.name}
@@ -632,9 +635,11 @@ export function AppShell({ children }: AppShellProps) {
                 <DropdownMenuContent align="start" className="w-64">
                   <DropdownMenuLabel>Account</DropdownMenuLabel>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
-                      <UserCircle />
-                      Edit profile
+                    <DropdownMenuItem asChild>
+                      <Link href="/settings/profile">
+                        <UserCircle />
+                        User settings
+                      </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <form
@@ -739,69 +744,78 @@ function WorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent key={`${workspace?.id ?? "workspace"}-${open}`}>
-        <DialogHeader>
-          <DialogTitle>Workspace details</DialogTitle>
-          <DialogDescription>
-            Update the current workspace identity and meta details.
-          </DialogDescription>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="workspace-name">Name</FieldLabel>
-            <FieldContent>
-              <Input
-                id="workspace-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="workspace-logo">Logo / initials</FieldLabel>
-            <FieldContent>
-              <Input
-                id="workspace-logo"
-                value={logoUrl}
-                onChange={(event) => setLogoUrl(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Accent</FieldLabel>
-            <FieldContent>
-              <Select value={accent} onValueChange={setAccent}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {workspaceAccentOptions.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="workspace-description">Description</FieldLabel>
-            <FieldContent>
-              <Input
-                id="workspace-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+      <DialogContent
+        key={`${workspace?.id ?? "workspace"}-${open}`}
+        className="max-w-lg gap-0 overflow-hidden p-0"
+      >
+        <div className="px-5 pt-5 pb-1">
+          <DialogHeader className="mb-1 p-0">
+            <DialogTitle className="text-base">Workspace</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Identity and branding for {workspace?.name ?? "workspace"}.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="flex flex-col border-t px-5 py-2">
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Name</span>
+            <Input
+              id="workspace-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">
+              Logo / initials
+            </span>
+            <Input
+              id="workspace-logo"
+              value={logoUrl}
+              onChange={(event) => setLogoUrl(event.target.value)}
+              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Accent</span>
+            <Select value={accent} onValueChange={setAccent}>
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs capitalize shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {workspaceAccentOptions.map((option) => (
+                    <SelectItem
+                      key={option}
+                      value={option}
+                      className="capitalize"
+                    >
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Description</span>
+            <Input
+              id="workspace-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            size="sm"
             onClick={() => {
               useAppStore.getState().updateWorkspaceBranding({
                 name,
@@ -814,7 +828,7 @@ function WorkspaceDialog({
           >
             Save workspace
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -880,6 +894,7 @@ function TeamEditorFields({
   joinCodeReadonlyLabel?: string
 }) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
+  const [copiedJoinCode, setCopiedJoinCode] = useState<string | null>(null)
   const optionalFeatures = [
     {
       key: "docs" as const,
@@ -897,6 +912,24 @@ function TeamEditorFields({
       description: "Shared forum-style posts with replies for the full team.",
     },
   ]
+
+  async function handleCopyJoinCode() {
+    if (!joinCode) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(joinCode)
+      setCopiedJoinCode(joinCode)
+      window.setTimeout(() => {
+        setCopiedJoinCode(null)
+      }, 1500)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to copy join code"
+      )
+    }
+  }
 
   return (
     <div className="grid gap-8 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
@@ -982,6 +1015,16 @@ function TeamEditorFields({
                     value={joinCode || "Generated on create"}
                     readOnly
                   />
+                  {joinCode ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleCopyJoinCode()}
+                    >
+                      {copiedJoinCode === joinCode ? <Check /> : <CopySimple />}
+                      {copiedJoinCode === joinCode ? "Copied" : "Copy"}
+                    </Button>
+                  ) : null}
                   {onRegenerateJoinCode ? (
                     <Button
                       type="button"
@@ -1448,86 +1491,101 @@ function InviteDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent key={`${data.ui.activeTeamId}-${mode}-${open}`}>
-        <DialogHeader>
-          <DialogTitle>Invite people</DialogTitle>
-          <DialogDescription>
-            Start from the workspace invite and attach access through one or
-            more teams.
-          </DialogDescription>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>{lockedToTeam ? "Team" : "Teams"}</FieldLabel>
-            <FieldContent>
-              {lockedToTeam ? (
-                <div className="rounded-lg border px-3 py-2 text-sm">
-                  {teams.find((team) => team.id === presetTeamIds[0])?.name ??
-                    "Selected team"}
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2 rounded-lg border p-3">
-                  {inviteableTeams.map((team) => {
-                    const selected = teamIds.includes(team.id)
+      <DialogContent
+        key={`${data.ui.activeTeamId}-${mode}-${open}`}
+        className="max-w-lg gap-0 overflow-hidden p-0"
+      >
+        <div className="px-5 pt-5 pb-1">
+          <DialogHeader className="mb-1 p-0">
+            <DialogTitle className="text-base">Invite people</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {mode === "team"
+                ? "Invite someone to this team."
+                : "Invite someone and grant access through one or more teams."}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-                    return (
-                      <Button
-                        key={team.id}
-                        type="button"
-                        size="sm"
-                        variant={selected ? "secondary" : "outline"}
-                        onClick={() =>
-                          setTeamIds((current) =>
-                            current.includes(team.id)
-                              ? current.filter((value) => value !== team.id)
-                              : [...current, team.id]
-                          )
-                        }
-                      >
-                        {team.name}
-                      </Button>
-                    )
-                  })}
-                </div>
-              )}
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="invite-email">Email</FieldLabel>
-            <FieldContent>
-              <Input
-                id="invite-email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Role</FieldLabel>
-            <FieldContent>
-              <Select
-                value={role}
-                onValueChange={(value) => setRole(value as Role)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="member">Member</SelectItem>
-                    <SelectItem value="viewer">Viewer</SelectItem>
-                    <SelectItem value="guest">Guest</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <div className="px-5 py-3">
+          <Input
+            id="invite-email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email address"
+            className="h-auto border-none bg-transparent px-0 py-1 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            autoFocus
+          />
+        </div>
+
+        <div className="flex flex-col border-t px-5 py-2">
+          {/* Team selection */}
+          <div className="py-2">
+            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              {lockedToTeam ? "Team" : "Teams"}
+            </span>
+            {lockedToTeam ? (
+              <div className="mt-1.5 text-sm">
+                {teams.find((team) => team.id === presetTeamIds[0])?.name ??
+                  "Selected team"}
+              </div>
+            ) : (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {inviteableTeams.map((team) => {
+                  const selected = teamIds.includes(team.id)
+
+                  return (
+                    <button
+                      key={team.id}
+                      type="button"
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                        selected
+                          ? "border-primary/30 bg-primary/10 font-medium text-foreground"
+                          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                      )}
+                      onClick={() =>
+                        setTeamIds((current) =>
+                          current.includes(team.id)
+                            ? current.filter((value) => value !== team.id)
+                            : [...current, team.id]
+                        )
+                      }
+                    >
+                      {team.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Role */}
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Role</span>
+            <Select
+              value={role}
+              onValueChange={(value) => setRole(value as Role)}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+                <SelectValue placeholder="Select a role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="guest">Guest</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            size="sm"
             disabled={!canInvite || submitting}
             onClick={async () => {
               setSubmitting(true)
@@ -1564,9 +1622,9 @@ function InviteDialog({
               }
             }}
           >
-            {submitting ? "Sending..." : "Create invite"}
+            {submitting ? "Sending..." : "Send invite"}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -1679,126 +1737,151 @@ function ProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent key={`${currentUser.id}-${open}`}>
-        <DialogHeader>
-          <DialogTitle>Profile settings</DialogTitle>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="profile-name">Name</FieldLabel>
-            <FieldContent>
-              <Input
-                id="profile-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-title">Title</FieldLabel>
-            <FieldContent>
-              <Input
-                id="profile-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-avatar">Avatar initials</FieldLabel>
-            <FieldContent>
-              <Input
-                id="profile-avatar"
-                value={avatarUrl}
-                onChange={(event) => setAvatarUrl(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Email mentions</FieldLabel>
-            <FieldContent>
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                <FieldDescription>
-                  Send an email when someone mentions you.
-                </FieldDescription>
-                <Switch
-                  checked={emailMentions}
-                  onCheckedChange={setEmailMentions}
-                />
+      <DialogContent
+        key={`${currentUser.id}-${open}`}
+        className="max-w-lg gap-0 overflow-hidden p-0"
+      >
+        <div className="px-5 pt-5 pb-1">
+          <DialogHeader className="mb-1 p-0">
+            <DialogTitle className="text-base">Profile</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {currentUser.name} · {currentUser.email}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="flex flex-col border-t px-5 py-2">
+          <div className="py-1.5">
+            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Identity
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Name</span>
+            <Input
+              id="profile-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Title</span>
+            <Input
+              id="profile-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">
+              Avatar initials
+            </span>
+            <Input
+              id="profile-avatar"
+              value={avatarUrl}
+              onChange={(event) => setAvatarUrl(event.target.value)}
+              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col border-t px-5 py-2">
+          <div className="py-1.5">
+            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Notifications
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <div className="min-w-0">
+              <div className="text-xs">Email mentions</div>
+              <div className="text-[11px] text-muted-foreground">
+                Notified when someone mentions you.
               </div>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Email assignments</FieldLabel>
-            <FieldContent>
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                <FieldDescription>
-                  Send an email when work is assigned to you.
-                </FieldDescription>
-                <Switch
-                  checked={emailAssignments}
-                  onCheckedChange={setEmailAssignments}
-                />
+            </div>
+            <Switch
+              checked={emailMentions}
+              onCheckedChange={setEmailMentions}
+              className="scale-90"
+            />
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <div className="min-w-0">
+              <div className="text-xs">Email assignments</div>
+              <div className="text-[11px] text-muted-foreground">
+                Notified when work is assigned to you.
               </div>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel>Email digest</FieldLabel>
-            <FieldContent>
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                <FieldDescription>
-                  Include unread notifications in a digest email.
-                </FieldDescription>
-                <Switch
-                  checked={emailDigest}
-                  onCheckedChange={setEmailDigest}
-                />
+            </div>
+            <Switch
+              checked={emailAssignments}
+              onCheckedChange={setEmailAssignments}
+              className="scale-90"
+            />
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <div className="min-w-0">
+              <div className="text-xs">Email digest</div>
+              <div className="text-[11px] text-muted-foreground">
+                Unread notifications in a daily digest.
               </div>
-            </FieldContent>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-email">Account email</FieldLabel>
-            <FieldContent>
-              <Input
-                id="profile-email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-              />
-              <FieldDescription className="mt-2">
-                Updating your email sends a WorkOS verification email and then
-                signs you out so the new address can become canonical.
-              </FieldDescription>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={changingEmail}
-                  onClick={() => {
-                    void handleEmailChange()
-                  }}
-                >
-                  {changingEmail ? "Updating..." : "Change email"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={sendingPasswordReset}
-                  onClick={() => {
-                    void handlePasswordReset()
-                  }}
-                >
-                  {sendingPasswordReset ? "Sending..." : "Send password reset"}
-                </Button>
-              </div>
-            </FieldContent>
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            </div>
+            <Switch
+              checked={emailDigest}
+              onCheckedChange={setEmailDigest}
+              className="scale-90"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col border-t px-5 py-2">
+          <div className="py-1.5">
+            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Account
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground">Email</span>
+            <Input
+              id="profile-email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              type="email"
+              className="h-7 w-56 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 py-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={changingEmail}
+              onClick={() => {
+                void handleEmailChange()
+              }}
+            >
+              {changingEmail ? "Updating..." : "Change email"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={sendingPasswordReset}
+              onClick={() => {
+                void handlePasswordReset()
+              }}
+            >
+              {sendingPasswordReset ? "Sending..." : "Password reset"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            size="sm"
             onClick={() => {
               useAppStore.getState().updateCurrentUserProfile({
                 name,
@@ -1815,7 +1898,7 @@ function ProfileDialog({
           >
             Save profile
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )

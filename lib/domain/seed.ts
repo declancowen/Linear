@@ -2,6 +2,7 @@ import { addDays, subDays } from "date-fns"
 
 import type {
   AppData,
+  Call,
   ChannelPost,
   ChannelPostComment,
   ChatMessage,
@@ -1189,8 +1190,10 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_maya_1",
       conversationId: "conversation_workspace_direct_maya",
+      kind: "text",
       content:
         "Can we keep the launch room for blockers and use this thread for implementation decisions?",
+      callId: null,
       mentionUserIds: [],
       createdBy: "user_maya",
       createdAt: iso(subDays(now, 1)),
@@ -1198,8 +1201,10 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_maya_2",
       conversationId: "conversation_workspace_direct_maya",
+      kind: "text",
       content:
         "Yes. I also want the team chat to carry a video placeholder for the 100MS handoff later.",
+      callId: null,
       mentionUserIds: [],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 0)),
@@ -1207,8 +1212,10 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_launch_1",
       conversationId: "conversation_workspace_group_launch",
+      kind: "text",
       content:
         "Posting final QA blockers here so launch comms and design stay aligned.",
+      callId: null,
       mentionUserIds: [],
       createdBy: "user_idris",
       createdAt: iso(subDays(now, 0)),
@@ -1216,8 +1223,10 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_recipe_1",
       conversationId: "conversation_team_recipe_chat",
+      kind: "text",
       content:
         "Channel work should feel slower and structured. Team chat should stay real-time.",
+      callId: null,
       mentionUserIds: [],
       createdBy: "user_declan",
       createdAt: iso(subDays(now, 0)),
@@ -1225,13 +1234,17 @@ export function createSeedState(): AppData {
     {
       id: "chat_message_dev_1",
       conversationId: "conversation_team_development_chat",
+      kind: "text",
       content:
         "Schema work is first. Once snapshot sync lands, the UI will follow quickly.",
+      callId: null,
       mentionUserIds: [],
       createdBy: "user_maya",
       createdAt: iso(subDays(now, 0)),
     },
   ]
+
+  const calls: Call[] = []
 
   const channelPosts: ChannelPost[] = [
     {
@@ -1328,6 +1341,7 @@ export function createSeedState(): AppData {
     invites,
     projectUpdates,
     conversations,
+    calls,
     chatMessages,
     channelPosts,
     channelPostComments,

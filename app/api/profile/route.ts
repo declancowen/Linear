@@ -17,14 +17,15 @@ export async function PATCH(request: NextRequest) {
   const parsed = profileSchema.safeParse(body)
 
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid profile payload" }, { status: 400 })
+    return NextResponse.json(
+      { error: "Invalid profile payload" },
+      { status: 400 }
+    )
   }
 
   try {
-    const { authenticatedUser, ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const { authenticatedUser, ensuredUser } =
+      await ensureAuthenticatedAppContext(session.user, session.organizationId)
 
     await updateCurrentUserProfileServer({
       currentUserId: ensuredUser.userId,
@@ -44,7 +45,8 @@ export async function PATCH(request: NextRequest) {
     console.error(error)
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to update profile",
+        error:
+          error instanceof Error ? error.message : "Failed to update profile",
       },
       { status: 500 }
     )

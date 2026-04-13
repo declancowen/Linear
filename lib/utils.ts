@@ -5,6 +5,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function isImageAssetSource(value: string | null | undefined) {
+  if (!value) {
+    return false
+  }
+
+  return /^(https?:\/\/|\/|data:|blob:)/.test(value.trim())
+}
+
+export function resolveImageAssetSource(
+  imageUrl?: string | null,
+  fallbackValue?: string | null
+): string | null {
+  if (imageUrl) {
+    return imageUrl
+  }
+
+  return isImageAssetSource(fallbackValue) ? (fallbackValue ?? null) : null
+}
+
 export function getPlainTextContent(value: string) {
   return value
     .replace(/<br\s*\/?>/gi, "\n")

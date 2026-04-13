@@ -561,65 +561,66 @@ export function ProjectsScreen({
       ) : layout === "board" ? (
         <ProjectBoard data={data} projects={projects} />
       ) : (
-        <div className="px-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Name
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Health
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Priority
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Lead
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Target date
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Status
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {projects.map((project) => {
-                const progress = getProjectProgress(data, project.id)
-                return (
-                  <TableRow key={project.id}>
-                    <TableCell>
-                      <Link
-                        className="text-sm font-medium hover:underline"
-                        href={`/projects/${project.id}`}
-                      >
-                        {project.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {projectHealthMeta[project.health].label}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {priorityMeta[project.priority].label}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {getUser(data, project.leadId)?.name ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {project.targetDate
-                        ? format(new Date(project.targetDate), "MMM d")
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {progress.percent}%
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+        <div className="flex flex-col">
+          {projects.map((project, index) => {
+            const progress = getProjectProgress(data, project.id)
+            return (
+              <Link
+                key={project.id}
+                className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
+                href={`/projects/${project.id}`}
+              >
+                {/* Health dot */}
+                <div
+                  className={cn(
+                    "size-2 shrink-0 rounded-full",
+                    project.health === "on-track"
+                      ? "bg-green-500"
+                      : project.health === "at-risk"
+                        ? "bg-yellow-500"
+                        : project.health === "off-track"
+                          ? "bg-red-500"
+                          : "bg-muted-foreground/30"
+                  )}
+                />
+
+                {/* Name */}
+                <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:underline">
+                  {project.name}
+                </span>
+
+                {/* Progress bar */}
+                <div className="flex w-20 shrink-0 items-center gap-2">
+                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary/60 transition-all"
+                      style={{ width: `${progress.percent}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                    {progress.percent}%
+                  </span>
+                </div>
+
+                {/* Priority */}
+                <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                  {priorityMeta[project.priority].label}
+                </span>
+
+                {/* Lead */}
+                <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
+                  {getUser(data, project.leadId)?.name ?? "—"}
+                </span>
+
+                {/* Target date */}
+                <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                  {project.targetDate
+                    ? format(new Date(project.targetDate), "MMM d")
+                    : "—"}
+                </span>
+              </Link>
+            )
+          })}
         </div>
       )}
     </div>
@@ -937,53 +938,68 @@ function ProjectBoard({
   projects: Project[]
 }) {
   return (
-    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
       {projects.map((project) => {
         const progress = getProjectProgress(data, project.id)
 
         return (
           <Link
             key={project.id}
-            className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+            className="group flex h-full flex-col rounded-lg border border-border/70 bg-card p-4 transition-shadow hover:shadow-md"
             href={`/projects/${project.id}`}
           >
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <ProjectTemplateGlyph
-                    templateType={project.templateType}
-                    className="size-3.5"
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      project.health === "on-track"
+                        ? "bg-green-500"
+                        : project.health === "at-risk"
+                          ? "bg-yellow-500"
+                          : project.health === "off-track"
+                            ? "bg-red-500"
+                            : "bg-muted-foreground/30"
+                    )}
                   />
-                  {templateMeta[project.templateType].label}
-                </span>
-                <h2 className="mt-1 text-base leading-tight font-medium">
+                  <span className="text-[11px] text-muted-foreground">
+                    {projectHealthMeta[project.health].label}
+                  </span>
+                </div>
+                <h2 className="mt-1.5 text-sm leading-snug font-medium group-hover:underline">
                   {project.name}
                 </h2>
               </div>
-              <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+              <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
             </div>
-            <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">
+            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
               {project.summary}
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Badge variant="secondary">
-                {projectHealthMeta[project.health].label}
-              </Badge>
-              <Badge variant="outline">
-                {priorityMeta[project.priority].label}
-              </Badge>
+
+            {/* Progress bar */}
+            <div className="mt-3 flex items-center gap-2">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary/60 transition-all"
+                  style={{ width: `${progress.percent}%` }}
+                />
+              </div>
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {progress.percent}%
+              </span>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <div className="min-w-0">
-                <div className="text-xs text-muted-foreground">Lead</div>
-                <div className="truncate">
-                  {getUser(data, project.leadId)?.name ?? "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Progress</div>
-                <div>{progress.percent}% complete</div>
-              </div>
+
+            <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>{priorityMeta[project.priority].label}</span>
+              <span className="truncate">
+                {getUser(data, project.leadId)?.name ?? "Unassigned"}
+              </span>
+              <span>
+                {project.targetDate
+                  ? format(new Date(project.targetDate), "MMM d")
+                  : "No date"}
+              </span>
             </div>
           </Link>
         )
@@ -1375,23 +1391,21 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             {showSubIssuesSection ? (
               <div className="mt-8">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/80"
-                      onClick={() => setSubIssuesOpen((current) => !current)}
-                    >
-                      {subIssuesOpen ? (
-                        <CaretDown className="size-3.5 text-muted-foreground" />
-                      ) : (
-                        <CaretRight className="size-3.5 text-muted-foreground" />
-                      )}
-                      <span>Sub-issues</span>
-                    </button>
-                    <span className="text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={() => setSubIssuesOpen((current) => !current)}
+                  >
+                    {subIssuesOpen ? (
+                      <CaretDown className="size-3" />
+                    ) : (
+                      <CaretRight className="size-3" />
+                    )}
+                    <span>Sub-issues</span>
+                    <span className="text-xs font-normal tabular-nums">
                       {completedChildItems}/{childItems.length}
                     </span>
-                  </div>
+                  </button>
                   {canCreateChildIssue ? (
                     <Button
                       size="icon-sm"
@@ -1407,43 +1421,67 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   ) : null}
                 </div>
 
+                {/* Progress bar */}
+                {childItems.length > 0 ? (
+                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-green-500 transition-all"
+                      style={{
+                        width: `${childItems.length > 0 ? (completedChildItems / childItems.length) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                ) : null}
+
                 {subIssuesOpen ? (
-                  <div className="mt-4 flex flex-col gap-1">
-                    {childItems.map((child) => (
+                  <div className="mt-3 flex flex-col rounded-lg border">
+                    {childItems.map((child, index) => (
                       <Link
                         key={child.id}
                         href={`/items/${child.id}`}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/40"
+                        className={cn(
+                          "group/sub flex items-center gap-3 px-3 py-2 transition-colors hover:bg-accent/40",
+                          index !== childItems.length - 1 && "border-b"
+                        )}
                       >
                         <StatusIcon status={child.status} />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">
-                            {child.title}
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {child.title}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {child.key}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {priorityMeta[child.priority].label}
+                        </span>
+                        {child.assigneeId ? (
+                          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+                            {getUser(data, child.assigneeId)?.avatarUrl ?? "?"}
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>{child.key}</span>
-                            <span>{workItemTypeMeta[child.type].label}</span>
-                            <span>{priorityMeta[child.priority].label}</span>
-                          </div>
-                        </div>
+                        ) : null}
                       </Link>
                     ))}
 
                     {childComposerOpen ? (
-                      <InlineChildIssueComposer
-                        teamId={currentItem.teamId}
-                        parentItem={currentItem}
-                        disabled={!editable}
-                        onCancel={() => setChildComposerOpen(false)}
-                        onCreated={() => setChildComposerOpen(false)}
-                      />
+                      <div className="border-t">
+                        <InlineChildIssueComposer
+                          teamId={currentItem.teamId}
+                          parentItem={currentItem}
+                          disabled={!editable}
+                          onCancel={() => setChildComposerOpen(false)}
+                          onCreated={() => setChildComposerOpen(false)}
+                        />
+                      </div>
                     ) : canCreateChildIssue ? (
                       <button
                         type="button"
-                        className="inline-flex w-fit items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                        className={cn(
+                          "inline-flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
+                          childItems.length > 0 && "border-t"
+                        )}
                         onClick={() => setChildComposerOpen(true)}
                       >
-                        <Plus className="size-3.5" />
+                        <Plus className="size-3" />
                         <span>Add sub-issue</span>
                       </button>
                     ) : null}
@@ -4120,15 +4158,15 @@ function InlineChildIssueComposer({
   }
 
   return (
-    <div className="rounded-2xl border bg-background shadow-sm">
-      <div className="flex gap-3 px-4 py-4">
-        <Circle className="mt-1 size-4 shrink-0 text-muted-foreground" />
+    <div className="bg-background">
+      <div className="flex gap-3 px-3 py-3">
+        <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Issue title"
-            className="h-auto border-none px-0 py-0 text-sm font-medium shadow-none placeholder:text-muted-foreground/55 focus-visible:ring-0"
+            className="h-auto border-none px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
             autoFocus
           />
           <Textarea
@@ -4136,17 +4174,17 @@ function InlineChildIssueComposer({
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Add description..."
             rows={1}
-            className="mt-2 min-h-0 resize-none border-none px-0 py-0 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+            className="mt-1 min-h-0 resize-none border-none px-0 py-0 text-xs text-muted-foreground shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
           />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
+      <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2">
         <Select
           value={selectedType}
           onValueChange={(value) => setType(value as WorkItemType)}
         >
-          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -4164,7 +4202,7 @@ function InlineChildIssueComposer({
           value={priority}
           onValueChange={(value) => setPriority(value as Priority)}
         >
-          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -4179,7 +4217,7 @@ function InlineChildIssueComposer({
         </Select>
 
         <Select value={assigneeId} onValueChange={setAssigneeId}>
-          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -4195,7 +4233,7 @@ function InlineChildIssueComposer({
         </Select>
 
         <Select value={projectId} onValueChange={setProjectId}>
-          <SelectTrigger className="h-8 rounded-full border-border/70 bg-muted/40 px-3 text-xs shadow-none">
+          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

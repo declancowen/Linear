@@ -2,7 +2,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { regenerateTeamJoinCodeServer } from "@/lib/server/convex"
+import { getSnapshotServer, updateTeamDetailsServer } from "@/lib/server/convex"
 import { withGeneratedJoinCode } from "@/lib/server/join-codes"
 
 export async function POST(
@@ -21,11 +21,23 @@ export async function POST(
       session.user,
       session.organizationId
     )
+    const snapshot = await getSnapshotServer(session.user.email)
+    const team = snapshot?.teams.find((entry) => entry.id === teamId)
+
+    if (!team) {
+      return NextResponse.json({ error: "Team not found" }, { status: 404 })
+    }
+
     const result = await withGeneratedJoinCode((joinCode) =>
-      regenerateTeamJoinCodeServer({
+      updateTeamDetailsServer({
         currentUserId: ensuredUser.userId,
         teamId,
         joinCode,
+        name: team.name,
+        icon: team.icon,
+        summary: team.settings.summary,
+        experience: team.settings.experience,
+        features: team.settings.features,
       })
     )
 

@@ -5,6 +5,8 @@ import { ConvexReactClient } from "convex/react"
 
 import { api } from "@/convex/_generated/api"
 import type {
+  Call,
+  ChatMessage,
   AttachmentTargetType,
   DisplayProperty,
   GroupField,
@@ -46,6 +48,12 @@ async function runRouteMutation<T>(
   }
 
   return payload as T
+}
+
+export type StartConversationCallResult = {
+  call: Call
+  message: ChatMessage
+  joinHref: string
 }
 
 export async function fetchSnapshot(email?: string) {
@@ -106,7 +114,11 @@ export function syncUpdateWorkspaceBranding(
   name: string,
   logoUrl: string,
   accent: string,
-  description: string
+  description: string,
+  options?: {
+    logoImageStorageId?: string
+    clearLogoImage?: boolean
+  }
 ) {
   return runRouteMutation("/api/workspace/current", {
     method: "PATCH",
@@ -116,6 +128,10 @@ export function syncUpdateWorkspaceBranding(
     body: JSON.stringify({
       name,
       logoUrl,
+      ...(options?.logoImageStorageId
+        ? { logoImageStorageId: options.logoImageStorageId }
+        : {}),
+      ...(options?.clearLogoImage ? { clearLogoImage: true } : {}),
       accent,
       description,
     }),
@@ -131,6 +147,10 @@ export function syncUpdateCurrentUserProfile(
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
+  },
+  options?: {
+    avatarImageStorageId?: string
+    clearAvatarImage?: boolean
   }
 ) {
   return runRouteMutation("/api/profile", {
@@ -142,6 +162,10 @@ export function syncUpdateCurrentUserProfile(
       name,
       title,
       avatarUrl,
+      ...(options?.avatarImageStorageId
+        ? { avatarImageStorageId: options.avatarImageStorageId }
+        : {}),
+      ...(options?.clearAvatarImage ? { clearAvatarImage: true } : {}),
       preferences,
     }),
   })
@@ -546,6 +570,15 @@ export function syncEnsureTeamChat(input: {
     },
     body: JSON.stringify(input),
   })
+}
+
+export function syncStartConversationCall(conversationId: string) {
+  return runRouteMutation<StartConversationCallResult>(
+    `/api/chats/${conversationId}/calls`,
+    {
+      method: "POST",
+    }
+  )
 }
 
 export function syncSendChatMessage(conversationId: string, content: string) {

@@ -6,14 +6,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 type AcceptInviteCardProps = {
@@ -136,51 +129,57 @@ export function AcceptInviteCard({
 
   return (
     <Card className={cn("w-full shadow-none", className)}>
-      <CardHeader>
-        <CardTitle>Join {teamName}</CardTitle>
-        <CardDescription>
-          This invite adds <span className="font-medium">{inviteEmail}</span> to{" "}
-          {workspaceName} as <span className="font-medium capitalize">{role}</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm text-muted-foreground">
-        <p>Team invitations are team-scoped and inherit workspace access from that membership.</p>
-        {expired ? <p>This invite has expired. Ask a team admin to send a fresh link.</p> : null}
-        {accepted ? <p>This invite was already accepted. You can continue into the team.</p> : null}
-        {!authenticated ? (
-          <p>Sign in or create an account first. After auth, this invite will still be attached to your onboarding flow.</p>
-        ) : null}
-      </CardContent>
-      <CardFooter className="justify-end gap-2">
-        {authenticated ? (
-          <>
-            {showDecline ? (
-              <Button
-                variant="outline"
-                disabled={loading || declining || accepted}
-                onClick={handleDecline}
-              >
-                {declining ? "Declining..." : "Decline"}
-              </Button>
+      <div className="flex items-center justify-between gap-4 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{teamName}</span>
+            <span className="text-[11px] text-muted-foreground">·</span>
+            <span className="text-[11px] text-muted-foreground">{workspaceName}</span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{inviteEmail}</span>
+            <span className="capitalize">{role}</span>
+            {expired ? (
+              <span className="text-red-500">Expired</span>
             ) : null}
-            <Button
-              disabled={loading || declining || expired}
-              onClick={() => void handleAccept()}
-            >
-              {accepted ? "Open team" : loading ? "Accepting..." : "Accept invite"}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button asChild variant="outline">
-              <Link href={loginHref}>Sign in</Link>
-            </Button>
-            <Button asChild>
-              <Link href={signupHref}>Create account</Link>
-            </Button>
-          </>
-        )}
-      </CardFooter>
+            {accepted ? (
+              <span className="text-green-500">Accepted</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {authenticated ? (
+            <>
+              {showDecline ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading || declining || accepted}
+                  onClick={handleDecline}
+                >
+                  {declining ? "..." : "Decline"}
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                disabled={loading || declining || expired}
+                onClick={() => void handleAccept()}
+              >
+                {accepted ? "Open" : loading ? "..." : "Accept"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link href={loginHref}>Sign in</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link href={signupHref}>Sign up</Link>
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
     </Card>
   )
 }

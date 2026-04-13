@@ -1,23 +1,8 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
-import {
-  LinkSimple,
-  MagnifyingGlass,
-  UsersThree,
-} from "@phosphor-icons/react/dist/ssr"
+import { LinkSimple } from "@phosphor-icons/react/dist/ssr"
 
 import { AcceptInviteCard } from "@/components/app/accept-invite-card"
-import { OnboardingJoinCard } from "@/components/app/onboarding-join-card"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { lookupTeamByJoinCodeServer } from "@/lib/server/convex"
+import { JoinWorkspacePanel } from "@/components/app/join-workspace-panel"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 
 type InvitesPageProps = {
@@ -40,98 +25,44 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
     auth.organizationId
   )
   const pendingInvites = authContext?.pendingInvites ?? []
-  const joinResult = joinCode
-    ? await lookupTeamByJoinCodeServer(joinCode)
-    : null
+  const joinedTeamIds =
+    authContext?.memberships.map((entry) => entry.teamId) ?? []
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
-      <header className="space-y-2">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1 text-xs tracking-[0.24em] text-muted-foreground uppercase">
-          <LinkSimple className="size-3.5" />
+    <main className="flex w-full flex-col gap-6 px-6 py-8">
+      <header className="mx-auto w-full max-w-lg text-center">
+        <div className="flex items-center justify-center gap-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+          <LinkSimple className="size-3" />
           Join workspace
         </div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Join another workspace team
+        <h1 className="mt-2 text-xl font-semibold tracking-tight">
+          Join a team
         </h1>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          Review pending invites or enter a team code. Team membership grants
-          the workspace access and role you receive.
+        <p className="mt-1 text-sm text-muted-foreground">
+          Enter a 12-character code or open an invite.
         </p>
       </header>
 
-      <Card className="border-border/70 shadow-none">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <UsersThree className="size-4" />
-            Join with a team code
-          </CardTitle>
-          <CardDescription>
-            Search by team code, team slug, or team id. Matching team invites
-            keep their invited role; otherwise the join defaults to viewer
-            access.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <form className="flex flex-col gap-3 sm:flex-row" action="/invites">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="code">Team code or slug</Label>
-              <Input
-                id="code"
-                name="code"
-                defaultValue={joinCode ?? ""}
-                placeholder="Enter a team code or slug"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" className="w-full sm:w-auto">
-                <MagnifyingGlass className="size-4" />
-                Search
-              </Button>
-            </div>
-          </form>
+      <JoinWorkspacePanel
+        authenticated
+        initialCode={joinCode}
+        joinedTeamIds={joinedTeamIds}
+      />
 
-          {joinCode && !joinResult ? (
-            <div className="rounded-2xl border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-              No team matched{" "}
-              <span className="font-medium text-foreground">{joinCode}</span>.
-            </div>
-          ) : null}
-
-          {joinResult ? (
-            <OnboardingJoinCard
-              authenticated
-              joinCode={joinResult.team.joinCode}
-              loginHref="/login"
-              signupHref="/signup"
-              teamName={joinResult.team.name}
-              teamSummary={joinResult.team.summary}
-              workspaceLogo={joinResult.workspace.logoUrl}
-              workspaceName={joinResult.workspace.name}
-            />
-          ) : null}
-        </CardContent>
-      </Card>
-
+      {/* Pending invites */}
       {pendingInvites.length === 0 ? (
-        <Card className="border-border/70 shadow-none">
-          <CardHeader>
-            <CardTitle>No pending invites</CardTitle>
-            <CardDescription>
-              New team invites will appear here.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="mx-auto w-full max-w-lg rounded-lg border border-dashed border-border/70 px-4 py-8 text-center">
+          <p className="text-sm text-muted-foreground">No pending invites</p>
+        </div>
       ) : (
-        <Card className="border-border/70 shadow-none">
-          <CardHeader>
-            <CardTitle>Waiting for your response</CardTitle>
-            <CardDescription>
-              Each invite is team-scoped and grants workspace access through
-              that team.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="mx-auto w-full max-w-lg rounded-lg border border-border/70 bg-card">
+          <div className="border-b px-4 py-3">
+            <span className="text-sm font-medium">Pending invites</span>
+            <span className="ml-2 text-xs text-muted-foreground">
+              {pendingInvites.length}
+            </span>
+          </div>
+          <div className="divide-y">
             {pendingInvites.map((entry) =>
               entry.team && entry.workspace ? (
                 <AcceptInviteCard
@@ -147,12 +78,12 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
                   expired={false}
                   accepted={Boolean(entry.invite.acceptedAt)}
                   showDecline
-                  className="border border-border/70 bg-background"
+                  className="rounded-none border-0 shadow-none"
                 />
               ) : null
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
     </main>
   )

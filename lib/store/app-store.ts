@@ -34,6 +34,7 @@ import {
   syncRegenerateTeamJoinCode,
   syncSendChatMessage,
   syncShiftTimelineItem,
+  syncStartConversationCall,
   syncToggleChannelPostReaction,
   syncToggleCommentReaction,
   syncToggleNotificationRead,
@@ -146,6 +147,8 @@ type CreateInviteInput = {
 type UpdateWorkspaceBrandingInput = {
   name: string
   logoUrl: string
+  logoImageStorageId?: string
+  clearLogoImage?: boolean
   accent: string
   description: string
 }
@@ -166,6 +169,8 @@ type UpdateProfileInput = {
   name: string
   title: string
   avatarUrl: string
+  avatarImageStorageId?: string
+  clearAvatarImage?: boolean
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
@@ -291,6 +296,7 @@ export type AppStore = AppData & {
   createWorkspaceChat: (input: CreateWorkspaceChatInput) => string | null
   ensureTeamChat: (input: EnsureTeamChatInput) => string | null
   createChannel: (input: CreateChannelInput) => string | null
+  startConversationCall: (conversationId: string) => Promise<string | null>
   sendChatMessage: (input: SendChatMessageInput) => void
   createChannelPost: (input: CreateChannelPostInput) => void
   addChannelPostComment: (input: AddChannelPostCommentInput) => void
@@ -862,11 +868,17 @@ function normalizeComments<
   }))
 }
 
-function normalizeChatMessages<T extends { mentionUserIds?: string[] }>(
-  chatMessages: T[]
-) {
+function normalizeChatMessages<
+  T extends {
+    mentionUserIds?: string[]
+    kind?: "text" | "call"
+    callId?: string | null
+  },
+>(chatMessages: T[]) {
   return chatMessages.map((message) => ({
     ...message,
+    kind: message.kind ?? "text",
+    callId: message.callId ?? null,
     mentionUserIds: message.mentionUserIds ?? [],
   }))
 }
@@ -1043,6 +1055,9 @@ export const useAppStore = create<AppStore>()(
                   ...workspace,
                   name: parsed.data.name,
                   logoUrl: parsed.data.logoUrl,
+                  logoImageUrl: parsed.data.clearLogoImage
+                    ? null
+                    : workspace.logoImageUrl,
                   settings: {
                     ...workspace.settings,
                     accent: parsed.data.accent,
@@ -1059,7 +1074,11 @@ export const useAppStore = create<AppStore>()(
             parsed.data.name,
             parsed.data.logoUrl,
             parsed.data.accent,
-            parsed.data.description
+            parsed.data.description,
+            {
+              logoImageStorageId: parsed.data.logoImageStorageId,
+              clearLogoImage: parsed.data.clearLogoImage,
+            }
           ),
           "Failed to update workspace"
         )
@@ -1241,7 +1260,15 @@ export const useAppStore = create<AppStore>()(
 
         set((state) => ({
           users: state.users.map((user) =>
-            user.id === state.currentUserId ? { ...user, ...parsed.data } : user
+            user.id === state.currentUserId
+              ? {
+                  ...user,
+                  ...parsed.data,
+                  avatarImageUrl: parsed.data.clearAvatarImage
+                    ? null
+                    : user.avatarImageUrl,
+                }
+              : user
           ),
         }))
 
@@ -1251,7 +1278,11 @@ export const useAppStore = create<AppStore>()(
             parsed.data.name,
             parsed.data.title,
             parsed.data.avatarUrl,
-            parsed.data.preferences
+            parsed.data.preferences,
+            {
+              avatarImageStorageId: parsed.data.avatarImageStorageId,
+              clearAvatarImage: parsed.data.clearAvatarImage,
+            }
           ),
           "Failed to update profile"
         )
@@ -2320,6 +2351,58 @@ export const useAppStore = create<AppStore>()(
         }
         return conversationId
       },
+      async startConversationCall(conversationId) {
+        try {
+          const result = await syncStartConversationCall(conversationId)
+
+          if (!result?.call || !result.message || !result.joinHref) {
+            throw new Error("Failed to start call")
+          }
+
+          const [message] = normalizeChatMessages([result.message])
+
+          set((state) => {
+            const conversation = state.conversations.find(
+              (entry) => entry.id === conversationId
+            )
+
+            if (!conversation || conversation.kind !== "chat") {
+              return state
+            }
+
+            return {
+              ...state,
+              calls: [
+                ...state.calls.filter((entry) => entry.id !== result.call.id),
+                result.call,
+              ],
+              chatMessages: [
+                ...state.chatMessages.filter(
+                  (entry) => entry.id !== message.id
+                ),
+                message,
+              ],
+              conversations: state.conversations.map((entry) =>
+                entry.id === conversationId
+                  ? {
+                      ...entry,
+                      updatedAt: message.createdAt,
+                      lastActivityAt: message.createdAt,
+                    }
+                  : entry
+              ),
+            }
+          })
+
+          return result.joinHref
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error ? error.message : "Failed to start call"
+          )
+          return null
+        }
+      },
       sendChatMessage(input) {
         const parsed = chatMessageSchema.safeParse(input)
         if (!parsed.success) {
@@ -2389,7 +2472,9 @@ export const useAppStore = create<AppStore>()(
               {
                 id: createId("chat_message"),
                 conversationId: conversation.id,
+                kind: "text",
                 content: parsed.data.content.trim(),
+                callId: null,
                 mentionUserIds,
                 createdBy: state.currentUserId,
                 createdAt: now,

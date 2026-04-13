@@ -3,6 +3,7 @@ import { v } from "convex/values"
 
 import {
   attachmentFields,
+  callFields,
   channelPostCommentFields,
   channelPostFields,
   chatMessageFields,
@@ -62,6 +63,9 @@ export default defineSchema({
     .index("by_domain_id", ["id"])
     .index("by_scope", ["scopeType", "scopeId"])
     .index("by_kind_scope", ["kind", "scopeType", "scopeId"]),
+  calls: defineTable(callFields)
+    .index("by_domain_id", ["id"])
+    .index("by_conversation", ["conversationId"]),
   chatMessages: defineTable(chatMessageFields)
     .index("by_domain_id", ["id"])
     .index("by_conversation", ["conversationId"]),

@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowUp,
+  ArrowSquareOut,
   ChatCircle,
   DotsThree,
   Hash,
@@ -38,7 +39,7 @@ import {
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn, getPlainTextContent } from "@/lib/utils"
+import { cn, getPlainTextContent, resolveImageAssetSource } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -166,17 +167,109 @@ function PageHeader({
 function UserAvatar({
   name,
   avatarUrl,
+  avatarImageUrl,
   size = "sm",
 }: {
   name?: string | null
   avatarUrl?: string | null
+  avatarImageUrl?: string | null
   size?: "sm" | "default"
 }) {
+  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
+
   return (
     <Avatar size={size}>
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name ?? "User"} /> : null}
+      {imageSrc ? <AvatarImage src={imageSrc} alt={name ?? "User"} /> : null}
       <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
     </Avatar>
+  )
+}
+
+function buildCallJoinHref(callId: string) {
+  const query = new URLSearchParams({
+    callId,
+  })
+
+  return `/api/calls/join?${query.toString()}`
+}
+
+function parseCallInviteMessage(content: string) {
+  const trimmed = content.trim()
+
+  if (!trimmed.startsWith("Started a call")) {
+    return null
+  }
+
+  const match = trimmed.match(
+    /Join call:\s+(https?:\/\/\S+|\/api\/calls\/join\?\S+)/
+  )
+
+  if (!match) {
+    return null
+  }
+
+  return {
+    href: match[1],
+    title: "Started a call",
+  }
+}
+
+function CallInviteLauncher({ conversationId }: { conversationId: string }) {
+  const [loading, setLoading] = useState(false)
+
+  async function handleLaunch() {
+    const popup = window.open("", "_blank")
+    if (popup) {
+      popup.opener = null
+    }
+
+    setLoading(true)
+
+    try {
+      const joinHref = await useAppStore
+        .getState()
+        .startConversationCall(conversationId)
+
+      if (!joinHref) {
+        popup?.close()
+        return
+      }
+
+      if (popup) {
+        popup.location.replace(joinHref)
+        popup.focus()
+        return
+      }
+
+      const nextPopup = window.open(joinHref, "_blank", "noopener,noreferrer")
+
+      if (!nextPopup) {
+        toast.error(
+          "The call was posted, but your browser blocked the new window."
+        )
+      }
+    } catch (error) {
+      popup?.close()
+      console.error(error)
+      toast.error(
+        error instanceof Error ? error.message : "Failed to start the call"
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button
+      size="icon-xs"
+      variant="ghost"
+      className="size-7"
+      onClick={handleLaunch}
+      disabled={loading}
+      aria-label="Start call"
+    >
+      <VideoCamera className="size-3.5" />
+    </Button>
   )
 }
 
@@ -268,7 +361,11 @@ function MembersSidebarContent({
               key={member.id}
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50"
             >
-              <UserAvatar name={member.name} avatarUrl={member.avatarUrl} />
+              <UserAvatar
+                name={member.name}
+                avatarImageUrl={member.avatarImageUrl}
+                avatarUrl={member.avatarUrl}
+              />
               <div className="min-w-0">
                 <div className="truncate text-sm">{member.name}</div>
                 {member.title ? (
@@ -348,7 +445,11 @@ function TeamSurfaceSidebarContent({
               key={member.id}
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
             >
-              <UserAvatar name={member.name} avatarUrl={member.avatarUrl} />
+              <UserAvatar
+                name={member.name}
+                avatarImageUrl={member.avatarImageUrl}
+                avatarUrl={member.avatarUrl}
+              />
               <div className="min-w-0">
                 <p className="truncate text-sm">{member.name}</p>
                 {member.title ? (
@@ -480,12 +581,14 @@ function ChatThread({
   description,
   members,
   showHeader = true,
+  videoAction,
 }: {
   conversationId: string
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
   showHeader?: boolean
+  videoAction?: ReactNode
 }) {
   const data = useAppStore()
   const messages = getChatMessages(data, conversationId)
@@ -513,19 +616,7 @@ function ChatThread({
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              className="size-7"
-              onClick={() =>
-                toast.message("100MS placeholder", {
-                  description:
-                    "Video wiring is parked here until you provide the keys.",
-                })
-              }
-            >
-              <VideoCamera className="size-3.5" />
-            </Button>
+            {videoAction ?? null}
             <Button size="icon-xs" variant="ghost" className="size-7">
               <MagnifyingGlass className="size-3.5" />
             </Button>
@@ -559,12 +650,39 @@ function ChatThread({
               const prevMessage = messages[idx - 1]
               const nextMessage = messages[idx + 1]
               const isCurrentUser = message.createdBy === data.currentUserId
+              const legacyCallInvite =
+                message.callId || message.kind === "call"
+                  ? null
+                  : parseCallInviteMessage(message.content)
+              const callJoinHref = message.callId
+                ? buildCallJoinHref(message.callId)
+                : (legacyCallInvite?.href ?? null)
+              const isCallMessage =
+                message.kind === "call" ||
+                Boolean(message.callId) ||
+                Boolean(legacyCallInvite)
+              const prevIsCall = Boolean(
+                prevMessage &&
+                (prevMessage.kind === "call" ||
+                  prevMessage.callId ||
+                  parseCallInviteMessage(prevMessage.content))
+              )
+              const nextIsCall = Boolean(
+                nextMessage &&
+                (nextMessage.kind === "call" ||
+                  nextMessage.callId ||
+                  parseCallInviteMessage(nextMessage.content))
+              )
               const groupedWithPrev =
+                !isCallMessage &&
+                !prevIsCall &&
                 prevMessage?.createdBy === message.createdBy &&
                 new Date(message.createdAt).getTime() -
                   new Date(prevMessage.createdAt).getTime() <
                   5 * 60_000
               const groupedWithNext =
+                !isCallMessage &&
+                !nextIsCall &&
                 nextMessage?.createdBy === message.createdBy &&
                 new Date(nextMessage.createdAt).getTime() -
                   new Date(message.createdAt).getTime() <
@@ -591,6 +709,7 @@ function ChatThread({
                       ) : (
                         <UserAvatar
                           name={author?.name}
+                          avatarImageUrl={author?.avatarImageUrl}
                           avatarUrl={author?.avatarUrl}
                           size="default"
                         />
@@ -633,7 +752,28 @@ function ChatThread({
                             : groupedWithNext && "rounded-bl-md"
                         )}
                       >
-                        {message.content}
+                        {callJoinHref ? (
+                          <div className="space-y-2 whitespace-normal">
+                            <p className="text-sm leading-5">Started a call</p>
+                            <Button
+                              asChild
+                              size="sm"
+                              variant={isCurrentUser ? "secondary" : "outline"}
+                              className="h-7 text-xs"
+                            >
+                              <a
+                                href={callJoinHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <ArrowSquareOut className="size-3.5" />
+                                Join call
+                              </a>
+                            </Button>
+                          </div>
+                        ) : (
+                          message.content
+                        )}
                       </div>
                     </div>
                   </div>
@@ -744,6 +884,7 @@ function ForumPostCard({ postId }: { postId: string }) {
         <div className="flex items-center gap-2.5">
           <UserAvatar
             name={author?.name}
+            avatarImageUrl={author?.avatarImageUrl}
             avatarUrl={author?.avatarUrl}
             size="default"
           />
@@ -861,6 +1002,7 @@ function ForumPostCard({ postId }: { postId: string }) {
                 >
                   <UserAvatar
                     name={commentAuthor?.name}
+                    avatarImageUrl={commentAuthor?.avatarImageUrl}
                     avatarUrl={commentAuthor?.avatarUrl}
                   />
                   <div className="min-w-0 flex-1">
@@ -895,6 +1037,7 @@ function ForumPostCard({ postId }: { postId: string }) {
                 >
                   <UserAvatar
                     name={commentAuthor?.name}
+                    avatarImageUrl={commentAuthor?.avatarImageUrl}
                     avatarUrl={commentAuthor?.avatarUrl}
                   />
                   <div className="min-w-0 flex-1">
@@ -1081,7 +1224,11 @@ function CreateWorkspaceChatDialog({
                 key={user.id}
                 className="flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs"
               >
-                <UserAvatar name={user.name} avatarUrl={user.avatarUrl} />
+                <UserAvatar
+                  name={user.name}
+                  avatarImageUrl={user.avatarImageUrl}
+                  avatarUrl={user.avatarUrl}
+                />
                 <span className="font-medium">{user.name}</span>
                 <button
                   type="button"
@@ -1155,6 +1302,7 @@ function CreateWorkspaceChatDialog({
                 >
                   <UserAvatar
                     name={user.name}
+                    avatarImageUrl={user.avatarImageUrl}
                     avatarUrl={user.avatarUrl}
                     size="default"
                   />
@@ -1228,6 +1376,7 @@ function NewPostComposer({ channelId }: { channelId: string }) {
       >
         <UserAvatar
           name={currentUser?.name}
+          avatarImageUrl={currentUser?.avatarImageUrl}
           avatarUrl={currentUser?.avatarUrl}
           size="default"
         />
@@ -1241,6 +1390,7 @@ function NewPostComposer({ channelId }: { channelId: string }) {
       <div className="flex items-start gap-3 px-4 pt-4">
         <UserAvatar
           name={currentUser?.name}
+          avatarImageUrl={currentUser?.avatarImageUrl}
           avatarUrl={currentUser?.avatarUrl}
           size="default"
         />
@@ -1397,7 +1547,17 @@ export function WorkspaceChatsScreen() {
               }
               renderPreview={(id) => {
                 const latest = getChatMessages(data, id).at(-1)
-                return latest?.content ?? "Open the conversation"
+
+                if (!latest) {
+                  return "Open the conversation"
+                }
+
+                if (latest.kind === "call" || latest.callId) {
+                  return "Started a call"
+                }
+
+                const callInvite = parseCallInviteMessage(latest.content)
+                return callInvite?.title ?? latest.content
               }}
             />
           </div>
@@ -1408,6 +1568,9 @@ export function WorkspaceChatsScreen() {
                 title={activeChat.title}
                 description={activeChat.description || "Workspace chat"}
                 members={members}
+                videoAction={
+                  <CallInviteLauncher conversationId={activeChat.id} />
+                }
               />
             ) : null}
           </div>
@@ -1663,6 +1826,11 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               description=""
               members={members}
               showHeader
+              videoAction={
+                editable ? (
+                  <CallInviteLauncher conversationId={conversation.id} />
+                ) : null
+              }
             />
           </div>
           <TeamSurfaceSidebar

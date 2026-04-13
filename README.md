@@ -45,6 +45,10 @@ Required environment variables:
 - `TEAMS_URL`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
+- `HMS_ACCESS_KEY`
+- `HMS_SECRET`
+- `HMS_TEMPLATE_ID`
+- `HMS_TEMPLATE_SUBDOMAIN`
 
 WorkOS note:
 
@@ -62,6 +66,24 @@ pnpm bootstrap:workspace -- --email declan@reciperoom.io --workspace-name "Recip
 ```
 
 The current repo has already been deployed and seeded against the configured Convex deployment.
+
+## 100ms video
+
+Team chat now includes a 100ms launch action that opens the team's persistent
+Prebuilt room inside a modal.
+
+Add these environment variables before using it:
+
+- `HMS_ACCESS_KEY`
+- `HMS_SECRET`
+- `HMS_TEMPLATE_ID`
+- `HMS_TEMPLATE_SUBDOMAIN`
+
+The server creates or reuses a room per team, creates role-specific room codes,
+and maps app roles to 100ms roles:
+
+- `admin` and `member` join as `host`
+- `viewer` and `guest` join as `guest`
 
 ## Desktop
 

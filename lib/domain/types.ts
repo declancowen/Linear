@@ -160,6 +160,9 @@ export type ConversationScopeType = (typeof conversationScopeTypes)[number]
 export const conversationVariants = ["direct", "group", "team"] as const
 export type ConversationVariant = (typeof conversationVariants)[number]
 
+export const chatMessageKinds = ["text", "call"] as const
+export type ChatMessageKind = (typeof chatMessageKinds)[number]
+
 export interface TeamFeatureSettings {
   issues: boolean
   projects: boolean
@@ -208,6 +211,7 @@ export interface Workspace {
   slug: string
   name: string
   logoUrl: string
+  logoImageUrl?: string | null
   createdBy?: string | null
   workosOrganizationId: string | null
   settings: {
@@ -246,6 +250,7 @@ export interface UserProfile {
   handle: string
   email: string
   avatarUrl: string
+  avatarImageUrl?: string | null
   workosUserId: string | null
   title: string
   preferences: {
@@ -427,10 +432,31 @@ export interface Conversation {
 export interface ChatMessage {
   id: string
   conversationId: string
+  kind: ChatMessageKind
   content: string
+  callId?: string | null
   mentionUserIds: string[]
   createdBy: string
   createdAt: string
+}
+
+export interface Call {
+  id: string
+  conversationId: string
+  scopeType: ConversationScopeType
+  scopeId: string
+  roomId: string
+  roomName: string
+  roomKey: string
+  roomDescription: string
+  startedBy: string
+  startedAt: string
+  updatedAt: string
+  endedAt: string | null
+  participantUserIds: string[]
+  lastJoinedAt: string | null
+  lastJoinedBy: string | null
+  joinCount: number
 }
 
 export interface CommentReaction {
@@ -486,6 +512,7 @@ export interface AppData {
   invites: Invite[]
   projectUpdates: ProjectUpdate[]
   conversations: Conversation[]
+  calls: Call[]
   chatMessages: ChatMessage[]
   channelPosts: ChannelPost[]
   channelPostComments: ChannelPostComment[]
@@ -927,6 +954,8 @@ export const joinCodeSchema = z.object({
 export const workspaceBrandingSchema = z.object({
   name: z.string().trim().min(2).max(48),
   logoUrl: z.string().trim().min(1),
+  logoImageStorageId: z.string().trim().min(1).optional(),
+  clearLogoImage: z.boolean().optional(),
   accent: z.string().trim().min(2).max(24),
   description: z.string().trim().min(8).max(220),
 })
@@ -941,6 +970,7 @@ export const teamDetailsSchema = z
     name: z.string().trim().min(2).max(48),
     icon: z.enum(teamIconTokens),
     summary: z.string().trim().min(8).max(180),
+    joinCode: z.string().trim().min(4).max(24).optional(),
     experience: z.enum(teamExperienceTypes),
     features: z.object({
       issues: z.boolean(),
@@ -997,6 +1027,8 @@ export const profileSchema = z.object({
   name: z.string().trim().min(2).max(48),
   title: z.string().trim().min(2).max(72),
   avatarUrl: z.string().trim().min(1),
+  avatarImageStorageId: z.string().trim().min(1).optional(),
+  clearAvatarImage: z.boolean().optional(),
   preferences: z.object({
     emailMentions: z.boolean(),
     emailAssignments: z.boolean(),
@@ -1116,6 +1148,16 @@ export const channelPostCommentSchema = z.object({
 export const attachmentUploadUrlSchema = z.object({
   targetType: z.enum(attachmentTargetTypes),
   targetId: z.string().min(1),
+})
+
+export const settingsImageUploadKinds = [
+  "user-avatar",
+  "workspace-logo",
+] as const
+export type SettingsImageUploadKind = (typeof settingsImageUploadKinds)[number]
+
+export const settingsImageUploadSchema = z.object({
+  kind: z.enum(settingsImageUploadKinds),
 })
 
 export const attachmentSchema = z.object({

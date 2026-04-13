@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { Geist_Mono, Noto_Sans } from "next/font/google"
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components"
 
@@ -13,6 +14,12 @@ const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
 })
+
+export const metadata: Metadata = {
+  icons: {
+    icon: "/icon.svg",
+  },
+}
 
 export default function RootLayout({
   children,

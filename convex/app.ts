@@ -55,6 +55,7 @@ const rolePriority: Record<"guest" | "viewer" | "member" | "admin", number> = {
   member: 2,
   admin: 3,
 }
+const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
 
 function createHandle(email: string) {
   return email
@@ -272,6 +273,13 @@ async function getCommentDoc(ctx: AppCtx, id: string) {
 async function getConversationDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("conversations")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+async function getCallDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("calls")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
 }
@@ -1297,6 +1305,67 @@ function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
   }
 }
 
+async function assertImageUpload(
+  ctx: MutationCtx,
+  storageId: string | null | undefined
+) {
+  if (!storageId) {
+    return null
+  }
+
+  const metadata = await ctx.storage.getMetadata(storageId as never)
+
+  if (!metadata) {
+    throw new Error("Uploaded image not found")
+  }
+
+  if (!metadata.contentType?.startsWith("image/")) {
+    throw new Error("Uploads must be image files")
+  }
+
+  if ((metadata.size ?? 0) <= 0) {
+    throw new Error("Uploaded image is empty")
+  }
+
+  if ((metadata.size ?? 0) > IMAGE_UPLOAD_MAX_SIZE) {
+    throw new Error("Images must be 10 MB or smaller")
+  }
+
+  return storageId as never
+}
+
+async function resolveWorkspaceSnapshot<
+  T extends {
+    logoImageStorageId?: string | null
+    workosOrganizationId?: string | null
+  },
+>(ctx: QueryCtx, workspace: T) {
+  const logoImageUrl = workspace.logoImageStorageId
+    ? await ctx.storage.getUrl(workspace.logoImageStorageId as never)
+    : null
+
+  return {
+    ...normalizeWorkspace(workspace),
+    logoImageUrl,
+  }
+}
+
+async function resolveUserSnapshot<
+  T extends {
+    avatarImageStorageId?: string | null
+    workosUserId?: string | null
+  },
+>(ctx: QueryCtx, user: T) {
+  const avatarImageUrl = user.avatarImageStorageId
+    ? await ctx.storage.getUrl(user.avatarImageStorageId as never)
+    : null
+
+  return {
+    ...normalizeUser(user),
+    avatarImageUrl,
+  }
+}
+
 function normalizeTeamWorkflowSettings(
   workflow:
     | {
@@ -1623,6 +1692,10 @@ async function insertSeedData(ctx: MutationCtx) {
 
   for (const conversation of seed.conversations) {
     await ctx.db.insert("conversations", conversation)
+  }
+
+  for (const call of seed.calls) {
+    await ctx.db.insert("calls", call)
   }
 
   for (const message of seed.chatMessages) {
@@ -2029,10 +2102,15 @@ export const getSnapshot = query({
     const visibleConversationIds = new Set(
       visibleConversations.map((conversation) => conversation.id)
     )
+    const visibleCalls = (await ctx.db.query("calls").collect()).filter(
+      (call) => visibleConversationIds.has(call.conversationId)
+    )
     const visibleChatMessages = (await ctx.db.query("chatMessages").collect())
       .filter((message) => visibleConversationIds.has(message.conversationId))
       .map((message) => ({
         ...message,
+        kind: message.kind ?? "text",
+        callId: message.callId ?? null,
         mentionUserIds: message.mentionUserIds ?? [],
       }))
     const visibleChannelPosts = (await ctx.db.query("channelPosts").collect())
@@ -2056,12 +2134,18 @@ export const getSnapshot = query({
     return {
       currentUserId,
       currentWorkspaceId,
-      workspaces: visibleWorkspaces.map(normalizeWorkspace),
+      workspaces: await Promise.all(
+        visibleWorkspaces.map((workspace) =>
+          resolveWorkspaceSnapshot(ctx, workspace)
+        )
+      ),
       teams: visibleTeams.map(normalizeTeam),
       teamMemberships: visibleTeamMemberships,
-      users: users
-        .filter((user) => visibleUserIds.has(user.id))
-        .map(normalizeUser),
+      users: await Promise.all(
+        users
+          .filter((user) => visibleUserIds.has(user.id))
+          .map((user) => resolveUserSnapshot(ctx, user))
+      ),
       labels: await ctx.db.query("labels").collect(),
       projects: visibleProjects,
       milestones: (await ctx.db.query("milestones").collect()).filter(
@@ -2076,6 +2160,14 @@ export const getSnapshot = query({
       invites: visibleInvites,
       projectUpdates: visibleProjectUpdates,
       conversations: visibleConversations,
+      calls: visibleCalls.map((call) => ({
+        ...call,
+        endedAt: call.endedAt ?? null,
+        participantUserIds: call.participantUserIds ?? [],
+        lastJoinedAt: call.lastJoinedAt ?? null,
+        lastJoinedBy: call.lastJoinedBy ?? null,
+        joinCount: call.joinCount ?? 0,
+      })),
       chatMessages: visibleChatMessages,
       channelPosts: visibleChannelPosts,
       channelPostComments: visibleChannelPostComments,
@@ -2195,7 +2287,6 @@ export const ensureUserFromAuth = mutation({
       await ctx.db.patch(existing._id, {
         name: args.name,
         email: args.email,
-        avatarUrl: args.avatarUrl,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
       })
@@ -2292,7 +2383,6 @@ export const bootstrapWorkspaceUser = mutation({
       await ctx.db.patch(resolvedUser._id, {
         email: args.email,
         name: args.name,
-        avatarUrl: args.avatarUrl,
         workosUserId: args.workosUserId,
       })
     } else {
@@ -2615,6 +2705,8 @@ export const updateWorkspaceBranding = mutation({
     workspaceId: v.string(),
     name: v.string(),
     logoUrl: v.string(),
+    logoImageStorageId: v.optional(v.id("_storage")),
+    clearLogoImage: v.optional(v.boolean()),
     accent: v.string(),
     description: v.string(),
   },
@@ -2627,9 +2719,28 @@ export const updateWorkspaceBranding = mutation({
 
     await requireWorkspaceAdminAccess(ctx, args.workspaceId, args.currentUserId)
 
+    let nextLogoImageStorageId = workspace.logoImageStorageId ?? null
+
+    if (args.clearLogoImage) {
+      nextLogoImageStorageId = null
+    } else if (args.logoImageStorageId) {
+      nextLogoImageStorageId = await assertImageUpload(
+        ctx,
+        args.logoImageStorageId
+      )
+    }
+
+    if (
+      workspace.logoImageStorageId &&
+      workspace.logoImageStorageId !== nextLogoImageStorageId
+    ) {
+      await ctx.storage.delete(workspace.logoImageStorageId as never)
+    }
+
     await ctx.db.patch(workspace._id, {
       name: args.name,
       logoUrl: args.logoUrl,
+      logoImageStorageId: nextLogoImageStorageId,
       settings: {
         ...workspace.settings,
         accent: args.accent,
@@ -2669,6 +2780,8 @@ export const updateCurrentUserProfile = mutation({
     name: v.string(),
     title: v.string(),
     avatarUrl: v.string(),
+    avatarImageStorageId: v.optional(v.id("_storage")),
+    clearAvatarImage: v.optional(v.boolean()),
     preferences: v.object({
       emailMentions: v.boolean(),
       emailAssignments: v.boolean(),
@@ -2686,10 +2799,29 @@ export const updateCurrentUserProfile = mutation({
       return
     }
 
+    let nextAvatarImageStorageId = user.avatarImageStorageId ?? null
+
+    if (args.clearAvatarImage) {
+      nextAvatarImageStorageId = null
+    } else if (args.avatarImageStorageId) {
+      nextAvatarImageStorageId = await assertImageUpload(
+        ctx,
+        args.avatarImageStorageId
+      )
+    }
+
+    if (
+      user.avatarImageStorageId &&
+      user.avatarImageStorageId !== nextAvatarImageStorageId
+    ) {
+      await ctx.storage.delete(user.avatarImageStorageId as never)
+    }
+
     await ctx.db.patch(user._id, {
       name: args.name,
       title: args.title,
       avatarUrl: args.avatarUrl,
+      avatarImageStorageId: nextAvatarImageStorageId,
       preferences: args.preferences,
     })
   },
@@ -2836,6 +2968,7 @@ export const updateTeamDetails = mutation({
     name: v.string(),
     icon: v.string(),
     summary: v.string(),
+    joinCode: v.optional(v.string()),
     experience: teamExperienceTypeValidator,
     features: teamFeatureSettingsValidator,
   },
@@ -2866,6 +2999,14 @@ export const updateTeamDetails = mutation({
       args.features
     )
     const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
+    const normalizedJoinCode = args.joinCode
+      ? normalizeJoinCode(args.joinCode)
+      : team.settings.joinCode
+
+    if (args.joinCode) {
+      const teams = await ctx.db.query("teams").collect()
+      ensureJoinCodeAvailable(teams, normalizedJoinCode, team.id)
+    }
 
     const disableMessage = await getTeamSurfaceDisableMessage(
       ctx,
@@ -2883,6 +3024,7 @@ export const updateTeamDetails = mutation({
       settings: {
         ...team.settings,
         summary: args.summary,
+        joinCode: normalizedJoinCode,
         experience: args.experience,
         features: normalizedFeatures,
       },
@@ -2910,6 +3052,7 @@ export const updateTeamDetails = mutation({
 
     return {
       teamId: team.id,
+      joinCode: normalizedJoinCode,
       experience: args.experience,
       features: normalizedFeatures,
     }
@@ -3567,6 +3710,37 @@ export const generateAttachmentUploadUrl = mutation({
       args.targetId
     )
     await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
+
+    return {
+      uploadUrl: await ctx.storage.generateUploadUrl(),
+    }
+  },
+})
+
+export const generateSettingsImageUploadUrl = mutation({
+  args: {
+    currentUserId: v.string(),
+    kind: v.union(v.literal("user-avatar"), v.literal("workspace-logo")),
+    workspaceId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (args.kind === "workspace-logo") {
+      if (!args.workspaceId) {
+        throw new Error("Workspace not found")
+      }
+
+      await requireWorkspaceAdminAccess(
+        ctx,
+        args.workspaceId,
+        args.currentUserId
+      )
+    } else {
+      const user = await getUserDoc(ctx, args.currentUserId)
+
+      if (!user) {
+        throw new Error("User not found")
+      }
+    }
 
     return {
       uploadUrl: await ctx.storage.generateUploadUrl(),
@@ -4696,6 +4870,113 @@ export const createChannel = mutation({
   },
 })
 
+export const startChatCall = mutation({
+  args: {
+    currentUserId: v.string(),
+    conversationId: v.string(),
+    roomId: v.string(),
+    roomName: v.string(),
+    roomKey: v.string(),
+    roomDescription: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, args.conversationId),
+      args.currentUserId,
+      "write"
+    )
+
+    if (conversation.kind !== "chat") {
+      throw new Error("Calls can only be started from chats")
+    }
+
+    const now = getNow()
+    const call = {
+      id: createId("call"),
+      conversationId: conversation.id,
+      scopeType: conversation.scopeType,
+      scopeId: conversation.scopeId,
+      roomId: args.roomId,
+      roomName: args.roomName,
+      roomKey: args.roomKey,
+      roomDescription: args.roomDescription,
+      startedBy: args.currentUserId,
+      startedAt: now,
+      updatedAt: now,
+      endedAt: null,
+      participantUserIds: [],
+      lastJoinedAt: null,
+      lastJoinedBy: null,
+      joinCount: 0,
+    }
+    const message = {
+      id: createId("chat_message"),
+      conversationId: conversation.id,
+      kind: "call" as const,
+      content: "Started a call",
+      callId: call.id,
+      mentionUserIds: [],
+      createdBy: args.currentUserId,
+      createdAt: now,
+    }
+
+    await ctx.db.insert("calls", call)
+    await ctx.db.insert("chatMessages", message)
+    await ctx.db.patch(conversation._id, {
+      updatedAt: now,
+      lastActivityAt: now,
+    })
+
+    return {
+      call,
+      message,
+    }
+  },
+})
+
+export const markCallJoined = mutation({
+  args: {
+    currentUserId: v.string(),
+    callId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const call = await getCallDoc(ctx, args.callId)
+
+    if (!call) {
+      throw new Error("Call not found")
+    }
+
+    await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, call.conversationId),
+      args.currentUserId
+    )
+
+    if (call.endedAt) {
+      throw new Error("Call has already ended")
+    }
+
+    const now = getNow()
+    const participantUserIds = [
+      ...new Set([...(call.participantUserIds ?? []), args.currentUserId]),
+    ]
+
+    await ctx.db.patch(call._id, {
+      participantUserIds,
+      lastJoinedAt: now,
+      lastJoinedBy: args.currentUserId,
+      joinCount: (call.joinCount ?? 0) + 1,
+      updatedAt: now,
+    })
+
+    return {
+      ok: true,
+      callId: call.id,
+    }
+  },
+})
+
 export const sendChatMessage = mutation({
   args: {
     currentUserId: v.string(),
@@ -4741,7 +5022,9 @@ export const sendChatMessage = mutation({
     await ctx.db.insert("chatMessages", {
       id: messageId,
       conversationId: conversation.id,
+      kind: "text",
       content: messageText,
+      callId: null,
       mentionUserIds,
       createdBy: args.currentUserId,
       createdAt: now,

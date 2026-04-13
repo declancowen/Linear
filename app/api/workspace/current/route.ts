@@ -33,7 +33,10 @@ export async function PATCH(request: NextRequest) {
     )
 
     if (!authContext?.currentWorkspace) {
-      return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
+      return NextResponse.json(
+        { error: "Workspace not found" },
+        { status: 404 }
+      )
     }
 
     if (!authContext.isWorkspaceAdmin) {

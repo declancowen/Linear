@@ -59,7 +59,7 @@ import {
 } from "@/components/ui/command"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { UserProfile } from "@/lib/domain/types"
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 type UploadedAttachment = {
   fileName: string
@@ -80,7 +80,7 @@ type RichTextEditorProps = {
   onUploadAttachment?: (file: File) => Promise<UploadedAttachment | null>
   onSubmitShortcut?: () => void
   mentionCandidates?: Array<
-    Pick<UserProfile, "id" | "name" | "handle" | "avatarUrl">
+    Pick<UserProfile, "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl">
   >
 }
 
@@ -103,7 +103,7 @@ type SlashCommand = {
 
 type MentionCandidate = Pick<
   UserProfile,
-  "id" | "name" | "handle" | "avatarUrl"
+  "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl"
 >
 
 const DEFAULT_TABLE_OPTIONS = {
@@ -1177,9 +1177,17 @@ export function RichTextEditor({
                 }}
               >
                 <Avatar size="default" className="size-8">
-                  {candidate.avatarUrl ? (
+                  {resolveImageAssetSource(
+                    candidate.avatarImageUrl,
+                    candidate.avatarUrl
+                  ) ? (
                     <AvatarImage
-                      src={candidate.avatarUrl}
+                      src={
+                        resolveImageAssetSource(
+                          candidate.avatarImageUrl,
+                          candidate.avatarUrl
+                        ) ?? undefined
+                      }
                       alt={candidate.name}
                     />
                   ) : null}
