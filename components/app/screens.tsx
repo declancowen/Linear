@@ -1931,13 +1931,34 @@ function TimelineView({
   editable: boolean
 }) {
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
-  const timelineStart = startOfDay(subDays(new Date(), 2))
-  const timelineEnd = endOfDay(addDays(new Date(), 18))
+  const today = startOfDay(new Date())
+  const timelineStart = startOfDay(subDays(new Date(), 3))
+  const timelineEnd = endOfDay(addDays(new Date(), 24))
   const days = eachDayOfInterval({
     start: timelineStart,
     end: timelineEnd,
   })
   const groups = [...buildItemGroups(data, items, { ...view, subGrouping: null }).entries()]
+
+  // Find week boundaries for header grouping
+  const weeks: { label: string; span: number }[] = []
+  let currentWeekLabel = ""
+  let currentSpan = 0
+  for (const day of days) {
+    const weekLabel = format(day, "MMM d")
+    const weekOfYear = format(day, "'W'ww")
+    if (weekOfYear !== currentWeekLabel && currentWeekLabel) {
+      weeks.push({ label: format(subDays(day, currentSpan), "MMM d") + " – " + format(subDays(day, 1), "MMM d"), span: currentSpan })
+      currentSpan = 0
+    }
+    currentWeekLabel = weekOfYear
+    currentSpan++
+  }
+  if (currentSpan > 0) {
+    weeks.push({ label: format(days[days.length - currentSpan], "MMM d") + " – " + format(days[days.length - 1], "MMM d"), span: currentSpan })
+  }
+
+  const todayIndex = differenceInCalendarDays(today, timelineStart)
 
   function handleDragStart(event: DragStartEvent) {
     setActiveItemId(String(event.active.id))
@@ -1964,53 +1985,121 @@ function TimelineView({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex flex-col overflow-x-auto p-4">
+      <div className="flex flex-col overflow-x-auto">
+        {/* Sticky header */}
         <div
-          className="grid min-w-[90rem] gap-3"
-          style={{ gridTemplateColumns: "16rem 1fr" }}
+          className="sticky top-0 z-10 grid min-w-[90rem] border-b bg-background"
+          style={{ gridTemplateColumns: "14rem 1fr" }}
         >
-          <div />
-          <div
-            className="grid gap-1"
-            style={{
-              gridTemplateColumns: `repeat(${days.length}, minmax(3rem, 1fr))`,
-            }}
-          >
-            {days.map((day) => (
-              <div
-                key={day.toISOString()}
-                className="rounded-md px-2 py-1.5 text-center text-xs text-muted-foreground"
-              >
-                {format(day, "MMM d")}
-              </div>
-            ))}
+          {/* Label column header */}
+          <div className="flex items-end border-r px-3 py-2">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Items
+            </span>
           </div>
-        </div>
-        {groups.map(([groupName, subgroups]) => {
-          if (view.hiddenState.groups.includes(groupName)) {
-            return null
-          }
-
-          const groupItems = Array.from(subgroups.values()).flat()
-
-          return (
-            <div key={groupName} className="flex flex-col gap-2 mt-3">
-              <div className="text-sm font-medium px-1">{groupName}</div>
-              {groupItems.map((item) => (
-                <TimelineRow
-                  key={item.id}
-                  data={data}
-                  days={days}
-                  item={item}
-                />
+          {/* Week + day headers */}
+          <div className="flex flex-col">
+            {/* Week row */}
+            <div
+              className="grid"
+              style={{
+                gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
+              }}
+            >
+              {weeks.map((week, i) => (
+                <div
+                  key={i}
+                  className="border-b border-r px-2 py-1.5 text-center text-[10px] font-medium text-muted-foreground"
+                  style={{ gridColumn: `span ${week.span}` }}
+                >
+                  {week.label}
+                </div>
               ))}
             </div>
-          )
-        })}
+            {/* Day row */}
+            <div
+              className="grid"
+              style={{
+                gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
+              }}
+            >
+              {days.map((day, i) => {
+                const isToday_ = differenceInCalendarDays(day, today) === 0
+                const isWeekend = day.getDay() === 0 || day.getDay() === 6
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={cn(
+                      "border-r px-1 py-1.5 text-center text-[10px]",
+                      isToday_
+                        ? "bg-primary/10 font-semibold text-primary"
+                        : isWeekend
+                          ? "text-muted-foreground/50"
+                          : "text-muted-foreground"
+                    )}
+                  >
+                    {format(day, "EEE")[0]} {format(day, "d")}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="relative min-w-[90rem]">
+          {/* Today marker */}
+          {todayIndex >= 0 && todayIndex < days.length ? (
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
+              style={{
+                left: `calc(14rem + (${todayIndex} + 0.5) * ((100% - 14rem) / ${days.length}))`,
+              }}
+            />
+          ) : null}
+
+          {groups.map(([groupName, subgroups]) => {
+            if (view.hiddenState.groups.includes(groupName)) {
+              return null
+            }
+
+            const groupItems = Array.from(subgroups.values()).flat()
+
+            return (
+              <div key={groupName}>
+                {/* Group header */}
+                <div
+                  className="grid min-w-[90rem] border-b bg-muted/30"
+                  style={{ gridTemplateColumns: "14rem 1fr" }}
+                >
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <span className="text-xs font-medium">{groupName}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {groupItems.length}
+                    </span>
+                  </div>
+                  <div />
+                </div>
+
+                {/* Rows */}
+                {groupItems.map((item) => (
+                  <TimelineRow
+                    key={item.id}
+                    data={data}
+                    days={days}
+                    item={item}
+                    timelineStart={timelineStart}
+                  />
+                ))}
+              </div>
+            )
+          })}
+        </div>
       </div>
+
       <DragOverlay>
         {activeItemId ? (
-          <div className="rounded-md border bg-card px-3 py-1.5 text-sm shadow-lg">
+          <div className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium shadow-lg">
             {data.workItems.find((item) => item.id === activeItemId)?.title}
           </div>
         ) : null}
@@ -2193,10 +2282,12 @@ function TimelineRow({
   data,
   item,
   days,
+  timelineStart,
 }: {
   data: AppData
   item: WorkItem
   days: Date[]
+  timelineStart: Date
 }) {
   const startDate = startOfDay(new Date(item.startDate ?? item.targetDate ?? days[0]))
   const endDate = startOfDay(
@@ -2207,45 +2298,72 @@ function TimelineRow({
     differenceInCalendarDays(startDate, startOfDay(days[0]))
   )
   const span = Math.max(1, differenceInCalendarDays(endDate, startDate) + 1)
+  const assignees = getItemAssignees(data, [item])
 
   return (
     <div
-      className="grid min-w-[90rem] gap-3"
-      style={{ gridTemplateColumns: "16rem 1fr" }}
+      className="group/row grid min-w-[90rem] border-b transition-colors hover:bg-accent/20"
+      style={{ gridTemplateColumns: "14rem 1fr" }}
     >
-      <div className="rounded-md border px-3 py-2">
-        <Link className="text-sm font-medium hover:underline" href={`/items/${item.id}`}>
-          {item.title}
-        </Link>
-        <div className="text-xs text-muted-foreground">
-          {getProject(data, item.primaryProjectId)?.name ?? "No project"}
-        </div>
-      </div>
-      <div className="relative">
+      {/* Left label */}
+      <div className="flex items-center gap-2.5 border-r px-3 py-2">
         <div
-          className="grid gap-1"
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            item.status === "done"
+              ? "bg-green-500"
+              : item.status === "in-progress"
+                ? "bg-blue-500"
+                : item.status === "cancelled"
+                  ? "bg-red-500"
+                  : "bg-muted-foreground/30"
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <Link
+            className="block truncate text-sm hover:underline"
+            href={`/items/${item.id}`}
+          >
+            {item.title}
+          </Link>
+        </div>
+        {assignees[0] ? (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {assignees[0].name.split(" ")[0]}
+          </span>
+        ) : null}
+      </div>
+
+      {/* Grid area */}
+      <div className="relative">
+        {/* Drop cells */}
+        <div
+          className="grid"
           style={{
-            gridTemplateColumns: `repeat(${days.length}, minmax(3rem, 1fr))`,
+            gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
           }}
         >
           {days.map((day) => (
             <TimelineDropCell
               key={`${item.id}-${day.toISOString()}`}
               id={`timeline::${item.id}::${day.toISOString()}`}
+              isWeekend={day.getDay() === 0 || day.getDay() === 6}
             />
           ))}
         </div>
+
+        {/* Bar overlay */}
         <div
-          className="pointer-events-none absolute inset-0 grid gap-1"
+          className="pointer-events-none absolute inset-0 grid"
           style={{
-            gridTemplateColumns: `repeat(${days.length}, minmax(3rem, 1fr))`,
+            gridTemplateColumns: `repeat(${days.length}, minmax(2.5rem, 1fr))`,
           }}
         >
           <div
-            className="pointer-events-auto h-full"
+            className="pointer-events-auto flex h-full items-center px-0.5 py-1.5"
             style={{ gridColumn: `${startIndex + 1} / span ${span}` }}
           >
-            <TimelineBar item={item} />
+            <TimelineBar item={item} span={span} />
           </div>
         </div>
       </div>
@@ -2253,35 +2371,52 @@ function TimelineRow({
   )
 }
 
-function TimelineDropCell({ id }: { id: string }) {
+function TimelineDropCell({ id, isWeekend }: { id: string; isWeekend: boolean }) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "h-10 rounded-md border transition-colors",
-        isOver ? "border-primary bg-primary/10" : "border-transparent"
+        "h-9 border-r transition-colors",
+        isWeekend && "bg-muted/20",
+        isOver && "bg-primary/10"
       )}
     />
   )
 }
 
-function TimelineBar({ item }: { item: WorkItem }) {
+const barColors: Record<string, string> = {
+  "backlog": "bg-muted-foreground/20 text-foreground",
+  "todo": "bg-muted-foreground/30 text-foreground",
+  "in-progress": "bg-blue-500/90 text-white",
+  "in-review": "bg-violet-500/90 text-white",
+  "done": "bg-green-500/80 text-white",
+  "cancelled": "bg-red-400/60 text-white",
+}
+
+function TimelineBar({ item, span }: { item: WorkItem; span: number }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: item.id,
   })
+
+  const colorClass = barColors[item.status] ?? "bg-primary text-primary-foreground"
 
   return (
     <button
       ref={setNodeRef}
       type="button"
-      className="flex h-full w-full items-center rounded-md bg-primary px-3 text-left text-xs font-medium text-primary-foreground"
+      className={cn(
+        "flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm transition-shadow hover:shadow-md",
+        colorClass
+      )}
       style={{ transform: CSS.Translate.toString(transform) }}
       {...listeners}
       {...attributes}
     >
-      {item.title}
+      <span className="truncate">
+        {span >= 3 ? item.title : item.key}
+      </span>
     </button>
   )
 }

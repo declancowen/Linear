@@ -622,7 +622,7 @@ function ForumPostCard({ postId }: { postId: string }) {
   const hiddenCount = comments.length - previewComments.length
 
   return (
-    <div className="group/post relative overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Hover actions — floated top-right over the card */}
       <div className="absolute -top-3 right-3 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm opacity-0 transition-opacity group-hover/post:opacity-100">
         <button
