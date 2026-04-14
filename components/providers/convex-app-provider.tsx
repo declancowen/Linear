@@ -5,6 +5,7 @@ import { useTheme } from "next-themes"
 
 import {
   fetchSnapshot,
+  fetchSnapshotVersion,
   RouteMutationError,
 } from "@/lib/convex/client"
 import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
@@ -18,6 +19,7 @@ type ConvexAppProviderProps = {
 }
 
 const SNAPSHOT_POLL_INTERVAL_MS = 5000
+const SNAPSHOT_POLL_MAX_BACKOFF_MS = 60000
 
 function ConvexStateSync({
   children,
@@ -52,8 +54,46 @@ function ConvexStateSync({
     let cancelled = false
     let syncInFlight = false
     let syncQueued = false
+    let consecutiveFailureCount = 0
+    let pollTimeoutId: number | null = null
+    let snapshotVersion: number | null = null
 
-    async function syncSnapshot() {
+    function clearPollTimeout() {
+      if (pollTimeoutId !== null) {
+        window.clearTimeout(pollTimeoutId)
+        pollTimeoutId = null
+      }
+    }
+
+    function scheduleNextPoll(delay: number) {
+      clearPollTimeout()
+
+      if (cancelled) {
+        return
+      }
+
+      pollTimeoutId = window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          void syncSnapshot()
+          return
+        }
+
+        scheduleNextPoll(SNAPSHOT_POLL_INTERVAL_MS)
+      }, delay)
+    }
+
+    function getBackoffDelay() {
+      if (consecutiveFailureCount <= 0) {
+        return SNAPSHOT_POLL_INTERVAL_MS
+      }
+
+      return Math.min(
+        SNAPSHOT_POLL_INTERVAL_MS * 2 ** (consecutiveFailureCount - 1),
+        SNAPSHOT_POLL_MAX_BACKOFF_MS
+      )
+    }
+
+    async function syncSnapshot(options?: { forceFull?: boolean }) {
       if (cancelled) {
         return
       }
@@ -63,23 +103,51 @@ function ConvexStateSync({
         return
       }
 
+      clearPollTimeout()
       syncInFlight = true
 
       try {
+        let nextSnapshotVersion = snapshotVersion
+
+        if (!options?.forceFull) {
+          const versionPayload = await fetchSnapshotVersion()
+
+          if (!versionPayload || cancelled) {
+            return
+          }
+
+          nextSnapshotVersion = versionPayload.version
+
+          if (
+            snapshotVersion !== null &&
+            nextSnapshotVersion === snapshotVersion
+          ) {
+            consecutiveFailureCount = 0
+            return
+          }
+        }
+
         const snapshot = await fetchSnapshot()
 
         if (!snapshot || cancelled) {
           return
         }
 
+        consecutiveFailureCount = 0
+        snapshotVersion =
+          nextSnapshotVersion ??
+          (await fetchSnapshotVersion())?.version ??
+          snapshotVersion
         applySnapshot(snapshot)
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true
+          clearPollTimeout()
           redirectToLogin()
           return
         }
 
+        consecutiveFailureCount += 1
         console.error("Failed to refresh app snapshot", error)
       } finally {
         syncInFlight = false
@@ -87,11 +155,16 @@ function ConvexStateSync({
         if (syncQueued && !cancelled) {
           syncQueued = false
           void syncSnapshot()
+          return
+        }
+
+        if (!cancelled) {
+          scheduleNextPoll(getBackoffDelay())
         }
       }
     }
 
-    void syncSnapshot()
+    void syncSnapshot({ forceFull: true })
 
     const handleFocus = () => {
       void syncSnapshot()
@@ -102,13 +175,9 @@ function ConvexStateSync({
       }
     }
     const handleOnline = () => {
+      consecutiveFailureCount = 0
       void syncSnapshot()
     }
-    const pollIntervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void syncSnapshot()
-      }
-    }, SNAPSHOT_POLL_INTERVAL_MS)
 
     window.addEventListener("focus", handleFocus)
     window.addEventListener("online", handleOnline)
@@ -116,7 +185,7 @@ function ConvexStateSync({
 
     return () => {
       cancelled = true
-      window.clearInterval(pollIntervalId)
+      clearPollTimeout()
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)

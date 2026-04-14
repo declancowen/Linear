@@ -66,6 +66,16 @@ export async function getSnapshotServer(input?: {
   )
 }
 
+export async function getSnapshotVersionServer(input?: {
+  workosUserId?: string
+  email?: string
+}) {
+  return getConvexServerClient().query(
+    api.app.getSnapshotVersion,
+    withServerToken(input ?? {})
+  )
+}
+
 export async function getInviteByTokenServer(token: string) {
   return getConvexServerClient().query(
     api.app.getInviteByToken,
@@ -808,8 +818,6 @@ export async function createWorkItemServer(input: {
 export async function startChatCallServer(input: {
   currentUserId: string
   conversationId: string
-  roomId: string
-  roomName: string
   roomKey: string
   roomDescription: string
 }) {
@@ -825,6 +833,18 @@ export async function markCallJoinedServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.markCallJoined,
+    withServerToken(input)
+  )
+}
+
+export async function setCallRoomServer(input: {
+  currentUserId: string
+  callId: string
+  roomId: string
+  roomName: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.setCallRoom,
     withServerToken(input)
   )
 }

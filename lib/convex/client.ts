@@ -73,6 +73,22 @@ export async function fetchSnapshot() {
   })
 }
 
+export async function fetchSnapshotVersion() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  return runRouteMutation<{
+    version: number
+    currentUserId: string
+  }>("/api/snapshot/version", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+}
+
 type WorkItemPatch = {
   status?: WorkStatus
   priority?: Priority

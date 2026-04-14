@@ -1,6 +1,6 @@
 import { addDays, differenceInCalendarDays } from "date-fns"
 import {
-  mutation,
+  mutation as convexMutation,
   query,
   type MutationCtx,
   type QueryCtx,
@@ -16,8 +16,10 @@ import {
   canParentWorkItemTypeAcceptChild,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  getAllowedRootWorkItemTypesForTemplate,
   getAllowedTemplateTypesForTeamExperience,
   getAllowedWorkItemTypesForTemplate,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
   getTeamFeatureValidationMessage,
   normalizeTeamIconToken,
@@ -443,6 +445,28 @@ async function getAppConfig(ctx: AppCtx) {
     .unique()
   return config
 }
+
+async function bumpSnapshotVersion(ctx: MutationCtx) {
+  const config = await getAppConfig(ctx)
+
+  if (!config) {
+    return
+  }
+
+  await ctx.db.patch(config._id, {
+    snapshotVersion: (config.snapshotVersion ?? 0) + 1,
+  })
+}
+
+const mutation: typeof convexMutation = ((config) =>
+  convexMutation({
+    ...config,
+    handler: async (ctx, args) => {
+      const result = await config.handler(ctx, args)
+      await bumpSnapshotVersion(ctx)
+      return result
+    },
+  })) as typeof convexMutation
 
 async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
   const memberships = await ctx.db
@@ -1346,6 +1370,40 @@ async function updateConversationRoom(
   }
 }
 
+async function updateCallRoom(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    callId: string
+    roomId: string
+    roomName: string
+  }
+) {
+  const call = await getCallDoc(ctx, input.callId)
+
+  if (!call) {
+    throw new Error("Call not found")
+  }
+
+  await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, call.conversationId),
+    input.currentUserId
+  )
+
+  await ctx.db.patch(call._id, {
+    roomId: input.roomId,
+    roomName: input.roomName,
+    updatedAt: getNow(),
+  })
+
+  return {
+    callId: call.id,
+    roomId: input.roomId,
+    roomName: input.roomName,
+  }
+}
+
 async function resolveUserFromServerArgs(
   ctx: AppCtx,
   args: {
@@ -1622,6 +1680,21 @@ function normalizeTeamWorkflowSettings(
     return defaults
   }
 
+  const sanitizeRecommendedItemTypes = (
+    templateType: "software-delivery" | "bug-tracking" | "project-management"
+  ) => {
+    const allowedItemTypes = new Set(
+      getAllowedWorkItemTypesForTemplate(templateType)
+    )
+    const recommendedItemTypes = workflow.templateDefaults[
+      templateType
+    ].recommendedItemTypes.filter((itemType) => allowedItemTypes.has(itemType))
+
+    return recommendedItemTypes.length > 0
+      ? recommendedItemTypes
+      : defaults.templateDefaults[templateType].recommendedItemTypes
+  }
+
   return {
     statusOrder:
       workflow.statusOrder.length === defaults.statusOrder.length
@@ -1631,14 +1704,17 @@ function normalizeTeamWorkflowSettings(
       "software-delivery": {
         ...defaults.templateDefaults["software-delivery"],
         ...workflow.templateDefaults["software-delivery"],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("software-delivery"),
       },
       "bug-tracking": {
         ...defaults.templateDefaults["bug-tracking"],
         ...workflow.templateDefaults["bug-tracking"],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("bug-tracking"),
       },
       "project-management": {
         ...defaults.templateDefaults["project-management"],
         ...workflow.templateDefaults["project-management"],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("project-management"),
       },
     },
   }
@@ -1832,6 +1908,7 @@ async function insertSeedData(ctx: MutationCtx) {
     key: "singleton",
     currentUserId: seed.currentUserId,
     currentWorkspaceId: seed.currentWorkspaceId,
+    snapshotVersion: 0,
   })
 
   for (const workspace of seed.workspaces) {
@@ -2130,6 +2207,7 @@ export const bootstrapAppWorkspace = mutation({
         key: "singleton",
         currentUserId: userId,
         currentWorkspaceId: workspaceId,
+        snapshotVersion: 0,
       })
     }
 
@@ -2378,6 +2456,8 @@ export const getSnapshot = query({
       })),
       calls: visibleCalls.map((call) => ({
         ...call,
+        roomId: call.roomId ?? null,
+        roomName: call.roomName ?? null,
         endedAt: call.endedAt ?? null,
         participantUserIds: call.participantUserIds ?? [],
         lastJoinedAt: call.lastJoinedAt ?? null,
@@ -2387,6 +2467,28 @@ export const getSnapshot = query({
       chatMessages: visibleChatMessages,
       channelPosts: visibleChannelPosts,
       channelPostComments: visibleChannelPostComments,
+    }
+  },
+})
+
+export const getSnapshotVersion = query({
+  args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const authenticatedUser = await resolveUserFromServerArgs(ctx, args)
+
+    if (!authenticatedUser) {
+      throw new Error("Authenticated user not found")
+    }
+
+    const config = await getAppConfig(ctx)
+
+    return {
+      version: config?.snapshotVersion ?? 0,
+      currentUserId: authenticatedUser.id,
     }
   },
 })
@@ -2927,6 +3029,7 @@ export const createWorkspace = mutation({
         key: "singleton",
         currentUserId: args.currentUserId,
         currentWorkspaceId: workspaceId,
+        snapshotVersion: 0,
       })
     }
 
@@ -3593,6 +3696,12 @@ export const updateWorkItem = mutation({
           : args.patch.parentId,
       currentItemId: existing.id,
     })
+    const resolvedParentId =
+      args.patch.parentId === undefined ? existing.parentId : args.patch.parentId
+    const resolvedPrimaryProjectId =
+      args.patch.primaryProjectId === undefined
+        ? existing.primaryProjectId
+        : args.patch.primaryProjectId
 
     if (
       args.patch.assigneeId !== undefined &&
@@ -3602,11 +3711,8 @@ export const updateWorkItem = mutation({
       throw new Error("Assignee must belong to the selected team")
     }
 
-    if (
-      args.patch.primaryProjectId !== undefined &&
-      args.patch.primaryProjectId
-    ) {
-      const project = await getProjectDoc(ctx, args.patch.primaryProjectId)
+    if (resolvedPrimaryProjectId) {
+      const project = await getProjectDoc(ctx, resolvedPrimaryProjectId)
 
       if (!project) {
         throw new Error("Project not found")
@@ -3625,6 +3731,22 @@ export const updateWorkItem = mutation({
           "Work item type is not allowed for the selected project template"
         )
       }
+
+      if (
+        !resolvedParentId &&
+        !getAllowedRootWorkItemTypesForTemplate(project.templateType).includes(
+          existing.type
+        )
+      ) {
+        throw new Error("This work item type requires a parent")
+      }
+    } else if (
+      !resolvedParentId &&
+      !getDefaultRootWorkItemTypesForTeamExperience(
+        normalizeTeam(team).settings.experience
+      ).includes(existing.type)
+    ) {
+      throw new Error("This work item type requires a parent")
     }
 
     const actor = await getUserDoc(ctx, args.currentUserId)
@@ -4873,12 +4995,27 @@ export const createWorkItem = mutation({
           "Work item type is not allowed for the selected project template"
         )
       }
+      if (
+        !parent &&
+        !getAllowedRootWorkItemTypesForTemplate(project.templateType).includes(
+          args.type
+        )
+      ) {
+        throw new Error("This work item type requires a parent")
+      }
     } else if (
       !getDefaultWorkItemTypesForTeamExperience(
         normalizedTeam.settings.experience
       ).includes(args.type)
     ) {
       throw new Error("Work item type is not allowed for this team")
+    } else if (
+      !parent &&
+      !getDefaultRootWorkItemTypesForTeamExperience(
+        normalizedTeam.settings.experience
+      ).includes(args.type)
+    ) {
+      throw new Error("This work item type requires a parent")
     }
 
     const teamItems = await ctx.db
@@ -5198,8 +5335,6 @@ export const startChatCall = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     conversationId: v.string(),
-    roomId: v.string(),
-    roomName: v.string(),
     roomKey: v.string(),
     roomDescription: v.string(),
   },
@@ -5222,8 +5357,8 @@ export const startChatCall = mutation({
       conversationId: conversation.id,
       scopeType: conversation.scopeType,
       scopeId: conversation.scopeId,
-      roomId: args.roomId,
-      roomName: args.roomName,
+      roomId: null,
+      roomName: null,
       roomKey: args.roomKey,
       roomDescription: args.roomDescription,
       startedBy: args.currentUserId,
@@ -5257,6 +5392,26 @@ export const startChatCall = mutation({
       call,
       message,
     }
+  },
+})
+
+export const setCallRoom = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    callId: v.string(),
+    roomId: v.string(),
+    roomName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+
+    return updateCallRoom(ctx, {
+      currentUserId: args.currentUserId,
+      callId: args.callId,
+      roomId: args.roomId,
+      roomName: args.roomName,
+    })
   },
 })
 

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 
 import {
   ensureConvexUserFromAuth,
-  getSnapshotServer,
+  getSnapshotVersionServer,
 } from "@/lib/server/convex"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -19,12 +19,12 @@ export async function GET() {
       session.user,
       session.organizationId
     )
-    const snapshot = await getSnapshotServer({
+    const snapshotVersion = await getSnapshotVersionServer({
       workosUserId: authenticatedUser.workosUserId,
       email: authenticatedUser.email,
     })
 
-    return NextResponse.json(snapshot)
+    return NextResponse.json(snapshotVersion)
   } catch (error) {
     if (
       error instanceof Error &&
@@ -38,12 +38,12 @@ export async function GET() {
 
         await ensureConvexUserFromAuth(authenticatedUser)
 
-        const snapshot = await getSnapshotServer({
+        const snapshotVersion = await getSnapshotVersionServer({
           workosUserId: authenticatedUser.workosUserId,
           email: authenticatedUser.email,
         })
 
-        return NextResponse.json(snapshot)
+        return NextResponse.json(snapshotVersion)
       } catch (retryError) {
         console.error(retryError)
         return NextResponse.json(
@@ -51,7 +51,7 @@ export async function GET() {
             error:
               retryError instanceof Error
                 ? retryError.message
-                : "Failed to load snapshot",
+                : "Failed to load snapshot version",
           },
           { status: 500 }
         )
@@ -62,7 +62,9 @@ export async function GET() {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to load snapshot",
+          error instanceof Error
+            ? error.message
+            : "Failed to load snapshot version",
       },
       { status: 500 }
     )

@@ -451,8 +451,8 @@ export interface Call {
   conversationId: string
   scopeType: ConversationScopeType
   scopeId: string
-  roomId: string
-  roomName: string
+  roomId: string | null
+  roomName: string | null
   roomKey: string
   roomDescription: string
   startedBy: string
@@ -538,20 +538,19 @@ export const templateMeta: Record<
 > = {
   "software-delivery": {
     label: "Software Development",
-    description:
-      "Epics, features, requirements, tasks, and issues for product and software delivery.",
+    description: "Epics, features, requirements, tasks, and issues.",
     icon: "code",
     itemTypes: ["epic", "feature", "requirement", "task", "bug", "sub-task"],
   },
   "bug-tracking": {
     label: "Issue Tracking",
-    description: "Issues and sub-issues for triage, regression, and follow-up.",
+    description: "Issues and sub-issues for triage and follow-up.",
     icon: "qa",
     itemTypes: ["bug", "sub-task"],
   },
   "project-management": {
     label: "Project Management",
-    description: "Tasks and sub-tasks for planning, coordination, and delivery.",
+    description: "Tasks and sub-tasks for planning and delivery.",
     icon: "kanban",
     itemTypes: ["task", "sub-task"],
   },
@@ -559,6 +558,17 @@ export const templateMeta: Record<
 
 export function getAllowedWorkItemTypesForTemplate(templateType: TemplateType) {
   return [...templateMeta[templateType].itemTypes]
+}
+
+export function getAllowedRootWorkItemTypesForTemplate(
+  templateType: TemplateType
+) {
+  return getAllowedWorkItemTypesForTemplate(templateType).filter(
+    (itemType) =>
+      itemType !== "sub-task" &&
+      itemType !== "qa-task" &&
+      itemType !== "test-case"
+  )
 }
 
 export function getDefaultWorkItemTypesForTeamExperience(
@@ -579,6 +589,26 @@ export function getDefaultWorkItemTypesForTeamExperience(
   }
 
   return getAllowedWorkItemTypesForTemplate("software-delivery")
+}
+
+export function getDefaultRootWorkItemTypesForTeamExperience(
+  experience: TeamExperienceType | null | undefined
+) {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (resolvedExperience === "issue-analysis") {
+    return getAllowedRootWorkItemTypesForTemplate("bug-tracking")
+  }
+
+  if (resolvedExperience === "project-management") {
+    return getAllowedRootWorkItemTypesForTemplate("project-management")
+  }
+
+  if (resolvedExperience === "community") {
+    return []
+  }
+
+  return getAllowedRootWorkItemTypesForTemplate("software-delivery")
 }
 
 export function getDefaultTemplateTypeForTeamExperience(
@@ -709,23 +739,19 @@ export const teamExperienceMeta: Record<
 > = {
   "software-development": {
     label: "Software Development",
-    description:
-      "Project management for software and product development using epics, features, requirements, tasks, and issues. Issues, projects, and views are always enabled. Docs, chat, and channel are optional.",
+    description: "Epics, features, requirements, and issues.",
   },
   "issue-analysis": {
     label: "Issue Tracking",
-    description:
-      "Issue tracker model with issues and sub-issues for defects, regressions, and follow-up. Issues, projects, and views stay on; docs, chat, and channel are optional.",
+    description: "Issues and sub-issues for triage and follow-up.",
   },
   "project-management": {
     label: "Project Management",
-    description:
-      "General project management with tasks and sub-tasks for planning, coordination, and execution. Issues, projects, and views stay on; docs, chat, and channel are optional.",
+    description: "Tasks and sub-tasks for planning and delivery.",
   },
   community: {
     label: "Community",
-    description:
-      "A lighter collaboration space that supports either chat or channel, but never both at once.",
+    description: "Chat and channels for community updates.",
   },
 }
 
@@ -772,7 +798,7 @@ export function createDefaultTeamFeatureSettings(
       views: false,
       docs: false,
       chat: true,
-      channels: false,
+      channels: true,
     }
   }
 
@@ -797,18 +823,18 @@ export function getTeamFeatureValidationMessage(
       features.views ||
       features.docs
     ) {
-      return "Community teams can only enable chat or channel."
+      return "Community teams can only enable chat and channel surfaces."
     }
 
-    if (Number(features.chat) + Number(features.channels) !== 1) {
-      return "Community teams must enable exactly one of chat or channel."
+    if (!features.chat && !features.channels) {
+      return "Community teams must enable chat, channel, or both."
     }
 
     return null
   }
 
   if (!features.issues || !features.projects || !features.views) {
-    return "Software development, issue tracking, and project management teams must include issues, projects, and views."
+    return "Non-community teams must include the work surface, projects, and views."
   }
 
   return null
@@ -866,7 +892,7 @@ export function createDefaultTeamWorkflowSettings(
         defaultViewLayout: "list",
         recommendedItemTypes: ["bug", "sub-task"],
         summaryHint:
-          "Issue tracker focused on triage, follow-up, and regression control.",
+          "Issue tracker focused on triage, verification, and regression control.",
       },
       "project-management": {
         defaultPriority: "medium",
@@ -886,7 +912,7 @@ export function createDefaultTeamWorkflowSettings(
       targetWindowDays: 10,
       defaultViewLayout: "list",
       summaryHint:
-        "Issue backlog focused on triage, follow-up, and regression control.",
+        "Issue backlog focused on triage, verification, and regression control.",
     }
   }
 
@@ -946,13 +972,12 @@ export function getDisplayLabelForWorkItemType(
 ) {
   const resolvedExperience = experience ?? "software-development"
 
-  if (itemType === "bug") {
-    if (
-      resolvedExperience === "software-development" ||
-      resolvedExperience === "issue-analysis"
-    ) {
-      return "Issue"
-    }
+  if (
+    itemType === "bug" &&
+    (resolvedExperience === "software-development" ||
+      resolvedExperience === "issue-analysis")
+  ) {
+    return "Issue"
   }
 
   if (itemType === "sub-task" && resolvedExperience === "issue-analysis") {
