@@ -427,6 +427,8 @@ export interface Conversation {
   title: string
   description: string
   participantIds: string[]
+  roomId?: string | null
+  roomName?: string | null
   createdBy: string
   createdAt: string
   updatedAt: string

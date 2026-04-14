@@ -247,11 +247,7 @@ export function getProjectsForScope(
 
   return data.projects.filter((project) => {
     if (project.scopeType === "workspace") {
-      return (
-        project.scopeId === scopeId &&
-        (project.leadId === data.currentUserId ||
-          project.memberIds.includes(data.currentUserId))
-      )
+      return project.scopeId === scopeId
     }
 
     return accessibleTeams.includes(project.scopeId)

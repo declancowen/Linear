@@ -1,9 +1,5 @@
 "use client"
 
-import { ConvexHttpClient } from "convex/browser"
-import { ConvexReactClient } from "convex/react"
-
-import { api } from "@/convex/_generated/api"
 import type {
   Call,
   ChatMessage,
@@ -23,12 +19,6 @@ import type {
 
 export const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? ""
 export const hasConvex = convexUrl.length > 0
-
-export const convexReactClient = hasConvex
-  ? new ConvexReactClient(convexUrl)
-  : null
-
-const convexHttpClient = hasConvex ? new ConvexHttpClient(convexUrl) : null
 
 async function runRouteMutation<T>(
   input: RequestInfo | URL,
@@ -56,13 +46,16 @@ export type StartConversationCallResult = {
   joinHref: string
 }
 
-export async function fetchSnapshot(email?: string) {
-  if (!convexHttpClient) {
+export async function fetchSnapshot(_email?: string) {
+  if (typeof window === "undefined") {
     return null
   }
 
-  return convexHttpClient.query(api.app.getSnapshot, {
-    email,
+  return runRouteMutation("/api/snapshot", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 

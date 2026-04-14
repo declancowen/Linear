@@ -1,20 +1,12 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
-import { ConvexHttpClient } from "convex/browser"
 import { NextRequest, NextResponse } from "next/server"
 
-import { api } from "@/convex/_generated/api"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { ensureConversationRoom } from "@/lib/server/100ms"
-
-function getConvexServerClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
-
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured")
-  }
-
-  return new ConvexHttpClient(convexUrl)
-}
+import {
+  getSnapshotServer,
+  startChatCallServer,
+} from "@/lib/server/convex"
 
 function createConversationRoomConfig(conversation: {
   id: string
@@ -34,6 +26,22 @@ function createConversationRoomConfig(conversation: {
     roomKey: `call-${conversation.id}-${uniqueSuffix}`,
     roomDescription: `Video call for team chat ${conversation.id} started at ${startedAt}`,
   }
+}
+
+function getWorkspaceRolesForConversation(
+  authContext: NonNullable<
+    Awaited<ReturnType<typeof ensureAuthenticatedAppContext>>["authContext"]
+  >,
+  snapshot: NonNullable<Awaited<ReturnType<typeof getSnapshotServer>>>,
+  workspaceId: string
+) {
+  const workspaceTeamIds = snapshot.teams
+    .filter((team) => team.workspaceId === workspaceId)
+    .map((team) => team.id)
+
+  return authContext.memberships
+    .filter((entry) => workspaceTeamIds.includes(entry.teamId))
+    .map((entry) => entry.role)
 }
 
 export async function POST(
@@ -60,12 +68,20 @@ export async function POST(
       )
     }
 
-    const convex = getConvexServerClient()
-    const snapshot = await convex.query(api.app.getSnapshot, {
+    const snapshot = await getSnapshotServer({
+      workosUserId: authContext.currentUser.workosUserId ?? session.user.id,
       email: authContext.currentUser.email,
     })
+
+    if (!snapshot) {
+      return NextResponse.json(
+        { error: "Snapshot not available" },
+        { status: 404 }
+      )
+    }
+
     const conversation =
-      snapshot?.conversations.find((entry) => entry.id === chatId) ?? null
+      snapshot.conversations.find((entry) => entry.id === chatId) ?? null
 
     if (!conversation || conversation.kind !== "chat") {
       return NextResponse.json(
@@ -82,6 +98,24 @@ export async function POST(
         { error: "You do not have access to this chat" },
         { status: 403 }
       )
+    }
+
+    if (conversation.scopeType === "workspace") {
+      const workspaceRoles = getWorkspaceRolesForConversation(
+        authContext,
+        snapshot,
+        conversation.scopeId
+      )
+      const canWrite = workspaceRoles.some(
+        (role) => role === "admin" || role === "member"
+      )
+
+      if (!canWrite) {
+        return NextResponse.json(
+          { error: "Your current role is read-only" },
+          { status: 403 }
+        )
+      }
     }
 
     if (conversation.scopeType === "team") {
@@ -106,7 +140,7 @@ export async function POST(
 
     const roomConfig = createConversationRoomConfig(conversation)
     const room = await ensureConversationRoom(roomConfig)
-    const result = await convex.mutation(api.app.startChatCall, {
+    const result = await startChatCallServer({
       currentUserId: ensuredUser.userId,
       conversationId: conversation.id,
       roomId: room.id,

@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { joinCodeSchema } from "@/lib/domain/types"
 import { joinTeamByCodeServer } from "@/lib/server/convex"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  ensureAuthenticatedAppContext,
+  reconcileAuthenticatedAppContext,
+} from "@/lib/server/authenticated-app"
 
 export async function POST(request: NextRequest) {
   const session = await withAuth()
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await ensureAuthenticatedAppContext(session.user, session.organizationId)
+    await reconcileAuthenticatedAppContext(session.user, session.organizationId)
 
     return NextResponse.json({
       ok: true,

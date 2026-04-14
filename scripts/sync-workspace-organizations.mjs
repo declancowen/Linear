@@ -3,12 +3,17 @@ import { createWorkOS } from "@workos-inc/node"
 
 import { api } from "../convex/_generated/api.js"
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
+const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
+const serverToken = process.env.CONVEX_SERVER_TOKEN
 const apiKey = process.env.WORKOS_API_KEY
 const clientId = process.env.WORKOS_CLIENT_ID
 
 if (!convexUrl) {
-  throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured")
+  throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
+}
+
+if (!serverToken) {
+  throw new Error("CONVEX_SERVER_TOKEN is not configured")
 }
 
 if (!apiKey || !clientId) {
@@ -69,12 +74,15 @@ async function ensureOrganization(workspace) {
   })
 }
 
-const workspaces = await convex.query(api.app.listWorkspacesForSync, {})
+const workspaces = await convex.query(api.app.listWorkspacesForSync, {
+  serverToken,
+})
 
 for (const workspace of workspaces) {
   const organization = await ensureOrganization(workspace)
 
   await convex.mutation(api.app.setWorkspaceWorkosOrganization, {
+    serverToken,
     workspaceId: workspace.id,
     workosOrganizationId: organization.id,
   })

@@ -77,6 +77,7 @@ import {
   projectSchema,
   type AppData,
   type CommentTargetType,
+  type Conversation,
   type DisplayProperty,
   type GroupField,
   type OrderingField,
@@ -434,14 +435,22 @@ function toKeyPrefix(teamId: string) {
   return "REC"
 }
 
-function createMentionIds(content: string, users: AppData["users"]) {
+function createMentionIds(
+  content: string,
+  users: AppData["users"],
+  allowedUserIds?: Iterable<string>
+) {
+  const audience = allowedUserIds ? new Set(allowedUserIds) : null
   const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
     match[1]?.toLowerCase()
   )
 
-  return users
-    .filter((user) => handles.includes(user.handle.toLowerCase()))
-    .map((user) => user.id)
+  return [...new Set(
+    users
+      .filter((user) => handles.includes(user.handle.toLowerCase()))
+      .filter((user) => (audience ? audience.has(user.id) : true))
+      .map((user) => user.id)
+  )]
 }
 
 function toggleReactionUsers(
@@ -746,6 +755,25 @@ function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
         .map((membership) => membership.userId)
     ),
   ]
+}
+
+function getConversationAudienceUserIds(
+  state: AppData,
+  conversation: Conversation
+) {
+  if (conversation.scopeType === "team") {
+    return getTeamMemberIds(state, conversation.scopeId)
+  }
+
+  const workspaceUserIds = new Set(
+    getWorkspaceMemberIds(state, conversation.scopeId)
+  )
+
+  if (conversation.kind === "channel") {
+    return [...workspaceUserIds]
+  }
+
+  return conversation.participantIds.filter((userId) => workspaceUserIds.has(userId))
 }
 
 function buildWorkspaceChatTitle(
@@ -1934,9 +1962,11 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
+          const audienceUserIds = getTeamMemberIds(state, teamId)
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
+            state.users,
+            audienceUserIds
           )
           const comment = {
             id: createId("comment"),
@@ -1984,6 +2014,7 @@ export const useAppStore = create<AppStore>()(
           for (const followerId of followerIds) {
             if (
               !followerId ||
+              !audienceUserIds.includes(followerId) ||
               followerId === state.currentUserId ||
               notifiedUserIds.has(followerId)
             ) {
@@ -2069,6 +2100,11 @@ export const useAppStore = create<AppStore>()(
         let participantIdsForSync: string[] = []
 
         set((state) => {
+          if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
           const workspaceMemberIds = new Set(
             getWorkspaceMemberIds(state, parsed.data.workspaceId)
           )
@@ -2104,6 +2140,8 @@ export const useAppStore = create<AppStore>()(
                 ),
                 description: parsed.data.description.trim(),
                 participantIds,
+                roomId: null,
+                roomName: null,
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -2191,6 +2229,8 @@ export const useAppStore = create<AppStore>()(
                 description:
                   parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, parsed.data.teamId),
+                roomId: null,
+                roomName: null,
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -2247,6 +2287,11 @@ export const useAppStore = create<AppStore>()(
               return state
             }
 
+            if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
+              toast.error("Your current role is read-only")
+              return state
+            }
+
             const now = getNow()
             conversationId = createId("conversation")
 
@@ -2268,6 +2313,8 @@ export const useAppStore = create<AppStore>()(
                     state,
                     parsed.data.workspaceId
                   ),
+                  roomId: null,
+                  roomName: null,
                   createdBy: state.currentUserId,
                   createdAt: now,
                   updatedAt: now,
@@ -2328,6 +2375,8 @@ export const useAppStore = create<AppStore>()(
                 description:
                   parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, teamId),
+                roomId: null,
+                roomName: null,
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -2424,6 +2473,11 @@ export const useAppStore = create<AppStore>()(
               toast.error("You do not have access to this chat")
               return state
             }
+
+            if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+              toast.error("Your current role is read-only")
+              return state
+            }
           } else {
             const role = effectiveRole(state, conversation.scopeId)
             if (role === "viewer" || role === "guest" || !role) {
@@ -2438,8 +2492,9 @@ export const useAppStore = create<AppStore>()(
           )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
-          ).filter((userId) => conversation.participantIds.includes(userId))
+            state.users,
+            getConversationAudienceUserIds(state, conversation)
+          )
           const notifications = [...state.notifications]
           const notifiedUserIds = new Set<string>()
 
@@ -2520,6 +2575,9 @@ export const useAppStore = create<AppStore>()(
               toast.error("Your current role is read-only")
               return state
             }
+          } else if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+            toast.error("Your current role is read-only")
+            return state
           }
 
           const now = getNow()
@@ -2529,7 +2587,8 @@ export const useAppStore = create<AppStore>()(
           )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
+            state.users,
+            getConversationAudienceUserIds(state, conversation)
           )
           const notifications = [...state.notifications]
           const entityTitle = parsed.data.title.trim() || "a channel post"
@@ -2619,15 +2678,23 @@ export const useAppStore = create<AppStore>()(
               toast.error("Your current role is read-only")
               return state
             }
+          } else if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+            toast.error("Your current role is read-only")
+            return state
           }
 
           const now = getNow()
           const actor = state.users.find(
             (user) => user.id === state.currentUserId
           )
+          const audienceUserIds = getConversationAudienceUserIds(
+            state,
+            conversation
+          )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
+            state.users,
+            audienceUserIds
           )
           const notifications = [...state.notifications]
           const notifiedUserIds = new Set<string>()
@@ -2663,6 +2730,7 @@ export const useAppStore = create<AppStore>()(
           for (const followerId of followerIds) {
             if (
               !followerId ||
+              !audienceUserIds.includes(followerId) ||
               followerId === state.currentUserId ||
               notifiedUserIds.has(followerId)
             ) {

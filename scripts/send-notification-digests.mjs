@@ -3,7 +3,8 @@ import { Resend } from "resend"
 
 import { api } from "../convex/_generated/api.js"
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
+const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
+const serverToken = process.env.CONVEX_SERVER_TOKEN
 const resendApiKey = process.env.RESEND_API_KEY
 const resendFromEmail = process.env.RESEND_FROM_EMAIL
 const origin =
@@ -11,7 +12,11 @@ const origin =
 const dryRun = process.env.DRY_RUN === "1"
 
 if (!convexUrl) {
-  throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured")
+  throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
+}
+
+if (!serverToken) {
+  throw new Error("CONVEX_SERVER_TOKEN is not configured")
 }
 
 if (!resendApiKey || !resendFromEmail) {
@@ -42,7 +47,10 @@ function toEntityPath(entityType, entityId) {
   return "/inbox"
 }
 
-const digests = (await client.query(api.app.listPendingNotificationDigests, {})) ?? []
+const digests =
+  (await client.query(api.app.listPendingNotificationDigests, {
+    serverToken,
+  })) ?? []
 const emailedNotificationIds = []
 
 for (const digest of digests) {
@@ -72,15 +80,14 @@ for (const digest of digests) {
         `<p><a href="${origin}/inbox">Open inbox</a></p>`,
       ].join(""),
     })
+
+    await client.mutation(api.app.markNotificationsEmailed, {
+      serverToken,
+      notificationIds: digest.notifications.map((notification) => notification.id),
+    })
   }
 
   emailedNotificationIds.push(...digest.notifications.map((notification) => notification.id))
-}
-
-if (!dryRun && emailedNotificationIds.length > 0) {
-  await client.mutation(api.app.markNotificationsEmailed, {
-    notificationIds: emailedNotificationIds,
-  })
 }
 
 console.log(

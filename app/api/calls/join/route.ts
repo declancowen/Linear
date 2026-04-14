@@ -1,24 +1,39 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
-import { ConvexHttpClient } from "convex/browser"
 import { NextResponse } from "next/server"
 
-import { api } from "@/convex/_generated/api"
 import { buildAuthHref } from "@/lib/auth-routing"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { createConversationJoinUrl } from "@/lib/server/100ms"
-
-function getConvexServerClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
-
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured")
-  }
-
-  return new ConvexHttpClient(convexUrl)
-}
+import {
+  createConversationJoinUrl,
+  ensureConversationRoom,
+} from "@/lib/server/100ms"
+import {
+  getSnapshotServer,
+  markCallJoinedServer,
+  setConversationRoomServer,
+} from "@/lib/server/convex"
 
 function toMeetingRole(role: "admin" | "member" | "viewer" | "guest") {
   return role === "admin" || role === "member" ? "host" : "guest"
+}
+
+function getWorkspaceMeetingRole(
+  authContext: NonNullable<
+    Awaited<ReturnType<typeof ensureAuthenticatedAppContext>>["authContext"]
+  >,
+  snapshot: NonNullable<Awaited<ReturnType<typeof getSnapshotServer>>>,
+  workspaceId: string
+) {
+  const workspaceTeamIds = snapshot.teams
+    .filter((team) => team.workspaceId === workspaceId)
+    .map((team) => team.id)
+  const workspaceRoles = authContext.memberships
+    .filter((entry) => workspaceTeamIds.includes(entry.teamId))
+    .map((entry) => entry.role)
+
+  return workspaceRoles.some((role) => role === "admin" || role === "member")
+    ? "host"
+    : "guest"
 }
 
 export async function GET(request: Request) {
@@ -54,15 +69,22 @@ export async function GET(request: Request) {
       )
     }
 
-    const convex = getConvexServerClient()
-    const snapshot = await convex.query(api.app.getSnapshot, {
+    const snapshot = await getSnapshotServer({
+      workosUserId: authContext.currentUser.workosUserId ?? session.user.id,
       email: authContext.currentUser.email,
     })
 
+    if (!snapshot) {
+      return NextResponse.json(
+        { error: "Snapshot not available" },
+        { status: 404 }
+      )
+    }
+
     if (callId) {
-      const call = snapshot?.calls.find((entry) => entry.id === callId) ?? null
+      const call = snapshot.calls.find((entry) => entry.id === callId) ?? null
       const conversation =
-        snapshot?.conversations.find(
+        snapshot.conversations.find(
           (entry) => entry.id === call?.conversationId
         ) ?? null
 
@@ -78,7 +100,7 @@ export async function GET(request: Request) {
           )
         }
 
-        await convex.mutation(api.app.markCallJoined, {
+        await markCallJoinedServer({
           currentUserId: authContext.currentUser.id,
           callId: call.id,
         })
@@ -89,7 +111,11 @@ export async function GET(request: Request) {
           roomId: call.roomId,
           userId: authContext.currentUser.id,
           userName: authContext.currentUser.name,
-          role: "host",
+          role: getWorkspaceMeetingRole(
+            authContext,
+            snapshot,
+            conversation.scopeId
+          ),
         })
 
         return NextResponse.redirect(joinUrl, { status: 307 })
@@ -106,7 +132,7 @@ export async function GET(request: Request) {
         )
       }
 
-      await convex.mutation(api.app.markCallJoined, {
+      await markCallJoinedServer({
         currentUserId: authContext.currentUser.id,
         callId: call.id,
       })
@@ -124,8 +150,7 @@ export async function GET(request: Request) {
     }
 
     const conversation =
-      snapshot?.conversations.find((entry) => entry.id === conversationId) ??
-      null
+      snapshot.conversations.find((entry) => entry.id === conversationId) ?? null
 
     if (!conversation || conversation.kind !== "chat") {
       return NextResponse.json(
@@ -142,12 +167,39 @@ export async function GET(request: Request) {
         )
       }
 
+      const roomKey = `chat-${conversation.id}`
+      const roomDescription = `Persistent video room for workspace chat ${conversation.id}`
+      const room =
+        conversation.roomId && conversation.roomName
+          ? {
+              id: conversation.roomId,
+              name: conversation.roomName,
+            }
+          : await ensureConversationRoom({
+              roomKey,
+              roomDescription,
+            })
+
+      if (!conversation.roomId || !conversation.roomName) {
+        await setConversationRoomServer({
+          currentUserId: authContext.currentUser.id,
+          conversationId: conversation.id,
+          roomId: room.id,
+          roomName: room.name,
+        })
+      }
+
       const joinUrl = await createConversationJoinUrl({
-        roomKey: `chat-${conversation.id}`,
-        roomDescription: `Persistent video room for workspace chat ${conversation.id}`,
+        roomKey,
+        roomDescription,
+        roomId: room.id,
         userId: authContext.currentUser.id,
         userName: authContext.currentUser.name,
-        role: "host",
+        role: getWorkspaceMeetingRole(
+          authContext,
+          snapshot,
+          conversation.scopeId
+        ),
       })
 
       return NextResponse.redirect(joinUrl, { status: 307 })
@@ -164,9 +216,32 @@ export async function GET(request: Request) {
       )
     }
 
+    const roomKey = `chat-${conversation.id}`
+    const roomDescription = `Persistent video room for team chat ${conversation.id}`
+    const room =
+      conversation.roomId && conversation.roomName
+        ? {
+            id: conversation.roomId,
+            name: conversation.roomName,
+          }
+        : await ensureConversationRoom({
+            roomKey,
+            roomDescription,
+          })
+
+    if (!conversation.roomId || !conversation.roomName) {
+      await setConversationRoomServer({
+        currentUserId: authContext.currentUser.id,
+        conversationId: conversation.id,
+        roomId: room.id,
+        roomName: room.name,
+      })
+    }
+
     const joinUrl = await createConversationJoinUrl({
-      roomKey: `team-${conversation.scopeId}`,
-      roomDescription: `Persistent video room for team ${conversation.scopeId}`,
+      roomKey,
+      roomDescription,
+      roomId: room.id,
       userId: authContext.currentUser.id,
       userName: authContext.currentUser.name,
       role: toMeetingRole(membership.role),

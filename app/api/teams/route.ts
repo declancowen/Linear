@@ -2,7 +2,10 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 
 import { teamDetailsSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  ensureAuthenticatedAppContext,
+  reconcileAuthenticatedAppContext,
+} from "@/lib/server/authenticated-app"
 import { createTeamServer } from "@/lib/server/convex"
 import { withGeneratedJoinCode } from "@/lib/server/join-codes"
 
@@ -44,6 +47,8 @@ export async function POST(request: NextRequest) {
         ...parsed.data,
       })
     )
+
+    await reconcileAuthenticatedAppContext(session.user, session.organizationId)
 
     return NextResponse.json({
       ok: true,

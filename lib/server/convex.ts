@@ -4,11 +4,28 @@ import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
+const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
+
+function getServerToken() {
+  const serverToken = process.env.CONVEX_SERVER_TOKEN?.trim()
+
+  if (!serverToken) {
+    throw new Error("CONVEX_SERVER_TOKEN is not configured")
+  }
+
+  return serverToken
+}
+
+function withServerToken<T extends Record<string, unknown>>(input: T) {
+  return {
+    ...input,
+    serverToken: getServerToken(),
+  }
+}
 
 function getConvexServerClient() {
   if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured")
+    throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
   }
 
   return new ConvexHttpClient(convexUrl)
@@ -16,6 +33,7 @@ function getConvexServerClient() {
 
 export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {
   return getConvexServerClient().mutation(api.app.ensureUserFromAuth, {
+    serverToken: getServerToken(),
     email: user.email,
     name: user.name,
     avatarUrl: user.avatarUrl,
@@ -23,14 +41,24 @@ export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {
   })
 }
 
-export async function getAuthContextServer(email: string) {
-  return getConvexServerClient().query(api.app.getAuthContext, { email })
+export async function getAuthContextServer(input: {
+  workosUserId: string
+  email?: string
+}) {
+  return getConvexServerClient().query(
+    api.app.getAuthContext,
+    withServerToken(input)
+  )
 }
 
-export async function getSnapshotServer(email?: string) {
-  return getConvexServerClient().query(api.app.getSnapshot, {
-    email,
-  })
+export async function getSnapshotServer(input?: {
+  workosUserId?: string
+  email?: string
+}) {
+  return getConvexServerClient().query(
+    api.app.getSnapshot,
+    withServerToken(input ?? {})
+  )
 }
 
 export async function getInviteByTokenServer(token: string) {
@@ -44,7 +72,10 @@ export async function createWorkspaceServer(input: {
   accent: string
   description: string
 }) {
-  return getConvexServerClient().mutation(api.app.createWorkspace, input)
+  return getConvexServerClient().mutation(
+    api.app.createWorkspace,
+    withServerToken(input)
+  )
 }
 
 export async function lookupTeamByJoinCodeServer(code: string) {
@@ -52,13 +83,16 @@ export async function lookupTeamByJoinCodeServer(code: string) {
 }
 
 export async function listWorkspacesForSyncServer() {
-  return getConvexServerClient().query(api.app.listWorkspacesForSync, {})
+  return getConvexServerClient().query(
+    api.app.listWorkspacesForSync,
+    withServerToken({})
+  )
 }
 
 export async function listPendingNotificationDigestsServer() {
   return getConvexServerClient().query(
     api.app.listPendingNotificationDigests,
-    {}
+    withServerToken({})
   )
 }
 
@@ -68,43 +102,61 @@ export async function createInviteServer(input: {
   email: string
   role: "admin" | "member" | "viewer" | "guest"
 }) {
-  return getConvexServerClient().mutation(api.app.createInvite, input)
+  return getConvexServerClient().mutation(
+    api.app.createInvite,
+    withServerToken(input)
+  )
 }
 
 export async function acceptInviteServer(input: {
   currentUserId: string
   token: string
 }) {
-  return getConvexServerClient().mutation(api.app.acceptInvite, input)
+  return getConvexServerClient().mutation(
+    api.app.acceptInvite,
+    withServerToken(input)
+  )
 }
 
 export async function declineInviteServer(input: {
   currentUserId: string
   token: string
 }) {
-  return getConvexServerClient().mutation(api.app.declineInvite, input)
+  return getConvexServerClient().mutation(
+    api.app.declineInvite,
+    withServerToken(input)
+  )
 }
 
 export async function markNotificationsEmailedServer(
   notificationIds: string[]
 ) {
-  return getConvexServerClient().mutation(api.app.markNotificationsEmailed, {
-    notificationIds,
-  })
+  return getConvexServerClient().mutation(
+    api.app.markNotificationsEmailed,
+    withServerToken({
+      notificationIds,
+    })
+  )
 }
 
 export async function markNotificationReadServer(input: {
   currentUserId: string
   notificationId: string
 }) {
-  return getConvexServerClient().mutation(api.app.markNotificationRead, input)
+  return getConvexServerClient().mutation(
+    api.app.markNotificationRead,
+    withServerToken(input)
+  )
 }
 
 export async function toggleNotificationReadServer(input: {
   currentUserId: string
   notificationId: string
 }) {
-  return getConvexServerClient().mutation(api.app.toggleNotificationRead, input)
+  return getConvexServerClient().mutation(
+    api.app.toggleNotificationRead,
+    withServerToken(input)
+  )
 }
 
 export async function updateWorkspaceBrandingServer(input: {
@@ -117,10 +169,15 @@ export async function updateWorkspaceBrandingServer(input: {
   accent: string
   description: string
 }) {
-  return getConvexServerClient().mutation(api.app.updateWorkspaceBranding, {
-    ...input,
-    logoImageStorageId: input.logoImageStorageId as Id<"_storage"> | undefined,
-  })
+  return getConvexServerClient().mutation(
+    api.app.updateWorkspaceBranding,
+    withServerToken({
+      ...input,
+      logoImageStorageId: input.logoImageStorageId as
+        | Id<"_storage">
+        | undefined,
+    })
+  )
 }
 
 export async function setWorkspaceWorkosOrganizationServer(input: {
@@ -129,7 +186,7 @@ export async function setWorkspaceWorkosOrganizationServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.setWorkspaceWorkosOrganization,
-    input
+    withServerToken(input)
   )
 }
 
@@ -148,12 +205,15 @@ export async function updateCurrentUserProfileServer(input: {
     theme: "light" | "dark" | "system"
   }
 }) {
-  return getConvexServerClient().mutation(api.app.updateCurrentUserProfile, {
-    ...input,
-    avatarImageStorageId: input.avatarImageStorageId as
-      | Id<"_storage">
-      | undefined,
-  })
+  return getConvexServerClient().mutation(
+    api.app.updateCurrentUserProfile,
+    withServerToken({
+      ...input,
+      avatarImageStorageId: input.avatarImageStorageId as
+        | Id<"_storage">
+        | undefined,
+    })
+  )
 }
 
 export async function ensureWorkspaceScaffoldingServer(input: {
@@ -163,7 +223,7 @@ export async function ensureWorkspaceScaffoldingServer(input: {
   try {
     return await getConvexServerClient().mutation(
       api.app.ensureWorkspaceScaffolding,
-      input
+      withServerToken(input)
     )
   } catch (error) {
     if (
@@ -186,7 +246,7 @@ export async function generateSettingsImageUploadUrlServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.generateSettingsImageUploadUrl,
-    input
+    withServerToken(input)
   )
 }
 
@@ -194,7 +254,10 @@ export async function joinTeamByCodeServer(input: {
   currentUserId: string
   code: string
 }) {
-  return getConvexServerClient().mutation(api.app.joinTeamByCode, input)
+  return getConvexServerClient().mutation(
+    api.app.joinTeamByCode,
+    withServerToken(input)
+  )
 }
 
 export async function updateWorkItemServer(input: {
@@ -217,14 +280,20 @@ export async function updateWorkItemServer(input: {
     targetDate?: string | null
   }
 }) {
-  return getConvexServerClient().mutation(api.app.updateWorkItem, input)
+  return getConvexServerClient().mutation(
+    api.app.updateWorkItem,
+    withServerToken(input)
+  )
 }
 
 export async function deleteWorkItemServer(input: {
   currentUserId: string
   itemId: string
 }) {
-  return getConvexServerClient().mutation(api.app.deleteWorkItem, input)
+  return getConvexServerClient().mutation(
+    api.app.deleteWorkItem,
+    withServerToken(input)
+  )
 }
 
 export async function updateViewConfigServer(input: {
@@ -249,7 +318,10 @@ export async function updateViewConfigServer(input: {
     | "title"
   showCompleted?: boolean
 }) {
-  return getConvexServerClient().mutation(api.app.updateViewConfig, input)
+  return getConvexServerClient().mutation(
+    api.app.updateViewConfig,
+    withServerToken(input)
+  )
 }
 
 export async function toggleViewDisplayPropertyServer(input: {
@@ -270,7 +342,7 @@ export async function toggleViewDisplayPropertyServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.toggleViewDisplayProperty,
-    input
+    withServerToken(input)
   )
 }
 
@@ -280,7 +352,10 @@ export async function toggleViewHiddenValueServer(input: {
   key: "groups" | "subgroups"
   value: string
 }) {
-  return getConvexServerClient().mutation(api.app.toggleViewHiddenValue, input)
+  return getConvexServerClient().mutation(
+    api.app.toggleViewHiddenValue,
+    withServerToken(input)
+  )
 }
 
 export async function toggleViewFilterValueServer(input: {
@@ -295,14 +370,20 @@ export async function toggleViewFilterValueServer(input: {
     | "labelIds"
   value: string
 }) {
-  return getConvexServerClient().mutation(api.app.toggleViewFilterValue, input)
+  return getConvexServerClient().mutation(
+    api.app.toggleViewFilterValue,
+    withServerToken(input)
+  )
 }
 
 export async function clearViewFiltersServer(input: {
   currentUserId: string
   viewId: string
 }) {
-  return getConvexServerClient().mutation(api.app.clearViewFilters, input)
+  return getConvexServerClient().mutation(
+    api.app.clearViewFilters,
+    withServerToken(input)
+  )
 }
 
 export async function shiftTimelineItemServer(input: {
@@ -310,7 +391,10 @@ export async function shiftTimelineItemServer(input: {
   itemId: string
   nextStartDate: string
 }) {
-  return getConvexServerClient().mutation(api.app.shiftTimelineItem, input)
+  return getConvexServerClient().mutation(
+    api.app.shiftTimelineItem,
+    withServerToken(input)
+  )
 }
 
 export async function updateDocumentContentServer(input: {
@@ -318,7 +402,10 @@ export async function updateDocumentContentServer(input: {
   documentId: string
   content: string
 }) {
-  return getConvexServerClient().mutation(api.app.updateDocumentContent, input)
+  return getConvexServerClient().mutation(
+    api.app.updateDocumentContent,
+    withServerToken(input)
+  )
 }
 
 export async function updateDocumentServer(input: {
@@ -351,7 +438,10 @@ export async function renameDocumentServer(input: {
   documentId: string
   title: string
 }) {
-  return getConvexServerClient().mutation(api.app.renameDocument, input)
+  return getConvexServerClient().mutation(
+    api.app.renameDocument,
+    withServerToken(input)
+  )
 }
 
 export async function updateItemDescriptionServer(input: {
@@ -359,7 +449,10 @@ export async function updateItemDescriptionServer(input: {
   itemId: string
   content: string
 }) {
-  return getConvexServerClient().mutation(api.app.updateItemDescription, input)
+  return getConvexServerClient().mutation(
+    api.app.updateItemDescription,
+    withServerToken(input)
+  )
 }
 
 export async function addCommentServer(input: {
@@ -369,7 +462,10 @@ export async function addCommentServer(input: {
   parentCommentId?: string | null
   content: string
 }) {
-  return getConvexServerClient().mutation(api.app.addComment, input)
+  return getConvexServerClient().mutation(
+    api.app.addComment,
+    withServerToken(input)
+  )
 }
 
 export async function toggleCommentReactionServer(input: {
@@ -377,7 +473,10 @@ export async function toggleCommentReactionServer(input: {
   commentId: string
   emoji: string
 }) {
-  return getConvexServerClient().mutation(api.app.toggleCommentReaction, input)
+  return getConvexServerClient().mutation(
+    api.app.toggleCommentReaction,
+    withServerToken(input)
+  )
 }
 
 export async function generateAttachmentUploadUrlServer(input: {
@@ -387,7 +486,7 @@ export async function generateAttachmentUploadUrlServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.generateAttachmentUploadUrl,
-    input
+    withServerToken(input)
   )
 }
 
@@ -400,17 +499,23 @@ export async function createAttachmentServer(input: {
   contentType: string
   size: number
 }) {
-  return getConvexServerClient().mutation(api.app.createAttachment, {
-    ...input,
-    storageId: input.storageId as Id<"_storage">,
-  })
+  return getConvexServerClient().mutation(
+    api.app.createAttachment,
+    withServerToken({
+      ...input,
+      storageId: input.storageId as Id<"_storage">,
+    })
+  )
 }
 
 export async function deleteAttachmentServer(input: {
   currentUserId: string
   attachmentId: string
 }) {
-  return getConvexServerClient().mutation(api.app.deleteAttachment, input)
+  return getConvexServerClient().mutation(
+    api.app.deleteAttachment,
+    withServerToken(input)
+  )
 }
 
 export async function createProjectServer(input: {
@@ -423,7 +528,10 @@ export async function createProjectServer(input: {
   priority: "none" | "low" | "medium" | "high" | "urgent"
   settingsTeamId?: string | null
 }) {
-  return getConvexServerClient().mutation(api.app.createProject, input)
+  return getConvexServerClient().mutation(
+    api.app.createProject,
+    withServerToken(input)
+  )
 }
 
 export async function updateTeamWorkflowSettingsServer(input: {
@@ -487,7 +595,7 @@ export async function updateTeamWorkflowSettingsServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.updateTeamWorkflowSettings,
-    input
+    withServerToken(input)
   )
 }
 
@@ -512,7 +620,10 @@ export async function updateTeamDetailsServer(input: {
     channels: boolean
   }
 }) {
-  return getConvexServerClient().mutation(api.app.updateTeamDetails, input)
+  return getConvexServerClient().mutation(
+    api.app.updateTeamDetails,
+    withServerToken(input)
+  )
 }
 
 export async function createTeamServer(input: {
@@ -536,7 +647,10 @@ export async function createTeamServer(input: {
     channels: boolean
   }
 }) {
-  return getConvexServerClient().mutation(api.app.createTeam, input)
+  return getConvexServerClient().mutation(
+    api.app.createTeam,
+    withServerToken(input)
+  )
 }
 
 export async function regenerateTeamJoinCodeServer(input: {
@@ -544,7 +658,10 @@ export async function regenerateTeamJoinCodeServer(input: {
   teamId: string
   joinCode: string
 }) {
-  return getConvexServerClient().mutation(api.app.regenerateTeamJoinCode, input)
+  return getConvexServerClient().mutation(
+    api.app.regenerateTeamJoinCode,
+    withServerToken(input)
+  )
 }
 
 export async function createWorkspaceChatServer(input: {
@@ -554,7 +671,10 @@ export async function createWorkspaceChatServer(input: {
   title: string
   description: string
 }) {
-  return getConvexServerClient().mutation(api.app.createWorkspaceChat, input)
+  return getConvexServerClient().mutation(
+    api.app.createWorkspaceChat,
+    withServerToken(input)
+  )
 }
 
 export async function ensureTeamChatServer(input: {
@@ -563,7 +683,10 @@ export async function ensureTeamChatServer(input: {
   title: string
   description: string
 }) {
-  return getConvexServerClient().mutation(api.app.ensureTeamChat, input)
+  return getConvexServerClient().mutation(
+    api.app.ensureTeamChat,
+    withServerToken(input)
+  )
 }
 
 export async function createChannelServer(input: {
@@ -573,7 +696,10 @@ export async function createChannelServer(input: {
   title: string
   description: string
 }) {
-  return getConvexServerClient().mutation(api.app.createChannel, input)
+  return getConvexServerClient().mutation(
+    api.app.createChannel,
+    withServerToken(input)
+  )
 }
 
 export async function sendChatMessageServer(input: {
@@ -581,7 +707,10 @@ export async function sendChatMessageServer(input: {
   conversationId: string
   content: string
 }) {
-  return getConvexServerClient().mutation(api.app.sendChatMessage, input)
+  return getConvexServerClient().mutation(
+    api.app.sendChatMessage,
+    withServerToken(input)
+  )
 }
 
 export async function createChannelPostServer(input: {
@@ -590,7 +719,10 @@ export async function createChannelPostServer(input: {
   title: string
   content: string
 }) {
-  return getConvexServerClient().mutation(api.app.createChannelPost, input)
+  return getConvexServerClient().mutation(
+    api.app.createChannelPost,
+    withServerToken(input)
+  )
 }
 
 export async function addChannelPostCommentServer(input: {
@@ -598,14 +730,20 @@ export async function addChannelPostCommentServer(input: {
   postId: string
   content: string
 }) {
-  return getConvexServerClient().mutation(api.app.addChannelPostComment, input)
+  return getConvexServerClient().mutation(
+    api.app.addChannelPostComment,
+    withServerToken(input)
+  )
 }
 
 export async function deleteChannelPostServer(input: {
   currentUserId: string
   postId: string
 }) {
-  return getConvexServerClient().mutation(api.app.deleteChannelPost, input)
+  return getConvexServerClient().mutation(
+    api.app.deleteChannelPost,
+    withServerToken(input)
+  )
 }
 
 export async function toggleChannelPostReactionServer(input: {
@@ -615,7 +753,7 @@ export async function toggleChannelPostReactionServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.toggleChannelPostReaction,
-    input
+    withServerToken(input)
   )
 }
 
@@ -626,7 +764,10 @@ export async function createDocumentServer(input: {
   workspaceId?: string
   title: string
 }) {
-  return getConvexServerClient().mutation(api.app.createDocument, input)
+  return getConvexServerClient().mutation(
+    api.app.createDocument,
+    withServerToken(input)
+  )
 }
 
 export async function createWorkItemServer(input: {
@@ -647,5 +788,44 @@ export async function createWorkItemServer(input: {
   assigneeId: string | null
   priority: "none" | "low" | "medium" | "high" | "urgent"
 }) {
-  return getConvexServerClient().mutation(api.app.createWorkItem, input)
+  return getConvexServerClient().mutation(
+    api.app.createWorkItem,
+    withServerToken(input)
+  )
+}
+
+export async function startChatCallServer(input: {
+  currentUserId: string
+  conversationId: string
+  roomId: string
+  roomName: string
+  roomKey: string
+  roomDescription: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.startChatCall,
+    withServerToken(input)
+  )
+}
+
+export async function markCallJoinedServer(input: {
+  currentUserId: string
+  callId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.markCallJoined,
+    withServerToken(input)
+  )
+}
+
+export async function setConversationRoomServer(input: {
+  currentUserId: string
+  conversationId: string
+  roomId: string
+  roomName: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.setConversationRoom,
+    withServerToken(input)
+  )
 }

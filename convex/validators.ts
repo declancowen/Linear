@@ -474,6 +474,8 @@ export const conversationFields = {
   title: v.string(),
   description: v.string(),
   participantIds: v.array(v.string()),
+  roomId: v.optional(nullableString),
+  roomName: v.optional(nullableString),
   createdBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),

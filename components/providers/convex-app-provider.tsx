@@ -1,11 +1,9 @@
 "use client"
 
 import { useEffect } from "react"
-import { ConvexProvider, useQuery } from "convex/react"
 import { useTheme } from "next-themes"
 
-import { api } from "@/convex/_generated/api"
-import { convexReactClient } from "@/lib/convex/client"
+import { fetchSnapshot } from "@/lib/convex/client"
 import { useAppStore } from "@/lib/store/app-store"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -14,38 +12,90 @@ type ConvexAppProviderProps = {
   authenticatedUser?: AuthenticatedAppUser | null
 }
 
+const SNAPSHOT_POLL_INTERVAL_MS = 5000
+
 function ConvexStateSync({
   children,
   authenticatedUser,
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
   const { setTheme } = useTheme()
-  const snapshot = useQuery(
-    api.app.getSnapshot,
-    { email: authenticatedUser?.email }
-  )
 
   useEffect(() => {
-    if (!snapshot) {
-      return
+    let cancelled = false
+    let syncInFlight = false
+    let syncQueued = false
+
+    async function syncSnapshot() {
+      if (cancelled) {
+        return
+      }
+
+      if (syncInFlight) {
+        syncQueued = true
+        return
+      }
+
+      syncInFlight = true
+
+      try {
+        const snapshot = await fetchSnapshot(authenticatedUser?.email)
+
+        if (!snapshot || cancelled) {
+          return
+        }
+
+        replaceDomainData(snapshot)
+        const currentUser = snapshot.users.find(
+          (user) => user.id === snapshot.currentUserId
+        )
+
+        if (currentUser?.preferences.theme) {
+          setTheme(currentUser.preferences.theme)
+        }
+      } catch (error) {
+        console.error("Failed to refresh app snapshot", error)
+      } finally {
+        syncInFlight = false
+
+        if (syncQueued && !cancelled) {
+          syncQueued = false
+          void syncSnapshot()
+        }
+      }
     }
 
-    replaceDomainData(snapshot)
-  }, [replaceDomainData, snapshot])
+    void syncSnapshot()
 
-  useEffect(() => {
-    if (!snapshot) {
-      return
+    const handleFocus = () => {
+      void syncSnapshot()
     }
-
-    const currentUser = snapshot.users.find(
-      (user) => user.id === snapshot.currentUserId
-    )
-
-    if (currentUser?.preferences.theme) {
-      setTheme(currentUser.preferences.theme)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void syncSnapshot()
+      }
     }
-  }, [setTheme, snapshot])
+    const handleOnline = () => {
+      void syncSnapshot()
+    }
+    const pollIntervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void syncSnapshot()
+      }
+    }, SNAPSHOT_POLL_INTERVAL_MS)
+
+    window.addEventListener("focus", handleFocus)
+    window.addEventListener("online", handleOnline)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(pollIntervalId)
+      window.removeEventListener("focus", handleFocus)
+      window.removeEventListener("online", handleOnline)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [authenticatedUser?.email, replaceDomainData, setTheme])
 
   return <>{children}</>
 }
@@ -54,15 +104,9 @@ export function ConvexAppProvider({
   children,
   authenticatedUser,
 }: ConvexAppProviderProps) {
-  if (!convexReactClient) {
-    return <>{children}</>
-  }
-
   return (
-    <ConvexProvider client={convexReactClient}>
-      <ConvexStateSync authenticatedUser={authenticatedUser}>
-        {children}
-      </ConvexStateSync>
-    </ConvexProvider>
+    <ConvexStateSync authenticatedUser={authenticatedUser}>
+      {children}
+    </ConvexStateSync>
   )
 }

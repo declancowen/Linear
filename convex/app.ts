@@ -63,6 +63,25 @@ const defaultUserPreferences = {
   emailDigest: true,
   theme: "light" as const,
 }
+const serverAccessArgs = {
+  serverToken: v.string(),
+}
+
+function getServerToken() {
+  const token = process.env.CONVEX_SERVER_TOKEN?.trim()
+
+  if (!token) {
+    throw new Error("CONVEX_SERVER_TOKEN is not configured")
+  }
+
+  return token
+}
+
+function assertServerToken(serverToken: string) {
+  if (serverToken !== getServerToken()) {
+    throw new Error("Unauthorized")
+  }
+}
 
 function createHandle(email: string) {
   return email
@@ -968,6 +987,39 @@ async function getWorkspaceUserIds(ctx: AppCtx, workspaceId: string) {
   return [...userIds]
 }
 
+function normalizeUniqueIds(ids: string[]) {
+  return [...new Set(ids)].sort()
+}
+
+function haveSameIds(left: string[], right: string[]) {
+  const normalizedLeft = normalizeUniqueIds(left)
+  const normalizedRight = normalizeUniqueIds(right)
+
+  return (
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((value, index) => value === normalizedRight[index])
+  )
+}
+
+async function syncConversationParticipants(
+  ctx: MutationCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>,
+  participantIds: string[]
+) {
+  if (!conversation) {
+    return
+  }
+
+  if (haveSameIds(conversation.participantIds, participantIds)) {
+    return
+  }
+
+  await ctx.db.patch(conversation._id, {
+    participantIds: normalizeUniqueIds(participantIds),
+    updatedAt: getNow(),
+  })
+}
+
 async function findTeamChatConversation(ctx: AppCtx, teamId: string) {
   const conversations = await ctx.db
     .query("conversations")
@@ -1024,12 +1076,13 @@ async function ensureTeamChatConversation(
   }
 ) {
   const existing = await findTeamChatConversation(ctx, input.teamId)
+  const participantIds = await getTeamMemberIds(ctx, input.teamId)
 
   if (existing) {
+    await syncConversationParticipants(ctx, existing, participantIds)
     return existing.id
   }
 
-  const participantIds = await getTeamMemberIds(ctx, input.teamId)
   const now = getNow()
   const conversationId = createId("conversation")
 
@@ -1041,7 +1094,9 @@ async function ensureTeamChatConversation(
     variant: "team",
     title: input.title?.trim() || input.teamName.trim(),
     description: input.description?.trim() || input.teamSummary.trim(),
-    participantIds,
+    participantIds: normalizeUniqueIds(participantIds),
+    roomId: null,
+    roomName: null,
     createdBy: input.currentUserId,
     createdAt: now,
     updatedAt: now,
@@ -1063,12 +1118,13 @@ async function ensureTeamChannelConversation(
   }
 ) {
   const existing = await findPrimaryTeamChannelConversation(ctx, input.teamId)
+  const participantIds = await getTeamMemberIds(ctx, input.teamId)
 
   if (existing) {
+    await syncConversationParticipants(ctx, existing, participantIds)
     return existing.id
   }
 
-  const participantIds = await getTeamMemberIds(ctx, input.teamId)
   const now = getNow()
   const conversationId = createId("conversation")
 
@@ -1080,7 +1136,9 @@ async function ensureTeamChannelConversation(
     variant: "team",
     title: input.title?.trim() || input.teamName.trim(),
     description: input.description?.trim() || input.teamSummary.trim(),
-    participantIds,
+    participantIds: normalizeUniqueIds(participantIds),
+    roomId: null,
+    roomName: null,
     createdBy: input.currentUserId,
     createdAt: now,
     updatedAt: now,
@@ -1105,12 +1163,13 @@ async function ensureWorkspaceChannelConversation(
     ctx,
     input.workspaceId
   )
+  const participantIds = await getWorkspaceUserIds(ctx, input.workspaceId)
 
   if (existing) {
+    await syncConversationParticipants(ctx, existing, participantIds)
     return existing.id
   }
 
-  const participantIds = await getWorkspaceUserIds(ctx, input.workspaceId)
   const now = getNow()
   const conversationId = createId("conversation")
 
@@ -1125,7 +1184,9 @@ async function ensureWorkspaceChannelConversation(
       input.description?.trim() ||
       input.workspaceDescription.trim() ||
       "Shared updates and threaded decisions for the whole workspace.",
-    participantIds,
+    participantIds: normalizeUniqueIds(participantIds),
+    roomId: null,
+    roomName: null,
     createdBy: input.currentUserId,
     createdAt: now,
     updatedAt: now,
@@ -1146,12 +1207,10 @@ async function requireConversationAccess(
   }
 
   if (conversation.scopeType === "workspace") {
-    const workspaceRoles =
-      (await getWorkspaceRoleMapForUser(ctx, userId))[conversation.scopeId] ??
-      []
-
-    if (workspaceRoles.length === 0) {
-      throw new Error("You do not have access to this conversation")
+    if (mode === "write") {
+      await requireEditableWorkspaceAccess(ctx, conversation.scopeId, userId)
+    } else {
+      await requireReadableWorkspaceAccess(ctx, conversation.scopeId, userId)
     }
 
     if (
@@ -1175,15 +1234,129 @@ async function requireConversationAccess(
 
 function createMentionIds(
   content: string,
-  users: Array<{ id: string; handle: string }>
+  users: Array<{ id: string; handle: string }>,
+  allowedUserIds?: Iterable<string>
 ) {
+  const audience = allowedUserIds ? new Set(allowedUserIds) : null
   const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
     match[1]?.toLowerCase()
   )
 
-  return users
-    .filter((user) => handles.includes(user.handle.toLowerCase()))
-    .map((user) => user.id)
+  return [...new Set(
+    users
+      .filter((user) => handles.includes(user.handle.toLowerCase()))
+      .filter((user) => (audience ? audience.has(user.id) : true))
+      .map((user) => user.id)
+  )]
+}
+
+async function getConversationAudienceUserIds(
+  ctx: AppCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>
+) {
+  if (!conversation) {
+    return []
+  }
+
+  if (conversation.scopeType === "team") {
+    return getTeamMemberIds(ctx, conversation.scopeId)
+  }
+
+  const workspaceUserIds = new Set(
+    await getWorkspaceUserIds(ctx, conversation.scopeId)
+  )
+
+  if (conversation.kind === "channel") {
+    return [...workspaceUserIds]
+  }
+
+  return conversation.participantIds.filter((userId) => workspaceUserIds.has(userId))
+}
+
+async function syncTeamConversationMemberships(
+  ctx: MutationCtx,
+  teamId: string
+) {
+  const participantIds = await getTeamMemberIds(ctx, teamId)
+  const teamChat = await findTeamChatConversation(ctx, teamId)
+  const teamChannel = await findPrimaryTeamChannelConversation(ctx, teamId)
+  const team = await getTeamDoc(ctx, teamId)
+
+  await syncConversationParticipants(ctx, teamChat, participantIds)
+  await syncConversationParticipants(ctx, teamChannel, participantIds)
+
+  if (!team) {
+    return
+  }
+
+  const workspaceChannel = await findPrimaryWorkspaceChannelConversation(
+    ctx,
+    team.workspaceId
+  )
+  const workspaceParticipantIds = await getWorkspaceUserIds(ctx, team.workspaceId)
+
+  await syncConversationParticipants(
+    ctx,
+    workspaceChannel,
+    workspaceParticipantIds
+  )
+}
+
+async function updateConversationRoom(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    conversationId: string
+    roomId: string
+    roomName: string
+  }
+) {
+  const conversation = await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, input.conversationId),
+    input.currentUserId
+  )
+
+  if (conversation.kind !== "chat") {
+    throw new Error("Rooms can only be attached to chats")
+  }
+
+  await ctx.db.patch(conversation._id, {
+    roomId: input.roomId,
+    roomName: input.roomName,
+    updatedAt: getNow(),
+  })
+
+  return {
+    conversationId: conversation.id,
+    roomId: input.roomId,
+    roomName: input.roomName,
+  }
+}
+
+async function resolveUserFromServerArgs(
+  ctx: AppCtx,
+  args: {
+    serverToken: string
+    workosUserId?: string
+    email?: string
+  }
+) {
+  assertServerToken(args.serverToken)
+
+  if (args.workosUserId) {
+    const byWorkosId = await getUserByWorkOSUserId(ctx, args.workosUserId)
+
+    if (byWorkosId) {
+      return byWorkosId
+    }
+  }
+
+  if (args.email) {
+    return getUserByEmail(ctx, args.email)
+  }
+
+  return null
 }
 
 function toggleReactionUsers(
@@ -1734,8 +1907,9 @@ async function insertSeedData(ctx: MutationCtx) {
 }
 
 export const seedIfEmpty = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: serverAccessArgs,
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const existing = await ctx.db.query("workspaces").take(1)
 
     if (existing.length > 0) {
@@ -1750,6 +1924,7 @@ export const seedIfEmpty = mutation({
 
 export const bootstrapAppWorkspace = mutation({
   args: {
+    ...serverAccessArgs,
     workspaceSlug: v.string(),
     workspaceName: v.string(),
     workspaceLogoUrl: v.string(),
@@ -1768,6 +1943,7 @@ export const bootstrapAppWorkspace = mutation({
     role: v.optional(roleValidator),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspaceSlug = createSlug(args.workspaceSlug)
     const teamSlug = createSlug(args.teamSlug)
     const joinCode = normalizeJoinCode(args.teamJoinCode)
@@ -1928,6 +2104,8 @@ export const bootstrapAppWorkspace = mutation({
       })
     }
 
+    await syncTeamConversationMemberships(ctx, teamId)
+
     const config = await getAppConfig(ctx)
 
     if (config) {
@@ -1959,17 +2137,17 @@ export const bootstrapAppWorkspace = mutation({
 
 export const getSnapshot = query({
   args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
     email: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const authenticatedUser = await resolveUserFromServerArgs(ctx, args)
     const config = await getAppConfig(ctx)
     const workspaces = await ctx.db.query("workspaces").collect()
     const teams = await ctx.db.query("teams").collect()
     const teamMemberships = await ctx.db.query("teamMemberships").collect()
     const users = await ctx.db.query("users").collect()
-    const authenticatedUser = args.email
-      ? await getUserByEmail(ctx, args.email)
-      : null
     const firstUser = users[0]
     const currentUserId =
       authenticatedUser?.id ?? config?.currentUserId ?? firstUser?.id ?? ""
@@ -2181,7 +2359,11 @@ export const getSnapshot = query({
       notifications: visibleNotifications,
       invites: visibleInvites,
       projectUpdates: visibleProjectUpdates,
-      conversations: visibleConversations,
+      conversations: visibleConversations.map((conversation) => ({
+        ...conversation,
+        roomId: conversation.roomId ?? null,
+        roomName: conversation.roomName ?? null,
+      })),
       calls: visibleCalls.map((call) => ({
         ...call,
         endedAt: call.endedAt ?? null,
@@ -2199,10 +2381,12 @@ export const getSnapshot = query({
 
 export const getAuthContext = query({
   args: {
-    email: v.string(),
+    ...serverAccessArgs,
+    workosUserId: v.string(),
+    email: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await getUserByEmail(ctx, args.email)
+    const user = await resolveUserFromServerArgs(ctx, args)
 
     if (!user) {
       return null
@@ -2295,12 +2479,14 @@ export const getAuthContext = query({
 
 export const ensureUserFromAuth = mutation({
   args: {
+    ...serverAccessArgs,
     email: v.string(),
     name: v.string(),
     avatarUrl: v.string(),
     workosUserId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const existing =
       (await getUserByWorkOSUserId(ctx, args.workosUserId)) ??
       (await getUserByEmail(ctx, args.email))
@@ -2347,6 +2533,7 @@ export const ensureUserFromAuth = mutation({
 
 export const bootstrapWorkspaceUser = mutation({
   args: {
+    ...serverAccessArgs,
     workspaceSlug: v.string(),
     teamSlug: v.string(),
     existingUserId: v.optional(v.string()),
@@ -2357,6 +2544,7 @@ export const bootstrapWorkspaceUser = mutation({
     role: v.optional(roleValidator),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspaces = await ctx.db.query("workspaces").collect()
     const workspace = workspaces.find(
       (entry) => entry.slug === args.workspaceSlug
@@ -2442,6 +2630,8 @@ export const bootstrapWorkspaceUser = mutation({
         role,
       })
     }
+
+    await syncTeamConversationMemberships(ctx, team.id)
 
     const config = await getAppConfig(ctx)
 
@@ -2561,8 +2751,9 @@ export const lookupTeamByJoinCode = query({
 })
 
 export const listWorkspacesForSync = query({
-  args: {},
-  handler: async (ctx) => {
+  args: serverAccessArgs,
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspaces = await ctx.db.query("workspaces").collect()
 
     return workspaces.map((workspace) => ({
@@ -2575,8 +2766,9 @@ export const listWorkspacesForSync = query({
 })
 
 export const listPendingNotificationDigests = query({
-  args: {},
-  handler: async (ctx) => {
+  args: serverAccessArgs,
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const users = (await ctx.db.query("users").collect()).map(normalizeUser)
     const notifications = await ctx.db.query("notifications").collect()
 
@@ -2618,10 +2810,12 @@ export const listPendingNotificationDigests = query({
 
 export const markNotificationRead = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     notificationId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const notification = await requireNotificationOwnership(
       ctx,
       args.notificationId,
@@ -2636,9 +2830,11 @@ export const markNotificationRead = mutation({
 
 export const markNotificationsEmailed = mutation({
   args: {
+    ...serverAccessArgs,
     notificationIds: v.array(v.string()),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const now = getNow()
 
     for (const notificationId of args.notificationIds) {
@@ -2657,10 +2853,12 @@ export const markNotificationsEmailed = mutation({
 
 export const toggleNotificationRead = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     notificationId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const notification = await requireNotificationOwnership(
       ctx,
       args.notificationId,
@@ -2675,6 +2873,7 @@ export const toggleNotificationRead = mutation({
 
 export const createWorkspace = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     name: v.string(),
     logoUrl: v.string(),
@@ -2682,6 +2881,7 @@ export const createWorkspace = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspaces = await ctx.db.query("workspaces").collect()
     const workspaceId = createId("workspace")
     const workspaceSlug = createUniqueWorkspaceSlug(workspaces, args.name)
@@ -2723,6 +2923,7 @@ export const createWorkspace = mutation({
 
 export const updateWorkspaceBranding = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     workspaceId: v.string(),
     name: v.string(),
@@ -2733,6 +2934,7 @@ export const updateWorkspaceBranding = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
 
     if (!workspace) {
@@ -2774,10 +2976,12 @@ export const updateWorkspaceBranding = mutation({
 
 export const setWorkspaceWorkosOrganization = mutation({
   args: {
+    ...serverAccessArgs,
     workspaceId: v.string(),
     workosOrganizationId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
 
     if (!workspace) {
@@ -2797,6 +3001,7 @@ export const setWorkspaceWorkosOrganization = mutation({
 
 export const updateCurrentUserProfile = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     userId: v.string(),
     name: v.string(),
@@ -2812,6 +3017,7 @@ export const updateCurrentUserProfile = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     if (args.currentUserId !== args.userId) {
       throw new Error("You can only update your own profile")
     }
@@ -2855,10 +3061,12 @@ export const updateCurrentUserProfile = mutation({
 
 export const ensureWorkspaceScaffolding = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     workspaceId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     await requireReadableWorkspaceAccess(
       ctx,
       args.workspaceId,
@@ -2882,6 +3090,7 @@ export const ensureWorkspaceScaffolding = mutation({
 
 export const createTeam = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     workspaceId: v.string(),
     name: v.string(),
@@ -2892,6 +3101,7 @@ export const createTeam = mutation({
     features: teamFeatureSettingsValidator,
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
 
     if (!workspace) {
@@ -2989,6 +3199,7 @@ export const createTeam = mutation({
 
 export const updateTeamDetails = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
     name: v.string(),
@@ -2999,6 +3210,7 @@ export const updateTeamDetails = mutation({
     features: teamFeatureSettingsValidator,
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const team = await getTeamDoc(ctx, args.teamId)
 
     if (!team) {
@@ -3087,11 +3299,13 @@ export const updateTeamDetails = mutation({
 
 export const regenerateTeamJoinCode = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
     joinCode: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const team = await getTeamDoc(ctx, args.teamId)
 
     if (!team) {
@@ -3125,11 +3339,13 @@ export const regenerateTeamJoinCode = mutation({
 
 export const updateTeamWorkflowSettings = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
     workflow: teamWorkflowSettingsValidator,
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const team = await getTeamDoc(ctx, args.teamId)
 
     if (!team) {
@@ -3158,6 +3374,7 @@ export const updateTeamWorkflowSettings = mutation({
 
 export const updateViewConfig = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
     layout: v.optional(
@@ -3169,6 +3386,7 @@ export const updateViewConfig = mutation({
     showCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const view = await requireViewMutationAccess(
       ctx,
       args.viewId,
@@ -3195,11 +3413,13 @@ export const updateViewConfig = mutation({
 
 export const toggleViewDisplayProperty = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
     property: displayPropertyValidator,
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const view = await requireViewMutationAccess(
       ctx,
       args.viewId,
@@ -3219,12 +3439,14 @@ export const toggleViewDisplayProperty = mutation({
 
 export const toggleViewHiddenValue = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
     key: v.union(v.literal("groups"), v.literal("subgroups")),
     value: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const view = await requireViewMutationAccess(
       ctx,
       args.viewId,
@@ -3248,6 +3470,7 @@ export const toggleViewHiddenValue = mutation({
 
 export const toggleViewFilterValue = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
     key: v.union(
@@ -3261,6 +3484,7 @@ export const toggleViewFilterValue = mutation({
     value: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const view = await requireViewMutationAccess(
       ctx,
       args.viewId,
@@ -3284,10 +3508,12 @@ export const toggleViewFilterValue = mutation({
 
 export const clearViewFilters = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const view = await requireViewMutationAccess(
       ctx,
       args.viewId,
@@ -3311,6 +3537,7 @@ export const clearViewFilters = mutation({
 
 export const updateWorkItem = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
     patch: v.object({
@@ -3325,6 +3552,7 @@ export const updateWorkItem = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const existing = await getWorkItemDoc(ctx, args.itemId)
 
     if (!existing) {
@@ -3454,10 +3682,12 @@ export const updateWorkItem = mutation({
 
 export const deleteWorkItem = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const item = await getWorkItemDoc(ctx, args.itemId)
 
     if (!item) {
@@ -3584,11 +3814,13 @@ export const deleteWorkItem = mutation({
 
 export const shiftTimelineItem = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
     nextStartDate: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const item = await getWorkItemDoc(ctx, args.itemId)
 
     if (!item || !item.startDate) {
@@ -3617,11 +3849,13 @@ export const shiftTimelineItem = mutation({
 
 export const updateDocumentContent = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     documentId: v.string(),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const document = await getDocumentDoc(ctx, args.documentId)
 
     if (!document) {
@@ -3640,12 +3874,14 @@ export const updateDocumentContent = mutation({
 
 export const updateDocument = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     documentId: v.string(),
     title: v.optional(v.string()),
     content: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     if (args.title === undefined && args.content === undefined) {
       return
     }
@@ -3669,11 +3905,13 @@ export const updateDocument = mutation({
 
 export const renameDocument = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     documentId: v.string(),
     title: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const document = await getDocumentDoc(ctx, args.documentId)
 
     if (!document) {
@@ -3692,11 +3930,13 @@ export const renameDocument = mutation({
 
 export const updateItemDescription = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const item = await getWorkItemDoc(ctx, args.itemId)
 
     if (!item) {
@@ -3725,11 +3965,13 @@ export const updateItemDescription = mutation({
 
 export const generateAttachmentUploadUrl = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     targetType: attachmentTargetTypeValidator,
     targetId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const target = await resolveAttachmentTarget(
       ctx,
       args.targetType,
@@ -3745,11 +3987,13 @@ export const generateAttachmentUploadUrl = mutation({
 
 export const generateSettingsImageUploadUrl = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     kind: v.union(v.literal("user-avatar"), v.literal("workspace-logo")),
     workspaceId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     if (args.kind === "workspace-logo") {
       if (!args.workspaceId) {
         throw new Error("Workspace not found")
@@ -3776,6 +4020,7 @@ export const generateSettingsImageUploadUrl = mutation({
 
 export const createAttachment = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     targetType: attachmentTargetTypeValidator,
     targetId: v.string(),
@@ -3785,6 +4030,7 @@ export const createAttachment = mutation({
     size: v.number(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const target = await resolveAttachmentTarget(
       ctx,
       args.targetType,
@@ -3837,10 +4083,12 @@ export const createAttachment = mutation({
 
 export const deleteAttachment = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     attachmentId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const attachment = await getAttachmentDoc(ctx, args.attachmentId)
 
     if (!attachment) {
@@ -3876,6 +4124,7 @@ export const deleteAttachment = mutation({
 
 export const addComment = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     targetType: commentTargetTypeValidator,
     targetId: v.string(),
@@ -3883,6 +4132,7 @@ export const addComment = mutation({
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     let teamId = ""
     let followerIds: string[] = []
     let entityType: "workItem" | "document" = "workItem"
@@ -3956,7 +4206,8 @@ export const addComment = mutation({
 
     const users = await ctx.db.query("users").collect()
     const actor = users.find((user) => user.id === args.currentUserId)
-    const mentionUserIds = createMentionIds(args.content, users)
+    const audienceUserIds = new Set(await getTeamMemberIds(ctx, teamId))
+    const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
     const notifiedUserIds = new Set<string>()
     const mentionEmails: Array<{
       notificationId: string
@@ -4023,6 +4274,7 @@ export const addComment = mutation({
     for (const followerId of followerIds) {
       if (
         !followerId ||
+        !audienceUserIds.has(followerId) ||
         followerId === args.currentUserId ||
         notifiedUserIds.has(followerId)
       ) {
@@ -4051,11 +4303,13 @@ export const addComment = mutation({
 
 export const toggleCommentReaction = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     commentId: v.string(),
     emoji: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const comment = await getCommentDoc(ctx, args.commentId)
 
     if (!comment) {
@@ -4095,12 +4349,14 @@ export const toggleCommentReaction = mutation({
 
 export const createInvite = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
     email: v.string(),
     role: roleValidator,
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const team = await getTeamDoc(ctx, args.teamId)
 
     if (!team) {
@@ -4141,10 +4397,12 @@ export const createInvite = mutation({
 
 export const acceptInvite = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     token: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const invite = await getInviteByTokenDoc(ctx, args.token)
 
     if (!invite) {
@@ -4191,6 +4449,8 @@ export const acceptInvite = mutation({
       })
     }
 
+    await syncTeamConversationMemberships(ctx, invite.teamId)
+
     await ctx.db.patch(invite._id, {
       acceptedAt: getNow(),
     })
@@ -4230,10 +4490,12 @@ export const acceptInvite = mutation({
 
 export const declineInvite = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     token: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const invite = await getInviteByTokenDoc(ctx, args.token)
 
     if (!invite) {
@@ -4259,10 +4521,12 @@ export const declineInvite = mutation({
 
 export const joinTeamByCode = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     code: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const teams = await ctx.db.query("teams").collect()
     const team = teams.find((entry) =>
       matchesTeamAccessIdentifier(entry, args.code)
@@ -4313,6 +4577,8 @@ export const joinTeamByCode = mutation({
       })
     }
 
+    await syncTeamConversationMemberships(ctx, team.id)
+
     if (matchingInvites.length > 0) {
       const acceptedAt = getNow()
 
@@ -4361,6 +4627,7 @@ export const joinTeamByCode = mutation({
 
 export const createProject = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     scopeType: scopeTypeValidator,
     scopeId: v.string(),
@@ -4371,6 +4638,7 @@ export const createProject = mutation({
     settingsTeamId: v.optional(nullableStringValidator),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     let settingsTeam = null
 
     if (args.scopeType === "team") {
@@ -4454,6 +4722,7 @@ export const createProject = mutation({
 
 export const createDocument = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     kind: v.union(
       v.literal("team-document"),
@@ -4465,6 +4734,7 @@ export const createDocument = mutation({
     title: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const workspaceId =
       args.kind === "team-document"
         ? ((await getTeamDoc(ctx, args.teamId ?? ""))?.workspaceId ?? "")
@@ -4519,6 +4789,7 @@ export const createDocument = mutation({
 
 export const createWorkItem = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
     type: workItemTypeValidator,
@@ -4529,6 +4800,7 @@ export const createWorkItem = mutation({
     priority: priorityValidator,
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
     const team = await getTeamDoc(ctx, args.teamId)
 
@@ -4681,6 +4953,7 @@ export const createWorkItem = mutation({
 
 export const createWorkspaceChat = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     workspaceId: v.string(),
     participantIds: v.array(v.string()),
@@ -4688,14 +4961,12 @@ export const createWorkspaceChat = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    const workspaceRoles =
-      (await getWorkspaceRoleMapForUser(ctx, args.currentUserId))[
-        args.workspaceId
-      ] ?? []
-
-    if (workspaceRoles.length === 0) {
-      throw new Error("You do not have access to this workspace")
-    }
+    assertServerToken(args.serverToken)
+    await requireEditableWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      args.currentUserId
+    )
 
     const workspaceUserIds = new Set(
       await getWorkspaceUserIds(ctx, args.workspaceId)
@@ -4736,7 +5007,9 @@ export const createWorkspaceChat = mutation({
       variant,
       title: resolvedTitle,
       description: args.description.trim(),
-      participantIds,
+      participantIds: normalizeUniqueIds(participantIds),
+      roomId: null,
+      roomName: null,
       createdBy: args.currentUserId,
       createdAt: now,
       updatedAt: now,
@@ -4751,12 +5024,14 @@ export const createWorkspaceChat = mutation({
 
 export const ensureTeamChat = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
     title: v.string(),
     description: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
     const team = await getTeamDoc(ctx, args.teamId)
 
@@ -4796,6 +5071,7 @@ export const ensureTeamChat = mutation({
 
 export const createChannel = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.optional(v.string()),
     workspaceId: v.optional(v.string()),
@@ -4803,6 +5079,7 @@ export const createChannel = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const targets =
       Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
 
@@ -4855,14 +5132,7 @@ export const createChannel = mutation({
       throw new Error("Workspace not found")
     }
 
-    const workspaceRoles =
-      (await getWorkspaceRoleMapForUser(ctx, args.currentUserId))[
-        workspaceId
-      ] ?? []
-
-    if (workspaceRoles.length === 0) {
-      throw new Error("You do not have access to this workspace")
-    }
+    await requireReadableWorkspaceAccess(ctx, workspaceId, args.currentUserId)
 
     const workspace = await getWorkspaceDoc(ctx, workspaceId)
 
@@ -4881,6 +5151,8 @@ export const createChannel = mutation({
       }
     }
 
+    await requireEditableWorkspaceAccess(ctx, workspaceId, args.currentUserId)
+
     const conversationId = await ensureWorkspaceChannelConversation(ctx, {
       workspaceId,
       currentUserId: args.currentUserId,
@@ -4898,6 +5170,7 @@ export const createChannel = mutation({
 
 export const startChatCall = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     conversationId: v.string(),
     roomId: v.string(),
@@ -4906,6 +5179,7 @@ export const startChatCall = mutation({
     roomDescription: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const conversation = await requireConversationAccess(
       ctx,
       await getConversationDoc(ctx, args.conversationId),
@@ -4961,12 +5235,34 @@ export const startChatCall = mutation({
   },
 })
 
+export const setConversationRoom = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    conversationId: v.string(),
+    roomId: v.string(),
+    roomName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+
+    return updateConversationRoom(ctx, {
+      currentUserId: args.currentUserId,
+      conversationId: args.conversationId,
+      roomId: args.roomId,
+      roomName: args.roomName,
+    })
+  },
+})
+
 export const markCallJoined = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     callId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const call = await getCallDoc(ctx, args.callId)
 
     if (!call) {
@@ -5005,11 +5301,13 @@ export const markCallJoined = mutation({
 
 export const sendChatMessage = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     conversationId: v.string(),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const conversation = await requireConversationAccess(
       ctx,
       await getConversationDoc(ctx, args.conversationId),
@@ -5025,8 +5323,14 @@ export const sendChatMessage = mutation({
     const now = getNow()
     const messageId = createId("chat_message")
     const actor = users.find((user) => user.id === args.currentUserId)
-    const mentionUserIds = createMentionIds(args.content, users).filter(
-      (userId) => conversation.participantIds.includes(userId)
+    const audienceUserIds = await getConversationAudienceUserIds(
+      ctx,
+      conversation
+    )
+    const mentionUserIds = createMentionIds(
+      args.content,
+      users,
+      audienceUserIds
     )
     const mentionEmails: Array<{
       notificationId: string
@@ -5107,8 +5411,9 @@ export const sendChatMessage = mutation({
 })
 
 export const backfillChatMessageKinds = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: serverAccessArgs,
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const chatMessages = await ctx.db.query("chatMessages").collect()
     let updatedCount = 0
 
@@ -5131,8 +5436,9 @@ export const backfillChatMessageKinds = mutation({
 })
 
 export const backfillUserPreferenceThemes = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: serverAccessArgs,
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const users = await ctx.db.query("users").collect()
     let updatedCount = 0
 
@@ -5159,12 +5465,14 @@ export const backfillUserPreferenceThemes = mutation({
 
 export const createChannelPost = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     conversationId: v.string(),
     title: v.string(),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const conversation = await requireConversationAccess(
       ctx,
       await getConversationDoc(ctx, args.conversationId),
@@ -5180,7 +5488,15 @@ export const createChannelPost = mutation({
     const now = getNow()
     const postId = createId("channel_post")
     const actor = users.find((user) => user.id === args.currentUserId)
-    const mentionUserIds = createMentionIds(args.content, users)
+    const audienceUserIds = await getConversationAudienceUserIds(
+      ctx,
+      conversation
+    )
+    const mentionUserIds = createMentionIds(
+      args.content,
+      users,
+      audienceUserIds
+    )
     const mentionEmails: Array<{
       notificationId: string
       email: string
@@ -5265,11 +5581,13 @@ export const createChannelPost = mutation({
 
 export const addChannelPostComment = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     postId: v.string(),
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const post = await getChannelPostDoc(ctx, args.postId)
 
     if (!post) {
@@ -5295,7 +5613,15 @@ export const addChannelPostComment = mutation({
       .collect()
     const now = getNow()
     const commentId = createId("channel_comment")
-    const mentionUserIds = createMentionIds(args.content, users)
+    const audienceUserIds = await getConversationAudienceUserIds(
+      ctx,
+      conversation
+    )
+    const mentionUserIds = createMentionIds(
+      args.content,
+      users,
+      audienceUserIds
+    )
     const notifiedUserIds = new Set<string>()
     const entityTitle = post.title.trim() || "a channel post"
     const entityPath = await getChannelConversationPath(
@@ -5372,6 +5698,7 @@ export const addChannelPostComment = mutation({
     for (const followerId of followerIds) {
       if (
         !followerId ||
+        !audienceUserIds.includes(followerId) ||
         followerId === args.currentUserId ||
         notifiedUserIds.has(followerId)
       ) {
@@ -5411,10 +5738,12 @@ export const addChannelPostComment = mutation({
 
 export const deleteChannelPost = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     postId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const post = await getChannelPostDoc(ctx, args.postId)
 
     if (!post) {
@@ -5467,11 +5796,13 @@ export const deleteChannelPost = mutation({
 
 export const toggleChannelPostReaction = mutation({
   args: {
+    ...serverAccessArgs,
     currentUserId: v.string(),
     postId: v.string(),
     emoji: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const post = await getChannelPostDoc(ctx, args.postId)
 
     if (!post) {

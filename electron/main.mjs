@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createServer } from "node:net"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -51,6 +52,55 @@ async function waitForUrl(url, timeout = 30000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
+function findAvailablePort(host = "127.0.0.1") {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.unref()
+    server.on("error", reject)
+    server.listen(0, host, () => {
+      const address = server.address()
+
+      if (!address || typeof address === "string") {
+        server.close(() => {
+          reject(new Error("Failed to allocate a local port"))
+        })
+        return
+      }
+
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve(address.port)
+      })
+    })
+  })
+}
+
+function isAllowedExternalUrl(url) {
+  try {
+    const parsed = new URL(url)
+
+    if (parsed.protocol === "mailto:") {
+      return true
+    }
+
+    return parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
+function isAppUrl(url, rendererOrigin) {
+  try {
+    return new URL(url).origin === rendererOrigin
+  } catch {
+    return false
+  }
+}
+
 async function resolveRendererUrl() {
   if (isDev) {
     await waitForUrl(localServerUrl, 120000)
@@ -59,6 +109,8 @@ async function resolveRendererUrl() {
 
   const appPath = app.getAppPath()
   const standaloneServer = path.join(appPath, ".next", "standalone", "server.js")
+  const port = await findAvailablePort()
+  const rendererUrl = `http://127.0.0.1:${port}`
 
   nextServerProcess = spawn(process.execPath, [standaloneServer], {
     cwd: appPath,
@@ -66,18 +118,20 @@ async function resolveRendererUrl() {
       ...process.env,
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
-      PORT: "3000",
+      PORT: String(port),
     },
     stdio: "inherit",
     windowsHide: true,
   })
 
-  await waitForUrl("http://127.0.0.1:3000", 60000)
+  await waitForUrl(rendererUrl, 60000)
 
-  return "http://127.0.0.1:3000"
+  return rendererUrl
 }
 
 async function createWindow(iconPath) {
+  const rendererUrl = await resolveRendererUrl()
+  const rendererOrigin = new URL(rendererUrl).origin
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 980,
@@ -90,16 +144,35 @@ async function createWindow(iconPath) {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, "preload.mjs"),
-      sandbox: false,
+      sandbox: true,
     },
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (isAppUrl(url, rendererOrigin)) {
+      void mainWindow.loadURL(url)
+      return { action: "deny" }
+    }
+
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url)
+    }
+
     return { action: "deny" }
   })
 
-  const rendererUrl = await resolveRendererUrl()
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isAppUrl(url, rendererOrigin)) {
+      return
+    }
+
+    event.preventDefault()
+
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url)
+    }
+  })
+
   await mainWindow.loadURL(rendererUrl)
 
   if (isDev) {
