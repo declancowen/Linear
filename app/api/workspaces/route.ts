@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
       session.organizationId
     )
 
-    if (authContext?.currentWorkspace) {
+    if (authContext?.currentWorkspace || authContext?.pendingWorkspace) {
       return NextResponse.json(
         { error: "You already have an active workspace" },
         { status: 400 }

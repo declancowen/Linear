@@ -127,6 +127,9 @@ function ConvexStateSync({
         const snapshotState = await fetchSnapshotState()
 
         if (!snapshotState || cancelled) {
+          if (!cancelled) {
+            scheduleInitialSnapshotRetry()
+          }
           return
         }
 

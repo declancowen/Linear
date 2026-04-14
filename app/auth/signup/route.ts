@@ -98,12 +98,13 @@ function isSignupConflict(error: unknown) {
 }
 
 function withSignupProfileParams(path: string, firstName: string, lastName: string) {
-  return (
-    path +
-    `&firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(
-      lastName
-    )}`
-  )
+  const [pathname, existingQuery = ""] = path.split("?", 2)
+  const searchParams = new URLSearchParams(existingQuery)
+  searchParams.set("firstName", firstName)
+  searchParams.set("lastName", lastName)
+  const query = searchParams.toString()
+
+  return query ? `${pathname}?${query}` : pathname
 }
 
 function getRequestMetadata(request: Request) {
