@@ -2,6 +2,20 @@ import { createWorkOS, type Organization } from "@workos-inc/node"
 
 import { splitName } from "@/lib/workos/auth"
 
+type WorkOSAuthErrorPayload = {
+  code?: string
+  error?: string
+  message?: string
+  errorDescription?: string
+  error_description?: string
+  pendingAuthenticationToken?: string
+  pending_authentication_token?: string
+  email?: string
+  user?: {
+    email?: string
+  }
+}
+
 export function getWorkOSClient() {
   const apiKey = process.env.WORKOS_API_KEY
   const clientId = process.env.WORKOS_CLIENT_ID
@@ -14,6 +28,59 @@ export function getWorkOSClient() {
     apiKey,
     clientId,
   })
+}
+
+export function getWorkOSAuthErrorPayload(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return null
+  }
+
+  const topLevelPayload = error as WorkOSAuthErrorPayload
+  const rawDataPayload =
+    "rawData" in error &&
+    typeof error.rawData === "object" &&
+    error.rawData !== null
+      ? (error.rawData as WorkOSAuthErrorPayload)
+      : null
+
+  return {
+    ...(rawDataPayload ?? {}),
+    ...topLevelPayload,
+    user: rawDataPayload?.user ?? topLevelPayload.user,
+  }
+}
+
+export function getWorkOSAuthErrorCode(error: unknown) {
+  const payload = getWorkOSAuthErrorPayload(error)
+  return payload?.code ?? payload?.error ?? null
+}
+
+export function getWorkOSAuthErrorMessage(error: unknown) {
+  const payload = getWorkOSAuthErrorPayload(error)
+  return (
+    payload?.message ??
+    payload?.errorDescription ??
+    payload?.error_description ??
+    null
+  )
+}
+
+export function getWorkOSPendingAuthentication(error: unknown) {
+  const payload = getWorkOSAuthErrorPayload(error)
+  const pendingAuthenticationToken =
+    payload?.pendingAuthenticationToken ??
+    payload?.pending_authentication_token
+
+  if (!pendingAuthenticationToken) {
+    return null
+  }
+
+  return {
+    email:
+      payload?.email ??
+      (typeof payload?.user?.email === "string" ? payload.user.email : null),
+    pendingAuthenticationToken,
+  }
 }
 
 function isNotFoundError(error: unknown) {

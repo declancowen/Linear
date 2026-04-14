@@ -21,7 +21,7 @@ export default function TeamProjectsPage() {
       scopeType="team"
       team={team}
       title={`${team.name} projects`}
-      description="Project templates, health, dates, and linked work for the current team."
+      description="Projects owned by the current team, with linked work and child work rolled up together."
     />
   )
 }

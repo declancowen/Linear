@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner"
 
 import {
+  canAdminWorkspace,
   canAdminTeam,
   getAccessibleTeams,
   getCurrentUser,
@@ -214,17 +215,19 @@ function CollectionPaneHeader({
   actions?: ReactNode
 }) {
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
+    <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="size-5 shrink-0" />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{title}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            {subtitle}
-          </div>
-        </div>
+        <h1 className="truncate text-sm font-medium">{title}</h1>
+        {subtitle ? (
+          <span className="hidden truncate text-xs text-muted-foreground xl:inline">
+            — {subtitle}
+          </span>
+        ) : null}
       </div>
-      {actions ? <div className="shrink-0">{actions}</div> : null}
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
+      ) : null}
     </div>
   )
 }
@@ -1296,12 +1299,8 @@ export function WorkspaceSettingsScreen() {
   const router = useRouter()
   const data = useAppStore()
   const workspace = getCurrentWorkspace(data)
-  const teams = getAccessibleTeams(data)
   const canManageWorkspace = workspace
-    ? teams.some(
-        (team) =>
-          team.workspaceId === workspace.id && canAdminTeam(data, team.id)
-      )
+    ? canAdminWorkspace(data, workspace.id)
     : false
   const currentLogoImageSrc = resolveImageAssetSource(
     workspace?.logoImageUrl,
@@ -1420,7 +1419,7 @@ export function WorkspaceSettingsScreen() {
   return (
     <SettingsScaffold
       title="Workspace settings"
-      subtitle={`${workspace.name} identity, branding, and defaults`}
+      subtitle=""
       footer={
         <Button
           disabled={!canManageWorkspace || saving}
@@ -1694,12 +1693,8 @@ export function CreateTeamScreen() {
   const router = useRouter()
   const data = useAppStore()
   const workspace = getCurrentWorkspace(data)
-  const teams = getAccessibleTeams(data)
   const canCreateTeam = workspace
-    ? teams.some(
-        (team) =>
-          team.workspaceId === workspace.id && canAdminTeam(data, team.id)
-      )
+    ? canAdminWorkspace(data, workspace.id)
     : false
   const [name, setName] = useState("")
   const [icon, setIcon] = useState(() =>
@@ -1735,7 +1730,7 @@ export function CreateTeamScreen() {
   return (
     <SettingsScaffold
       title="Create team"
-      subtitle={`Add a new team inside ${workspace.name}`}
+      subtitle=""
       footer={
         <Button
           disabled={!canCreateTeam || saving}

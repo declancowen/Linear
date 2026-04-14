@@ -1,8 +1,7 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
 import { LinkSimple } from "@phosphor-icons/react/dist/ssr"
 
-import { AcceptInviteCard } from "@/components/app/accept-invite-card"
-import { JoinWorkspacePanel } from "@/components/app/join-workspace-panel"
+import { WorkspaceEntryJoinSection } from "@/components/app/workspace-entry-join-section"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 
 type InvitesPageProps = {
@@ -43,52 +42,10 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
         </p>
       </header>
 
-      {pendingInvites.length > 0 ? (
-        <>
-        <div className="mx-auto w-full max-w-lg rounded-lg border border-border/70 bg-card">
-          <div className="border-b px-4 py-3">
-            <span className="text-sm font-medium">Pending invites</span>
-            <span className="ml-2 text-xs text-muted-foreground">
-              {pendingInvites.length}
-            </span>
-          </div>
-          <div className="divide-y">
-            {pendingInvites.map((entry) =>
-              entry.team && entry.workspace ? (
-                <AcceptInviteCard
-                  key={entry.invite.id}
-                  authenticated
-                  token={entry.invite.token}
-                  teamName={entry.team.name}
-                  workspaceName={entry.workspace.name}
-                  inviteEmail={entry.invite.email}
-                  loginHref="/login"
-                  signupHref="/signup"
-                  role={entry.invite.role}
-                  expired={false}
-                  accepted={Boolean(entry.invite.acceptedAt)}
-                  showDecline
-                  className="rounded-none border-0 shadow-none"
-                />
-              ) : null
-            )}
-          </div>
-        </div>
-
-        <div className="mx-auto flex w-full max-w-lg items-center gap-3">
-          <div className="h-px flex-1 bg-border/70" />
-          <span className="text-[10px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-            Or join with code
-          </span>
-          <div className="h-px flex-1 bg-border/70" />
-        </div>
-        </>
-      ) : null}
-
-      <JoinWorkspacePanel
-        authenticated
-        initialCode={joinCode}
+      <WorkspaceEntryJoinSection
+        joinCode={joinCode}
         joinedTeamIds={joinedTeamIds}
+        pendingInvites={pendingInvites}
       />
     </main>
   )

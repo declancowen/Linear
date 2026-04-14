@@ -1,132 +1,149 @@
-# Linear-Style Multi-Work App
+# Linear
 
-Phase 1 plus the Phase 2 Convex baseline for a Linear-style workspace app built with `Next.js`, `shadcn/ui`, a production Convex deployment, and an Electron-ready desktop wrapper.
+Internal project workspace app built with `Next.js`, `Convex`, `WorkOS`, and an optional `Electron` desktop shell.
 
-## What is included
+This README is intended for contributors joining the repo so they can get the project running locally without needing existing team context.
 
-- Workspace and team shell with sidebar navigation
-- Inbox and assigned-to-me surfaces
-- Team and workspace projects, views, and docs
-- Work item board, list, and timeline views
-- Work item, project, and document detail pages
-- Rich document and description editing with Tiptap OSS
-- Threaded comments on work items and docs
-- Mocked invites, team join codes, profile editing, and workspace branding
-- Convex schema, queries, mutations, and generated API bindings
-- Convex-backed data hydration with Zustand retaining local UI state
-- Electron `main` and `preload` entrypoints for a desktop wrapper
+## Stack
 
-## Run
+- `Next.js` App Router for the web app and API routes
+- `Convex` for app data, queries, mutations, and generated bindings
+- `WorkOS AuthKit` for authentication and organization membership
+- `Resend` for email delivery
+- `100ms` for video/call rooms
+- `Electron` for the desktop wrapper
+- `pnpm` for package management
+
+## Project structure
+
+- `app/`: Next.js pages, layouts, auth routes, and API routes
+- `components/`: app UI and shared UI primitives
+- `convex/`: schema, functions, and generated Convex API bindings
+- `electron/`: desktop entrypoints
+- `lib/`: server helpers, auth helpers, Convex client code, and shared app logic
+- `scripts/`: operational scripts for bootstrapping and maintenance
+
+## Prerequisites
+
+Before you start, make sure you have:
+
+- A recent version of `Node.js`
+- `pnpm` installed
+- Access to the required third-party services:
+  - Convex
+  - WorkOS
+  - Resend
+  - 100ms
+
+## Environment variables
+
+Copy the example file and fill in real values locally:
+
+```bash
+cp .env.example .env.local
+```
+
+The app expects the following variables.
+
+### Convex
+
+- `CONVEX_URL`: server-side Convex deployment URL
+- `NEXT_PUBLIC_CONVEX_URL`: browser-visible Convex deployment URL
+- `CONVEX_SERVER_TOKEN`: shared server token used by Next.js routes, Convex functions, and scripts
+- `CONVEX_DEPLOY_KEY`: Convex deploy key used for deployment/codegen workflows
+
+### WorkOS
+
+- `WORKOS_CLIENT_ID`: WorkOS client ID
+- `WORKOS_API_KEY`: WorkOS server API key
+- `WORKOS_COOKIE_PASSWORD`: cookie encryption secret
+- `WORKOS_COOKIE_DOMAIN`: shared auth cookie domain
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: WorkOS callback URL
+
+### App URLs
+
+- `APP_URL`: base app URL used by the app and email links
+- `TEAMS_URL`: app/team entry URL used in auth routing
+
+### Email
+
+- `RESEND_API_KEY`: Resend API key
+- `RESEND_FROM_EMAIL`: sender address for outbound email
+
+### Video / calls
+
+- `HMS_ACCESS_KEY`: 100ms access key
+- `HMS_SECRET`: 100ms secret
+- `HMS_TEMPLATE_ID`: 100ms room template ID
+- `HMS_TEMPLATE_SUBDOMAIN`: 100ms subdomain
+
+## Local setup
+
+1. Install dependencies:
 
 ```bash
 pnpm install
+```
+
+2. Create your local env file:
+
+```bash
+cp .env.example .env.local
+```
+
+3. Fill in the required environment variables in `.env.local`.
+
+4. Start the web app:
+
+```bash
 pnpm dev
 ```
 
-Open `http://localhost:3000`.
+5. Open `http://localhost:3000`.
 
-## Convex
-
-The app expects a Convex deployment URL plus a shared server token between the
-Next.js app, Convex functions, and operational scripts. An example is included in
-`.env.example`.
-
-Required environment variables:
-
-- `CONVEX_URL`
-- `NEXT_PUBLIC_CONVEX_URL`
-- `CONVEX_SERVER_TOKEN`
-- `CONVEX_DEPLOY_KEY`
-- `WORKOS_CLIENT_ID`
-- `WORKOS_API_KEY`
-- `WORKOS_COOKIE_PASSWORD`
-- `WORKOS_COOKIE_DOMAIN`
-- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`
-- `APP_MODE`
-- `APP_URL`
-- `PORTAL_URL`
-- `PROJECTS_URL`
-- `TEAMS_URL`
-- `RESEND_API_KEY`
-- `RESEND_FROM_EMAIL`
-- `HMS_ACCESS_KEY`
-- `HMS_SECRET`
-- `HMS_TEMPLATE_ID`
-- `HMS_TEMPLATE_SUBDOMAIN`
-
-WorkOS note:
-
-- `portal.reciperoom.io` should own the shared WorkOS sign-in endpoint, homepage, and callback route.
-- `projects.reciperoom.io` keeps the project UI, onboarding, invites, and workspace entry.
-- Use the same `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD`, and `WORKOS_COOKIE_DOMAIN=reciperoom.io` across portal and product deployments to share the session cookie across subdomains.
-- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` should point at the portal callback URL in production. For local work with a production AuthKit client, `127.0.0.1` is the safe loopback callback host.
-
-Useful commands:
+## Common commands
 
 ```bash
+pnpm dev
+pnpm build
+pnpm start
+pnpm lint
+pnpm typecheck
 pnpm convex:codegen
 pnpm convex:deploy
-pnpm bootstrap:workspace -- --email declan@reciperoom.io --workspace-name "Recipe Room" --team-name "Recipe Room" --team-join-code RECIPE24
+pnpm desktop:dev
+pnpm desktop:start
 ```
 
-`CONVEX_URL` is the preferred server-side setting. `NEXT_PUBLIC_CONVEX_URL` is
-still used by the browser to detect whether the app is running against a live
-backend, but snapshot reads now go through authenticated Next.js API routes.
+## Bootstrap and maintenance scripts
 
-The current repo has already been deployed and seeded against the configured Convex deployment.
+These scripts require a correctly configured `.env.local` and usually talk to live services:
 
-## 100ms video
+- `pnpm bootstrap:workspace`: create/bootstrap a workspace for a user
+- `pnpm backfill:work-item-model`: run the work item model backfill
+- `pnpm notifications:send-digests`: send notification digest emails
+- `pnpm sync:workos:workspaces`: sync Convex workspaces to WorkOS organizations
 
-Team chat now includes a 100ms launch action that opens the team's persistent
-Prebuilt room inside a modal.
+## Desktop app
 
-Add these environment variables before using it:
+For web-only work, `pnpm dev` is enough.
 
-- `HMS_ACCESS_KEY`
-- `HMS_SECRET`
-- `HMS_TEMPLATE_ID`
-- `HMS_TEMPLATE_SUBDOMAIN`
-
-The server persists a stable room per chat conversation for the persistent join
-flow, creates one-off rooms for started call threads, and maps app roles to 100ms
-roles:
-
-- `admin` and `member` join as `host`
-- `viewer` and `guest` join as `guest`
-
-## Desktop
-
-Development mode:
+If you need the Electron shell in development:
 
 ```bash
 pnpm desktop:dev
 ```
 
-Production-style desktop startup after a build:
+For a production-style desktop run:
 
 ```bash
 pnpm build
 pnpm desktop:start
 ```
 
-## Verification
+## Notes for contributors
 
-These commands pass in the current repo state:
-
-```bash
-pnpm lint
-pnpm typecheck
-pnpm build
-pnpm convex:codegen
-pnpm exec electron --version
-```
-
-## Key files
-
-- `components/app/shell.tsx`
-- `components/app/screens.tsx`
-- `components/app/rich-text-editor.tsx`
-- `lib/store/app-store.ts`
-- `lib/domain/seed.ts`
-- `electron/main.mjs`
-- `electron/preload.mjs`
+- Do not commit real secrets or copied `.env.local` values
+- Update `.env.example` when new required environment variables are added
+- `convex/_generated/` is generated output; run `pnpm convex:codegen` if Convex types drift
+- Some scripts mutate shared data or external services, so do not run them casually against production credentials

@@ -82,7 +82,7 @@ export function AuthEntryScreen({
                         id="firstName"
                         name="firstName"
                         defaultValue={initialFirstName ?? ""}
-                        placeholder="Declan"
+                        placeholder="Taylor"
                         required
                       />
                     </Field>
@@ -93,7 +93,7 @@ export function AuthEntryScreen({
                         id="lastName"
                         name="lastName"
                         defaultValue={initialLastName ?? ""}
-                        placeholder="Cowen"
+                        placeholder="Morgan"
                         required
                       />
                     </Field>
@@ -136,6 +136,12 @@ export function AuthEntryScreen({
                     }
                     required
                   />
+                  {!isLogin ? (
+                    <FieldDescription>
+                      Use a strong password. WorkOS requires a minimum length
+                      and rejects weak or breached passwords.
+                    </FieldDescription>
+                  ) : null}
                 </Field>
 
                 {notice ? (

@@ -16,7 +16,6 @@ import {
   DotsThree,
   Gear,
   HashStraight,
-  IdentificationBadge,
   Kanban,
   MagnifyingGlass,
   NotePencil,
@@ -30,6 +29,7 @@ import {
 import { toast } from "sonner"
 
 import {
+  canAdminWorkspace,
   getAccessibleTeams,
   getCurrentUser,
   getCurrentWorkspace,
@@ -112,7 +112,6 @@ import {
 } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 
-const previewRoles: Role[] = ["admin", "member", "viewer", "guest"]
 const workspaceAccentOptions = [
   "emerald",
   "blue",
@@ -177,11 +176,7 @@ export function AppShell({ children }: AppShellProps) {
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
-  const canCreateTeam = teams.some(
-    (team) =>
-      team.workspaceId === data.currentWorkspaceId &&
-      getTeamRole(data, team.id) === "admin"
-  )
+  const canCreateTeam = canAdminWorkspace(data, data.currentWorkspaceId)
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -665,35 +660,6 @@ export function AppShell({ children }: AppShellProps) {
                         </button>
                       </form>
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => useAppStore.getState().resetDemo()}
-                    >
-                      <ArrowsClockwise />
-                      Reset demo data
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Role preview</DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        useAppStore.getState().setRolePreview(null)
-                      }
-                    >
-                      <IdentificationBadge />
-                      Actual team role
-                    </DropdownMenuItem>
-                    {previewRoles.map((role) => (
-                      <DropdownMenuItem
-                        key={role}
-                        onSelect={() =>
-                          useAppStore.getState().setRolePreview(role)
-                        }
-                      >
-                        <IdentificationBadge />
-                        Preview as {role}
-                      </DropdownMenuItem>
-                    ))}
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -876,6 +842,7 @@ function TeamEditorFields({
   setFeatures,
   savedFeatures,
   surfaceDisableReasons,
+  disabled = false,
   canChangeExperience = false,
   onExperienceChange,
   onRegenerateJoinCode,
@@ -897,6 +864,7 @@ function TeamEditorFields({
   ) => void
   savedFeatures: TeamFeatureSettings
   surfaceDisableReasons: TeamSurfaceDisableReasons
+  disabled?: boolean
   canChangeExperience?: boolean
   onExperienceChange?: (experience: TeamExperienceType) => void
   onRegenerateJoinCode?: (() => Promise<void>) | null
@@ -1078,6 +1046,7 @@ function TeamEditorFields({
                           : "hover:bg-accent/40"
                       )}
                       disabled={
+                        disabled ||
                         savedFeatures.channels &&
                         Boolean(surfaceDisableReasons.channels)
                       }
@@ -1106,6 +1075,7 @@ function TeamEditorFields({
                           : "hover:bg-accent/40"
                       )}
                       disabled={
+                        disabled ||
                         savedFeatures.chat &&
                         Boolean(surfaceDisableReasons.chat)
                       }
@@ -1203,6 +1173,7 @@ function TeamEditorFields({
                     <Switch
                       checked={features[feature.key]}
                       disabled={
+                        disabled ||
                         savedFeatures[feature.key] &&
                         Boolean(surfaceDisableReasons[feature.key])
                       }

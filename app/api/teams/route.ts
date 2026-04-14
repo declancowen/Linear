@@ -48,7 +48,11 @@ export async function POST(request: NextRequest) {
       })
     )
 
-    await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    try {
+      await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    } catch (error) {
+      console.error("Failed to reconcile app context after team creation", error)
+    }
 
     return NextResponse.json({
       ok: true,

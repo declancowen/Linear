@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useEffectEvent } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import { useTheme } from "next-themes"
 
 import {
@@ -20,6 +20,8 @@ type ConvexAppProviderProps = {
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_DELAY_MS = 15000
+const INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS = 2000
+const INITIAL_SNAPSHOT_RETRY_MAX_DELAY_MS = 15000
 
 function ConvexStateSync({
   children,
@@ -27,6 +29,7 @@ function ConvexStateSync({
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
   const { setTheme } = useTheme()
+  const [ready, setReady] = useState(false)
   const applySnapshot = useEffectEvent((snapshot: AppSnapshot) => {
     replaceDomainData(snapshot)
     const currentUser = (snapshot.users ?? []).find(
@@ -57,12 +60,22 @@ function ConvexStateSync({
     let stream: EventSource | null = null
     let streamReconnectDelay = STREAM_RECONNECT_BASE_DELAY_MS
     let streamReconnectTimeoutId: number | null = null
+    let initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
+    let initialSnapshotRetryTimeoutId: number | null = null
     let appliedSnapshotVersion: number | null = null
+    let hasLoadedInitialSnapshot = false
 
     function clearStreamReconnectTimeout() {
       if (streamReconnectTimeoutId !== null) {
         window.clearTimeout(streamReconnectTimeoutId)
         streamReconnectTimeoutId = null
+      }
+    }
+
+    function clearInitialSnapshotRetryTimeout() {
+      if (initialSnapshotRetryTimeoutId !== null) {
+        window.clearTimeout(initialSnapshotRetryTimeoutId)
+        initialSnapshotRetryTimeoutId = null
       }
     }
 
@@ -73,6 +86,29 @@ function ConvexStateSync({
         stream.close()
         stream = null
       }
+    }
+
+    function scheduleInitialSnapshotRetry() {
+      clearInitialSnapshotRetryTimeout()
+
+      if (
+        cancelled ||
+        hasLoadedInitialSnapshot ||
+        document.visibilityState !== "visible"
+      ) {
+        return
+      }
+
+      initialSnapshotRetryTimeoutId = window.setTimeout(() => {
+        if (!cancelled && !hasLoadedInitialSnapshot) {
+          void syncSnapshot()
+        }
+      }, initialSnapshotRetryDelay)
+
+      initialSnapshotRetryDelay = Math.min(
+        initialSnapshotRetryDelay * 2,
+        INITIAL_SNAPSHOT_RETRY_MAX_DELAY_MS
+      )
     }
 
     async function syncSnapshot() {
@@ -91,11 +127,18 @@ function ConvexStateSync({
         const snapshotState = await fetchSnapshotState()
 
         if (!snapshotState || cancelled) {
+          if (!cancelled) {
+            scheduleInitialSnapshotRetry()
+          }
           return
         }
 
         applySnapshot(snapshotState.snapshot)
         appliedSnapshotVersion = snapshotState.version
+        hasLoadedInitialSnapshot = true
+        initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
+        clearInitialSnapshotRetryTimeout()
+        setReady(true)
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true
@@ -105,6 +148,7 @@ function ConvexStateSync({
         }
 
         console.error("Failed to refresh app snapshot", error)
+        scheduleInitialSnapshotRetry()
       } finally {
         syncInFlight = false
 
@@ -216,6 +260,7 @@ function ConvexStateSync({
         return
       }
 
+      clearInitialSnapshotRetryTimeout()
       closeStream()
     }
     const handleOnline = () => {
@@ -229,12 +274,21 @@ function ConvexStateSync({
 
     return () => {
       cancelled = true
+      clearInitialSnapshotRetryTimeout()
       closeStream()
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [authenticatedUser?.email])
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading workspace...
+      </div>
+    )
+  }
 
   return <>{children}</>
 }

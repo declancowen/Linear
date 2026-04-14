@@ -9,7 +9,11 @@ export default function WorkspaceProjectsPage() {
   const workspace = getCurrentWorkspace(data)
 
   if (!workspace) {
-    return null
+    return (
+      <div className="flex min-h-[320px] items-center justify-center text-sm text-muted-foreground">
+        Loading workspace projects...
+      </div>
+    )
   }
 
   return (
@@ -17,7 +21,7 @@ export default function WorkspaceProjectsPage() {
       scopeId={workspace.id}
       scopeType="workspace"
       title="Workspace projects"
-      description="Projects across the teams you belong to, plus workspace-level initiatives shared across the current workspace."
+      description="Projects across the teams you belong to, aggregated into a single workspace view."
     />
   )
 }

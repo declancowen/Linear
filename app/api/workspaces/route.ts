@@ -2,7 +2,10 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 
 import { workspaceSetupSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  ensureAuthenticatedAppContext,
+  reconcileAuthenticatedAppContext,
+} from "@/lib/server/authenticated-app"
 import { createWorkspaceServer } from "@/lib/server/convex"
 
 function getWorkspaceLogo(name: string) {
@@ -41,16 +44,9 @@ export async function POST(request: NextRequest) {
       session.organizationId
     )
 
-    if (authContext?.currentWorkspace) {
+    if (authContext?.currentWorkspace || authContext?.pendingWorkspace) {
       return NextResponse.json(
         { error: "You already have an active workspace" },
-        { status: 400 }
-      )
-    }
-
-    if (authContext?.pendingWorkspace) {
-      return NextResponse.json(
-        { error: "Finish creating your first team in the pending workspace" },
         { status: 400 }
       )
     }
@@ -64,6 +60,15 @@ export async function POST(request: NextRequest) {
       description:
         parsed.data.description?.trim() || `${name} workspace`,
     })
+
+    try {
+      await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    } catch (error) {
+      console.error(
+        "Failed to reconcile app context after workspace creation",
+        error
+      )
+    }
 
     return NextResponse.json({
       ok: true,

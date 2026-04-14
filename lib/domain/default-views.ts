@@ -1,26 +1,9 @@
 import {
+  createDefaultViewFilters,
   getWorkSurfaceCopy,
   type TeamExperienceType,
   type ViewDefinition,
 } from "@/lib/domain/types"
-
-function createDefaultFilters(): ViewDefinition["filters"] {
-  return {
-    status: [],
-    priority: [],
-    assigneeIds: [],
-    creatorIds: [],
-    leadIds: [],
-    health: [],
-    milestoneIds: [],
-    relationTypes: [],
-    projectIds: [],
-    itemTypes: [],
-    labelIds: [],
-    teamIds: [],
-    showCompleted: true,
-  }
-}
 
 function getCanonicalPrimaryViewName(
   experience: TeamExperienceType | null | undefined
@@ -76,7 +59,7 @@ export function buildTeamWorkViews(input: {
       scopeId: input.teamId,
       entityKind: "items",
       layout: "list",
-      filters: createDefaultFilters(),
+      filters: createDefaultViewFilters(),
       grouping: "status",
       subGrouping: null,
       ordering: "priority",
@@ -103,7 +86,7 @@ export function buildTeamWorkViews(input: {
       entityKind: "items",
       layout: "board",
       filters: {
-        ...createDefaultFilters(),
+        ...createDefaultViewFilters(),
         status: ["todo", "in-progress"],
       },
       grouping: "status",
@@ -132,7 +115,7 @@ export function buildTeamWorkViews(input: {
       entityKind: "items",
       layout: "list",
       filters: {
-        ...createDefaultFilters(),
+        ...createDefaultViewFilters(),
         status: ["backlog"],
       },
       grouping: "priority",

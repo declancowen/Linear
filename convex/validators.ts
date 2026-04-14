@@ -36,11 +36,7 @@ const workItemTypeLiterals = [
   v.literal("sub-issue"),
 ] as const
 
-const legacyWorkItemTypeLiterals = [
-  v.literal("bug"),
-  v.literal("qa-task"),
-  v.literal("test-case"),
-] as const
+const legacyWorkItemTypeLiterals = [v.literal("bug")] as const
 
 const workStatusLiterals = [
   v.literal("backlog"),
@@ -118,8 +114,11 @@ const groupFieldLiterals = [
   v.literal("status"),
   v.literal("assignee"),
   v.literal("priority"),
+  v.literal("label"),
   v.literal("team"),
   v.literal("type"),
+  v.literal("epic"),
+  v.literal("feature"),
 ] as const
 
 const orderingFieldLiterals = [
@@ -313,6 +312,37 @@ export const labelFields = {
   color: v.string(),
 }
 
+export const viewFiltersValidator = v.object({
+  status: v.array(workStatusValidator),
+  priority: v.array(priorityValidator),
+  assigneeIds: v.array(v.string()),
+  creatorIds: v.array(v.string()),
+  leadIds: v.array(v.string()),
+  health: v.array(projectHealthValidator),
+  milestoneIds: v.array(v.string()),
+  relationTypes: v.array(v.string()),
+  projectIds: v.array(v.string()),
+  itemTypes: v.array(workItemTypeValidator),
+  labelIds: v.array(v.string()),
+  teamIds: v.array(v.string()),
+  showCompleted: v.boolean(),
+})
+export const storedViewFiltersValidator = v.object({
+  status: v.array(workStatusValidator),
+  priority: v.array(priorityValidator),
+  assigneeIds: v.array(v.string()),
+  creatorIds: v.array(v.string()),
+  leadIds: v.array(v.string()),
+  health: v.array(projectHealthValidator),
+  milestoneIds: v.array(v.string()),
+  relationTypes: v.array(v.string()),
+  projectIds: v.array(v.string()),
+  itemTypes: v.array(storedWorkItemTypeValidator),
+  labelIds: v.array(v.string()),
+  teamIds: v.array(v.string()),
+  showCompleted: v.boolean(),
+})
+
 export const projectFields = {
   id: v.string(),
   scopeType: scopeTypeValidator,
@@ -326,6 +356,15 @@ export const projectFields = {
   health: projectHealthValidator,
   priority: priorityValidator,
   status: projectStatusValidator,
+  presentation: v.optional(
+    v.object({
+      layout: viewLayoutValidator,
+      grouping: groupFieldValidator,
+      ordering: orderingFieldValidator,
+      displayProps: v.array(displayPropertyValidator),
+      filters: viewFiltersValidator,
+    })
+  ),
   startDate: nullableString,
   targetDate: nullableString,
   createdAt: v.string(),
@@ -379,37 +418,6 @@ export const documentFields = {
   createdAt: v.string(),
   updatedAt: v.string(),
 }
-
-export const viewFiltersValidator = v.object({
-  status: v.array(workStatusValidator),
-  priority: v.array(priorityValidator),
-  assigneeIds: v.array(v.string()),
-  creatorIds: v.array(v.string()),
-  leadIds: v.array(v.string()),
-  health: v.array(projectHealthValidator),
-  milestoneIds: v.array(v.string()),
-  relationTypes: v.array(v.string()),
-  projectIds: v.array(v.string()),
-  itemTypes: v.array(workItemTypeValidator),
-  labelIds: v.array(v.string()),
-  teamIds: v.array(v.string()),
-  showCompleted: v.boolean(),
-})
-export const storedViewFiltersValidator = v.object({
-  status: v.array(workStatusValidator),
-  priority: v.array(priorityValidator),
-  assigneeIds: v.array(v.string()),
-  creatorIds: v.array(v.string()),
-  leadIds: v.array(v.string()),
-  health: v.array(projectHealthValidator),
-  milestoneIds: v.array(v.string()),
-  relationTypes: v.array(v.string()),
-  projectIds: v.array(v.string()),
-  itemTypes: v.array(storedWorkItemTypeValidator),
-  labelIds: v.array(v.string()),
-  teamIds: v.array(v.string()),
-  showCompleted: v.boolean(),
-})
 
 export const viewDefinitionFields = {
   id: v.string(),

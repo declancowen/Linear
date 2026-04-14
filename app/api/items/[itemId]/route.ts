@@ -26,6 +26,7 @@ const workItemPatchSchema = z
     assigneeId: z.string().nullable().optional(),
     parentId: z.string().nullable().optional(),
     primaryProjectId: z.string().nullable().optional(),
+    labelIds: z.array(z.string().min(1)).optional(),
     startDate: z.string().nullable().optional(),
     dueDate: z.string().nullable().optional(),
     targetDate: z.string().nullable().optional(),

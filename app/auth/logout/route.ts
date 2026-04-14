@@ -21,6 +21,14 @@ function resolveReturnTo(requestUrl: URL, requestedReturnTo: string | null) {
 }
 
 export async function POST(request: Request) {
+  return handleLogout(request)
+}
+
+export async function GET(request: Request) {
+  return handleLogout(request)
+}
+
+async function handleLogout(request: Request) {
   const url = new URL(request.url)
   const formData = await request.formData().catch(() => null)
   const requestedReturnTo =

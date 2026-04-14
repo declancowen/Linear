@@ -53,6 +53,7 @@ import {
 
 import {
   buildItemGroups,
+  canEditWorkspace,
   canAdminTeam,
   canEditTeam,
   getChannelPostHref,
@@ -63,6 +64,8 @@ import {
   getItemAssignees,
   getPrivateDocuments,
   getProject,
+  getProjectDetailModel,
+  getProjectHref,
   getProjectProgress,
   getProjectsForScope,
   getTeam,
@@ -74,6 +77,7 @@ import {
   getViewByRoute,
   getViewsForScope,
   getVisibleWorkItems,
+  getWorkItemHierarchyIds,
   getWorkItem,
   getWorkItemDescendantIds,
   getWorkspaceUsers,
@@ -86,20 +90,22 @@ import {
 } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
+  createDefaultProjectPresentationConfig,
+  createDefaultViewFilters,
+  getChildWorkItemCopy,
   getDisplayLabelForWorkItemType,
-  getAllowedTemplateTypesForTeamExperience,
   getAllowedChildWorkItemTypesForItem,
-  getAllowedRootWorkItemTypesForTemplate,
   getAllowedWorkItemTypesForTemplate,
   getDefaultTemplateTypeForTeamExperience,
-  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
   getPreferredWorkItemTypeForTeamExperience,
   getWorkSurfaceCopy,
   priorityMeta,
   projectHealthMeta,
+  projectStatusMeta,
   statusMeta,
   templateMeta,
+  workItemTypes,
   type AppData,
   type Document,
   type DisplayProperty,
@@ -107,11 +113,13 @@ import {
   type OrderingField,
   type Priority,
   type Project,
+  type ProjectPresentationConfig,
   type ScopeType,
   type Team,
   type ViewDefinition,
   type WorkItem,
   type WorkItemType,
+  type WorkStatus,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
@@ -198,8 +206,11 @@ const groupOptions: GroupField[] = [
   "status",
   "assignee",
   "priority",
+  "label",
   "team",
   "type",
+  "epic",
+  "feature",
 ]
 
 const orderingOptions: OrderingField[] = [
@@ -210,6 +221,78 @@ const orderingOptions: OrderingField[] = [
   "targetDate",
   "title",
 ]
+
+type ViewFilterKey = Exclude<keyof ViewDefinition["filters"], "showCompleted">
+type PersistedViewFilterKey =
+  | "status"
+  | "priority"
+  | "assigneeIds"
+  | "projectIds"
+  | "itemTypes"
+  | "labelIds"
+
+type ViewConfigPatch = {
+  layout?: ViewDefinition["layout"]
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  showCompleted?: boolean
+}
+
+function createEmptyViewFilters(): ViewDefinition["filters"] {
+  return createDefaultViewFilters()
+}
+
+function isPersistedViewFilterKey(
+  key: ViewFilterKey
+): key is PersistedViewFilterKey {
+  return [
+    "status",
+    "priority",
+    "assigneeIds",
+    "projectIds",
+    "itemTypes",
+    "labelIds",
+  ].includes(key)
+}
+
+function cloneViewFilters(
+  filters: ViewDefinition["filters"]
+): ViewDefinition["filters"] {
+  return {
+    status: [...filters.status],
+    priority: [...filters.priority],
+    assigneeIds: [...filters.assigneeIds],
+    creatorIds: [...filters.creatorIds],
+    leadIds: [...filters.leadIds],
+    health: [...filters.health],
+    milestoneIds: [...filters.milestoneIds],
+    relationTypes: [...filters.relationTypes],
+    projectIds: [...filters.projectIds],
+    itemTypes: [...filters.itemTypes],
+    labelIds: [...filters.labelIds],
+    teamIds: [...filters.teamIds],
+    showCompleted: filters.showCompleted,
+  }
+}
+
+function countActiveViewFilters(filters: ViewDefinition["filters"]) {
+  return (
+    filters.status.length +
+    filters.priority.length +
+    filters.assigneeIds.length +
+    filters.creatorIds.length +
+    filters.leadIds.length +
+    filters.health.length +
+    filters.milestoneIds.length +
+    filters.relationTypes.length +
+    filters.projectIds.length +
+    filters.itemTypes.length +
+    filters.labelIds.length +
+    filters.teamIds.length +
+    (filters.showCompleted ? 0 : 1)
+  )
+}
 
 function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
   const data = useAppStore()
@@ -507,6 +590,7 @@ export function ProjectsScreen({
   const { layout, setLayout } = useCollectionLayout(routeKey, projectViews)
   const editable = team ? canEditTeam(data, team.id) : true
   const admin = team ? canAdminTeam(data, team.id) : false
+  const canCreateProject = Boolean(team && editable)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -536,13 +620,15 @@ export function ProjectsScreen({
                 ) : null
               }
             />
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Plus className="size-3.5" />
-            </Button>
+            {canCreateProject ? (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => setDialogOpen(true)}
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -553,13 +639,11 @@ export function ProjectsScreen({
           teamId={team.id}
         />
       ) : null}
-      {dialogOpen ? (
+      {team && dialogOpen ? (
         <CreateProjectDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          scopeType={scopeType}
-          scopeId={scopeId}
-          settingsTeamId={team?.id ?? data.ui.activeTeamId}
+          teamId={team.id}
           disabled={!editable}
         />
       ) : null}
@@ -575,7 +659,7 @@ export function ProjectsScreen({
               <Link
                 key={project.id}
                 className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
-                href={`/projects/${project.id}`}
+                href={getProjectHref(data, project) ?? "/workspace/projects"}
               >
                 {/* Health dot */}
                 <div
@@ -953,7 +1037,7 @@ function ProjectBoard({
           <Link
             key={project.id}
             className="group flex h-full flex-col rounded-lg border border-border/70 bg-card p-4 transition-shadow hover:shadow-md"
-            href={`/projects/${project.id}`}
+            href={getProjectHref(data, project) ?? "/workspace/projects"}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
@@ -1134,21 +1218,97 @@ function DocumentBoard({
 function getEligibleParentWorkItems(data: AppData, item: WorkItem) {
   const blockedIds = getWorkItemDescendantIds(data, item.id)
 
-  if (blockedIds.size > 0) {
-    return []
-  }
-
   return sortItems(
     data.workItems.filter(
       (candidate) =>
         candidate.teamId === item.teamId &&
         candidate.id !== item.id &&
-        candidate.parentId === null &&
         !blockedIds.has(candidate.id) &&
         canParentWorkItemTypeAcceptChild(candidate.type, item.type)
     ),
     "priority"
   )
+}
+
+function getTeamProjectOptions(
+  data: AppData,
+  teamId: string | null | undefined,
+  selectedProjectId?: string | null
+) {
+  if (!teamId) {
+    return []
+  }
+
+  const projects = getProjectsForScope(data, "team", teamId)
+
+  if (!selectedProjectId) {
+    return projects
+  }
+
+  const selectedProject = getProject(data, selectedProjectId)
+
+  if (
+    !selectedProject ||
+    projects.some((project) => project.id === selectedProject.id)
+  ) {
+    return projects
+  }
+
+  return [selectedProject, ...projects]
+}
+
+function getCreateDialogItemTypes(templateType: Project["templateType"]) {
+  if (templateType === "bug-tracking") {
+    return ["issue", "sub-issue"] satisfies WorkItemType[]
+  }
+
+  if (templateType === "project-management") {
+    return ["task", "sub-task"] satisfies WorkItemType[]
+  }
+
+  return ["epic", "feature", "requirement", "story"] satisfies WorkItemType[]
+}
+
+function getPreferredCreateDialogType(templateType: Project["templateType"]) {
+  if (templateType === "bug-tracking") {
+    return "issue" satisfies WorkItemType
+  }
+
+  if (templateType === "project-management") {
+    return "task" satisfies WorkItemType
+  }
+
+  return "epic" satisfies WorkItemType
+}
+
+function getProjectPresentationGroupOptions(
+  templateType: Project["templateType"]
+) {
+  const baseOptions: GroupField[] = [
+    "status",
+    "assignee",
+    "priority",
+    "label",
+    "type",
+  ]
+
+  if (templateType === "software-delivery") {
+    return [...baseOptions, "epic", "feature"]
+  }
+
+  return baseOptions
+}
+
+function getViewLayoutLabel(layout: ViewDefinition["layout"]) {
+  if (layout === "board") {
+    return "Board"
+  }
+
+  if (layout === "timeline") {
+    return "Timeline"
+  }
+
+  return "List"
 }
 
 function escapeHtml(value: string) {
@@ -1197,14 +1357,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     label: statusMeta[status].label,
   }))
   const teamMembers = team ? getTeamMembers(data, team.id) : []
-  const teamProjects = team
-    ? data.projects.filter(
-        (project) =>
-          (project.scopeType === "team" && project.scopeId === team.id) ||
-          (project.scopeType === "workspace" &&
-            project.scopeId === team.workspaceId)
-      )
-    : []
+  const teamProjects = getTeamProjectOptions(
+    data,
+    team?.id,
+    currentItem.primaryProjectId
+  )
   const parentItem = currentItem.parentId
     ? getWorkItem(data, currentItem.parentId)
     : null
@@ -1220,13 +1377,18 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     })),
   ]
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
-  const canCreateChildIssue = editable && allowedChildTypes.length > 0
+  const childCopy = getChildWorkItemCopy(
+    currentItem.type,
+    team?.settings.experience
+  )
+  const canCreateChildItem = editable && allowedChildTypes.length > 0
   const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
+  const hierarchySize = getWorkItemHierarchyIds(data, currentItem.id).size
   const completedChildItems = childItems.filter(
     (child) => child.status === "done"
   ).length
   const showSubIssuesSection =
-    currentItem.parentId === null || childItems.length > 0
+    childItems.length > 0 || allowedChildTypes.length > 0
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
 
   function buildEndDatePatch(nextEndDate: string | null) {
@@ -1257,6 +1419,27 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     }
 
     useAppStore.getState().updateWorkItem(currentItem.id, patch)
+  }
+
+  function handleProjectChange(value: string) {
+    const nextProjectId = value === "none" ? null : value
+
+    if (nextProjectId === currentItem.primaryProjectId) {
+      return
+    }
+
+    if (
+      hierarchySize > 1 &&
+      !window.confirm(
+        "Changing the project for this item will also update all parent and child items in this hierarchy to the new project. Do you want to confirm?"
+      )
+    ) {
+      return
+    }
+
+    useAppStore.getState().updateWorkItem(currentItem.id, {
+      primaryProjectId: nextProjectId,
+    })
   }
 
   function handleEndDateChange(nextEndDate: string | null) {
@@ -1312,9 +1495,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   return (
     <div className="flex h-[calc(100svh-3rem)] flex-col">
       {/* Breadcrumb header */}
-      <div className="flex shrink-0 items-center justify-between border-b px-6 py-2">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex items-center gap-2 text-sm">
-          <SidebarTrigger className="size-6 shrink-0" />
+          <SidebarTrigger className="size-5 shrink-0" />
           <Link
             href={`/team/${team?.slug}/work`}
             className="text-muted-foreground hover:text-foreground"
@@ -1380,6 +1563,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               </Link>
             ) : null}
             <h1 className="mb-1 text-2xl font-semibold">{currentItem.title}</h1>
+            <div className="mb-4">
+              <WorkItemTypeBadge data={data} item={currentItem} />
+            </div>
 
             {/* Description — seamless inline editor */}
             <div className="mt-4">
@@ -1416,16 +1602,16 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     ) : (
                       <CaretRight className="size-3" />
                     )}
-                    <span>{workCopy.childPluralLabel}</span>
+                    <span>{childCopy.childPluralLabel}</span>
                     <span className="text-xs font-normal tabular-nums">
                       {completedChildItems}/{childItems.length}
                     </span>
                   </button>
-                  {canCreateChildIssue ? (
+                  {canCreateChildItem ? (
                     <Button
                       size="icon-sm"
                       variant={childComposerOpen ? "outline" : "ghost"}
-                      disabled={!canCreateChildIssue}
+                      disabled={!canCreateChildItem}
                       onClick={() => {
                         setSubIssuesOpen(true)
                         setChildComposerOpen((current) => !current)
@@ -1463,6 +1649,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {child.title}
                         </span>
+                        <WorkItemTypeBadge data={data} item={child} />
                         <span className="shrink-0 text-[11px] text-muted-foreground">
                           {child.key}
                         </span>
@@ -1487,7 +1674,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                           onCreated={() => setChildComposerOpen(false)}
                         />
                       </div>
-                    ) : canCreateChildIssue ? (
+                    ) : canCreateChildItem ? (
                       <button
                         type="button"
                         className={cn(
@@ -1497,7 +1684,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                         onClick={() => setChildComposerOpen(true)}
                       >
                         <Plus className="size-3" />
-                        <span>{workCopy.addChildLabel}</span>
+                        <span>{childCopy.addChildLabel}</span>
                       </button>
                     ) : null}
                   </div>
@@ -1526,6 +1713,13 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           <div className="flex-1 overflow-y-auto">
             <div className="flex flex-col p-4">
               <CollapsibleSection title="Properties" defaultOpen>
+                <PropertyRow
+                  label="Type"
+                  value={getDisplayLabelForWorkItemType(
+                    currentItem.type,
+                    team?.settings.experience
+                  )}
+                />
                 <PropertySelect
                   label="Status"
                   value={currentItem.status}
@@ -1606,14 +1800,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               <Separator className="my-3" />
 
               <CollapsibleSection title="Labels" defaultOpen>
-                <span className="text-sm text-muted-foreground">
-                  {currentItem.labelIds.length > 0
-                    ? currentItem.labelIds
-                        .map((id) => data.labels.find((l) => l.id === id)?.name)
-                        .filter(Boolean)
-                        .join(", ")
-                    : "Add label"}
-                </span>
+                <WorkItemLabelsEditor item={currentItem} editable={editable} />
               </CollapsibleSection>
 
               <Separator className="my-3" />
@@ -1630,11 +1817,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       label: project.name,
                     })),
                   ]}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      primaryProjectId: value === "none" ? null : value,
-                    })
-                  }
+                  onValueChange={handleProjectChange}
                 />
               </CollapsibleSection>
             </div>
@@ -1647,187 +1830,477 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore()
-  const project = data.projects.find((entry) => entry.id === projectId)
+  const projectModel = getProjectDetailModel(data, projectId)
+  const defaultProjectPresentation = projectModel?.project
+    ? projectModel.project.presentation ??
+      createDefaultProjectPresentationConfig(projectModel.project.templateType, {
+        layout: getTemplateDefaultsForTeam(
+          projectModel.team,
+          projectModel.project.templateType
+        ).defaultViewLayout,
+      })
+    : null
+  const initialProjectPresentation =
+    defaultProjectPresentation ??
+    createDefaultProjectPresentationConfig("software-delivery")
+  const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const [projectTab, setProjectTab] = useState<"overview" | "activity" | "issues">(
+    "overview"
+  )
+  const [projectItemsLayout, setProjectItemsLayout] =
+    useState<ViewDefinition["layout"]>(() => initialProjectPresentation.layout)
+  const [projectItemsGrouping, setProjectItemsGrouping] = useState<GroupField>(
+    () => initialProjectPresentation.grouping
+  )
+  const [projectItemsSubGrouping, setProjectItemsSubGrouping] =
+    useState<GroupField | null>(null)
+  const [projectItemsOrdering, setProjectItemsOrdering] = useState<
+    OrderingField
+  >(() => initialProjectPresentation.ordering)
+  const [projectItemsFilters, setProjectItemsFilters] =
+    useState<ViewDefinition["filters"]>(() =>
+      cloneViewFilters(initialProjectPresentation.filters)
+    )
+  const [projectItemsDisplayProps, setProjectItemsDisplayProps] = useState<
+    DisplayProperty[]
+  >(() => [...initialProjectPresentation.displayProps])
 
-  if (!project) {
+  useEffect(() => {
+    if (!defaultProjectPresentation) {
+      return
+    }
+
+    setProjectTab("overview")
+    setProjectItemsLayout(defaultProjectPresentation.layout)
+    setProjectItemsGrouping(defaultProjectPresentation.grouping)
+    setProjectItemsSubGrouping(null)
+    setProjectItemsOrdering(defaultProjectPresentation.ordering)
+    setProjectItemsFilters(cloneViewFilters(defaultProjectPresentation.filters))
+    setProjectItemsDisplayProps([...defaultProjectPresentation.displayProps])
+  }, [projectId, projectModel?.project.id])
+
+  if (!projectModel) {
     return <MissingState title="Project not found" />
   }
 
-  const progress = getProjectProgress(data, project.id)
-  const items = sortItems(
-    data.workItems.filter(
-      (item) =>
-        item.primaryProjectId === project.id ||
-        item.linkedProjectIds.includes(project.id)
-    ),
-    "priority"
+  const {
+    project,
+    team,
+    progress,
+    items,
+    milestones,
+    updates,
+    documents,
+    members,
+    contextLabel,
+    backHref,
+  } = projectModel
+  const editable =
+    project.scopeType === "team"
+      ? Boolean(team && canEditTeam(data, team.id))
+      : canEditWorkspace(data, project.scopeId)
+  const projectStatusOptions = Object.entries(projectStatusMeta).map(
+    ([value, meta]) => ({
+      value,
+      label: meta.label,
+    })
   )
-  const milestones = data.milestones.filter(
-    (milestone) => milestone.projectId === project.id
+  const priorityOptions = Object.entries(priorityMeta).map(([value, meta]) => ({
+    value,
+    label: meta.label,
+  }))
+  const linkedItemsLabel = `${progress.scope} linked item${
+    progress.scope === 1 ? "" : "s"
+  }`
+
+  const projectItemsView: ViewDefinition = {
+    id: `project-items-${project.id}`,
+    name: "Project items",
+    description: "",
+    scopeType: "personal",
+    scopeId: data.currentUserId,
+    entityKind: "items",
+    layout: projectItemsLayout,
+    filters: projectItemsFilters,
+    grouping: projectItemsGrouping,
+    subGrouping: projectItemsSubGrouping,
+    ordering: projectItemsOrdering,
+    displayProps: projectItemsDisplayProps,
+    hiddenState: { groups: [], subgroups: [] },
+    isShared: false,
+    route: backHref,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  }
+  const filteredProjectItems = items.filter((item) =>
+    itemMatchesView(data, item, projectItemsView)
   )
-  const updates = data.projectUpdates.filter(
-    (update) => update.projectId === project.id
-  )
+  const visibleProjectItems =
+    projectItemsView.layout === "timeline"
+      ? filteredProjectItems.filter((item) => item.parentId === null)
+      : filteredProjectItems
+  const emptyProjectItemsLabel =
+    projectItemsView.layout === "timeline" && filteredProjectItems.length > 0
+      ? "Timeline only shows top-level items."
+      : "No items match the current filters."
+
+  function updateProjectItemsView(patch: ViewConfigPatch) {
+    if (patch.layout) {
+      setProjectItemsLayout(patch.layout)
+    }
+
+    if (patch.grouping) {
+      setProjectItemsGrouping(patch.grouping)
+    }
+
+    if ("subGrouping" in patch) {
+      setProjectItemsSubGrouping(patch.subGrouping ?? null)
+    }
+
+    if (patch.ordering) {
+      setProjectItemsOrdering(patch.ordering)
+    }
+
+    if (patch.showCompleted !== undefined) {
+      setProjectItemsFilters((current) => ({
+        ...current,
+        showCompleted: patch.showCompleted ?? true,
+      }))
+    }
+  }
+
+  function toggleProjectItemsFilter(key: ViewFilterKey, value: string) {
+    setProjectItemsFilters((current) => {
+      const nextFilters = { ...current } as ViewDefinition["filters"]
+      const currentValues = nextFilters[key] as string[]
+      const nextValues = currentValues.includes(value)
+        ? currentValues.filter((entry) => entry !== value)
+        : [...currentValues, value]
+
+      nextFilters[key] = nextValues as never
+      return nextFilters
+    })
+  }
+
+  function clearProjectItemsFilters() {
+    setProjectItemsFilters((current) => ({
+      ...createEmptyViewFilters(),
+      showCompleted: current.showCompleted,
+    }))
+  }
+
+  function toggleProjectItemsDisplayProperty(property: DisplayProperty) {
+    setProjectItemsDisplayProps((current) =>
+      current.includes(property)
+        ? current.filter((value) => value !== property)
+        : [...current, property]
+    )
+  }
 
   return (
-    <div className="flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-6 py-2">
-        <div className="flex items-center gap-2 text-sm">
-          <SidebarTrigger className="size-6 shrink-0" />
-          <span className="font-medium">{project.name}</span>
+    <div className="flex h-[calc(100svh-3rem)] flex-col">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <SidebarTrigger className="size-5 shrink-0" />
+          <Link
+            href={backHref}
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {contextLabel}
+          </Link>
+          <CaretRight className="size-3 text-muted-foreground" />
+          <span className="truncate font-medium">{project.name}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">
+            {linkedItemsLabel}
+          </span>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className={cn(!propertiesOpen && "text-muted-foreground")}
+            onClick={() => setPropertiesOpen((current) => !current)}
+          >
+            <SidebarSimple className="size-4" />
+          </Button>
         </div>
       </div>
 
-      <div className="grid flex-1 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        {/* Main content */}
-        <div className="flex flex-col gap-6 p-6">
-          <div>
-            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-              <ProjectTemplateGlyph
-                templateType={project.templateType}
-                className="size-3.5"
-              />
-              <span>{templateMeta[project.templateType].label}</span>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-8 py-8">
+            <div>
+              <h1 className="mb-1 text-2xl font-semibold">{project.name}</h1>
+              <p className="text-sm text-muted-foreground">{project.summary}</p>
             </div>
-            <h1 className="mb-1 text-2xl font-semibold">{project.name}</h1>
-            <p className="text-sm text-muted-foreground">{project.summary}</p>
-          </div>
 
-          <Tabs defaultValue="overview">
-            <TabsList className="h-9 w-full justify-start gap-0 rounded-none border-b bg-transparent px-0">
-              <TabsTrigger
-                value="overview"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                Overview
-              </TabsTrigger>
-              <TabsTrigger
-                value="activity"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                Activity
-              </TabsTrigger>
-              <TabsTrigger
-                value="issues"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                Items
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="overview" className="mt-4">
-              <div className="flex flex-col gap-4">
-                {project.description && (
-                  <div className="text-sm leading-7 text-muted-foreground">
-                    {project.description}
+            <Tabs
+              value={projectTab}
+              onValueChange={(value) =>
+                setProjectTab(value as "overview" | "activity" | "issues")
+              }
+            >
+              <div className="flex items-end justify-between gap-4 border-b">
+                <TabsList
+                  variant="line"
+                  className="h-9 justify-start gap-1 rounded-none border-0 px-0"
+                >
+                  <TabsTrigger
+                    value="overview"
+                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                  >
+                    Overview
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="activity"
+                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                  >
+                    Activity
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="issues"
+                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                  >
+                    Items
+                  </TabsTrigger>
+                </TabsList>
+                <div
+                  className={cn(
+                    "flex items-center gap-1 pb-1",
+                    projectTab !== "issues" && "invisible pointer-events-none"
+                  )}
+                >
+                  <FilterPopover
+                    view={projectItemsView}
+                    items={items}
+                    onToggleFilterValue={toggleProjectItemsFilter}
+                    onClearFilters={clearProjectItemsFilters}
+                  />
+                  <ViewConfigPopover
+                    view={projectItemsView}
+                    onUpdateView={updateProjectItemsView}
+                    onToggleDisplayProperty={toggleProjectItemsDisplayProperty}
+                  />
+                </div>
+              </div>
+              <TabsContent value="overview" className="mt-4">
+                <div className="flex flex-col gap-5">
+                  {project.description ? (
+                    <div className="text-sm leading-7 text-muted-foreground">
+                      {project.description}
+                    </div>
+                  ) : null}
+                  {documents.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      <h3 className="text-sm font-medium">Related docs</h3>
+                      <div className="overflow-hidden rounded-lg border">
+                        {documents.map((document, index) => (
+                          <Link
+                            key={document.id}
+                            href={`/docs/${document.id}`}
+                            className={cn(
+                              "flex items-center justify-between px-3 py-2 transition-colors hover:bg-accent/40",
+                              index !== documents.length - 1 && "border-b"
+                            )}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <FileText className="size-3.5 text-muted-foreground" />
+                                <span className="truncate text-sm font-medium">
+                                  {document.title}
+                                </span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {getDocumentContextLabel(data, document)}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(document.updatedAt), "MMM d")}
+                            </span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-sm font-medium">Milestones</h3>
+                    {milestones.length > 0 ? (
+                      <div className="overflow-hidden rounded-lg border">
+                        {milestones.map((milestone, index) => (
+                          <div
+                            key={milestone.id}
+                            className={cn(
+                              "flex items-center justify-between px-3 py-2",
+                              index !== milestones.length - 1 && "border-b"
+                            )}
+                          >
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-sm font-medium">
+                                {milestone.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {milestone.targetDate
+                                  ? format(new Date(milestone.targetDate), "MMM d")
+                                  : "No date"}
+                              </span>
+                            </div>
+                            <Badge variant="secondary">
+                              {statusMeta[milestone.status].label}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed px-3 py-6 text-sm text-muted-foreground">
+                        No milestones yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+              <TabsContent value="activity" className="mt-4">
+                {updates.length > 0 ? (
+                  <div className="overflow-hidden rounded-lg border">
+                    {updates.map((update, index) => (
+                      <div
+                        key={update.id}
+                        className={cn(
+                          "flex flex-col gap-1 px-3 py-3",
+                          index !== updates.length - 1 && "border-b"
+                        )}
+                      >
+                        <span className="text-sm font-medium">
+                          {getUser(data, update.createdBy)?.name}
+                        </span>
+                        <p className="text-sm text-muted-foreground">
+                          {update.content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed px-3 py-6 text-sm text-muted-foreground">
+                    No project updates yet.
                   </div>
                 )}
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-sm font-medium">Milestones</h3>
-                  {milestones.map((milestone) => (
-                    <div
-                      key={milestone.id}
-                      className="flex items-center justify-between rounded-lg border px-3 py-2"
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium">
-                          {milestone.name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {milestone.targetDate
-                            ? format(new Date(milestone.targetDate), "MMM d")
-                            : "No date"}
-                        </span>
-                      </div>
-                      <Badge variant="secondary">
-                        {statusMeta[milestone.status].label}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </TabsContent>
-            <TabsContent value="activity" className="mt-4">
-              <div className="flex flex-col gap-3">
-                {updates.map((update) => (
-                  <div
-                    key={update.id}
-                    className="flex flex-col gap-1 border-b pb-3"
-                  >
-                    <span className="text-sm font-medium">
-                      {getUser(data, update.createdBy)?.name}
-                    </span>
-                    <p className="text-sm text-muted-foreground">
-                      {update.content}
-                    </p>
+              </TabsContent>
+              <TabsContent value="issues" className="mt-4">
+                {items.length === 0 ? (
+                  <div className="rounded-lg border border-dashed px-3 py-6 text-sm text-muted-foreground">
+                    No linked items yet.
                   </div>
-                ))}
-              </div>
-            </TabsContent>
-            <TabsContent value="issues" className="mt-4">
-              <div className="flex flex-col">
-                {items.map((item) => (
-                  <Link
-                    key={item.id}
-                    className="flex items-center justify-between border-b px-2 py-2.5 transition-colors hover:bg-accent/50"
-                    href={`/items/${item.id}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <StatusIcon status={item.status} />
-                      <span className="text-sm">{item.title}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {item.key}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* Right sidebar */}
-        <div className="border-l">
-          <div className="flex flex-col gap-1 p-4">
-            <SidebarSection title="Properties">
-              <PropertyRow
-                label="Status"
-                value={projectHealthMeta[project.health].label}
-              />
-              <PropertyRow
-                label="Priority"
-                value={priorityMeta[project.priority].label}
-              />
-              <PropertyRow
-                label="Lead"
-                value={getUser(data, project.leadId)?.name ?? "—"}
-              />
-              <PropertyRow
-                label="Target"
-                value={
-                  project.targetDate
-                    ? format(new Date(project.targetDate), "MMM d, yyyy")
-                    : "—"
-                }
-              />
-            </SidebarSection>
-
-            <Separator className="my-2" />
-
-            <SidebarSection title="Progress">
-              <div className="flex gap-6 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Scope</span>
-                  <div className="font-semibold">{progress.scope}</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Completed</span>
-                  <div className="font-semibold">{progress.completed}</div>
-                </div>
-              </div>
-            </SidebarSection>
+                ) : visibleProjectItems.length > 0 ? (
+                  <div className="overflow-hidden rounded-lg border bg-card">
+                    {projectItemsView.layout === "board" ? (
+                      <BoardView
+                        data={data}
+                        items={visibleProjectItems}
+                        view={projectItemsView}
+                        editable={editable}
+                      />
+                    ) : null}
+                    {projectItemsView.layout === "list" ? (
+                      <ListView
+                        data={data}
+                        items={visibleProjectItems}
+                        view={projectItemsView}
+                      />
+                    ) : null}
+                    {projectItemsView.layout === "timeline" ? (
+                      <TimelineView
+                        data={data}
+                        items={visibleProjectItems}
+                        view={projectItemsView}
+                        editable={editable}
+                      />
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed px-3 py-6 text-sm text-muted-foreground">
+                    {emptyProjectItemsLabel}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
+
+        <CollapsibleRightSidebar open={propertiesOpen} width="18rem">
+          <div className="flex-1 overflow-y-auto">
+            <div className="flex flex-col p-4">
+              <CollapsibleSection title="Properties" defaultOpen>
+                <PropertyRow label="Team" value={team?.name ?? "Workspace"} />
+                <PropertySelect
+                  label="Status"
+                  value={project.status}
+                  disabled={!editable}
+                  options={projectStatusOptions}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateProject(project.id, {
+                      status: value as Project["status"],
+                    })
+                  }
+                />
+                <PropertySelect
+                  label="Priority"
+                  value={project.priority}
+                  disabled={!editable}
+                  options={priorityOptions}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateProject(project.id, {
+                      priority: value as Priority,
+                    })
+                  }
+                />
+                <PropertyRow
+                  label="Lead"
+                  value={getUser(data, project.leadId)?.name ?? "—"}
+                />
+                <PropertyRow
+                  label="Target"
+                  value={
+                    project.targetDate
+                      ? format(new Date(project.targetDate), "MMM d, yyyy")
+                      : "—"
+                  }
+                />
+              </CollapsibleSection>
+
+              <Separator className="my-3" />
+
+              <CollapsibleSection title="Progress" defaultOpen>
+                <div className="flex gap-6 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Scope</span>
+                    <div className="font-semibold">{progress.scope}</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Completed</span>
+                    <div className="font-semibold">{progress.completed}</div>
+                  </div>
+                </div>
+              </CollapsibleSection>
+
+              {members.length > 0 ? (
+                <>
+                  <Separator className="my-3" />
+                  <CollapsibleSection title="Members" defaultOpen>
+                    <div className="flex flex-col gap-2">
+                      {members.map((member) => (
+                        <div
+                          key={member.id}
+                          className="text-sm text-muted-foreground"
+                        >
+                          {member.name}
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleSection>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </CollapsibleRightSidebar>
       </div>
     </div>
   )
@@ -1852,7 +2325,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   return (
     <div className="flex h-[calc(100svh-3rem)] flex-col">
       {/* Breadcrumb header */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b px-4">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <SidebarTrigger className="size-5 shrink-0" />
           <Link
@@ -2054,9 +2527,13 @@ function WorkSurface({
 function FilterPopover({
   view,
   items,
+  onToggleFilterValue,
+  onClearFilters,
 }: {
   view: ViewDefinition
   items: WorkItem[]
+  onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
+  onClearFilters?: () => void
 }) {
   const data = useAppStore()
   const teamIds = [...new Set(items.map((item) => item.teamId))]
@@ -2064,6 +2541,9 @@ function FilterPopover({
   const assignees = getItemAssignees(data, items)
   const projects = data.projects.filter((project) =>
     items.some((item) => item.primaryProjectId === project.id)
+  )
+  const itemTypes = workItemTypes.filter((itemType) =>
+    items.some((item) => item.type === itemType)
   )
   const labels = data.labels.filter((label) =>
     items.some((item) => item.labelIds.includes(label.id))
@@ -2075,7 +2555,30 @@ function FilterPopover({
     view.filters.priority.length +
     view.filters.assigneeIds.length +
     view.filters.projectIds.length +
+    view.filters.itemTypes.length +
     view.filters.labelIds.length
+
+  function handleToggleFilterValue(key: ViewFilterKey, value: string) {
+    if (onToggleFilterValue) {
+      onToggleFilterValue(key, value)
+      return
+    }
+
+    if (!isPersistedViewFilterKey(key)) {
+      return
+    }
+
+    useAppStore.getState().toggleViewFilterValue(view.id, key, value)
+  }
+
+  function handleClearFilters() {
+    if (onClearFilters) {
+      onClearFilters()
+      return
+    }
+
+    useAppStore.getState().clearViewFilters(view.id)
+  }
 
   return (
     <Popover>
@@ -2097,7 +2600,7 @@ function FilterPopover({
           {activeCount > 0 ? (
             <button
               className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => useAppStore.getState().clearViewFilters(view.id)}
+              onClick={handleClearFilters}
             >
               Clear all
             </button>
@@ -2114,11 +2617,7 @@ function FilterPopover({
                   key={status}
                   label={statusMeta[status].label}
                   active={view.filters.status.includes(status)}
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "status", status)
-                  }
+                  onClick={() => handleToggleFilterValue("status", status)}
                 />
               ))}
             </div>
@@ -2134,14 +2633,31 @@ function FilterPopover({
                   label={meta.label}
                   active={view.filters.priority.includes(priority as Priority)}
                   onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleViewFilterValue(view.id, "priority", priority)
+                    handleToggleFilterValue("priority", priority)
                   }
                 />
               ))}
             </div>
           </div>
+          {itemTypes.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Type
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {itemTypes.map((itemType) => (
+                  <FilterChip
+                    key={itemType}
+                    label={getDisplayLabelForWorkItemType(itemType, null)}
+                    active={view.filters.itemTypes.includes(itemType)}
+                    onClick={() =>
+                      handleToggleFilterValue("itemTypes", itemType)
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
           {assignees.length > 0 ? (
             <div className="px-3 py-2.5">
               <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
@@ -2154,13 +2670,7 @@ function FilterPopover({
                     label={assignee.name}
                     active={view.filters.assigneeIds.includes(assignee.id)}
                     onClick={() =>
-                      useAppStore
-                        .getState()
-                        .toggleViewFilterValue(
-                          view.id,
-                          "assigneeIds",
-                          assignee.id
-                        )
+                      handleToggleFilterValue("assigneeIds", assignee.id)
                     }
                   />
                 ))}
@@ -2179,13 +2689,7 @@ function FilterPopover({
                     label={project.name}
                     active={view.filters.projectIds.includes(project.id)}
                     onClick={() =>
-                      useAppStore
-                        .getState()
-                        .toggleViewFilterValue(
-                          view.id,
-                          "projectIds",
-                          project.id
-                        )
+                      handleToggleFilterValue("projectIds", project.id)
                     }
                   />
                 ))}
@@ -2204,9 +2708,7 @@ function FilterPopover({
                     label={label.name}
                     active={view.filters.labelIds.includes(label.id)}
                     onClick={() =>
-                      useAppStore
-                        .getState()
-                        .toggleViewFilterValue(view.id, "labelIds", label.id)
+                      handleToggleFilterValue("labelIds", label.id)
                     }
                   />
                 ))}
@@ -2219,7 +2721,33 @@ function FilterPopover({
   )
 }
 
-function ViewConfigPopover({ view }: { view: ViewDefinition }) {
+function ViewConfigPopover({
+  view,
+  onUpdateView,
+  onToggleDisplayProperty,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  onToggleDisplayProperty?: (property: DisplayProperty) => void
+}) {
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
+  function handleToggleDisplay(property: DisplayProperty) {
+    if (onToggleDisplayProperty) {
+      onToggleDisplayProperty(property)
+      return
+    }
+
+    useAppStore.getState().toggleViewDisplayProperty(view.id, property)
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -2257,7 +2785,7 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 onClick={() =>
-                  useAppStore.getState().updateViewConfig(view.id, {
+                  handleUpdateView({
                     layout: layout.value as ViewDefinition["layout"],
                   })
                 }
@@ -2277,11 +2805,12 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
           <ConfigSelect
             label="Grouping"
             value={view.grouping}
-            options={groupOptions.map((o) => ({ value: o, label: o }))}
+            options={groupOptions.map((option) => ({
+              value: option,
+              label: getGroupFieldOptionLabel(option),
+            }))}
             onValueChange={(value) =>
-              useAppStore
-                .getState()
-                .updateViewConfig(view.id, { grouping: value as GroupField })
+              handleUpdateView({ grouping: value as GroupField })
             }
           />
           <ConfigSelect
@@ -2289,10 +2818,13 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
             value={view.subGrouping ?? "none"}
             options={[
               { value: "none", label: "None" },
-              ...groupOptions.map((o) => ({ value: o, label: o })),
+              ...groupOptions.map((option) => ({
+                value: option,
+                label: getGroupFieldOptionLabel(option),
+              })),
             ]}
             onValueChange={(value) =>
-              useAppStore.getState().updateViewConfig(view.id, {
+              handleUpdateView({
                 subGrouping: value === "none" ? null : (value as GroupField),
               })
             }
@@ -2302,9 +2834,7 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
             value={view.ordering}
             options={orderingOptions.map((o) => ({ value: o, label: o }))}
             onValueChange={(value) =>
-              useAppStore
-                .getState()
-                .updateViewConfig(view.id, { ordering: value as OrderingField })
+              handleUpdateView({ ordering: value as OrderingField })
             }
           />
           <ConfigSelect
@@ -2315,9 +2845,7 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
               { value: "false", label: "Hide done" },
             ]}
             onValueChange={(value) =>
-              useAppStore
-                .getState()
-                .updateViewConfig(view.id, { showCompleted: value === "true" })
+              handleUpdateView({ showCompleted: value === "true" })
             }
           />
         </div>
@@ -2339,11 +2867,7 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
                     ? "border-primary/30 bg-primary/10 font-medium text-foreground"
                     : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                 )}
-                onClick={() =>
-                  useAppStore
-                    .getState()
-                    .toggleViewDisplayProperty(view.id, property)
-                }
+                onClick={() => handleToggleDisplay(property)}
               >
                 {property}
               </button>
@@ -2353,6 +2877,111 @@ function ViewConfigPopover({ view }: { view: ViewDefinition }) {
       </PopoverContent>
     </Popover>
   )
+}
+
+function getGroupFieldOptionLabel(field: GroupField) {
+  if (field === "status") {
+    return "Status"
+  }
+
+  if (field === "assignee") {
+    return "Assignee"
+  }
+
+  if (field === "priority") {
+    return "Priority"
+  }
+
+  if (field === "label") {
+    return "Label"
+  }
+
+  if (field === "project") {
+    return "Project"
+  }
+
+  if (field === "team") {
+    return "Team"
+  }
+
+  if (field === "type") {
+    return "Type"
+  }
+
+  if (field === "epic") {
+    return "Epic"
+  }
+
+  return "Feature"
+}
+
+function getGroupValueLabel(field: GroupField | null, value: string) {
+  if (!field) {
+    return "All"
+  }
+
+  if (field === "status") {
+    return statusMeta[value as WorkItem["status"]]?.label ?? value
+  }
+
+  if (field === "priority") {
+    return priorityMeta[value as Priority]?.label ?? value
+  }
+
+  if (field === "type") {
+    return getDisplayLabelForWorkItemType(value as WorkItemType, null)
+  }
+
+  return value
+}
+
+function getGroupValueAdornment(field: GroupField | null, value: string) {
+  if (field === "status") {
+    return <StatusIcon status={value as WorkItem["status"]} />
+  }
+
+  return null
+}
+
+function buildNestedListRows(items: WorkItem[]) {
+  const itemIds = new Set(items.map((item) => item.id))
+  const childrenByParent = new Map<string | null, WorkItem[]>()
+
+  items.forEach((item) => {
+    const parentKey =
+      item.parentId && itemIds.has(item.parentId) ? item.parentId : null
+    const siblings = childrenByParent.get(parentKey) ?? []
+
+    siblings.push(item)
+    childrenByParent.set(parentKey, siblings)
+  })
+
+  const ordered: Array<{ item: WorkItem; depth: number }> = []
+  const visited = new Set<string>()
+
+  function visit(parentId: string | null, depth: number) {
+    const children = childrenByParent.get(parentId) ?? []
+
+    children.forEach((child) => {
+      if (visited.has(child.id)) {
+        return
+      }
+
+      visited.add(child.id)
+      ordered.push({ item: child, depth })
+      visit(child.id, depth + 1)
+    })
+  }
+
+  visit(null, 0)
+
+  items.forEach((item) => {
+    if (!visited.has(item.id)) {
+      ordered.push({ item, depth: 0 })
+    }
+  })
+
+  return ordered
 }
 
 /* ------------------------------------------------------------------ */
@@ -2396,8 +3025,18 @@ function BoardView({
     }
 
     const patch = {
-      ...getPatchForField(data, view.grouping, groupValue),
-      ...getPatchForField(data, view.subGrouping, subgroupValue),
+      ...getPatchForField(
+        data,
+        items.find((item) => item.id === String(event.active.id)) ?? null,
+        view.grouping,
+        groupValue
+      ),
+      ...getPatchForField(
+        data,
+        items.find((item) => item.id === String(event.active.id)) ?? null,
+        view.subGrouping,
+        subgroupValue
+      ),
     }
 
     useAppStore.getState().updateWorkItem(String(event.active.id), patch)
@@ -2415,6 +3054,12 @@ function BoardView({
         <div className="flex min-w-max gap-2 p-3">
           {visibleGroups.map(([groupName, subgroups]) => {
             const groupCount = Array.from(subgroups.values()).flat().length
+            const groupLabel = getGroupValueLabel(view.grouping, groupName)
+            const groupAdornment = getGroupValueAdornment(
+              view.grouping,
+              groupName
+            )
+
             return (
               <div
                 key={groupName}
@@ -2423,8 +3068,8 @@ function BoardView({
                 {/* Column header */}
                 <div className="flex items-center justify-between px-3 py-2.5">
                   <div className="flex items-center gap-2">
-                    <StatusIcon status={groupName as WorkItem["status"]} />
-                    <span className="text-sm font-medium">{groupName}</span>
+                    {groupAdornment}
+                    <span className="text-sm font-medium">{groupLabel}</span>
                     <span className="text-xs text-muted-foreground">
                       {groupCount}
                     </span>
@@ -2447,18 +3092,27 @@ function BoardView({
                       if (hidden) return null
 
                       return (
-                        <BoardDropLane
-                          key={`${groupName}-${subgroupName}`}
-                          id={`board::${groupName}::${subgroupName}`}
-                        >
-                          {subItems.map((item) => (
-                            <DraggableWorkCard
-                              key={item.id}
-                              item={item}
-                              data={data}
-                            />
-                          ))}
-                        </BoardDropLane>
+                        <div key={`${groupName}-${subgroupName}`}>
+                          {view.subGrouping ? (
+                            <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
+                              {getGroupValueLabel(
+                                view.subGrouping,
+                                subgroupName
+                              )}
+                            </div>
+                          ) : null}
+                          <BoardDropLane
+                            id={`board::${groupName}::${subgroupName}`}
+                          >
+                            {subItems.map((item) => (
+                              <DraggableWorkCard
+                                key={item.id}
+                                item={item}
+                                data={data}
+                              />
+                            ))}
+                          </BoardDropLane>
+                        </div>
                       )
                     }
                   )}
@@ -2481,11 +3135,11 @@ function BoardView({
                 className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                 onClick={() =>
                   useAppStore
-                    .getState()
-                    .toggleViewHiddenValue(view.id, "groups", groupName)
+                  .getState()
+                  .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
-                {groupName}
+                {getGroupValueLabel(view.grouping, groupName)}
               </button>
             ))}
           </div>
@@ -2540,6 +3194,8 @@ function ListView({
 
         const groupCount = Array.from(subgroups.values()).flat().length
         const isCollapsed = collapsedGroups.has(groupName)
+        const groupLabel = getGroupValueLabel(view.grouping, groupName)
+        const groupAdornment = getGroupValueAdornment(view.grouping, groupName)
 
         return (
           <div key={groupName}>
@@ -2553,8 +3209,8 @@ function ListView({
               ) : (
                 <CaretDown className="size-3 text-muted-foreground" />
               )}
-              <StatusIcon status={groupName as WorkItem["status"]} />
-              <span className="text-sm font-medium">{groupName}</span>
+              {groupAdornment}
+              <span className="text-sm font-medium">{groupLabel}</span>
               <span className="text-xs text-muted-foreground">
                 {groupCount}
               </span>
@@ -2573,15 +3229,16 @@ function ListView({
                       <div key={`${groupName}-${subgroupName}`}>
                         {view.subGrouping ? (
                           <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
-                            {subgroupName}
+                            {getGroupValueLabel(view.subGrouping, subgroupName)}
                           </div>
                         ) : null}
-                        {subItems.map((item) => (
+                        {buildNestedListRows(subItems).map(({ item, depth }) => (
                           <ListRow
                             key={item.id}
                             data={data}
                             item={item}
                             displayProps={view.displayProps}
+                            depth={depth}
                           />
                         ))}
                       </div>
@@ -2607,8 +3264,8 @@ function ListView({
                   .toggleViewHiddenValue(view.id, "groups", groupName)
               }
             >
-              <StatusIcon status={groupName as WorkItem["status"]} />
-              <span>{groupName}</span>
+              {getGroupValueAdornment(view.grouping, groupName)}
+              <span>{getGroupValueLabel(view.grouping, groupName)}</span>
               <span className="ml-auto text-xs text-muted-foreground">0</span>
             </button>
           ))}
@@ -2968,11 +3625,17 @@ function TimelineView({
 
           {visibleGroups.map(([groupName, subgroups]) => {
             const groupItems = Array.from(subgroups.values()).flat()
+            const groupLabel = getGroupValueLabel(view.grouping, groupName)
+            const groupAdornment = getGroupValueAdornment(
+              view.grouping,
+              groupName
+            )
 
             return (
               <div key={groupName}>
                 <div className="flex h-10 items-center gap-2 border-b bg-muted/30 px-3">
-                  <span className="text-xs font-medium">{groupName}</span>
+                  {groupAdornment}
+                  <span className="text-xs font-medium">{groupLabel}</span>
                   <span className="text-[10px] text-muted-foreground">
                     {groupItems.length}
                   </span>
@@ -3269,14 +3932,37 @@ function IssueContextMenu({
   )
 }
 
+function WorkItemTypeBadge({
+  data,
+  item,
+  className,
+}: {
+  data: AppData
+  item: WorkItem
+  className?: string
+}) {
+  const team = getTeam(data, item.teamId)
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn("h-4 px-1.5 py-0 text-[10px]", className)}
+    >
+      {getDisplayLabelForWorkItemType(item.type, team?.settings.experience)}
+    </Badge>
+  )
+}
+
 function ListRow({
   data,
   item,
   displayProps,
+  depth,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
+  depth: number
 }) {
   return (
     <IssueContextMenu data={data} item={item}>
@@ -3299,9 +3985,12 @@ function ListRow({
         <StatusIcon status={item.status} />
 
         {/* Title */}
-        <span className="flex-1 truncate text-sm">{item.title}</span>
+        <div className="min-w-0 flex-1" style={{ paddingLeft: depth * 16 }}>
+          <div className="truncate text-sm">{item.title}</div>
+        </div>
 
         {/* Display properties */}
+        <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
         {displayProps.includes("priority") && (
           <span className="shrink-0 text-xs text-muted-foreground">
             {priorityMeta[item.priority].label}
@@ -3424,6 +4113,7 @@ function BoardCardBody({
           </div>
           <div className="mt-2 flex items-center gap-1.5">
             <StatusIcon status={item.status} />
+            <WorkItemTypeBadge data={data} item={item} />
             {item.primaryProjectId ? (
               <Badge
                 variant="secondary"
@@ -3467,6 +4157,7 @@ function TimelineLabelRow({ data, item }: { data: AppData; item: WorkItem }) {
           {item.title}
         </Link>
       </div>
+      <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
       {assignees[0] ? (
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {assignees[0].name.split(" ")[0]}
@@ -3890,153 +4581,499 @@ function CommentsInline({
 function CreateProjectDialog({
   open,
   onOpenChange,
-  scopeType,
-  scopeId,
-  settingsTeamId,
+  teamId,
   disabled,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  scopeType: ScopeType
-  scopeId: string
-  settingsTeamId: string | null
+  teamId: string
   disabled: boolean
 }) {
   const data = useAppStore()
-  const settingsTeam = settingsTeamId ? getTeam(data, settingsTeamId) : null
-  const availableTemplateTypes = [
-    ...getAllowedTemplateTypesForTeamExperience(settingsTeam?.settings.experience),
-  ]
-  const initialTemplateType =
-    availableTemplateTypes[0] ??
-    getDefaultTemplateTypeForTeamExperience(settingsTeam?.settings.experience)
-  const initialTemplateDefaults = getTemplateDefaultsForTeam(
-    settingsTeam,
-    initialTemplateType
+  const settingsTeam = getTeam(data, teamId)
+  const templateType = getDefaultTemplateTypeForTeamExperience(
+    settingsTeam?.settings.experience
   )
-  const [templateType, setTemplateType] =
-    useState<Project["templateType"]>(initialTemplateType)
-  const [name, setName] = useState("New Project")
-  const [summary, setSummary] = useState(initialTemplateDefaults.summaryHint)
-  const [priority, setPriority] = useState<Priority>(
-    initialTemplateDefaults.defaultPriority
+  const templateDefaults = getTemplateDefaultsForTeam(settingsTeam, templateType)
+  const teamMembers = settingsTeam ? getTeamMembers(data, teamId) : []
+  const teamStatuses = getStatusOrderForTeam(settingsTeam)
+  const availableLabels = [...data.labels].sort((left, right) =>
+    left.name.localeCompare(right.name)
   )
+  const [name, setName] = useState("")
+  const [summary, setSummary] = useState("")
+  const [presentation, setPresentation] = useState<ProjectPresentationConfig>(
+    () =>
+      createDefaultProjectPresentationConfig(templateType, {
+        layout: templateDefaults.defaultViewLayout,
+      })
+  )
+  const normalizedName = name.trim()
+  const normalizedSummary = summary.trim()
+  const resolvedSummary =
+    normalizedSummary.length >= 2
+      ? normalizedSummary
+      : templateDefaults.summaryHint
+  const canCreate = !disabled && normalizedName.length >= 2
+  const triggerClassName =
+    "h-9 w-auto max-w-full rounded-full border-border/60 bg-background px-3 text-xs font-medium shadow-none"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
-        <div className="px-5 pt-5 pb-1">
-          <DialogHeader className="mb-3 p-0">
-            <DialogTitle className="text-base">New project</DialogTitle>
-          </DialogHeader>
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="sr-only">
+          <DialogTitle>New project</DialogTitle>
+        </DialogHeader>
+
+        <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+            <Badge
+              variant="outline"
+              className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
+            >
+              {settingsTeam?.name ?? "Team"}
+            </Badge>
+            <span className="text-muted-foreground/50">/</span>
+            <span className="tracking-normal normal-case">New project</span>
+          </div>
+
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Project name"
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem]"
             autoFocus
           />
-          <Input
+          <Textarea
             value={summary}
             onChange={(event) => setSummary(event.target.value)}
-            placeholder="Add a summary..."
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            placeholder={templateDefaults.summaryHint}
+            rows={4}
+            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
           />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Configure the default project view before the team starts using it.
+          </p>
         </div>
 
-        <Separator />
+        <div className="px-6 py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <ProjectPresentationPopover
+              templateType={templateType}
+              presentation={presentation}
+              triggerClassName={triggerClassName}
+              onUpdatePresentation={(patch) =>
+                setPresentation((current) => ({
+                  ...current,
+                  ...patch,
+                }))
+              }
+              onToggleDisplayProperty={(property) =>
+                setPresentation((current) => ({
+                  ...current,
+                  displayProps: current.displayProps.includes(property)
+                    ? current.displayProps.filter((value) => value !== property)
+                    : [...current.displayProps, property],
+                }))
+              }
+            />
 
-        <div className="flex flex-col px-5 py-2">
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Template</span>
-            <Select
-              value={templateType}
-              onValueChange={(value) => {
-                const nextTemplateType = value as Project["templateType"]
-                const nextDefaults = getTemplateDefaultsForTeam(
-                  settingsTeam,
-                  nextTemplateType
-                )
-                setTemplateType(nextTemplateType)
-                setPriority(nextDefaults.defaultPriority)
-                setSummary(nextDefaults.summaryHint)
+            <ProjectFiltersPopover
+              templateType={templateType}
+              filters={presentation.filters}
+              teamMembers={teamMembers}
+              teamStatuses={teamStatuses}
+              availableLabels={availableLabels}
+              triggerClassName={triggerClassName}
+              onToggleFilterValue={(key, value) =>
+                setPresentation((current) => {
+                  const nextFilters = {
+                    ...current.filters,
+                  } as ViewDefinition["filters"]
+                  const currentValues = nextFilters[key] as string[]
+                  const nextValues = currentValues.includes(value)
+                    ? currentValues.filter((entry) => entry !== value)
+                    : [...currentValues, value]
+
+                  nextFilters[key] = nextValues as never
+
+                  return { ...current, filters: nextFilters }
+                })
+              }
+              onSetShowCompleted={(showCompleted) =>
+                setPresentation((current) => ({
+                  ...current,
+                  filters: {
+                    ...current.filters,
+                    showCompleted,
+                  },
+                }))
+              }
+              onClearFilters={() =>
+                setPresentation((current) => ({
+                  ...current,
+                  filters: createDefaultViewFilters(),
+                }))
+              }
+            />
+          </div>
+
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canCreate}
+              onClick={() => {
+                useAppStore.getState().createProject({
+                  scopeType: "team",
+                  scopeId: teamId,
+                  templateType,
+                  name: normalizedName,
+                  summary: resolvedSummary,
+                  priority: templateDefaults.defaultPriority,
+                  settingsTeamId: teamId,
+                  presentation: {
+                    ...presentation,
+                    displayProps: [...presentation.displayProps],
+                    filters: cloneViewFilters(presentation.filters),
+                  },
+                })
+                onOpenChange(false)
               }}
             >
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <div className="flex items-center gap-1.5">
-                  <ProjectTemplateGlyph
-                    templateType={templateType}
-                    className="size-3.5"
-                  />
-                  <span>{templateMeta[templateType].label}</span>
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {availableTemplateTypes.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      <div className="flex items-center gap-2">
-                        <ProjectTemplateGlyph
-                          templateType={value}
-                          className="size-3.5"
-                        />
-                        <span>{templateMeta[value].label}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              Create project
+            </Button>
           </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Priority</span>
-            <Select
-              value={priority}
-              onValueChange={(value) => setPriority(value as Priority)}
-            >
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {Object.entries(priorityMeta).map(([value, meta]) => (
-                    <SelectItem key={value} value={value}>
-                      {meta.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="flex items-center justify-end gap-2 px-5 py-3">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={disabled}
-            onClick={() => {
-              useAppStore.getState().createProject({
-                scopeType,
-                scopeId,
-                templateType,
-                name,
-                summary,
-                priority,
-                settingsTeamId,
-              })
-              onOpenChange(false)
-            }}
-          >
-            Create project
-          </Button>
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ProjectPresentationPopover({
+  templateType,
+  presentation,
+  triggerClassName,
+  onUpdatePresentation,
+  onToggleDisplayProperty,
+}: {
+  templateType: Project["templateType"]
+  presentation: ProjectPresentationConfig
+  triggerClassName: string
+  onUpdatePresentation: (
+    patch: Partial<
+      Pick<ProjectPresentationConfig, "layout" | "grouping" | "ordering">
+    >
+  ) => void
+  onToggleDisplayProperty: (property: DisplayProperty) => void
+}) {
+  const groupingOptions = getProjectPresentationGroupOptions(templateType)
+  const projectDisplayPropertyOptions = displayPropertyOptions.filter(
+    (property) => property !== "project"
+  )
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            triggerClassName,
+            "inline-flex items-center gap-2 overflow-hidden text-left"
+          )}
+        >
+          <GearSix className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {getViewLayoutLabel(presentation.layout)} setup
+          </span>
+          <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-0">
+        <div className="border-b px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Showcase
+          </span>
+        </div>
+        <div className="border-b px-3 py-2.5">
+          <div className="flex rounded-md bg-muted/50 p-0.5">
+            {[
+              {
+                value: "list",
+                label: "List",
+                icon: <Rows className="size-3" />,
+              },
+              {
+                value: "board",
+                label: "Board",
+                icon: <Kanban className="size-3" />,
+              },
+              {
+                value: "timeline",
+                label: "Timeline",
+                icon: <CalendarDots className="size-3" />,
+              },
+            ].map((layout) => (
+              <button
+                key={layout.value}
+                type="button"
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
+                  presentation.layout === layout.value
+                    ? "bg-background font-medium text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() =>
+                  onUpdatePresentation({
+                    layout: layout.value as ViewDefinition["layout"],
+                    ordering:
+                      layout.value === "timeline" &&
+                      presentation.ordering === "priority"
+                        ? "targetDate"
+                        : layout.value !== "timeline" &&
+                            presentation.ordering === "targetDate"
+                          ? "priority"
+                          : presentation.ordering,
+                  })
+                }
+              >
+                {layout.icon}
+                {layout.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col px-3 py-2">
+          <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            Configuration
+          </div>
+            <ConfigSelect
+              label="Grouping"
+              value={presentation.grouping}
+              options={groupingOptions.map((option) => ({
+                value: option,
+                label: getGroupFieldOptionLabel(option as GroupField),
+              }))}
+              onValueChange={(value) =>
+                onUpdatePresentation({ grouping: value as GroupField })
+              }
+            />
+          <ConfigSelect
+            label="Ordering"
+            value={presentation.ordering}
+            options={orderingOptions.map((option) => ({
+              value: option,
+              label: option,
+            }))}
+            onValueChange={(value) =>
+              onUpdatePresentation({ ordering: value as OrderingField })
+            }
+          />
+        </div>
+
+        <Separator />
+
+        <div className="px-3 py-2.5">
+          <div className="mb-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            Properties
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {projectDisplayPropertyOptions.map((property) => (
+              <button
+                key={property}
+                type="button"
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                  presentation.displayProps.includes(property)
+                    ? "border-primary/30 bg-primary/10 font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                )}
+                onClick={() => onToggleDisplayProperty(property)}
+              >
+                {property}
+              </button>
+            ))}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function ProjectFiltersPopover({
+  templateType,
+  filters,
+  teamMembers,
+  teamStatuses,
+  availableLabels,
+  triggerClassName,
+  onToggleFilterValue,
+  onSetShowCompleted,
+  onClearFilters,
+}: {
+  templateType: Project["templateType"]
+  filters: ViewDefinition["filters"]
+  teamMembers: ReturnType<typeof getTeamMembers>
+  teamStatuses: WorkStatus[]
+  availableLabels: AppData["labels"]
+  triggerClassName: string
+  onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+  onSetShowCompleted: (showCompleted: boolean) => void
+  onClearFilters: () => void
+}) {
+  const activeCount = countActiveViewFilters(filters)
+  const availableItemTypes = getCreateDialogItemTypes(templateType)
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            triggerClassName,
+            "inline-flex items-center gap-2 overflow-hidden text-left"
+          )}
+        >
+          <FadersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">Filters</span>
+          {activeCount > 0 ? (
+            <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-foreground">
+              {activeCount}
+            </span>
+          ) : null}
+          <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-0">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Filters
+          </span>
+          {activeCount > 0 ? (
+            <button
+              type="button"
+              className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              onClick={onClearFilters}
+            >
+              Clear all
+            </button>
+          ) : null}
+        </div>
+        <div className="border-b px-3 py-2.5">
+          <ConfigSelect
+            label="Completed"
+            value={String(filters.showCompleted)}
+            options={[
+              { value: "true", label: "Show all" },
+              { value: "false", label: "Hide done" },
+            ]}
+            onValueChange={(value) => onSetShowCompleted(value === "true")}
+          />
+        </div>
+        <div className="flex max-h-[24rem] flex-col divide-y overflow-y-auto">
+          <div className="px-3 py-2.5">
+            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Status
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {teamStatuses.map((status) => (
+                <FilterChip
+                  key={status}
+                  label={statusMeta[status].label}
+                  active={filters.status.includes(status)}
+                  onClick={() => onToggleFilterValue("status", status)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="px-3 py-2.5">
+            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Priority
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(priorityMeta).map(([priority, meta]) => (
+                <FilterChip
+                  key={priority}
+                  label={meta.label}
+                  active={filters.priority.includes(priority as Priority)}
+                  onClick={() => onToggleFilterValue("priority", priority)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="px-3 py-2.5">
+            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              Type
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {availableItemTypes.map((itemType) => (
+                <FilterChip
+                  key={itemType}
+                  label={getDisplayLabelForWorkItemType(itemType, null)}
+                  active={filters.itemTypes.includes(itemType)}
+                  onClick={() => onToggleFilterValue("itemTypes", itemType)}
+                />
+              ))}
+            </div>
+          </div>
+          {teamMembers.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Assignee
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {teamMembers.map((member) => (
+                  <FilterChip
+                    key={member.id}
+                    label={member.name}
+                    active={filters.assigneeIds.includes(member.id)}
+                    onClick={() =>
+                      onToggleFilterValue("assigneeIds", member.id)
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {teamMembers.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Lead
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {teamMembers.map((member) => (
+                  <FilterChip
+                    key={member.id}
+                    label={member.name}
+                    active={filters.leadIds.includes(member.id)}
+                    onClick={() => onToggleFilterValue("leadIds", member.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {availableLabels.length > 0 ? (
+            <div className="px-3 py-2.5">
+              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                Labels
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {availableLabels.map((label) => (
+                  <FilterChip
+                    key={label.id}
+                    label={label.name}
+                    active={filters.labelIds.includes(label.id)}
+                    onClick={() => onToggleFilterValue("labelIds", label.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -4120,12 +5157,14 @@ function InlineChildIssueComposer({
 }) {
   const data = useAppStore()
   const team = getTeam(data, teamId)
-  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
-  const teamProjects = data.projects.filter(
-    (project) =>
-      (project.scopeType === "team" && project.scopeId === teamId) ||
-      (project.scopeType === "workspace" &&
-        team?.workspaceId === project.scopeId)
+  const childCopy = getChildWorkItemCopy(
+    parentItem.type,
+    team?.settings.experience
+  )
+  const teamProjects = getTeamProjectOptions(
+    data,
+    teamId,
+    parentItem.primaryProjectId
   )
   const teamMembers = team ? getTeamMembers(data, teamId) : []
   const [type, setType] = useState<WorkItemType>(
@@ -4137,9 +5176,7 @@ function InlineChildIssueComposer({
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
-  const [projectId, setProjectId] = useState<string>(
-    parentItem.primaryProjectId ?? "none"
-  )
+  const projectId = parentItem.primaryProjectId ?? "none"
   const fallbackType = getPreferredWorkItemTypeForTeamExperience(
     team?.settings.experience,
     {
@@ -4198,7 +5235,7 @@ function InlineChildIssueComposer({
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder={workCopy.titlePlaceholder}
+            placeholder={childCopy.titlePlaceholder}
             className="h-auto border-none px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
             autoFocus
           />
@@ -4268,7 +5305,7 @@ function InlineChildIssueComposer({
           </SelectContent>
         </Select>
 
-        <Select value={projectId} onValueChange={setProjectId}>
+        <Select value={projectId} disabled>
           <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>
@@ -4289,7 +5326,11 @@ function InlineChildIssueComposer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
-            Create
+            Create{" "}
+            {getDisplayLabelForWorkItemType(
+              selectedType,
+              team?.settings.experience
+            ).toLowerCase()}
           </Button>
         </div>
       </div>
@@ -4301,100 +5342,358 @@ function CreateWorkItemDialog({
   open,
   onOpenChange,
   teamId,
-  parentItem = null,
   disabled,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   teamId: string
-  parentItem?: WorkItem | null
   disabled: boolean
 }) {
   const data = useAppStore()
   const team = getTeam(data, teamId)
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)
-  const teamProjects = data.projects.filter(
-    (project) =>
-      (project.scopeType === "team" && project.scopeId === teamId) ||
-      (project.scopeType === "workspace" &&
-        team?.workspaceId === project.scopeId)
-  )
+  const teamProjects = getTeamProjectOptions(data, teamId)
   const teamMembers = team ? getTeamMembers(data, teamId) : []
-  const defaultProjectId = parentItem?.primaryProjectId ?? "none"
+  const teamStatuses = getStatusOrderForTeam(team)
+  const availableLabels = [...data.labels].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )
+  const defaultTemplateType = getDefaultTemplateTypeForTeamExperience(
+    team?.settings.experience
+  )
   const [type, setType] = useState<WorkItemType>(
-    getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
-      parent: Boolean(parentItem),
-    })
+    getPreferredCreateDialogType(defaultTemplateType)
   )
-  const [title, setTitle] = useState(
-    parentItem ? `Follow-up for ${parentItem.title}` : workCopy.createLabel
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [status, setStatus] = useState<WorkStatus>(
+    teamStatuses.includes("todo")
+      ? "todo"
+      : (teamStatuses[0] ?? "backlog")
   )
-  const [priority, setPriority] = useState<Priority>("medium")
+  const [priority, setPriority] = useState<Priority>(
+    getTemplateDefaultsForTeam(
+      team,
+      getDefaultTemplateTypeForTeamExperience(team?.settings.experience)
+    ).defaultPriority
+  )
   const [assigneeId, setAssigneeId] = useState<string>("none")
-  const [projectId, setProjectId] = useState<string>(defaultProjectId)
-  const fallbackType = getPreferredWorkItemTypeForTeamExperience(
-    team?.settings.experience,
-    {
-      parent: Boolean(parentItem),
-    }
-  )
+  const [projectId, setProjectId] = useState<string>("none")
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
+  const [newLabelName, setNewLabelName] = useState("")
+  const [creatingLabel, setCreatingLabel] = useState(false)
   const selectedProject =
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
-  const allowedChildTypes = parentItem
-    ? getAllowedChildWorkItemTypesForItem(parentItem)
-    : null
-  const baseItemTypes = parentItem
-    ? selectedProject
-      ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
-      : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
-    : selectedProject
-      ? getAllowedRootWorkItemTypesForTemplate(selectedProject.templateType)
-      : getDefaultRootWorkItemTypesForTeamExperience(team?.settings.experience)
-  const availableItemTypes = allowedChildTypes
-    ? baseItemTypes.filter((value) => allowedChildTypes.includes(value))
-    : baseItemTypes
-  const selectedType = availableItemTypes.includes(type)
-    ? type
-    : (availableItemTypes[0] ?? fallbackType)
+  const activeTemplateType = selectedProject?.templateType ?? defaultTemplateType
+  const availableItemTypes = getCreateDialogItemTypes(activeTemplateType)
+  const fallbackType = getPreferredCreateDialogType(activeTemplateType)
+  const selectedType =
+    availableItemTypes.find((value) => value === type) ??
+    availableItemTypes[0] ??
+    null
+  const selectedLabels = availableLabels.filter((label) =>
+    selectedLabelIds.includes(label.id)
+  )
+  const titlePlaceholder = selectedType
+    ? `${getDisplayLabelForWorkItemType(
+        selectedType,
+        team?.settings.experience
+      )} title`
+    : workCopy.titlePlaceholder
+  const normalizedTitle = title.trim()
+  const normalizedDescription = description.trim()
+  const canCreate =
+    !disabled && normalizedTitle.length >= 2 && selectedType !== null
+  const triggerClassName =
+    "h-9 w-auto max-w-full rounded-full border-border/60 bg-background px-3 text-xs font-medium shadow-none"
+  const labelsTriggerText =
+    selectedLabels.length === 0
+      ? "Labels"
+      : selectedLabels.length === 1
+        ? selectedLabels[0]?.name ?? "Labels"
+        : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
+
+  function toggleLabel(labelId: string) {
+    setSelectedLabelIds((current) =>
+      current.includes(labelId)
+        ? current.filter((currentId) => currentId !== labelId)
+        : [...current, labelId]
+    )
+  }
+
+  async function handleCreateLabel() {
+    const normalizedName = newLabelName.trim()
+
+    if (!normalizedName || creatingLabel) {
+      return
+    }
+
+    setCreatingLabel(true)
+    const created = await useAppStore.getState().createLabel(normalizedName)
+    setCreatingLabel(false)
+
+    if (!created) {
+      return
+    }
+
+    setNewLabelName("")
+    setSelectedLabelIds((current) =>
+      current.includes(created.id) ? current : [...current, created.id]
+    )
+  }
+
+  function handleCreate() {
+    if (!selectedType) {
+      return
+    }
+
+    const createdItemId = useAppStore.getState().createWorkItem({
+      teamId,
+      type: selectedType,
+      title: normalizedTitle,
+      priority,
+      status,
+      labelIds: selectedLabelIds,
+      assigneeId: assigneeId === "none" ? null : assigneeId,
+      primaryProjectId: projectId === "none" ? null : projectId,
+    })
+
+    if (!createdItemId) {
+      return
+    }
+
+    if (normalizedDescription) {
+      useAppStore
+        .getState()
+        .updateItemDescription(
+          createdItemId,
+          formatInlineDescriptionContent(normalizedDescription)
+        )
+    }
+
+    onOpenChange(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
-        <div className="px-5 pt-5 pb-1">
-          <DialogHeader className="mb-3 p-0">
-            <DialogTitle className="text-base">
-              {parentItem ? workCopy.createChildLabel : workCopy.createLabel}
-            </DialogTitle>
-          </DialogHeader>
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{workCopy.createLabel}</DialogTitle>
+        </DialogHeader>
+
+        <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+            <Badge
+              variant="outline"
+              className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
+            >
+              {team?.name ?? "Team"}
+            </Badge>
+            <span className="text-muted-foreground/50">/</span>
+            <span className="tracking-normal normal-case">
+              Create top-level item
+            </span>
+          </div>
+
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder={workCopy.titlePlaceholder}
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            placeholder={titlePlaceholder}
+            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem]"
             autoFocus
           />
-          {parentItem ? (
-            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{workCopy.parentLabel}</span>
-              <Badge variant="outline">{parentItem.key}</Badge>
-              <span className="truncate">{parentItem.title}</span>
+          <Textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Add description..."
+            rows={4}
+            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+          />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Create it at the team level first. Parent links can be added later.
+          </p>
+          {selectedLabels.length > 0 ? (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {selectedLabels.map((label) => (
+                <Badge
+                  key={label.id}
+                  variant="secondary"
+                  className="h-6 rounded-full px-2.5 text-[11px]"
+                >
+                  {label.name}
+                </Badge>
+              ))}
             </div>
           ) : null}
         </div>
 
-        <Separator />
-
-        <div className="flex flex-col px-5 py-2">
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Type</span>
+        <div className="px-6 py-4">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
-              value={selectedType}
-              onValueChange={(value) => setType(value as WorkItemType)}
+              value={status}
+              onValueChange={(value) => setStatus(value as WorkStatus)}
             >
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
+              <SelectTrigger className={triggerClassName}>
                 <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {teamStatuses.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {statusMeta[value].label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={priority}
+              onValueChange={(value) => setPriority(value as Priority)}
+            >
+              <SelectTrigger className={triggerClassName}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {Object.entries(priorityMeta).map(([value, meta]) => (
+                    <SelectItem key={value} value={value}>
+                      {meta.label} priority
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select value={assigneeId} onValueChange={setAssigneeId}>
+              <SelectTrigger className={triggerClassName}>
+                <SelectValue placeholder="Assignee" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {teamMembers.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger className={triggerClassName}>
+                <SelectValue placeholder="Project" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">No project</SelectItem>
+                  {teamProjects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    triggerClassName,
+                    "border",
+                    "inline-flex items-center gap-2 overflow-hidden text-left"
+                  )}
+                >
+                  <span className="truncate">{labelsTriggerText}</span>
+                  <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                    Labels
+                  </div>
+                  {selectedLabelIds.length > 0 ? (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setSelectedLabelIds([])}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                <ScrollArea className="mt-3 max-h-48 pr-3">
+                  <div className="flex flex-wrap gap-2">
+                    {availableLabels.length > 0 ? (
+                      availableLabels.map((label) => {
+                        const selected = selectedLabelIds.includes(label.id)
+
+                        return (
+                          <button
+                            key={label.id}
+                            type="button"
+                            className={cn(
+                              "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                              selected
+                                ? "border-primary/40 bg-primary/10 text-foreground"
+                                : "border-border text-muted-foreground hover:text-foreground"
+                            )}
+                            onClick={() => toggleLabel(label.id)}
+                          >
+                            {label.name}
+                          </button>
+                        )
+                      })
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        No labels yet
+                      </span>
+                    )}
+                  </div>
+                </ScrollArea>
+                <div className="mt-3 flex gap-2">
+                  <Input
+                    value={newLabelName}
+                    onChange={(event) => setNewLabelName(event.target.value)}
+                    placeholder="Create label"
+                    className="h-8 text-sm"
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") {
+                        return
+                      }
+
+                      event.preventDefault()
+                      void handleCreateLabel()
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={creatingLabel || newLabelName.trim().length === 0}
+                    onClick={() => {
+                      void handleCreateLabel()
+                    }}
+                  >
+                    Add
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Select
+              value={selectedType ?? fallbackType}
+              onValueChange={(value) => setType(value as WorkItemType)}
+              disabled={availableItemTypes.length === 0}
+            >
+              <SelectTrigger className={triggerClassName}>
+                <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
@@ -4410,92 +5709,27 @@ function CreateWorkItemDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Priority</span>
-            <Select
-              value={priority}
-              onValueChange={(value) => setPriority(value as Priority)}
-            >
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {Object.entries(priorityMeta).map(([value, meta]) => (
-                    <SelectItem key={value} value={value}>
-                      {meta.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Assignee</span>
-            <Select value={assigneeId} onValueChange={setAssigneeId}>
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="none">Unassigned</SelectItem>
-                  {teamMembers.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Project</span>
-            <Select value={projectId} onValueChange={setProjectId}>
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="none">No project</SelectItem>
-                  {teamProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
 
-        <Separator />
+          {availableItemTypes.length === 0 ? (
+            <p className="mt-3 text-xs text-destructive">
+              This team cannot create work items in the current configuration.
+            </p>
+          ) : null}
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={disabled || availableItemTypes.length === 0}
-            onClick={() => {
-              useAppStore.getState().createWorkItem({
-                teamId,
-                type: selectedType,
-                title,
-                priority,
-                parentId: parentItem?.id ?? null,
-                assigneeId: assigneeId === "none" ? null : assigneeId,
-                primaryProjectId: projectId === "none" ? null : projectId,
-              })
-              onOpenChange(false)
-            }}
-          >
-            Create{" "}
-            {getDisplayLabelForWorkItemType(
-              selectedType,
-              team?.settings.experience
-            ).toLowerCase()}
-          </Button>
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
+              Create{" "}
+              {selectedType
+                ? getDisplayLabelForWorkItemType(
+                    selectedType,
+                    team?.settings.experience
+                  ).toLowerCase()
+                : workCopy.singularLabel}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -4665,7 +5899,7 @@ function CollectionDisplaySettingsPopover({
 }
 
 const SCREEN_HEADER_CLASS_NAME =
-  "flex min-h-10 items-center justify-between gap-2 border-b px-6 py-2"
+  "flex min-h-10 items-center justify-between gap-2 border-b px-4 py-2"
 
 function HeaderTitle({
   icon,
@@ -4676,7 +5910,7 @@ function HeaderTitle({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <SidebarTrigger className="size-6 shrink-0" />
+      <SidebarTrigger className="size-5 shrink-0" />
       {icon ? (
         <span className="shrink-0 text-muted-foreground">{icon}</span>
       ) : null}
@@ -4788,6 +6022,139 @@ function PropertySelect({
           </SelectGroup>
         </SelectContent>
       </Select>
+    </div>
+  )
+}
+
+function WorkItemLabelsEditor({
+  item,
+  editable,
+}: {
+  item: WorkItem
+  editable: boolean
+}) {
+  const data = useAppStore()
+  const [newLabelName, setNewLabelName] = useState("")
+  const selectedLabels = data.labels.filter((label) =>
+    item.labelIds.includes(label.id)
+  )
+  const availableLabels = [...data.labels].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )
+
+  function toggleLabel(labelId: string) {
+    const nextLabelIds = item.labelIds.includes(labelId)
+      ? item.labelIds.filter((currentId) => currentId !== labelId)
+      : [...item.labelIds, labelId]
+
+    useAppStore.getState().updateWorkItem(item.id, {
+      labelIds: nextLabelIds,
+    })
+  }
+
+  async function handleCreateLabel() {
+    const created = await useAppStore.getState().createLabel(newLabelName)
+
+    if (!created) {
+      return
+    }
+
+    setNewLabelName("")
+
+    if (item.labelIds.includes(created.id)) {
+      return
+    }
+
+    useAppStore.getState().updateWorkItem(item.id, {
+      labelIds: [...item.labelIds, created.id],
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {selectedLabels.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {selectedLabels.map((label) => (
+            <Badge key={label.id} variant="secondary" className="h-5 px-2">
+              {label.name}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <span className="text-sm text-muted-foreground">No labels</span>
+      )}
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start"
+            disabled={!editable}
+          >
+            Manage labels
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72 p-3">
+          <div className="flex flex-col gap-3">
+            <div className="space-y-1">
+              <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                Labels
+              </div>
+              <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+                {availableLabels.length > 0 ? (
+                  availableLabels.map((label) => {
+                    const selected = item.labelIds.includes(label.id)
+
+                    return (
+                      <button
+                        key={label.id}
+                        type="button"
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          selected
+                            ? "border-primary/40 bg-primary/10 text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        )}
+                        onClick={() => toggleLabel(label.id)}
+                        disabled={!editable}
+                      >
+                        {label.name}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    No labels yet
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                New label
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={newLabelName}
+                  onChange={(event) => setNewLabelName(event.target.value)}
+                  placeholder="Add label"
+                  disabled={!editable}
+                  className="h-8"
+                />
+                <Button
+                  size="sm"
+                  disabled={!editable || newLabelName.trim().length === 0}
+                  onClick={() => void handleCreateLabel()}
+                >
+                  Create
+                </Button>
+              </div>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -4932,6 +6299,7 @@ function extractTextContent(content: string) {
 
 function getPatchForField(
   data: AppData,
+  item: WorkItem | null,
   field: GroupField | null,
   value: string
 ) {
@@ -4945,6 +6313,39 @@ function getPatchForField(
   if (field === "project") {
     const project = data.projects.find((entry) => entry.name === value)
     return { primaryProjectId: project?.id ?? null }
+  }
+  if (field === "label" && item) {
+    if (value === "No label") {
+      return { labelIds: [] }
+    }
+
+    const label = data.labels.find((entry) => entry.name === value)
+
+    if (!label) {
+      return {}
+    }
+
+    return {
+      labelIds: [label.id, ...item.labelIds.filter((id) => id !== label.id)],
+    }
+  }
+  if ((field === "epic" || field === "feature") && item) {
+    const emptyValue = `No ${field}`
+
+    if (value === emptyValue) {
+      return {}
+    }
+
+    const parent = data.workItems.find(
+      (entry) =>
+        entry.type === field && `${entry.key} · ${entry.title}` === value
+    )
+
+    if (!parent || !canParentWorkItemTypeAcceptChild(parent.type, item.type)) {
+      return {}
+    }
+
+    return { parentId: parent.id }
   }
   return {}
 }

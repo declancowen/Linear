@@ -27,10 +27,12 @@ import {
 export default defineSchema({
   appConfig: defineTable({
     key: v.literal("singleton"),
-    currentUserId: v.string(),
-    currentWorkspaceId: v.string(),
     snapshotVersion: v.optional(v.number()),
   }).index("by_key", ["key"]),
+  userAppStates: defineTable({
+    userId: v.string(),
+    currentWorkspaceId: v.optional(v.string()),
+  }).index("by_user", ["userId"]),
   workspaces: defineTable(workspaceFields).index("by_domain_id", ["id"]),
   teams: defineTable(teamFields).index("by_domain_id", ["id"]),
   teamMemberships: defineTable(teamMembershipFields)
