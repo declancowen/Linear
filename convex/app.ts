@@ -1013,27 +1013,86 @@ function collectWorkItemCascadeIds(
 }
 
 function getResolvedProjectLinkForWorkItemUpdate(
+  items: Array<{
+    id: string
+    parentId: string | null
+    primaryProjectId: string | null
+  }>,
   existing: { primaryProjectId: string | null },
   parent: { primaryProjectId: string | null } | null,
+  itemId: string,
   patch: {
     parentId?: string | null
     primaryProjectId?: string | null
   }
 ) {
+  const existingItem = items.find((item) => item.id === itemId) ?? null
+  const projectIds = new Map<string, string | null>(
+    items.map((item) => [item.id, item.primaryProjectId])
+  )
   const resolvedPrimaryProjectId =
     patch.primaryProjectId !== undefined
       ? patch.primaryProjectId
       : patch.parentId !== undefined
         ? parent?.primaryProjectId ?? existing.primaryProjectId
         : existing.primaryProjectId
+  const nextParentId =
+    patch.parentId === undefined
+      ? existingItem?.parentId ?? null
+      : patch.parentId
+  const parentIds = new Map<string, string | null>(
+    items.map((item) => [
+      item.id,
+      item.id === itemId ? nextParentId ?? null : item.parentId,
+    ])
+  )
+  let rootItemId = itemId
+  const visited = new Set<string>([rootItemId])
+
+  while (true) {
+    const currentParentId = parentIds.get(rootItemId) ?? null
+
+    if (!currentParentId || visited.has(currentParentId)) {
+      break
+    }
+
+    visited.add(currentParentId)
+    rootItemId = currentParentId
+  }
+
+  const cascadeItemIds = new Set<string>([rootItemId])
+  const queue = [rootItemId]
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()
+
+    if (!currentId) {
+      continue
+    }
+
+    for (const [candidateId, candidateParentId] of parentIds) {
+      if (candidateParentId !== currentId || cascadeItemIds.has(candidateId)) {
+        continue
+      }
+
+      cascadeItemIds.add(candidateId)
+      queue.push(candidateId)
+    }
+  }
+
   const shouldCascadeProjectLink =
-    patch.primaryProjectId !== undefined ||
-    (patch.parentId !== undefined &&
-      parent?.primaryProjectId !== null &&
-      parent?.primaryProjectId !== undefined &&
-      parent.primaryProjectId !== existing.primaryProjectId)
+    (patch.primaryProjectId !== undefined || patch.parentId !== undefined) &&
+    [...cascadeItemIds].some((candidateId) => {
+      const currentProjectId =
+        candidateId === itemId
+          ? existing.primaryProjectId
+          : projectIds.get(candidateId) ?? null
+
+      return currentProjectId !== resolvedPrimaryProjectId
+    })
 
   return {
+    cascadeItemIds,
     resolvedPrimaryProjectId,
     shouldCascadeProjectLink,
   }
@@ -3936,12 +3995,25 @@ export const updateWorkItem = mutation({
           : args.patch.parentId,
       currentItemId: existing.id,
     })
-    const resolvedParentId =
-      args.patch.parentId === undefined ? existing.parentId : args.patch.parentId
+    const teamItems = await ctx.db
+      .query("workItems")
+      .withIndex("by_team_id", (q) => q.eq("teamId", existing.teamId))
+      .collect()
     const {
+      cascadeItemIds,
       resolvedPrimaryProjectId,
       shouldCascadeProjectLink,
-    } = getResolvedProjectLinkForWorkItemUpdate(existing, parent, args.patch)
+    } = getResolvedProjectLinkForWorkItemUpdate(
+      teamItems.map((item) => ({
+        id: item.id,
+        parentId: item.parentId,
+        primaryProjectId: item.primaryProjectId,
+      })),
+      existing,
+      parent,
+      existing.id,
+      args.patch
+    )
 
     if (
       args.patch.assigneeId !== undefined &&
@@ -3982,12 +4054,6 @@ export const updateWorkItem = mutation({
       }
 
       if (shouldCascadeProjectLink) {
-        const teamItems = await ctx.db
-          .query("workItems")
-          .withIndex("by_team_id", (q) => q.eq("teamId", existing.teamId))
-          .collect()
-        const cascadeItemIds = collectWorkItemCascadeIds(teamItems, existing.id)
-
         if (
           teamItems.some(
             (item) =>
@@ -4005,7 +4071,7 @@ export const updateWorkItem = mutation({
           )
         ) {
           throw new Error(
-            "Child work item type is not allowed for the selected project template"
+            "A work item type in this hierarchy is not allowed for the selected project template"
           )
         }
       }
@@ -4029,12 +4095,6 @@ export const updateWorkItem = mutation({
     })
 
     if (shouldCascadeProjectLink) {
-      const teamItems = await ctx.db
-        .query("workItems")
-        .withIndex("by_team_id", (q) => q.eq("teamId", existing.teamId))
-        .collect()
-      const cascadeItemIds = collectWorkItemCascadeIds(teamItems, existing.id)
-
       for (const item of teamItems) {
         if (item.id === existing.id || !cascadeItemIds.has(item.id)) {
           continue
@@ -5307,8 +5367,9 @@ export const createWorkItem = mutation({
       itemType: args.type,
       parentId: args.parentId ?? null,
     })
-    const resolvedPrimaryProjectId =
-      args.primaryProjectId ?? parent?.primaryProjectId ?? null
+    const resolvedPrimaryProjectId = parent
+      ? parent.primaryProjectId ?? null
+      : args.primaryProjectId
 
     if (!normalizedTeam.settings.features.issues) {
       throw new Error(getWorkSurfaceCopy(normalizedTeam.settings.experience).disabledLabel)

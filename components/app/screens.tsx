@@ -77,6 +77,7 @@ import {
   getViewByRoute,
   getViewsForScope,
   getVisibleWorkItems,
+  getWorkItemHierarchyIds,
   getWorkItem,
   getWorkItemDescendantIds,
   getWorkspaceUsers,
@@ -1382,6 +1383,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   )
   const canCreateChildItem = editable && allowedChildTypes.length > 0
   const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
+  const hierarchySize = getWorkItemHierarchyIds(data, currentItem.id).size
   const completedChildItems = childItems.filter(
     (child) => child.status === "done"
   ).length
@@ -1417,6 +1419,27 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     }
 
     useAppStore.getState().updateWorkItem(currentItem.id, patch)
+  }
+
+  function handleProjectChange(value: string) {
+    const nextProjectId = value === "none" ? null : value
+
+    if (nextProjectId === currentItem.primaryProjectId) {
+      return
+    }
+
+    if (
+      hierarchySize > 1 &&
+      !window.confirm(
+        "Changing the project for this item will also update all parent and child items in this hierarchy to the new project. Do you want to confirm?"
+      )
+    ) {
+      return
+    }
+
+    useAppStore.getState().updateWorkItem(currentItem.id, {
+      primaryProjectId: nextProjectId,
+    })
   }
 
   function handleEndDateChange(nextEndDate: string | null) {
@@ -1794,11 +1817,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       label: project.name,
                     })),
                   ]}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      primaryProjectId: value === "none" ? null : value,
-                    })
-                  }
+                  onValueChange={handleProjectChange}
                 />
               </CollapsibleSection>
             </div>
@@ -5157,9 +5176,7 @@ function InlineChildIssueComposer({
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
-  const [projectId, setProjectId] = useState<string>(
-    parentItem.primaryProjectId ?? "none"
-  )
+  const projectId = parentItem.primaryProjectId ?? "none"
   const fallbackType = getPreferredWorkItemTypeForTeamExperience(
     team?.settings.experience,
     {
@@ -5288,7 +5305,7 @@ function InlineChildIssueComposer({
           </SelectContent>
         </Select>
 
-        <Select value={projectId} onValueChange={setProjectId}>
+        <Select value={projectId} disabled>
           <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>

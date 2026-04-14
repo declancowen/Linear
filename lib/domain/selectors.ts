@@ -162,6 +162,29 @@ export function getWorkItemDescendantIds(data: AppData, itemId: string) {
   return descendants
 }
 
+export function getWorkItemHierarchyIds(data: AppData, itemId: string) {
+  let root = getWorkItem(data, itemId)
+
+  if (!root) {
+    return new Set<string>()
+  }
+
+  const visited = new Set<string>([root.id])
+
+  while (root.parentId) {
+    const parent = getWorkItem(data, root.parentId)
+
+    if (!parent || visited.has(parent.id)) {
+      break
+    }
+
+    visited.add(parent.id)
+    root = parent
+  }
+
+  return new Set<string>([root.id, ...getWorkItemDescendantIds(data, root.id)])
+}
+
 export function getTeam(data: AppData, teamId: string) {
   return data.teams.find((team) => team.id === teamId) ?? null
 }

@@ -654,8 +654,9 @@ function getWorkItemValidationMessage(
     }
   }
 
-  const resolvedPrimaryProjectId =
-    input.primaryProjectId ?? parent?.primaryProjectId ?? null
+  const resolvedPrimaryProjectId = parent
+    ? parent.primaryProjectId ?? null
+    : input.primaryProjectId ?? null
 
   if (resolvedPrimaryProjectId) {
     const project = getProjectsForTeamScope(state, input.teamId).find(
@@ -684,25 +685,69 @@ function getResolvedProjectLinkForWorkItemUpdate(
     primaryProjectId?: string | null
   }
 ) {
+  const itemsById = new Map(state.workItems.map((item) => [item.id, item]))
   const nextParentId =
     patch.parentId === undefined ? existing.parentId : patch.parentId
-  const nextParent = nextParentId
-    ? (state.workItems.find((entry) => entry.id === nextParentId) ?? null)
-    : null
+  const nextParent = nextParentId ? (itemsById.get(nextParentId) ?? null) : null
   const resolvedPrimaryProjectId =
     patch.primaryProjectId !== undefined
       ? patch.primaryProjectId
       : patch.parentId !== undefined
         ? nextParent?.primaryProjectId ?? existing.primaryProjectId
         : existing.primaryProjectId
+  const parentIds = new Map<string, string | null>(
+    state.workItems.map((item) => [
+      item.id,
+      item.id === existing.id ? nextParentId ?? null : item.parentId,
+    ])
+  )
+  let rootItemId = existing.id
+  const visited = new Set<string>([rootItemId])
+
+  while (true) {
+    const parentId = parentIds.get(rootItemId) ?? null
+
+    if (!parentId || visited.has(parentId)) {
+      break
+    }
+
+    visited.add(parentId)
+    rootItemId = parentId
+  }
+
+  const cascadeItemIds = new Set<string>([rootItemId])
+  const queue = [rootItemId]
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()
+
+    if (!currentId) {
+      continue
+    }
+
+    for (const [itemId, parentId] of parentIds) {
+      if (parentId !== currentId || cascadeItemIds.has(itemId)) {
+        continue
+      }
+
+      cascadeItemIds.add(itemId)
+      queue.push(itemId)
+    }
+  }
+
   const shouldCascadeProjectLink =
-    patch.primaryProjectId !== undefined ||
-    (patch.parentId !== undefined &&
-      nextParent?.primaryProjectId !== null &&
-      nextParent?.primaryProjectId !== undefined &&
-      nextParent.primaryProjectId !== existing.primaryProjectId)
+    (patch.primaryProjectId !== undefined || patch.parentId !== undefined) &&
+    [...cascadeItemIds].some((itemId) => {
+      const currentProjectId =
+        itemId === existing.id
+          ? existing.primaryProjectId
+          : (itemsById.get(itemId)?.primaryProjectId ?? null)
+
+      return currentProjectId !== resolvedPrimaryProjectId
+    })
 
   return {
+    cascadeItemIds,
     resolvedPrimaryProjectId,
     shouldCascadeProjectLink,
   }
@@ -1552,7 +1597,11 @@ export const useAppStore = create<AppStore>()(
           return
         }
 
-        const { resolvedPrimaryProjectId, shouldCascadeProjectLink } =
+        const {
+          cascadeItemIds,
+          resolvedPrimaryProjectId,
+          shouldCascadeProjectLink,
+        } =
           getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
 
         const validationMessage = getWorkItemValidationMessage(state, {
@@ -1578,7 +1627,6 @@ export const useAppStore = create<AppStore>()(
         }
 
         if (resolvedPrimaryProjectId && shouldCascadeProjectLink) {
-          const descendantIds = getWorkItemDescendantIds(state, itemId)
           const project = getProjectsForTeamScope(state, existing.teamId).find(
             (entry) => entry.id === resolvedPrimaryProjectId
           )
@@ -1586,7 +1634,7 @@ export const useAppStore = create<AppStore>()(
           if (
             project &&
             state.workItems
-              .filter((item) => descendantIds.has(item.id))
+              .filter((item) => cascadeItemIds.has(item.id))
               .some(
                 (item) =>
                   !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
@@ -1595,7 +1643,7 @@ export const useAppStore = create<AppStore>()(
               )
           ) {
             toast.error(
-              "Child work item type is not allowed for the selected project template"
+              "A work item type in this hierarchy is not allowed for the selected project template"
             )
             return
           }
@@ -1609,15 +1657,10 @@ export const useAppStore = create<AppStore>()(
 
           const now = getNow()
           const {
+            cascadeItemIds,
             resolvedPrimaryProjectId,
             shouldCascadeProjectLink,
           } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
-          const cascadeItemIds = shouldCascadeProjectLink
-            ? new Set<string>([
-                itemId,
-                ...getWorkItemDescendantIds(state, itemId),
-              ])
-            : new Set<string>([itemId])
           const nextItems = state.workItems.map((item) => {
             if (item.id === itemId) {
               return {
@@ -3400,8 +3443,9 @@ export const useAppStore = create<AppStore>()(
           const prefix = toTeamKeyPrefix(team?.name, parsed.data.teamId)
           const nextNumber = 1 + teamItems.length + 100
           const descriptionDocId = createId("doc")
-          const resolvedPrimaryProjectId =
-            parsed.data.primaryProjectId ?? parent?.primaryProjectId ?? null
+          const resolvedPrimaryProjectId = parent
+            ? parent.primaryProjectId ?? null
+            : parsed.data.primaryProjectId
 
           const descriptionDoc = {
             id: descriptionDocId,
