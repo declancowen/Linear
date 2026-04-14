@@ -222,6 +222,13 @@ const orderingOptions: OrderingField[] = [
 ]
 
 type ViewFilterKey = Exclude<keyof ViewDefinition["filters"], "showCompleted">
+type PersistedViewFilterKey =
+  | "status"
+  | "priority"
+  | "assigneeIds"
+  | "projectIds"
+  | "itemTypes"
+  | "labelIds"
 
 type ViewConfigPatch = {
   layout?: ViewDefinition["layout"]
@@ -233,6 +240,19 @@ type ViewConfigPatch = {
 
 function createEmptyViewFilters(): ViewDefinition["filters"] {
   return createDefaultViewFilters()
+}
+
+function isPersistedViewFilterKey(
+  key: ViewFilterKey
+): key is PersistedViewFilterKey {
+  return [
+    "status",
+    "priority",
+    "assigneeIds",
+    "projectIds",
+    "itemTypes",
+    "labelIds",
+  ].includes(key)
 }
 
 function cloneViewFilters(
@@ -2525,6 +2545,10 @@ function FilterPopover({
       return
     }
 
+    if (!isPersistedViewFilterKey(key)) {
+      return
+    }
+
     useAppStore.getState().toggleViewFilterValue(view.id, key, value)
   }
 
@@ -4806,17 +4830,17 @@ function ProjectPresentationPopover({
           <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
             Configuration
           </div>
-          <ConfigSelect
-            label="Grouping"
-            value={presentation.grouping}
-            options={groupingOptions.map((option) => ({
-              value: option,
-              label: getGroupFieldOptionLabel(option),
-            }))}
-            onValueChange={(value) =>
-              onUpdatePresentation({ grouping: value as GroupField })
-            }
-          />
+            <ConfigSelect
+              label="Grouping"
+              value={presentation.grouping}
+              options={groupingOptions.map((option) => ({
+                value: option,
+                label: getGroupFieldOptionLabel(option as GroupField),
+              }))}
+              onValueChange={(value) =>
+                onUpdatePresentation({ grouping: value as GroupField })
+              }
+            />
           <ConfigSelect
             label="Ordering"
             value={presentation.ordering}

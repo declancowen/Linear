@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner"
 
 import {
+  canAdminWorkspace,
   getAccessibleTeams,
   getCurrentUser,
   getCurrentWorkspace,
@@ -175,11 +176,7 @@ export function AppShell({ children }: AppShellProps) {
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
-  const canCreateTeam = teams.some(
-    (team) =>
-      team.workspaceId === data.currentWorkspaceId &&
-      getTeamRole(data, team.id) === "admin"
-  )
+  const canCreateTeam = canAdminWorkspace(data, data.currentWorkspaceId)
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -845,6 +842,7 @@ function TeamEditorFields({
   setFeatures,
   savedFeatures,
   surfaceDisableReasons,
+  disabled = false,
   canChangeExperience = false,
   onExperienceChange,
   onRegenerateJoinCode,
@@ -866,6 +864,7 @@ function TeamEditorFields({
   ) => void
   savedFeatures: TeamFeatureSettings
   surfaceDisableReasons: TeamSurfaceDisableReasons
+  disabled?: boolean
   canChangeExperience?: boolean
   onExperienceChange?: (experience: TeamExperienceType) => void
   onRegenerateJoinCode?: (() => Promise<void>) | null
@@ -1047,6 +1046,7 @@ function TeamEditorFields({
                           : "hover:bg-accent/40"
                       )}
                       disabled={
+                        disabled ||
                         savedFeatures.channels &&
                         Boolean(surfaceDisableReasons.channels)
                       }
@@ -1075,6 +1075,7 @@ function TeamEditorFields({
                           : "hover:bg-accent/40"
                       )}
                       disabled={
+                        disabled ||
                         savedFeatures.chat &&
                         Boolean(surfaceDisableReasons.chat)
                       }
@@ -1172,6 +1173,7 @@ function TeamEditorFields({
                     <Switch
                       checked={features[feature.key]}
                       disabled={
+                        disabled ||
                         savedFeatures[feature.key] &&
                         Boolean(surfaceDisableReasons[feature.key])
                       }

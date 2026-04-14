@@ -102,6 +102,20 @@ export function canAdminTeam(data: AppData, teamId: string) {
   return getTeamRole(data, teamId) === "admin"
 }
 
+export function canAdminWorkspace(data: AppData, workspaceId: string) {
+  if (isWorkspaceOwner(data, workspaceId)) {
+    return true
+  }
+
+  return data.teams.some((team) => {
+    if (team.workspaceId !== workspaceId) {
+      return false
+    }
+
+    return canAdminTeam(data, team.id)
+  })
+}
+
 export function canCreateWorkspace(data: AppData) {
   return getAccessibleTeams(data).some(
     (team) => getTeamRole(data, team.id) === "admin"

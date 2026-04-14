@@ -3,6 +3,8 @@ import { ConvexHttpClient } from "convex/browser"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
+  GroupField,
+  OrderingField,
   Priority,
   ProjectPresentationConfig,
   TeamExperienceType,
@@ -362,32 +364,9 @@ export async function updateViewConfigServer(input: {
   currentUserId: string
   viewId: string
   layout?: "list" | "board" | "timeline"
-  grouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-  subGrouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-    | null
-  ordering?:
-    | "priority"
-    | "updatedAt"
-    | "createdAt"
-    | "dueDate"
-    | "targetDate"
-    | "title"
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
   showCompleted?: boolean
 }) {
   return getConvexServerClient().mutation(
