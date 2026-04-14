@@ -18,8 +18,8 @@ type ConvexAppProviderProps = {
   authenticatedUser?: AuthenticatedAppUser | null
 }
 
-const SNAPSHOT_POLL_INTERVAL_MS = 5000
-const SNAPSHOT_POLL_MAX_BACKOFF_MS = 60000
+const STREAM_RECONNECT_BASE_DELAY_MS = 1000
+const STREAM_RECONNECT_MAX_DELAY_MS = 15000
 
 function ConvexStateSync({
   children,
@@ -54,46 +54,28 @@ function ConvexStateSync({
     let cancelled = false
     let syncInFlight = false
     let syncQueued = false
-    let consecutiveFailureCount = 0
-    let pollTimeoutId: number | null = null
-    let snapshotVersion: number | null = null
+    let stream: EventSource | null = null
+    let streamReconnectDelay = STREAM_RECONNECT_BASE_DELAY_MS
+    let streamReconnectTimeoutId: number | null = null
+    let appliedSnapshotVersion: number | null = null
 
-    function clearPollTimeout() {
-      if (pollTimeoutId !== null) {
-        window.clearTimeout(pollTimeoutId)
-        pollTimeoutId = null
+    function clearStreamReconnectTimeout() {
+      if (streamReconnectTimeoutId !== null) {
+        window.clearTimeout(streamReconnectTimeoutId)
+        streamReconnectTimeoutId = null
       }
     }
 
-    function scheduleNextPoll(delay: number) {
-      clearPollTimeout()
+    function closeStream() {
+      clearStreamReconnectTimeout()
 
-      if (cancelled) {
-        return
+      if (stream) {
+        stream.close()
+        stream = null
       }
-
-      pollTimeoutId = window.setTimeout(() => {
-        if (document.visibilityState === "visible") {
-          void syncSnapshot()
-          return
-        }
-
-        scheduleNextPoll(SNAPSHOT_POLL_INTERVAL_MS)
-      }, delay)
     }
 
-    function getBackoffDelay() {
-      if (consecutiveFailureCount <= 0) {
-        return SNAPSHOT_POLL_INTERVAL_MS
-      }
-
-      return Math.min(
-        SNAPSHOT_POLL_INTERVAL_MS * 2 ** (consecutiveFailureCount - 1),
-        SNAPSHOT_POLL_MAX_BACKOFF_MS
-      )
-    }
-
-    async function syncSnapshot(options?: { forceFull?: boolean }) {
+    async function syncSnapshot() {
       if (cancelled) {
         return
       }
@@ -103,51 +85,32 @@ function ConvexStateSync({
         return
       }
 
-      clearPollTimeout()
       syncInFlight = true
 
       try {
-        let nextSnapshotVersion = snapshotVersion
-
-        if (!options?.forceFull) {
-          const versionPayload = await fetchSnapshotVersion()
-
-          if (!versionPayload || cancelled) {
-            return
-          }
-
-          nextSnapshotVersion = versionPayload.version
-
-          if (
-            snapshotVersion !== null &&
-            nextSnapshotVersion === snapshotVersion
-          ) {
-            consecutiveFailureCount = 0
-            return
-          }
-        }
-
         const snapshot = await fetchSnapshot()
 
         if (!snapshot || cancelled) {
           return
         }
 
-        consecutiveFailureCount = 0
-        snapshotVersion =
-          nextSnapshotVersion ??
-          (await fetchSnapshotVersion())?.version ??
-          snapshotVersion
         applySnapshot(snapshot)
+
+        const versionPayload = await fetchSnapshotVersion()
+
+        if (!versionPayload || cancelled) {
+          return
+        }
+
+        appliedSnapshotVersion = versionPayload.version
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true
-          clearPollTimeout()
+          closeStream()
           redirectToLogin()
           return
         }
 
-        consecutiveFailureCount += 1
         console.error("Failed to refresh app snapshot", error)
       } finally {
         syncInFlight = false
@@ -155,16 +118,100 @@ function ConvexStateSync({
         if (syncQueued && !cancelled) {
           syncQueued = false
           void syncSnapshot()
-          return
-        }
-
-        if (!cancelled) {
-          scheduleNextPoll(getBackoffDelay())
         }
       }
     }
 
-    void syncSnapshot({ forceFull: true })
+    async function probeStreamSession() {
+      try {
+        await fetchSnapshotVersion()
+      } catch (error) {
+        if (error instanceof RouteMutationError && error.status === 401) {
+          cancelled = true
+          closeStream()
+          redirectToLogin()
+        }
+      }
+    }
+
+    function scheduleStreamReconnect() {
+      clearStreamReconnectTimeout()
+
+      if (cancelled || document.visibilityState !== "visible") {
+        return
+      }
+
+      streamReconnectTimeoutId = window.setTimeout(() => {
+        if (!cancelled && document.visibilityState === "visible") {
+          openStream()
+        }
+      }, streamReconnectDelay)
+
+      streamReconnectDelay = Math.min(
+        streamReconnectDelay * 2,
+        STREAM_RECONNECT_MAX_DELAY_MS
+      )
+    }
+
+    function handleSnapshotVersion(version: number) {
+      if (
+        appliedSnapshotVersion !== null &&
+        version <= appliedSnapshotVersion
+      ) {
+        return
+      }
+
+      void syncSnapshot()
+    }
+
+    function openStream() {
+      closeStream()
+
+      if (cancelled || document.visibilityState !== "visible") {
+        return
+      }
+
+      const nextStream = new EventSource("/api/snapshot/events")
+      stream = nextStream
+
+      const handleVersionEvent = (event: MessageEvent<string>) => {
+        if (stream !== nextStream) {
+          return
+        }
+
+        streamReconnectDelay = STREAM_RECONNECT_BASE_DELAY_MS
+
+        try {
+          const payload = JSON.parse(event.data) as {
+            version?: number
+          }
+
+          if (typeof payload.version === "number") {
+            handleSnapshotVersion(payload.version)
+          }
+        } catch (error) {
+          console.error("Failed to parse snapshot stream event", error)
+        }
+      }
+
+      nextStream.addEventListener("ready", handleVersionEvent)
+      nextStream.addEventListener("snapshot", handleVersionEvent)
+      nextStream.onerror = () => {
+        if (stream !== nextStream) {
+          return
+        }
+
+        closeStream()
+        void probeStreamSession()
+        scheduleStreamReconnect()
+      }
+    }
+
+    void syncSnapshot().then(() => {
+      if (!cancelled) {
+        openStream()
+      }
+    })
 
     const handleFocus = () => {
       void syncSnapshot()
@@ -172,11 +219,15 @@ function ConvexStateSync({
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void syncSnapshot()
+        openStream()
+        return
       }
+
+      closeStream()
     }
     const handleOnline = () => {
-      consecutiveFailureCount = 0
       void syncSnapshot()
+      openStream()
     }
 
     window.addEventListener("focus", handleFocus)
@@ -185,7 +236,7 @@ function ConvexStateSync({
 
     return () => {
       cancelled = true
-      clearPollTimeout()
+      closeStream()
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
