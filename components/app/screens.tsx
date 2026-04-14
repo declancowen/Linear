@@ -1472,9 +1472,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   return (
     <div className="flex h-[calc(100svh-3rem)] flex-col">
       {/* Breadcrumb header */}
-      <div className="flex shrink-0 items-center justify-between border-b px-6 py-2">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex items-center gap-2 text-sm">
-          <SidebarTrigger className="size-6 shrink-0" />
+          <SidebarTrigger className="size-5 shrink-0" />
           <Link
             href={`/team/${team?.slug}/work`}
             className="text-muted-foreground hover:text-foreground"
@@ -1980,9 +1980,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-[calc(100svh-3rem)] flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-6 py-2">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
-          <SidebarTrigger className="size-6 shrink-0" />
+          <SidebarTrigger className="size-5 shrink-0" />
           <Link
             href={backHref}
             className="text-muted-foreground transition-colors hover:text-foreground"
@@ -2306,7 +2306,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   return (
     <div className="flex h-[calc(100svh-3rem)] flex-col">
       {/* Breadcrumb header */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b px-4">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <SidebarTrigger className="size-5 shrink-0" />
           <Link
@@ -5882,7 +5882,7 @@ function CollectionDisplaySettingsPopover({
 }
 
 const SCREEN_HEADER_CLASS_NAME =
-  "flex min-h-10 items-center justify-between gap-2 border-b px-6 py-2"
+  "flex min-h-10 items-center justify-between gap-2 border-b px-4 py-2"
 
 function HeaderTitle({
   icon,
@@ -5893,7 +5893,7 @@ function HeaderTitle({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <SidebarTrigger className="size-6 shrink-0" />
+      <SidebarTrigger className="size-5 shrink-0" />
       {icon ? (
         <span className="shrink-0 text-muted-foreground">{icon}</span>
       ) : null}
