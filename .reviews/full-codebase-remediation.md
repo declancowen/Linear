@@ -44,11 +44,36 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-04-14 09:54 BST |
-| **Last reviewed** | 2026-04-14 10:39 BST |
-| **Total turns** | 5 |
+| **Last reviewed** | 2026-04-14 10:49 BST |
+| **Total turns** | 6 |
 | **Open findings** | 0 |
 | **Resolved findings** | 3 |
 | **Accepted findings** | 0 |
+
+---
+
+## Turn 6 — 2026-04-14 10:49 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `bfcb098` |
+| **IDE / Agent** | `zsh / Codex` |
+
+**Summary:** Addressed another round of PR feedback that surfaced one real desktop lifecycle bug and a few smaller hardening/type-safety issues. The Electron packaged server is now reused across macOS re-activation, snapshot requests fail closed when the authenticated user cannot be resolved, the server-token check no longer uses a simple early-exit comparison, and the vestigial `fetchSnapshot(email)` API is gone.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved from Turn 5 | 0 |
+| Carried from Turn 5 | 0 |
+| Accepted | 0 |
+
+### Recommendations
+
+1. **Fix first:** No new static blockers remain from this review round.
+2. **Then address:** Leave the polling-load and ephemeral-port TOCTOU notes as documented operational observations unless runtime evidence shows they are causing real problems.
+3. **Patterns noticed:** The remaining issues are mostly around fail-closed behavior and desktop lifecycle handling rather than authz logic.
+4. **Suggested approach:** Push the latest follow-up commit to the PR once you are ready, then keep runtime verification as the remaining merge gate.
 
 ---
 

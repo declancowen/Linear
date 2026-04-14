@@ -47,7 +47,7 @@ export type StartConversationCallResult = {
   joinHref: string
 }
 
-export async function fetchSnapshot(_email?: string) {
+export async function fetchSnapshot() {
   if (typeof window === "undefined") {
     return null
   }

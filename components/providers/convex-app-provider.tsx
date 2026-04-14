@@ -50,7 +50,7 @@ function ConvexStateSync({
       syncInFlight = true
 
       try {
-        const snapshot = await fetchSnapshot(authenticatedUser?.email)
+        const snapshot = await fetchSnapshot()
 
         if (!snapshot || cancelled) {
           return

@@ -16,6 +16,7 @@ import {
   canParentWorkItemTypeAcceptChild,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  getAllowedTemplateTypesForTeamExperience,
   getAllowedWorkItemTypesForTemplate,
   getDefaultWorkItemTypesForTeamExperience,
   getTeamFeatureValidationMessage,
@@ -77,8 +78,19 @@ function getServerToken() {
   return token
 }
 
+function constantTimeEqual(left: string, right: string) {
+  const maxLength = Math.max(left.length, right.length)
+  let diff = left.length ^ right.length
+
+  for (let index = 0; index < maxLength; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index)
+  }
+
+  return diff === 0
+}
+
 function assertServerToken(serverToken: string) {
-  if (serverToken !== getServerToken()) {
+  if (!constantTimeEqual(serverToken, getServerToken())) {
     throw new Error("Unauthorized")
   }
 }
@@ -2143,18 +2155,18 @@ export const getSnapshot = query({
   },
   handler: async (ctx, args) => {
     const authenticatedUser = await resolveUserFromServerArgs(ctx, args)
+
+    if (!authenticatedUser) {
+      throw new Error("Authenticated user not found")
+    }
+
     const config = await getAppConfig(ctx)
     const workspaces = await ctx.db.query("workspaces").collect()
     const teams = await ctx.db.query("teams").collect()
     const teamMemberships = await ctx.db.query("teamMemberships").collect()
     const users = await ctx.db.query("users").collect()
-    const firstUser = users[0]
-    const currentUserId =
-      authenticatedUser?.id ?? config?.currentUserId ?? firstUser?.id ?? ""
-    const currentUserEmail =
-      authenticatedUser?.email ??
-      users.find((user) => user.id === currentUserId)?.email ??
-      ""
+    const currentUserId = authenticatedUser.id
+    const currentUserEmail = authenticatedUser.email
     const accessibleMemberships = teamMemberships.filter(
       (membership) => membership.userId === currentUserId
     )
@@ -4696,6 +4708,15 @@ export const createProject = mutation({
             | "community"
         } | null
       )?.experience ?? "software-development"
+
+    if (
+      !getAllowedTemplateTypesForTeamExperience(settingsTeamExperience).includes(
+        args.templateType
+      )
+    ) {
+      throw new Error("Project template is not allowed for this team")
+    }
+
     const workflow = normalizeTeamWorkflowSettings(
       settingsTeam?.settings.workflow,
       settingsTeamExperience

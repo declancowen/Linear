@@ -67,6 +67,7 @@ import {
   commentSchema,
   createDefaultTeamWorkflowSettings,
   documentSchema,
+  getAllowedTemplateTypesForTeamExperience,
   getAllowedWorkItemTypesForTemplate,
   getDefaultWorkItemTypesForTeamExperience,
   inviteSchema,
@@ -353,11 +354,7 @@ const queuedRichTextSyncs = new Map<string, QueuedSyncEntry>()
 
 async function handleSyncFailure(error: unknown, fallbackMessage: string) {
   console.error(error)
-  const state = useAppStore.getState()
-  const currentUserEmail = state.users.find(
-    (user) => user.id === state.currentUserId
-  )?.email
-  const snapshot = await fetchSnapshot(currentUserEmail)
+  const snapshot = await fetchSnapshot()
 
   if (snapshot) {
     useAppStore.getState().replaceDomainData(snapshot)
@@ -517,19 +514,28 @@ function getProjectCreationValidationMessage(
   state: AppData,
   input: CreateProjectInput
 ) {
-  if (input.scopeType !== "team") {
+  const settingsTeamId =
+    input.settingsTeamId ?? (input.scopeType === "team" ? input.scopeId : null)
+
+  if (!settingsTeamId) {
     return null
   }
 
-  const team = state.teams.find((entry) => entry.id === input.scopeId)
+  const team = state.teams.find((entry) => entry.id === settingsTeamId)
 
   if (!team) {
-    return "Team not found"
+    return input.scopeType === "team" ? "Team not found" : "Settings team not found"
   }
 
-  return getTeamFeatureSettings(team).projects
+  if (!getTeamFeatureSettings(team).projects) {
+    return "Projects are disabled for this team"
+  }
+
+  return getAllowedTemplateTypesForTeamExperience(team.settings.experience).includes(
+    input.templateType
+  )
     ? null
-    : "Projects are disabled for this team"
+    : "Project template is not allowed for this team"
 }
 
 function getDocumentCreationValidationMessage(
@@ -961,11 +967,7 @@ function getTeamDetailsDisableMessage(
 }
 
 async function refreshFromServer() {
-  const state = useAppStore.getState()
-  const currentUserEmail = state.users.find(
-    (user) => user.id === state.currentUserId
-  )?.email
-  const snapshot = await fetchSnapshot(currentUserEmail)
+  const snapshot = await fetchSnapshot()
 
   if (snapshot) {
     useAppStore.getState().replaceDomainData(snapshot)
@@ -1215,11 +1217,7 @@ export const useAppStore = create<AppStore>()(
         } catch (error) {
           console.error(error)
 
-          const currentState = useAppStore.getState()
-          const currentUserEmail = currentState.users.find(
-            (user) => user.id === currentState.currentUserId
-          )?.email
-          const snapshot = await fetchSnapshot(currentUserEmail)
+          const snapshot = await fetchSnapshot()
 
           if (snapshot) {
             useAppStore.getState().replaceDomainData(snapshot)

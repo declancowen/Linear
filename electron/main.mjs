@@ -11,6 +11,7 @@ const isDev = !app.isPackaged
 const localServerUrl = process.env.NEXT_DEV_SERVER_URL ?? "http://127.0.0.1:3000"
 
 let nextServerProcess = null
+let nextServerUrl = null
 
 function resolveDesktopIcon() {
   const iconPath = path.join(__dirname, "app-icon.png")
@@ -107,12 +108,27 @@ async function resolveRendererUrl() {
     return localServerUrl
   }
 
+  if (
+    nextServerProcess &&
+    nextServerProcess.exitCode === null &&
+    !nextServerProcess.killed &&
+    nextServerUrl
+  ) {
+    try {
+      await waitForUrl(nextServerUrl, 5000)
+      return nextServerUrl
+    } catch {
+      nextServerProcess.kill()
+      nextServerProcess = null
+      nextServerUrl = null
+    }
+  }
+
   const appPath = app.getAppPath()
   const standaloneServer = path.join(appPath, ".next", "standalone", "server.js")
   const port = await findAvailablePort()
   const rendererUrl = `http://127.0.0.1:${port}`
-
-  nextServerProcess = spawn(process.execPath, [standaloneServer], {
+  const serverProcess = spawn(process.execPath, [standaloneServer], {
     cwd: appPath,
     env: {
       ...process.env,
@@ -123,6 +139,16 @@ async function resolveRendererUrl() {
     stdio: "inherit",
     windowsHide: true,
   })
+
+  serverProcess.once("exit", () => {
+    if (nextServerProcess === serverProcess) {
+      nextServerProcess = null
+      nextServerUrl = null
+    }
+  })
+
+  nextServerProcess = serverProcess
+  nextServerUrl = rendererUrl
 
   await waitForUrl(rendererUrl, 60000)
 
