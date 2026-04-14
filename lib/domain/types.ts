@@ -537,20 +537,21 @@ export const templateMeta: Record<
   }
 > = {
   "software-delivery": {
-    label: "Software Delivery",
-    description: "Epics, features, requirements, tasks, and bugs.",
+    label: "Software Development",
+    description:
+      "Epics, features, requirements, tasks, and issues for product and software delivery.",
     icon: "code",
     itemTypes: ["epic", "feature", "requirement", "task", "bug", "sub-task"],
   },
   "bug-tracking": {
-    label: "Bug Tracking / QA",
-    description: "Bugs, QA tasks, and test cases.",
+    label: "Issue Tracking",
+    description: "Issues and sub-issues for triage, regression, and follow-up.",
     icon: "qa",
-    itemTypes: ["bug", "qa-task", "test-case", "sub-task"],
+    itemTypes: ["bug", "sub-task"],
   },
   "project-management": {
     label: "Project Management",
-    description: "Tasks and sub-tasks with milestones.",
+    description: "Tasks and sub-tasks for planning, coordination, and delivery.",
     icon: "kanban",
     itemTypes: ["task", "sub-task"],
   },
@@ -596,6 +597,26 @@ export function getDefaultTemplateTypeForTeamExperience(
   return "software-delivery"
 }
 
+export function getAllowedTemplateTypesForTeamExperience(
+  experience: TeamExperienceType | null | undefined
+): TemplateType[] {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (resolvedExperience === "issue-analysis") {
+    return ["bug-tracking"]
+  }
+
+  if (resolvedExperience === "project-management") {
+    return ["project-management"]
+  }
+
+  if (resolvedExperience === "community") {
+    return []
+  }
+
+  return ["software-delivery"]
+}
+
 export const teamIconMeta: Record<
   TeamIconToken,
   {
@@ -612,8 +633,8 @@ export const teamIconMeta: Record<
     description: "Platform, implementation, and code-centric delivery.",
   },
   qa: {
-    label: "Quality Assurance",
-    description: "Bug triage, verification, and testing-focused work.",
+    label: "Issue Tracking",
+    description: "Issue triage, regression tracking, and follow-up work.",
   },
   kanban: {
     label: "Project Management",
@@ -689,17 +710,17 @@ export const teamExperienceMeta: Record<
   "software-development": {
     label: "Software Development",
     description:
-      "Issues, projects, and views are always enabled. Docs, chat, and channel are optional.",
+      "Project management for software and product development using epics, features, requirements, tasks, and issues. Issues, projects, and views are always enabled. Docs, chat, and channel are optional.",
   },
   "issue-analysis": {
-    label: "Quality Assurance",
+    label: "Issue Tracking",
     description:
-      "Bug triage, QA verification, and issue analysis. Issues, projects, and views stay on; docs, chat, and channel are optional.",
+      "Issue tracker model with issues and sub-issues for defects, regressions, and follow-up. Issues, projects, and views stay on; docs, chat, and channel are optional.",
   },
   "project-management": {
     label: "Project Management",
     description:
-      "Planning, coordination, milestones, and delivery follow-through. Issues, projects, and views stay on; docs, chat, and channel are optional.",
+      "General project management with tasks and sub-tasks for planning, coordination, and execution. Issues, projects, and views stay on; docs, chat, and channel are optional.",
   },
   community: {
     label: "Community",
@@ -787,7 +808,7 @@ export function getTeamFeatureValidationMessage(
   }
 
   if (!features.issues || !features.projects || !features.views) {
-    return "Software development, quality assurance, and project management teams must include issues, projects, and views."
+    return "Software development, issue tracking, and project management teams must include issues, projects, and views."
   }
 
   return null
@@ -843,9 +864,9 @@ export function createDefaultTeamWorkflowSettings(
         defaultPriority: "high",
         targetWindowDays: 14,
         defaultViewLayout: "list",
-        recommendedItemTypes: ["bug", "qa-task", "test-case", "sub-task"],
+        recommendedItemTypes: ["bug", "sub-task"],
         summaryHint:
-          "QA-driven stabilization plan focused on defects, verification, and regression control.",
+          "Issue tracker focused on triage, follow-up, and regression control.",
       },
       "project-management": {
         defaultPriority: "medium",
@@ -865,7 +886,7 @@ export function createDefaultTeamWorkflowSettings(
       targetWindowDays: 10,
       defaultViewLayout: "list",
       summaryHint:
-        "QA backlog focused on defects, verification steps, and regression control.",
+        "Issue backlog focused on triage, follow-up, and regression control.",
     }
   }
 
@@ -917,6 +938,77 @@ export const workItemTypeMeta: Record<WorkItemType, { label: string }> = {
   "sub-task": { label: "Sub-task" },
   "qa-task": { label: "QA Task" },
   "test-case": { label: "Test Case" },
+}
+
+export function getDisplayLabelForWorkItemType(
+  itemType: WorkItemType,
+  experience: TeamExperienceType | null | undefined
+) {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (itemType === "bug") {
+    if (
+      resolvedExperience === "software-development" ||
+      resolvedExperience === "issue-analysis"
+    ) {
+      return "Issue"
+    }
+  }
+
+  if (itemType === "sub-task" && resolvedExperience === "issue-analysis") {
+    return "Sub-issue"
+  }
+
+  return workItemTypeMeta[itemType].label
+}
+
+export function getWorkSurfaceCopy(
+  experience: TeamExperienceType | null | undefined
+) {
+  const resolvedExperience = experience ?? "software-development"
+
+  if (resolvedExperience === "issue-analysis") {
+    return {
+      surfaceLabel: "Issues",
+      emptyLabel: "No issues yet",
+      disabledLabel: "Issues are disabled for this team",
+      singularLabel: "issue",
+      parentLabel: "Parent issue",
+      childPluralLabel: "Sub-issues",
+      addChildLabel: "Add sub-issue",
+      createLabel: "New issue",
+      createChildLabel: "New sub-issue",
+      titlePlaceholder: "Issue title",
+    }
+  }
+
+  if (resolvedExperience === "project-management") {
+    return {
+      surfaceLabel: "Tasks",
+      emptyLabel: "No tasks yet",
+      disabledLabel: "Tasks are disabled for this team",
+      singularLabel: "task",
+      parentLabel: "Parent task",
+      childPluralLabel: "Sub-tasks",
+      addChildLabel: "Add sub-task",
+      createLabel: "New task",
+      createChildLabel: "New sub-task",
+      titlePlaceholder: "Task title",
+    }
+  }
+
+  return {
+    surfaceLabel: "Work",
+    emptyLabel: "No work items yet",
+    disabledLabel: "Work is disabled for this team",
+    singularLabel: "work item",
+    parentLabel: "Parent item",
+    childPluralLabel: "Child items",
+    addChildLabel: "Add child item",
+    createLabel: "New work item",
+    createChildLabel: "New child item",
+    titlePlaceholder: "Work item title",
+  }
 }
 
 export const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {

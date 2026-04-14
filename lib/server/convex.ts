@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
 const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
+let convexServerClient: ConvexHttpClient | null = null
 
 function getServerToken() {
   const serverToken = process.env.CONVEX_SERVER_TOKEN?.trim()
@@ -28,7 +29,11 @@ function getConvexServerClient() {
     throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
   }
 
-  return new ConvexHttpClient(convexUrl)
+  if (!convexServerClient) {
+    convexServerClient = new ConvexHttpClient(convexUrl)
+  }
+
+  return convexServerClient
 }
 
 export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {

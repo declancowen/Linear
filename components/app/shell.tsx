@@ -40,6 +40,7 @@ import {
 import {
   createDefaultTeamFeatureSettings,
   getDefaultTeamIconForExperience,
+  getWorkSurfaceCopy,
   normalizeTeamIconToken,
   type Role,
   type TeamFeatureSettings,
@@ -549,7 +550,13 @@ export function AppShell({ children }: AppShellProps) {
                                 >
                                   <Link href={`/team/${team.slug}/work`}>
                                     <CodesandboxLogo className="size-4" />
-                                    <span>Issues</span>
+                                    <span>
+                                      {
+                                        getWorkSurfaceCopy(
+                                          team.settings.experience
+                                        ).surfaceLabel
+                                      }
+                                    </span>
                                   </Link>
                                 </SidebarMenuSubButton>
                               </SidebarMenuSubItem>
@@ -1233,7 +1240,7 @@ function TeamEditorFields({
           </h3>
           <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
             <p>
-              Software development, quality assurance, and project management
+              Software development, issue tracking, and project management
               teams always keep issues, projects, and views enabled.
             </p>
             <p>

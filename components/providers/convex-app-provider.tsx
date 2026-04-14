@@ -3,7 +3,11 @@
 import { useEffect, useEffectEvent } from "react"
 import { useTheme } from "next-themes"
 
-import { fetchSnapshot } from "@/lib/convex/client"
+import {
+  fetchSnapshot,
+  RouteMutationError,
+} from "@/lib/convex/client"
+import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
 import type { AppSnapshot } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
@@ -30,6 +34,18 @@ function ConvexStateSync({
     if (currentUser?.preferences.theme) {
       setTheme(currentUser.preferences.theme)
     }
+  })
+  const redirectToLogin = useEffectEvent(() => {
+    const nextPath = normalizeAuthNextPath(
+      `${window.location.pathname}${window.location.search}${window.location.hash}`
+    )
+
+    window.location.assign(
+      buildAuthPageHref("login", {
+        nextPath,
+        notice: "Your session expired. Sign in again to continue.",
+      })
+    )
   })
 
   useEffect(() => {
@@ -58,6 +74,12 @@ function ConvexStateSync({
 
         applySnapshot(snapshot)
       } catch (error) {
+        if (error instanceof RouteMutationError && error.status === 401) {
+          cancelled = true
+          redirectToLogin()
+          return
+        }
+
         console.error("Failed to refresh app snapshot", error)
       } finally {
         syncInFlight = false

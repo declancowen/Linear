@@ -647,7 +647,14 @@ function TeamEditorFields({
         )}
       </SettingsSection>
 
-      <SettingsSection title="Surfaces" description={experience === "community" ? "Community spaces use one mode at a time." : "Software teams always keep issues, projects, and views."}>
+      <SettingsSection
+        title="Surfaces"
+        description={
+          experience === "community"
+            ? "Community spaces use one mode at a time."
+            : "Software development, issue tracking, and project management teams always keep issues, projects, and views."
+        }
+      >
         {experience === "community" ? (
           <>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -1721,42 +1728,13 @@ export function CreateTeamScreen() {
         </Card>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <Card className="shadow-none">
-          <CardContent className="pt-6">
-            <TeamEditorFields
-              canChangeExperience
-              disabled={!canCreateTeam}
-              experience={experience}
-              features={features}
-              icon={icon}
-              joinCode=""
-              joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
-              name={name}
-              savedFeatures={features}
-              setFeatures={setFeatures}
-              setIcon={(value) =>
-                setIcon(normalizeTeamIconToken(value, experience))
-              }
-              setName={setName}
-              setSummary={setSummary}
-              summary={summary}
-              surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
-              onExperienceChange={(nextExperience) => {
-                setExperience(nextExperience)
-                setIcon(getDefaultTeamIconForExperience(nextExperience))
-                setFeatures(createDefaultTeamFeatureSettings(nextExperience))
-              }}
-            />
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
+      <div className="space-y-6">
+        <div className="max-w-xl">
           <SummaryCard
             description="Team creation now uses the same container as projects, docs, and channels so setup never hides the rest of the workspace."
             eyebrow="Workspace"
             notes={[
-              "Team type still controls which collaboration surfaces are available.",
+              "Team type controls the default work model, while collaboration surfaces stay configurable.",
               "The join code is created automatically after the team is saved.",
               "You land directly in the new team after creation.",
             ]}
@@ -1769,6 +1747,33 @@ export function CreateTeamScreen() {
               </div>
             }
             title={name || "New team"}
+          />
+        </div>
+
+        <div>
+          <TeamEditorFields
+            canChangeExperience
+            disabled={!canCreateTeam}
+            experience={experience}
+            features={features}
+            icon={icon}
+            joinCode=""
+            joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
+            name={name}
+            savedFeatures={features}
+            setFeatures={setFeatures}
+            setIcon={(value) =>
+              setIcon(normalizeTeamIconToken(value, experience))
+            }
+            setName={setName}
+            setSummary={setSummary}
+            summary={summary}
+            surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
+            onExperienceChange={(nextExperience) => {
+              setExperience(nextExperience)
+              setIcon(getDefaultTeamIconForExperience(nextExperience))
+              setFeatures(createDefaultTeamFeatureSettings(nextExperience))
+            }}
           />
         </div>
       </div>

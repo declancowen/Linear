@@ -36,20 +36,21 @@ const teamPresets: Array<{
 }> = [
   {
     id: "software-development",
-    label: "Product development",
-    description: "Epics, features, requirements, delivery, and roadmap work.",
+    label: "Software development",
+    description:
+      "Epics, features, requirements, and delivery planning for product and engineering.",
     experience: "software-development",
   },
   {
     id: "issue-analysis",
-    label: "QA",
-    description: "Validation, regression passes, bug triage, and release checks.",
+    label: "Issue tracking",
+    description: "Issues, sub-issues, triage, and regression follow-up.",
     experience: "issue-analysis",
   },
   {
     id: "project-management",
-    label: "Project",
-    description: "Planning, delivery coordination, and cross-functional execution.",
+    label: "Project management",
+    description: "Tasks, sub-tasks, planning, and cross-functional execution.",
     experience: "project-management",
   },
   {
@@ -156,7 +157,7 @@ export function OnboardingTeamForm({
                 id="team-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Product development"
+                placeholder="Software development"
               />
             </FieldContent>
           </Field>

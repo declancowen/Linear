@@ -20,11 +20,11 @@ import type {
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  getDisplayLabelForWorkItemType,
   normalizeTeamFeatureSettings,
   priorityMeta,
   statusMeta,
   templateMeta,
-  workItemTypeMeta,
   workStatuses,
 } from "@/lib/domain/types"
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
@@ -1070,26 +1070,30 @@ export function searchWorkspace(data: AppData, query: string) {
       status: null,
       priority: null,
     })),
-    ...items.map((item) => ({
-      id: `item-${item.id}`,
-      kind: "item" as const,
-      title: `${item.key} · ${item.title}`,
-      subtitle: `${statusMeta[item.status].label} · ${getTeam(data, item.teamId)?.name ?? "Team"} · ${workItemTypeMeta[item.type].label}`,
-      href: `/items/${item.id}`,
-      keywords: [
-        item.id,
-        item.key,
-        item.title,
-        item.type,
-        item.status,
-        getTeam(data, item.teamId)?.slug ?? "",
-        getProject(data, item.primaryProjectId)?.name ?? "",
-        getUser(data, item.assigneeId)?.name ?? "",
-      ],
-      teamId: item.teamId,
-      status: item.status,
-      priority: item.priority,
-    })),
+    ...items.map((item) => {
+      const team = getTeam(data, item.teamId)
+
+      return {
+        id: `item-${item.id}`,
+        kind: "item" as const,
+        title: `${item.key} · ${item.title}`,
+        subtitle: `${statusMeta[item.status].label} · ${team?.name ?? "Team"} · ${getDisplayLabelForWorkItemType(item.type, team?.settings.experience)}`,
+        href: `/items/${item.id}`,
+        keywords: [
+          item.id,
+          item.key,
+          item.title,
+          item.type,
+          item.status,
+          team?.slug ?? "",
+          getProject(data, item.primaryProjectId)?.name ?? "",
+          getUser(data, item.assigneeId)?.name ?? "",
+        ],
+        teamId: item.teamId,
+        status: item.status,
+        priority: item.priority,
+      }
+    }),
   ]
 
   return results.filter((result) => {

@@ -33,13 +33,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import {
   createDefaultTeamWorkflowSettings,
+  getDisplayLabelForWorkItemType,
+  getAllowedTemplateTypesForTeamExperience,
   getDefaultTemplateTypeForTeamExperience,
   priorityMeta,
   statusMeta,
   templateMeta,
   type TeamWorkflowSettings,
   type ViewLayout,
-  workItemTypeMeta,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 
@@ -131,9 +132,16 @@ export function TeamWorkflowSettingsDialog({
 }) {
   const team = useAppStore((state) => state.teams.find((entry) => entry.id === teamId) ?? null)
   const teamExperience = team?.settings.experience ?? "software-development"
+  const availableTemplateTypes = [
+    ...getAllowedTemplateTypesForTeamExperience(teamExperience),
+  ]
   const [activeTemplate, setActiveTemplate] = useState<
     keyof TeamWorkflowSettings["templateDefaults"]
-  >(() => getDefaultTemplateTypeForTeamExperience(teamExperience))
+  >(
+    () =>
+      availableTemplateTypes[0] ??
+      getDefaultTemplateTypeForTeamExperience(teamExperience)
+  )
   const [workflow, setWorkflow] = useState<TeamWorkflowSettings>(() =>
     cloneWorkflowSettings(team?.settings.workflow, teamExperience)
   )
@@ -243,9 +251,9 @@ export function TeamWorkflowSettingsDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {Object.entries(templateMeta).map(([value, meta]) => (
+                      {availableTemplateTypes.map((value) => (
                         <SelectItem key={value} value={value}>
-                          {meta.label}
+                          {templateMeta[value].label}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -358,7 +366,7 @@ export function TeamWorkflowSettingsDialog({
                       variant="secondary"
                       className="text-xs font-normal"
                     >
-                      {workItemTypeMeta[itemType].label}
+                      {getDisplayLabelForWorkItemType(itemType, teamExperience)}
                     </Badge>
                   ))}
                 </div>

@@ -21,6 +21,16 @@ import type {
 export const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? ""
 export const hasConvex = convexUrl.length > 0
 
+export class RouteMutationError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "RouteMutationError"
+    this.status = status
+  }
+}
+
 async function runRouteMutation<T>(
   input: RequestInfo | URL,
   init: RequestInit
@@ -35,7 +45,10 @@ async function runRouteMutation<T>(
   } | null
 
   if (!response.ok) {
-    throw new Error(payload?.error ?? "Request failed")
+    throw new RouteMutationError(
+      payload?.error ?? "Request failed",
+      response.status
+    )
   }
 
   return payload as T
