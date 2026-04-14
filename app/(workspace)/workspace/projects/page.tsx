@@ -9,7 +9,11 @@ export default function WorkspaceProjectsPage() {
   const workspace = getCurrentWorkspace(data)
 
   if (!workspace) {
-    return null
+    return (
+      <div className="flex min-h-[320px] items-center justify-center text-sm text-muted-foreground">
+        Loading workspace projects...
+      </div>
+    )
   }
 
   return (

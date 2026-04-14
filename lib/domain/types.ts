@@ -45,7 +45,7 @@ export const workItemTypes = [
 ] as const
 export type WorkItemType = (typeof workItemTypes)[number]
 
-export const legacyWorkItemTypes = ["bug", "qa-task", "test-case"] as const
+export const legacyWorkItemTypes = ["bug"] as const
 export type LegacyWorkItemType = (typeof legacyWorkItemTypes)[number]
 export type StoredWorkItemType = WorkItemType | LegacyWorkItemType
 
@@ -1078,13 +1078,7 @@ export function normalizeStoredWorkItemType(
   const hasParent = Boolean(options?.parentId)
 
   if (resolvedExperience === "issue-analysis") {
-    if (
-      hasParent ||
-      itemType === "sub-task" ||
-      itemType === "sub-issue" ||
-      itemType === "qa-task" ||
-      itemType === "test-case"
-    ) {
+    if (hasParent || itemType === "sub-task" || itemType === "sub-issue") {
       return "sub-issue"
     }
 
@@ -1092,13 +1086,7 @@ export function normalizeStoredWorkItemType(
   }
 
   if (resolvedExperience === "project-management") {
-    if (
-      hasParent ||
-      itemType === "sub-task" ||
-      itemType === "sub-issue" ||
-      itemType === "qa-task" ||
-      itemType === "test-case"
-    ) {
+    if (hasParent || itemType === "sub-task" || itemType === "sub-issue") {
       return "sub-task"
     }
 
@@ -1107,22 +1095,6 @@ export function normalizeStoredWorkItemType(
 
   if (itemType === "bug") {
     return "issue"
-  }
-
-  if (itemType === "task") {
-    return "story"
-  }
-
-  if (itemType === "sub-issue") {
-    return "issue"
-  }
-
-  if (itemType === "sub-task") {
-    return "story"
-  }
-
-  if (itemType === "qa-task" || itemType === "test-case") {
-    return "story"
   }
 
   return itemType
@@ -1140,7 +1112,7 @@ export function normalizeStoredWorkflowItemTypes(
 
   itemTypes.forEach((itemType) => {
     const normalized = normalizeStoredWorkItemType(itemType, experience, {
-      parentId: itemType === "qa-task" || itemType === "test-case" ? "legacy" : null,
+      parentId: null,
     })
 
     if (allowedItemTypes.has(normalized)) {
@@ -1164,32 +1136,7 @@ export function normalizeStoredViewItemTypes(
         return
       }
 
-      if (itemType === "task") {
-        normalizedItemTypes.add("story")
-        normalizedItemTypes.add("task")
-        return
-      }
-
-      if (itemType === "sub-task") {
-        normalizedItemTypes.add("story")
-        normalizedItemTypes.add("sub-task")
-        return
-      }
-
-      if (itemType === "qa-task" || itemType === "test-case") {
-        normalizedItemTypes.add("story")
-        normalizedItemTypes.add("sub-issue")
-        return
-      }
-
       normalizedItemTypes.add(itemType)
-      return
-    }
-
-    if (itemType === "qa-task" || itemType === "test-case") {
-      normalizedItemTypes.add(
-        experience === "issue-analysis" ? "sub-issue" : "story"
-      )
       return
     }
 

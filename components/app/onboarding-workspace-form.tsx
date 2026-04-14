@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { fetchSnapshotState } from "@/lib/convex/client"
+import { useAppStore } from "@/lib/store/app-store"
 
 const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
 const DEFAULT_AVATAR_SIZE = 56
@@ -195,7 +197,22 @@ export function OnboardingWorkspaceForm() {
       }
 
       toast.success("Workspace created")
-      router.replace("/workspace/projects")
+      try {
+        const snapshotState = await fetchSnapshotState()
+
+        if (snapshotState) {
+          useAppStore.getState().replaceDomainData(snapshotState.snapshot)
+          router.replace("/workspace/projects")
+          return
+        }
+      } catch (error) {
+        console.error(
+          "Failed to refresh app snapshot after workspace creation",
+          error
+        )
+      }
+
+      window.location.replace("/workspace/projects")
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to create workspace"

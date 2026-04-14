@@ -36,11 +36,7 @@ const workItemTypeLiterals = [
   v.literal("sub-issue"),
 ] as const
 
-const legacyWorkItemTypeLiterals = [
-  v.literal("bug"),
-  v.literal("qa-task"),
-  v.literal("test-case"),
-] as const
+const legacyWorkItemTypeLiterals = [v.literal("bug")] as const
 
 const workStatusLiterals = [
   v.literal("backlog"),
