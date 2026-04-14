@@ -62,7 +62,10 @@ export async function getSnapshotServer(input?: {
 }
 
 export async function getInviteByTokenServer(token: string) {
-  return getConvexServerClient().query(api.app.getInviteByToken, { token })
+  return getConvexServerClient().query(
+    api.app.getInviteByToken,
+    withServerToken({ token })
+  )
 }
 
 export async function createWorkspaceServer(input: {
@@ -79,7 +82,10 @@ export async function createWorkspaceServer(input: {
 }
 
 export async function lookupTeamByJoinCodeServer(code: string) {
-  return getConvexServerClient().query(api.app.lookupTeamByJoinCode, { code })
+  return getConvexServerClient().query(
+    api.app.lookupTeamByJoinCode,
+    withServerToken({ code })
+  )
 }
 
 export async function listWorkspacesForSyncServer() {

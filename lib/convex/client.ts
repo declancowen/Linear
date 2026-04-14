@@ -3,6 +3,7 @@
 import type {
   Call,
   ChatMessage,
+  AppSnapshot,
   AttachmentTargetType,
   DisplayProperty,
   GroupField,
@@ -51,7 +52,7 @@ export async function fetchSnapshot(_email?: string) {
     return null
   }
 
-  return runRouteMutation("/api/snapshot", {
+  return runRouteMutation<AppSnapshot>("/api/snapshot", {
     method: "GET",
     headers: {
       "Content-Type": "application/json",

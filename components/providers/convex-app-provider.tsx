@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useEffectEvent } from "react"
 import { useTheme } from "next-themes"
 
 import { fetchSnapshot } from "@/lib/convex/client"
+import type { AppSnapshot } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -20,6 +21,16 @@ function ConvexStateSync({
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
   const { setTheme } = useTheme()
+  const applySnapshot = useEffectEvent((snapshot: AppSnapshot) => {
+    replaceDomainData(snapshot)
+    const currentUser = snapshot.users.find(
+      (user) => user.id === snapshot.currentUserId
+    )
+
+    if (currentUser?.preferences.theme) {
+      setTheme(currentUser.preferences.theme)
+    }
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -45,14 +56,7 @@ function ConvexStateSync({
           return
         }
 
-        replaceDomainData(snapshot)
-        const currentUser = snapshot.users.find(
-          (user) => user.id === snapshot.currentUserId
-        )
-
-        if (currentUser?.preferences.theme) {
-          setTheme(currentUser.preferences.theme)
-        }
+        applySnapshot(snapshot)
       } catch (error) {
         console.error("Failed to refresh app snapshot", error)
       } finally {
@@ -95,7 +99,7 @@ function ConvexStateSync({
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [authenticatedUser?.email, replaceDomainData, setTheme])
+  }, [authenticatedUser?.email])
 
   return <>{children}</>
 }

@@ -2654,9 +2654,11 @@ export const bootstrapWorkspaceUser = mutation({
 
 export const getInviteByToken = query({
   args: {
+    ...serverAccessArgs,
     token: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const invite = await getInviteByTokenDoc(ctx, args.token)
 
     if (!invite) {
@@ -2699,9 +2701,11 @@ export const getInviteByToken = query({
 
 export const lookupTeamByJoinCode = query({
   args: {
+    ...serverAccessArgs,
     code: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
     const teams = await ctx.db.query("teams").collect()
     const team = teams.find((entry) =>
       matchesTeamAccessIdentifier(entry, args.code)

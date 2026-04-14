@@ -44,11 +44,36 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-04-14 09:54 BST |
-| **Last reviewed** | 2026-04-14 10:28 BST |
-| **Total turns** | 4 |
+| **Last reviewed** | 2026-04-14 10:39 BST |
+| **Total turns** | 5 |
 | **Open findings** | 0 |
 | **Resolved findings** | 3 |
 | **Accepted findings** | 0 |
+
+---
+
+## Turn 5 — 2026-04-14 10:39 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `74fceec` |
+| **IDE / Agent** | `zsh / Codex` |
+
+**Summary:** Applied a final follow-up hardening pass from PR feedback. Snapshot fetching now preserves `AppSnapshot` typing, invite/join-code Convex lookups are server-token protected too, and the provider effect no longer depends on `setTheme` reference stability.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved from Turn 4 | 0 |
+| Carried from Turn 4 | 0 |
+| Accepted | 0 |
+
+### Recommendations
+
+1. **Fix first:** No open static review findings remain.
+2. **Then address:** Run runtime verification when toolchain access is available, then update the PR branch with these follow-up fixes.
+3. **Patterns noticed:** The remaining useful review feedback was type-safety and hardening cleanup rather than functional regressions.
+4. **Suggested approach:** Treat this as the final static pass; the next action is to push the latest commit to the open PR after runtime checks or with explicit acceptance of the pending runtime gap.
 
 ---
 
