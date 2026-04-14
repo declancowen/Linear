@@ -26,6 +26,7 @@ import {
   ColumnsPlusRight,
   Code,
   FileArrowUp,
+  FrameCorners,
   Highlighter,
   ImageSquare,
   Lightning,
@@ -58,6 +59,13 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 
@@ -83,6 +91,8 @@ type RichTextEditorProps = {
     Pick<UserProfile, "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl">
   >
 }
+
+type FullPageCanvasWidth = "narrow" | "medium" | "wide"
 
 type MenuState = {
   from: number
@@ -113,6 +123,12 @@ const DEFAULT_TABLE_OPTIONS = {
 } as const
 
 const EMPTY_MENTION_CANDIDATES: MentionCandidate[] = []
+const FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY = "linear.document-canvas-width"
+const FULL_PAGE_CANVAS_WIDTH_CLASSNAME: Record<FullPageCanvasWidth, string> = {
+  narrow: "max-w-none md:w-[55%]",
+  medium: "max-w-none md:w-[75%]",
+  wide: "max-w-none md:w-[95%]",
+}
 
 function insertDefaultTable(editor: Editor) {
   editor.chain().focus().insertTable(DEFAULT_TABLE_OPTIONS).run()
@@ -311,6 +327,10 @@ export function RichTextEditor({
     number | null
   >(null)
   const [containerWidth, setContainerWidth] = useState(256)
+  const [fullPageCanvasWidth, setFullPageCanvasWidth] =
+    useState<FullPageCanvasWidth>("narrow")
+  const [fullPageCanvasWidthReady, setFullPageCanvasWidthReady] =
+    useState(false)
 
   useEffect(() => {
     const container = containerRef.current
@@ -339,6 +359,37 @@ export function RichTextEditor({
       resizeObserver.disconnect()
     }
   }, [fullPage])
+
+  useEffect(() => {
+    if (!fullPage) {
+      return
+    }
+
+    const storedWidth = window.localStorage.getItem(
+      FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY
+    )
+
+    if (
+      storedWidth === "narrow" ||
+      storedWidth === "medium" ||
+      storedWidth === "wide"
+    ) {
+      setFullPageCanvasWidth(storedWidth)
+    }
+
+    setFullPageCanvasWidthReady(true)
+  }, [fullPage])
+
+  useEffect(() => {
+    if (!fullPage || !fullPageCanvasWidthReady) {
+      return
+    }
+
+    window.localStorage.setItem(
+      FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY,
+      fullPageCanvasWidth
+    )
+  }, [fullPage, fullPageCanvasWidth, fullPageCanvasWidthReady])
 
   function requestAttachmentPicker(currentEditor: Editor) {
     setPickerInsertPosition(currentEditor.state.selection.from)
@@ -379,7 +430,7 @@ export function RichTextEditor({
 
   // Build editor class based on mode
   const editorClass = fullPage
-    ? "min-h-[calc(100svh-12rem)] max-w-3xl mx-auto w-full px-6 py-4 text-base outline-none [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+    ? "min-h-[calc(100svh-12rem)] text-base outline-none [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
     : compact
       ? "min-h-16 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-6 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
       : "min-h-24 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
@@ -849,7 +900,10 @@ export function RichTextEditor({
       <div
         className={cn(
           "flex shrink-0 items-center gap-0.5 overflow-x-auto",
-          fullPage ? "mx-auto w-full max-w-3xl px-6 py-2" : "pb-1"
+          fullPage
+            ? "mx-auto w-full px-6 py-2"
+            : "pb-1",
+          fullPage && FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
         )}
       >
         <ToolbarButton
@@ -1077,9 +1131,49 @@ export function RichTextEditor({
         {uploadingAttachment ? (
           <span className="ml-2 text-xs text-muted-foreground">Uploading…</span>
         ) : null}
-        <span className="ml-auto pl-3 text-xs whitespace-nowrap text-muted-foreground">
-          {statsWords} words · {statsCharacters} characters
-        </span>
+        <div className="ml-auto flex items-center">
+          <span className="pl-3 text-xs whitespace-nowrap text-muted-foreground">
+            {statsWords} words · {statsCharacters} characters
+          </span>
+          {fullPage ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={!editable}
+                  className={cn(
+                    "ml-2 flex size-7 items-center justify-center text-muted-foreground transition-colors",
+                    editable
+                      ? "hover:text-foreground"
+                      : "cursor-default opacity-60"
+                  )}
+                  aria-label="Canvas width"
+                  title="Canvas width"
+                >
+                  <FrameCorners className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40 min-w-40">
+                <DropdownMenuRadioGroup
+                  value={fullPageCanvasWidth}
+                  onValueChange={(value) =>
+                    setFullPageCanvasWidth(value as FullPageCanvasWidth)
+                  }
+                >
+                  <DropdownMenuRadioItem value="narrow">
+                    Narrow
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="medium">
+                    Normal
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="wide">
+                    Wide
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
       </div>
     ) : null
 
@@ -1217,12 +1311,20 @@ export function RichTextEditor({
   // Full-page mode — used for standalone documents
   if (fullPage) {
     return (
-      <div className={cn("flex flex-1 flex-col overflow-hidden", className)}>
+      <div className={cn("relative flex flex-1 flex-col overflow-hidden", className)}>
         {toolbar}
-        <div className="relative flex-1 overflow-y-auto" ref={containerRef}>
-          <EditorContent editor={currentEditor} />
-          {slashMenu}
-          {mentionMenu}
+        <div className="flex-1 overflow-y-auto">
+          <div
+            className={cn(
+              "relative mx-auto w-full px-6 py-4",
+              FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
+            )}
+            ref={containerRef}
+          >
+            <EditorContent editor={currentEditor} />
+            {slashMenu}
+            {mentionMenu}
+          </div>
         </div>
       </div>
     )

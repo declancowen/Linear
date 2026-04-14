@@ -2,30 +2,17 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { ensureConversationRoom } from "@/lib/server/100ms"
 import {
   getSnapshotServer,
-  startChatCallServer,
+  sendChatMessageServer,
 } from "@/lib/server/convex"
 
-function createConversationRoomConfig(conversation: {
-  id: string
-  scopeType: "workspace" | "team"
-}) {
-  const startedAt = new Date().toISOString()
-  const uniqueSuffix = Date.now().toString(36)
+function createConversationJoinHref(conversationId: string) {
+  const query = new URLSearchParams({
+    conversationId,
+  })
 
-  if (conversation.scopeType === "workspace") {
-    return {
-      roomKey: `call-${conversation.id}-${uniqueSuffix}`,
-      roomDescription: `Video call for workspace chat ${conversation.id} started at ${startedAt}`,
-    }
-  }
-
-  return {
-    roomKey: `call-${conversation.id}-${uniqueSuffix}`,
-    roomDescription: `Video call for team chat ${conversation.id} started at ${startedAt}`,
-  }
+  return `/api/calls/join?${query.toString()}`
 }
 
 function getWorkspaceRolesForConversation(
@@ -138,28 +125,34 @@ export async function POST(
       }
     }
 
-    const roomConfig = createConversationRoomConfig(conversation)
-    const room = await ensureConversationRoom(roomConfig)
-    const result = await startChatCallServer({
+    const joinHref = createConversationJoinHref(conversation.id)
+    const createdAt = new Date().toISOString()
+    const messageContent = `Started a call\nJoin call: ${joinHref}`
+
+    const result = await sendChatMessageServer({
       currentUserId: ensuredUser.userId,
       conversationId: conversation.id,
-      roomId: room.id,
-      roomName: room.name,
-      ...roomConfig,
+      content: messageContent,
     })
 
-    if (!result?.call || !result.message) {
+    if (!result?.messageId) {
       throw new Error("Failed to create call")
     }
 
-    const joinUrl = new URL("/api/calls/join", request.url)
-    joinUrl.searchParams.set("callId", result.call.id)
-
     return NextResponse.json({
       ok: true,
-      call: result.call,
-      message: result.message,
-      joinHref: joinUrl.toString(),
+      call: null,
+      message: {
+        id: result.messageId,
+        conversationId: conversation.id,
+        kind: "text",
+        content: messageContent,
+        callId: null,
+        mentionUserIds: [],
+        createdBy: ensuredUser.userId,
+        createdAt,
+      },
+      joinHref,
     })
   } catch (error) {
     console.error(error)

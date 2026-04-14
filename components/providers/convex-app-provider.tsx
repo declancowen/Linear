@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent } from "react"
 import { useTheme } from "next-themes"
 
 import {
-  fetchSnapshot,
+  fetchSnapshotState,
   fetchSnapshotVersion,
   RouteMutationError,
 } from "@/lib/convex/client"
@@ -29,7 +29,7 @@ function ConvexStateSync({
   const { setTheme } = useTheme()
   const applySnapshot = useEffectEvent((snapshot: AppSnapshot) => {
     replaceDomainData(snapshot)
-    const currentUser = snapshot.users.find(
+    const currentUser = (snapshot.users ?? []).find(
       (user) => user.id === snapshot.currentUserId
     )
 
@@ -88,21 +88,14 @@ function ConvexStateSync({
       syncInFlight = true
 
       try {
-        const snapshot = await fetchSnapshot()
+        const snapshotState = await fetchSnapshotState()
 
-        if (!snapshot || cancelled) {
+        if (!snapshotState || cancelled) {
           return
         }
 
-        applySnapshot(snapshot)
-
-        const versionPayload = await fetchSnapshotVersion()
-
-        if (!versionPayload || cancelled) {
-          return
-        }
-
-        appliedSnapshotVersion = versionPayload.version
+        applySnapshot(snapshotState.snapshot)
+        appliedSnapshotVersion = snapshotState.version
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true

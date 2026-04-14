@@ -2,10 +2,65 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
 import {
-  ensureConvexUserFromAuth,
+  ensureConvexUserReadyServer,
   getSnapshotServer,
+  getSnapshotVersionServer,
 } from "@/lib/server/convex"
+import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
+
+const MAX_STABLE_SNAPSHOT_ATTEMPTS = 3
+
+async function loadStableSnapshot(authenticatedUser: AuthenticatedAppUser) {
+  let expectedVersion = await getSnapshotVersionServer({
+    workosUserId: authenticatedUser.workosUserId,
+    email: authenticatedUser.email,
+  })
+
+  for (
+    let attempt = 0;
+    attempt < MAX_STABLE_SNAPSHOT_ATTEMPTS;
+    attempt += 1
+  ) {
+    const snapshot = await getSnapshotServer({
+      workosUserId: authenticatedUser.workosUserId,
+      email: authenticatedUser.email,
+    })
+    const nextVersion = await getSnapshotVersionServer({
+      workosUserId: authenticatedUser.workosUserId,
+      email: authenticatedUser.email,
+    })
+
+    if (nextVersion.version === expectedVersion.version) {
+      return {
+        snapshot,
+        version: nextVersion.version,
+      }
+    }
+
+    expectedVersion = nextVersion
+  }
+
+  throw new Error("Failed to load a stable snapshot")
+}
+
+async function loadSnapshotWithVersionFallback(
+  authenticatedUser: AuthenticatedAppUser
+) {
+  try {
+    return await loadStableSnapshot(authenticatedUser)
+  } catch (error) {
+    console.error("Falling back to snapshot without version sync", error)
+
+    return {
+      snapshot: await getSnapshotServer({
+        workosUserId: authenticatedUser.workosUserId,
+        email: authenticatedUser.email,
+      }),
+      version: 0,
+    }
+  }
+}
 
 export async function GET() {
   const session = await withAuth()
@@ -19,45 +74,11 @@ export async function GET() {
       session.user,
       session.organizationId
     )
-    const snapshot = await getSnapshotServer({
-      workosUserId: authenticatedUser.workosUserId,
-      email: authenticatedUser.email,
-    })
-
-    return NextResponse.json(snapshot)
+    await ensureConvexUserReadyServer(authenticatedUser)
+    return NextResponse.json(
+      await loadSnapshotWithVersionFallback(authenticatedUser)
+    )
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "Authenticated user not found"
-    ) {
-      try {
-        const authenticatedUser = toAuthenticatedAppUser(
-          session.user,
-          session.organizationId
-        )
-
-        await ensureConvexUserFromAuth(authenticatedUser)
-
-        const snapshot = await getSnapshotServer({
-          workosUserId: authenticatedUser.workosUserId,
-          email: authenticatedUser.email,
-        })
-
-        return NextResponse.json(snapshot)
-      } catch (retryError) {
-        console.error(retryError)
-        return NextResponse.json(
-          {
-            error:
-              retryError instanceof Error
-                ? retryError.message
-                : "Failed to load snapshot",
-          },
-          { status: 500 }
-        )
-      }
-    }
-
     console.error(error)
     return NextResponse.json(
       {

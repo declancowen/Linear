@@ -9,8 +9,7 @@ import { v } from "convex/values"
 
 import { createSeedState } from "../lib/domain/seed"
 import {
-  buildTeamIssueViews,
-  canonicalTeamIssueViewNames,
+  buildTeamWorkViews,
 } from "../lib/domain/default-views"
 import {
   canParentWorkItemTypeAcceptChild,
@@ -21,9 +20,17 @@ import {
   getAllowedWorkItemTypesForTemplate,
   getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
+  getWorkSurfaceCopy,
   getTeamFeatureValidationMessage,
+  normalizeStoredViewItemTypes,
+  normalizeStoredWorkItemType,
+  normalizeStoredWorkflowItemTypes,
   normalizeTeamIconToken,
+  type StoredWorkItemType,
+  type TeamExperienceType,
+  type TeamWorkflowSettings,
   type ViewDefinition,
+  type WorkItemType,
 } from "../lib/domain/types"
 import { getPlainTextContent } from "../lib/utils"
 import {
@@ -730,15 +737,7 @@ async function validateWorkItemParent(
   ctx: AppCtx,
   options: {
     teamId: string
-    itemType:
-      | "epic"
-      | "feature"
-      | "requirement"
-      | "task"
-      | "bug"
-      | "sub-task"
-      | "qa-task"
-      | "test-case"
+    itemType: WorkItemType
     parentId: string | null
     currentItemId?: string
   }
@@ -748,25 +747,38 @@ async function validateWorkItemParent(
   }
 
   const parent = await getWorkItemDoc(ctx, options.parentId)
+  const team = await getTeamDoc(ctx, options.teamId)
 
   if (!parent) {
-    throw new Error("Parent issue not found")
+    throw new Error("Parent item not found")
+  }
+
+  if (!team) {
+    throw new Error("Team not found")
   }
 
   if (parent.teamId !== options.teamId) {
-    throw new Error("Parent issue must belong to the same team")
+    throw new Error("Parent item must belong to the same team")
   }
 
   if (parent.parentId) {
-    throw new Error("Sub-issues can't contain other sub-issues")
+    throw new Error("Child items can't contain other child items")
   }
 
   if (options.currentItemId && parent.id === options.currentItemId) {
-    throw new Error("An issue cannot be its own parent")
+    throw new Error("An item cannot be its own parent")
   }
 
-  if (!canParentWorkItemTypeAcceptChild(parent.type, options.itemType)) {
-    throw new Error("Parent issue type cannot contain this child type")
+  const normalizedParentType = normalizeStoredWorkItemType(
+    parent.type as StoredWorkItemType,
+    normalizeTeam(team).settings.experience,
+    {
+      parentId: parent.parentId,
+    }
+  )
+
+  if (!canParentWorkItemTypeAcceptChild(normalizedParentType, options.itemType)) {
+    throw new Error("Parent item type cannot contain this child type")
   }
 
   if (!options.currentItemId) {
@@ -779,9 +791,7 @@ async function validateWorkItemParent(
     .collect()
 
   if (teamItems.some((item) => item.parentId === options.currentItemId)) {
-    throw new Error(
-      "Issues with sub-issues can't be nested under another issue"
-    )
+    throw new Error("Items with child items can't be nested under another item")
   }
 
   const visited = new Set<string>([options.currentItemId])
@@ -789,7 +799,7 @@ async function validateWorkItemParent(
 
   while (cursor.parentId) {
     if (visited.has(cursor.parentId)) {
-      throw new Error("Parent issue would create a cycle")
+      throw new Error("Parent item would create a cycle")
     }
 
     visited.add(cursor.parentId)
@@ -805,12 +815,12 @@ async function validateWorkItemParent(
   return parent
 }
 
-async function ensureTeamIssueViews(
+async function ensureTeamWorkViews(
   ctx: MutationCtx,
   team: Awaited<ReturnType<typeof getTeamDoc>>
 ) {
   if (!team) {
-    return
+    return 0
   }
 
   const normalizedTeam = normalizeTeam(team)
@@ -819,7 +829,7 @@ async function ensureTeamIssueViews(
     !normalizedTeam.settings.features.issues ||
     !normalizedTeam.settings.features.views
   ) {
-    return
+    return 0
   }
 
   const existingViews = (await ctx.db.query("views").collect()).filter(
@@ -830,8 +840,12 @@ async function ensureTeamIssueViews(
       view.route === `/team/${team.slug}/work`
   )
   const existingByName = new Map(existingViews.map((view) => [view.name, view]))
-  const legacyAllIssuesView =
-    existingByName.get("All work") ?? existingByName.get("Platform Priorities")
+  const legacyPrimaryView =
+    existingByName.get("All work") ??
+    existingByName.get("All issues") ??
+    existingByName.get("All tasks") ??
+    existingByName.get("Platform Priorities")
+  let updatedViewCount = 0
   const needsPatch = (
     existing: (typeof existingViews)[number],
     canonicalView: ViewDefinition
@@ -851,18 +865,19 @@ async function ensureTeamIssueViews(
     existing.isShared !== canonicalView.isShared ||
     existing.route !== canonicalView.route
 
-  const canonicalViews = buildTeamIssueViews({
+  const canonicalViews = buildTeamWorkViews({
     teamId: team.id,
     teamSlug: team.slug,
     createdAt: getNow(),
     updatedAt: getNow(),
+    experience: normalizedTeam.settings.experience,
   })
 
   for (const canonicalView of canonicalViews) {
     const existing =
       existingByName.get(canonicalView.name) ??
-      (canonicalView.name === canonicalTeamIssueViewNames[0]
-        ? legacyAllIssuesView
+      (canonicalView.name === canonicalViews[0]?.name
+        ? legacyPrimaryView
         : null)
 
     if (existing) {
@@ -881,13 +896,17 @@ async function ensureTeamIssueViews(
           route: canonicalView.route,
           updatedAt: getNow(),
         })
+        updatedViewCount += 1
       }
       existingByName.set(canonicalView.name, existing)
       continue
     }
 
     await ctx.db.insert("views", canonicalView)
+    updatedViewCount += 1
   }
+
+  return updatedViewCount
 }
 
 function collectWorkItemCascadeIds(
@@ -1633,44 +1652,17 @@ async function resolveUserSnapshot<
 
 function normalizeTeamWorkflowSettings(
   workflow:
-    | {
-        statusOrder: Array<
-          | "backlog"
-          | "todo"
-          | "in-progress"
-          | "done"
-          | "cancelled"
-          | "duplicate"
-        >
+    | (Omit<TeamWorkflowSettings, "templateDefaults"> & {
         templateDefaults: Record<
           "software-delivery" | "bug-tracking" | "project-management",
-          {
-            defaultPriority: "none" | "low" | "medium" | "high" | "urgent"
-            targetWindowDays: number
-            defaultViewLayout: "list" | "board" | "timeline"
-            recommendedItemTypes: Array<
-              | "epic"
-              | "feature"
-              | "requirement"
-              | "task"
-              | "bug"
-              | "sub-task"
-              | "qa-task"
-              | "test-case"
-            >
-            summaryHint: string
+          Omit<TeamWorkflowSettings["templateDefaults"]["software-delivery"], "recommendedItemTypes"> & {
+            recommendedItemTypes: StoredWorkItemType[]
           }
         >
-      }
+      })
     | null
     | undefined,
-  experience:
-    | "software-development"
-    | "issue-analysis"
-    | "project-management"
-    | "community"
-    | null
-    | undefined = "software-development"
+  experience: TeamExperienceType | null | undefined = "software-development"
 ) {
   const defaults = createDefaultTeamWorkflowSettings(
     experience ?? "software-development"
@@ -1683,12 +1675,11 @@ function normalizeTeamWorkflowSettings(
   const sanitizeRecommendedItemTypes = (
     templateType: "software-delivery" | "bug-tracking" | "project-management"
   ) => {
-    const allowedItemTypes = new Set(
-      getAllowedWorkItemTypesForTemplate(templateType)
-    )
-    const recommendedItemTypes = workflow.templateDefaults[
+    const recommendedItemTypes = normalizeStoredWorkflowItemTypes(
+      workflow.templateDefaults[templateType].recommendedItemTypes,
+      experience,
       templateType
-    ].recommendedItemTypes.filter((itemType) => allowedItemTypes.has(itemType))
+    )
 
     return recommendedItemTypes.length > 0
       ? recommendedItemTypes
@@ -1804,6 +1795,65 @@ function normalizeDocument<
       document.workspaceId ??
       teams.find((team) => team.id === document.teamId)?.workspaceId ??
       "",
+  }
+}
+
+function normalizeWorkItem<
+  T extends {
+    teamId: string
+    type: StoredWorkItemType
+    parentId?: string | null
+  },
+>(
+  item: T,
+  teams: Array<{
+    id: string
+    settings?: {
+      experience?: TeamExperienceType | null
+    }
+  }>
+) {
+  const experience =
+    teams.find((team) => team.id === item.teamId)?.settings?.experience ??
+    "software-development"
+
+  return {
+    ...item,
+    type: normalizeStoredWorkItemType(item.type, experience, {
+      parentId: item.parentId ?? null,
+    }),
+  }
+}
+
+function normalizeViewDefinition<
+  T extends {
+    scopeType: "personal" | "team" | "workspace"
+    scopeId: string
+    filters: {
+      itemTypes: StoredWorkItemType[]
+    }
+  },
+>(
+  view: T,
+  teams: Array<{
+    id: string
+    settings?: {
+      experience?: TeamExperienceType | null
+    }
+  }>
+) {
+  const experience =
+    view.scopeType === "team"
+      ? teams.find((team) => team.id === view.scopeId)?.settings?.experience ??
+        "software-development"
+      : null
+
+  return {
+    ...view,
+    filters: {
+      ...view.filters,
+      itemTypes: normalizeStoredViewItemTypes(view.filters.itemTypes, experience),
+    },
   }
 }
 
@@ -2211,7 +2261,7 @@ export const bootstrapAppWorkspace = mutation({
       })
     }
 
-    await ensureTeamIssueViews(ctx, await getTeamDoc(ctx, teamId))
+    await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, teamId))
 
     return {
       workspaceId,
@@ -2255,6 +2305,7 @@ export const getSnapshot = query({
     const accessibleWorkspaceIds = new Set(
       visibleTeams.map((team) => team.workspaceId)
     )
+    const normalizedVisibleTeams = visibleTeams.map(normalizeTeam)
     const currentUserMembership = accessibleMemberships.find(
       (membership) => membership.userId === currentUserId
     )
@@ -2429,7 +2480,7 @@ export const getSnapshot = query({
           resolveWorkspaceSnapshot(ctx, workspace)
         )
       ),
-      teams: visibleTeams.map(normalizeTeam),
+      teams: normalizedVisibleTeams,
       teamMemberships: visibleTeamMemberships,
       users: await Promise.all(
         users
@@ -2441,9 +2492,13 @@ export const getSnapshot = query({
       milestones: (await ctx.db.query("milestones").collect()).filter(
         (milestone) => visibleProjectIds.has(milestone.projectId)
       ),
-      workItems: visibleWorkItems,
+      workItems: visibleWorkItems.map((item) =>
+        normalizeWorkItem(item, normalizedVisibleTeams)
+      ),
       documents: visibleDocuments,
-      views: visibleViews,
+      views: visibleViews.map((view) =>
+        normalizeViewDefinition(view, normalizedVisibleTeams)
+      ),
       comments: visibleComments,
       attachments,
       notifications: visibleNotifications,
@@ -3197,7 +3252,7 @@ export const ensureWorkspaceScaffolding = mutation({
     )
 
     for (const team of teams) {
-      await ensureTeamIssueViews(ctx, team)
+      await ensureTeamWorkViews(ctx, team)
     }
 
     return {
@@ -3305,7 +3360,7 @@ export const createTeam = mutation({
       })
     }
 
-    await ensureTeamIssueViews(ctx, await getTeamDoc(ctx, teamId))
+    await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, teamId))
 
     return {
       teamId,
@@ -3356,6 +3411,10 @@ export const updateTeamDetails = mutation({
       args.features
     )
     const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
+    const normalizedWorkflow = normalizeTeamWorkflowSettings(
+      team.settings.workflow,
+      args.experience
+    )
     const normalizedJoinCode = args.joinCode
       ? normalizeJoinCode(args.joinCode)
       : team.settings.joinCode
@@ -3384,6 +3443,7 @@ export const updateTeamDetails = mutation({
         joinCode: normalizedJoinCode,
         experience: args.experience,
         features: normalizedFeatures,
+        workflow: normalizedWorkflow,
       },
     })
 
@@ -3405,7 +3465,7 @@ export const updateTeamDetails = mutation({
       })
     }
 
-    await ensureTeamIssueViews(ctx, await getTeamDoc(ctx, team.id))
+    await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, team.id))
 
     return {
       teamId: team.id,
@@ -3687,9 +3747,18 @@ export const updateWorkItem = mutation({
       throw new Error("Team not found")
     }
 
+    const normalizedExperience = normalizeTeam(team).settings.experience
+    const normalizedExistingType = normalizeStoredWorkItemType(
+      existing.type as StoredWorkItemType,
+      normalizedExperience,
+      {
+        parentId: existing.parentId,
+      }
+    )
+
     await validateWorkItemParent(ctx, {
       teamId: existing.teamId,
-      itemType: existing.type,
+      itemType: normalizedExistingType,
       parentId:
         args.patch.parentId === undefined
           ? existing.parentId
@@ -3724,7 +3793,7 @@ export const updateWorkItem = mutation({
 
       if (
         !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-          existing.type
+          normalizedExistingType
         )
       ) {
         throw new Error(
@@ -3735,7 +3804,7 @@ export const updateWorkItem = mutation({
       if (
         !resolvedParentId &&
         !getAllowedRootWorkItemTypesForTemplate(project.templateType).includes(
-          existing.type
+          normalizedExistingType
         )
       ) {
         throw new Error("This work item type requires a parent")
@@ -3743,8 +3812,8 @@ export const updateWorkItem = mutation({
     } else if (
       !resolvedParentId &&
       !getDefaultRootWorkItemTypesForTeamExperience(
-        normalizeTeam(team).settings.experience
-      ).includes(existing.type)
+        normalizedExperience
+      ).includes(normalizedExistingType)
     ) {
       throw new Error("This work item type requires a parent")
     }
@@ -4965,7 +5034,7 @@ export const createWorkItem = mutation({
       args.primaryProjectId ?? parent?.primaryProjectId ?? null
 
     if (!normalizedTeam.settings.features.issues) {
-      throw new Error("Issues are disabled for this team")
+      throw new Error(getWorkSurfaceCopy(normalizedTeam.settings.experience).disabledLabel)
     }
 
     if (
@@ -5639,6 +5708,104 @@ export const backfillUserPreferenceThemes = mutation({
     return {
       updatedCount,
       totalCount: users.length,
+    }
+  },
+})
+
+export const backfillWorkItemModel = mutation({
+  args: serverAccessArgs,
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const teams = await ctx.db.query("teams").collect()
+    const normalizedTeams = teams.map(normalizeTeam)
+    const workItems = await ctx.db.query("workItems").collect()
+    let updatedTeamCount = 0
+    let updatedWorkItemCount = 0
+    let updatedViewCount = 0
+
+    for (const team of teams) {
+      const normalizedTeam = normalizeTeam(team)
+
+      if (
+        normalizedTeam.icon === team.icon &&
+        JSON.stringify(normalizedTeam.settings) === JSON.stringify(team.settings)
+      ) {
+        continue
+      }
+
+      await ctx.db.patch(team._id, {
+        icon: normalizedTeam.icon,
+        settings: normalizedTeam.settings,
+      })
+      updatedTeamCount += 1
+    }
+
+    for (const team of teams) {
+      updatedViewCount += await ensureTeamWorkViews(
+        ctx,
+        await getTeamDoc(ctx, team.id)
+      )
+    }
+
+    for (const item of workItems) {
+      const experience =
+        normalizedTeams.find((team) => team.id === item.teamId)?.settings
+          .experience ?? "software-development"
+      const normalizedType = normalizeStoredWorkItemType(
+        item.type as StoredWorkItemType,
+        experience,
+        {
+          parentId: item.parentId,
+        }
+      )
+
+      if (normalizedType === item.type) {
+        continue
+      }
+
+      await ctx.db.patch(item._id, {
+        type: normalizedType,
+      })
+      updatedWorkItemCount += 1
+    }
+
+    const views = await ctx.db.query("views").collect()
+
+    for (const view of views) {
+      const normalizedView = normalizeViewDefinition(
+        {
+          ...view,
+          filters: {
+            ...view.filters,
+            itemTypes: view.filters.itemTypes as StoredWorkItemType[],
+          },
+        },
+        normalizedTeams
+      )
+
+      if (
+        JSON.stringify(normalizedView.filters.itemTypes) ===
+        JSON.stringify(view.filters.itemTypes)
+      ) {
+        continue
+      }
+
+      await ctx.db.patch(view._id, {
+        filters: {
+          ...view.filters,
+          itemTypes: normalizedView.filters.itemTypes,
+        },
+      })
+      updatedViewCount += 1
+    }
+
+    return {
+      updatedTeamCount,
+      totalTeamCount: teams.length,
+      updatedWorkItemCount,
+      totalWorkItemCount: workItems.length,
+      updatedViewCount,
+      totalViewCount: views.length,
     }
   },
 })

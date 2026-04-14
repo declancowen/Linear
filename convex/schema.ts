@@ -29,7 +29,7 @@ export default defineSchema({
     key: v.literal("singleton"),
     currentUserId: v.string(),
     currentWorkspaceId: v.string(),
-    snapshotVersion: v.number(),
+    snapshotVersion: v.optional(v.number()),
   }).index("by_key", ["key"]),
   workspaces: defineTable(workspaceFields).index("by_domain_id", ["id"]),
   teams: defineTable(teamFields).index("by_domain_id", ["id"]),

@@ -39,6 +39,8 @@ import {
 } from "@/lib/domain/selectors"
 import {
   createDefaultTeamFeatureSettings,
+  getDefaultWorkItemTypesForTeamExperience,
+  getDisplayLabelForWorkItemType,
   getDefaultTeamIconForExperience,
   getWorkSurfaceCopy,
   normalizeTeamIconToken,
@@ -494,7 +496,7 @@ export function AppShell({ children }: AppShellProps) {
                                   }}
                                 >
                                   <Plus />
-                                  Invite to {team.name}
+                                  Invite to Team
                                 </DropdownMenuItem>
                               ) : null}
                               {canManage ? (
@@ -901,6 +903,15 @@ function TeamEditorFields({
   joinCodeReadonlyLabel?: string
 }) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
+  const workCopy = getWorkSurfaceCopy(experience)
+  const coreSurfaceItems = [
+    { key: "issues", label: workCopy.surfaceLabel },
+    { key: "projects", label: "Projects" },
+    { key: "views", label: "Views" },
+  ]
+  const coreWorkModel = getDefaultWorkItemTypesForTeamExperience(experience)
+    .map((itemType) => getDisplayLabelForWorkItemType(itemType, experience))
+    .join(" · ")
   const [copiedJoinCode, setCopiedJoinCode] = useState<string | null>(null)
   const optionalFeatures = [
     {
@@ -1057,12 +1068,12 @@ function TeamEditorFields({
             <FieldGroup className="gap-4">
               <Field>
                 <FieldContent>
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <button
                       type="button"
                       className={cn(
                         "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        features.chat
+                        features.chat && !features.channels
                           ? "border-primary/40 bg-primary/5"
                           : "hover:bg-accent/40"
                       )}
@@ -1090,7 +1101,7 @@ function TeamEditorFields({
                       type="button"
                       className={cn(
                         "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        features.channels
+                        !features.chat && features.channels
                           ? "border-primary/40 bg-primary/5"
                           : "hover:bg-accent/40"
                       )}
@@ -1114,6 +1125,31 @@ function TeamEditorFields({
                         Forum posts with threaded replies.
                       </div>
                     </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                        features.chat && features.channels
+                          ? "border-primary/40 bg-primary/5"
+                          : "hover:bg-accent/40"
+                      )}
+                      disabled={disabled}
+                      onClick={() =>
+                        setFeatures({
+                          issues: false,
+                          projects: false,
+                          views: false,
+                          docs: false,
+                          chat: true,
+                          channels: true,
+                        })
+                      }
+                    >
+                      <div className="text-sm font-medium">Chat + channel</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        Enable both conversation modes.
+                      </div>
+                    </button>
                   </div>
                 </FieldContent>
                 {savedFeatures.chat && surfaceDisableReasons.chat ? (
@@ -1131,16 +1167,20 @@ function TeamEditorFields({
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {["issues", "projects", "views"].map((feature) => (
+                {coreSurfaceItems.map((feature) => (
                   <div
-                    key={feature}
+                    key={feature.key}
                     className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5"
                   >
-                    <span className="text-sm capitalize">{feature}</span>
+                    <span className="text-sm">{feature.label}</span>
                     <Switch checked disabled className="scale-75" />
                   </div>
                 ))}
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                Core model: {coreWorkModel}
+              </p>
 
               <div className="divide-y">
                 {optionalFeatures.map((feature) => (
@@ -1240,13 +1280,13 @@ function TeamEditorFields({
           </h3>
           <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
             <p>
-              Software development, issue tracking, and project management
-              teams always keep issues, projects, and views enabled.
+              {workCopy.surfaceLabel}, projects, and views stay on for this
+              team type.
             </p>
             <p>
-              Community spaces use exactly one collaboration mode at a time.
+              Community spaces can enable chat, channel, or both.
             </p>
-            <p>Non-community teams can combine chat and channel.</p>
+            <p>Docs remain optional for non-community teams.</p>
           </div>
         </section>
       </div>

@@ -9,19 +9,17 @@ import {
 import { redirect } from "next/navigation"
 
 import { AcceptInviteCard } from "@/components/app/accept-invite-card"
+import { AuthLogo } from "@/components/app/auth-logo"
+import { JoinWorkspacePanel } from "@/components/app/join-workspace-panel"
 import { OnboardingJoinCard } from "@/components/app/onboarding-join-card"
 import { OnboardingTeamForm } from "@/components/app/onboarding-team-form"
 import { OnboardingWorkspaceForm } from "@/components/app/onboarding-workspace-form"
-import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { buildAuthHref } from "@/lib/auth-routing"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
@@ -107,6 +105,74 @@ export default async function OnboardingPage({
     )
   }
 
+  if (inviteToken) {
+    return (
+      <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
+        <div className="flex w-full max-w-lg flex-col gap-6">
+          <AuthLogo />
+
+          <header className="text-center">
+            <div className="flex items-center justify-center gap-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <LinkSimple className="size-3" />
+              Join workspace
+            </div>
+            <h1 className="mt-2 text-xl font-semibold tracking-tight">
+              Join a team
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Open your invite to join the shared workspace.
+            </p>
+          </header>
+
+          {inviteData?.team &&
+          inviteData.workspace &&
+          !inviteData.invite.declinedAt ? (
+            <AcceptInviteCard
+              authenticated={Boolean(auth.user)}
+              token={inviteToken}
+              teamName={inviteData.team.name}
+              workspaceName={inviteData.workspace.name}
+              inviteEmail={inviteData.invite.email}
+              loginHref={loginHref}
+              signupHref={signupHref}
+              role={inviteData.invite.role}
+              expired={false}
+              accepted={Boolean(inviteData.invite.acceptedAt)}
+              autoAccept={Boolean(auth.user)}
+              className="bg-card"
+            />
+          ) : (
+            <Card className="shadow-none">
+              <CardHeader className="text-center">
+                <CardTitle className="text-xl">Invite not found</CardTitle>
+                <CardDescription>
+                  This invite link is no longer valid. Ask for a fresh invite or
+                  sign in to check your pending invites.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
+
+          <section className="space-y-3 text-center">
+            <div className="space-y-1">
+              <CardTitle className="text-xl">Join with a team code</CardTitle>
+              <CardDescription>
+                You can also enter the same 12-character code used in the app.
+              </CardDescription>
+            </div>
+            <JoinWorkspacePanel
+              authenticated={Boolean(auth.user)}
+              initialCode={joinCode}
+              joinedTeamIds={authContext?.memberships.map((entry) => entry.teamId) ?? []}
+              loginHref={loginHref}
+              signupHref={signupHref}
+            />
+          </section>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.16),_transparent_28%),linear-gradient(180deg,_hsl(var(--background)),_hsl(var(--muted)/0.4))] px-6 py-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
@@ -124,37 +190,6 @@ export default async function OnboardingPage({
             team code.
           </p>
         </div>
-
-        {inviteToken &&
-        inviteData?.team &&
-        inviteData.workspace &&
-        !inviteData.invite.declinedAt ? (
-          <AcceptInviteCard
-            authenticated={Boolean(auth.user)}
-            token={inviteToken}
-            teamName={inviteData.team.name}
-            workspaceName={inviteData.workspace.name}
-            inviteEmail={inviteData.invite.email}
-            loginHref={loginHref}
-            signupHref={signupHref}
-            role={inviteData.invite.role}
-            expired={false}
-            accepted={Boolean(inviteData.invite.acceptedAt)}
-            autoAccept={Boolean(auth.user)}
-            className="border-border/70 bg-card/80 backdrop-blur"
-          />
-        ) : inviteToken ? (
-          <Card className="border-border/70 bg-card/80 shadow-none backdrop-blur">
-            <CardHeader>
-              <CardTitle className="text-xl">Invite not found</CardTitle>
-              <CardDescription>
-                This invite link is no longer valid. Ask for a fresh invite or join
-                with a team code instead.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        ) : null}
-
         <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <section className="space-y-6">
             <OnboardingWorkspaceForm

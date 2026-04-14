@@ -27,7 +27,10 @@ import {
 } from "@/lib/domain/selectors"
 import {
   createDefaultTeamFeatureSettings,
+  getDefaultWorkItemTypesForTeamExperience,
+  getDisplayLabelForWorkItemType,
   getDefaultTeamIconForExperience,
+  getWorkSurfaceCopy,
   normalizeTeamIconToken,
   teamExperienceMeta,
   teamExperienceTypes,
@@ -462,6 +465,15 @@ function TeamEditorFields({
   joinCodeReadonlyLabel?: string
 }) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
+  const workCopy = getWorkSurfaceCopy(experience)
+  const coreSurfaceItems = [
+    { key: "issues", label: workCopy.surfaceLabel },
+    { key: "projects", label: "Projects" },
+    { key: "views", label: "Views" },
+  ]
+  const coreWorkModel = getDefaultWorkItemTypesForTeamExperience(experience)
+    .map((itemType) => getDisplayLabelForWorkItemType(itemType, experience))
+    .join(" · ")
   const copyResetTimeoutRef = useRef<number | null>(null)
   const [copiedJoinCode, setCopiedJoinCode] = useState<string | null>(null)
   const optionalFeatures = [
@@ -605,7 +617,7 @@ function TeamEditorFields({
 
       <SettingsSection title="Team type" description={canChangeExperience ? "Locked after creation." : undefined}>
         {canChangeExperience ? (
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid items-start gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {teamExperienceTypes.map((type) => {
               const selected = type === experience
 
@@ -614,7 +626,7 @@ function TeamEditorFields({
                   key={type}
                   type="button"
                   className={cn(
-                    "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    "flex h-full flex-col items-start justify-start rounded-lg border px-2.5 py-2 text-left align-top transition-colors",
                     selected
                       ? "border-primary/40 bg-primary/5"
                       : "hover:bg-accent/40"
@@ -622,10 +634,10 @@ function TeamEditorFields({
                   disabled={disabled}
                   onClick={() => onExperienceChange?.(type)}
                 >
-                  <div className="text-sm font-medium">
+                  <div className="text-[13px] font-medium">
                     {teamExperienceMeta[type].label}
                   </div>
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
                     {teamExperienceMeta[type].description}
                   </p>
                 </button>
@@ -651,18 +663,22 @@ function TeamEditorFields({
         title="Surfaces"
         description={
           experience === "community"
-            ? "Community spaces use one mode at a time."
-            : "Software development, issue tracking, and project management teams always keep issues, projects, and views."
+            ? "Community spaces can enable chat, channel, or both."
+            : `${workCopy.surfaceLabel}, projects, and views are always enabled for this team type.`
         }
       >
         {experience === "community" ? (
           <>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {/*
+                Community surface cards are mutually exclusive visually:
+                only the exact active configuration should appear selected.
+              */}
               <button
                 type="button"
                 className={cn(
                   "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  features.chat
+                  features.chat && !features.channels
                     ? "border-primary/40 bg-primary/5"
                     : "hover:bg-accent/40"
                 )}
@@ -691,7 +707,7 @@ function TeamEditorFields({
                 type="button"
                 className={cn(
                   "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  features.channels
+                  !features.chat && features.channels
                     ? "border-primary/40 bg-primary/5"
                     : "hover:bg-accent/40"
                 )}
@@ -716,6 +732,31 @@ function TeamEditorFields({
                   Forum posts with threaded replies.
                 </div>
               </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                  features.chat && features.channels
+                    ? "border-primary/40 bg-primary/5"
+                    : "hover:bg-accent/40"
+                )}
+                disabled={disabled}
+                onClick={() =>
+                  setFeatures({
+                    issues: false,
+                    projects: false,
+                    views: false,
+                    docs: false,
+                    chat: true,
+                    channels: true,
+                  })
+                }
+              >
+                <div className="text-sm font-medium">Chat + channel</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  Enable both conversation modes.
+                </div>
+              </button>
             </div>
             {savedFeatures.chat && surfaceDisableReasons.chat ? (
               <p className="mt-2 text-xs text-muted-foreground">
@@ -731,16 +772,19 @@ function TeamEditorFields({
         ) : (
           <>
             <div className="mb-3 flex flex-wrap gap-1.5">
-              {["issues", "projects", "views"].map((feature) => (
+              {coreSurfaceItems.map((feature) => (
                 <div
-                  key={feature}
+                  key={feature.key}
                   className="flex items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-1 text-xs capitalize"
                 >
-                  {feature}
+                  {feature.label}
                   <Switch checked disabled className="scale-[0.6]" />
                 </div>
               ))}
             </div>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Core model: {coreWorkModel}
+            </p>
             <div className="divide-y">
               {optionalFeatures.map((feature) => (
                 <div
@@ -1729,26 +1773,24 @@ export function CreateTeamScreen() {
       ) : null}
 
       <div className="space-y-6">
-        <div className="max-w-xl">
-          <SummaryCard
-            description="Team creation now uses the same container as projects, docs, and channels so setup never hides the rest of the workspace."
-            eyebrow="Workspace"
-            notes={[
-              "Team type controls the default work model, while collaboration surfaces stay configurable.",
-              "The join code is created automatically after the team is saved.",
-              "You land directly in the new team after creation.",
-            ]}
-            preview={
-              <div className="flex size-16 items-center justify-center rounded-2xl border bg-muted/40">
-                <TeamIconGlyph
-                  icon={icon}
-                  className="size-7 text-muted-foreground"
-                />
-              </div>
-            }
-            title={name || "New team"}
-          />
-        </div>
+        <SummaryCard
+          description="Team creation now uses the same container as projects, docs, and channels so setup never hides the rest of the workspace."
+          eyebrow="Workspace"
+          notes={[
+            "Team type controls the default work model, while collaboration surfaces stay configurable.",
+            "The join code is created automatically after the team is saved.",
+            "You land directly in the new team after creation.",
+          ]}
+          preview={
+            <div className="flex size-16 items-center justify-center rounded-2xl border bg-muted/40">
+              <TeamIconGlyph
+                icon={icon}
+                className="size-7 text-muted-foreground"
+              />
+            </div>
+          }
+          title={name || "New team"}
+        />
 
         <div>
           <TeamEditorFields

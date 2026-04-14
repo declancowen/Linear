@@ -31,6 +31,101 @@ function escapeHtml(input: string) {
     .replaceAll("'", "&#39;")
 }
 
+function renderEmailButton(input: {
+  href: string
+  label: string
+  background: string
+  color: string
+  borderColor?: string
+}) {
+  return [
+    '<table role="presentation" border="0" cellpadding="0" cellspacing="0">',
+    "<tr>",
+    `<td align="center" bgcolor="${input.background}" style="border: 1px solid ${input.borderColor ?? input.background}; border-radius: 12px;">`,
+    `<a href="${input.href}" style="display: inline-block; padding: 12px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600; line-height: 1; color: ${input.color}; text-decoration: none; border-radius: 12px;">${escapeHtml(input.label)}</a>`,
+    "</td>",
+    "</tr>",
+    "</table>",
+  ].join("")
+}
+
+function renderInviteEmailHtml(input: {
+  workspaceName: string
+  teamName: string
+  role: "admin" | "member" | "viewer" | "guest"
+  acceptUrl: string
+  joinCode: string
+  joinCodeUrl: string
+  logoUrl: string
+}) {
+  const primaryButton = renderEmailButton({
+    href: input.acceptUrl,
+    label: "Accept Invite",
+    background: "#111111",
+    color: "#ffffff",
+  })
+  const secondaryButton = renderEmailButton({
+    href: input.joinCodeUrl,
+    label: "Join With Team Code",
+    background: "#ffffff",
+    color: "#111111",
+    borderColor: "#d4d4d8",
+  })
+
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<body style="margin: 0; padding: 24px; background-color: #f5f5f5;">',
+    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">',
+    "<tr>",
+    '<td align="center">',
+    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 20px; overflow: hidden;">',
+    "<tr>",
+    '<td style="padding: 28px 28px 12px;">',
+    `<img src="${input.logoUrl}" alt="Recipe Room" width="32" height="32" style="display: block; width: 32px; height: 32px; border-radius: 8px;" />`,
+    '<div style="margin-top: 12px; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #71717a;">Workspace Invite</div>',
+    `<h1 style="margin: 10px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; line-height: 1.15; font-weight: 700; color: #111111;">Join ${escapeHtml(input.teamName)} in ${escapeHtml(input.workspaceName)}</h1>`,
+    `<p style="margin: 12px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.6; color: #52525b;">You’ve been invited to access <strong style="color: #111111;">${escapeHtml(input.workspaceName)}</strong> through the <strong style="color: #111111;">${escapeHtml(input.teamName)}</strong> team.</p>`,
+    "</td>",
+    "</tr>",
+    "<tr>",
+    '<td style="padding: 8px 28px 0;">',
+    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 16px;">',
+    "<tr>",
+    '<td style="padding: 16px 18px;">',
+    `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a;">Access Details</div>`,
+    `<p style="margin: 10px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; color: #27272a;">Role: <strong>${escapeHtml(input.role)}</strong><br />This invite grants access at the workspace team level.</p>`,
+    `<div style="margin-top: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 22px; line-height: 1; font-weight: 700; letter-spacing: 0.24em; color: #111111;">${escapeHtml(input.joinCode)}</div>`,
+    '<div style="margin-top: 8px; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; font-size: 13px; line-height: 1.5; color: #71717a;">If the invite button doesn’t suit your flow, you can join with this 12-character team code instead.</div>',
+    "</td>",
+    "</tr>",
+    "</table>",
+    "</td>",
+    "</tr>",
+    "<tr>",
+    '<td style="padding: 20px 28px 0;">',
+    primaryButton,
+    "</td>",
+    "</tr>",
+    "<tr>",
+    '<td style="padding: 12px 28px 0;">',
+    secondaryButton,
+    "</td>",
+    "</tr>",
+    "<tr>",
+    '<td style="padding: 20px 28px 28px;">',
+    `<p style="margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; line-height: 1.6; color: #71717a;">If the buttons above do not open, use these links directly:<br /><a href="${input.acceptUrl}" style="color: #111111;">Accept invite</a><br /><a href="${input.joinCodeUrl}" style="color: #111111;">Join with team code</a></p>`,
+    "</td>",
+    "</tr>",
+    "</table>",
+    "</td>",
+    "</tr>",
+    "</table>",
+    "</body>",
+    "</html>",
+  ].join("")
+}
+
 function buildEntityPath(
   entityType: "workItem" | "document" | "channelPost" | "chat",
   entityId: string
@@ -256,6 +351,7 @@ export async function sendTeamInviteEmails(input: {
       const joinCodeUrl = buildAppDestination(
         `/onboarding?code=${encodeURIComponent(entry.joinCode)}`
       )
+      const logoUrl = buildAppDestination("/app-icon.png")
 
       return resend.emails.send({
         from,
@@ -269,14 +365,15 @@ export async function sendTeamInviteEmails(input: {
           `Join with team code: ${entry.joinCode}`,
           `Open code-based join: ${joinCodeUrl}`,
         ].join("\n"),
-        html: [
-          `<p>You've been invited to join <strong>${escapeHtml(entry.teamName)}</strong> in <strong>${escapeHtml(entry.workspaceName)}</strong>.</p>`,
-          `<p>Role: <strong>${escapeHtml(entry.role)}</strong></p>`,
-          `<p>This access is issued at the workspace team level.</p>`,
-          `<p><a href="${acceptUrl}">Accept your invite</a></p>`,
-          `<p>If you prefer, you can join with team code <strong>${escapeHtml(entry.joinCode)}</strong>.</p>`,
-          `<p><a href="${joinCodeUrl}">Open the team code join flow</a></p>`,
-        ].join(""),
+        html: renderInviteEmailHtml({
+          workspaceName: entry.workspaceName,
+          teamName: entry.teamName,
+          role: entry.role,
+          acceptUrl,
+          joinCode: entry.joinCode,
+          joinCodeUrl,
+          logoUrl,
+        }),
       })
     })
   )

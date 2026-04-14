@@ -1,6 +1,6 @@
 import Link from "next/link"
-import { Aperture } from "@phosphor-icons/react/dist/ssr"
 
+import { AuthLogo } from "@/components/app/auth-logo"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -42,12 +42,7 @@ export default async function ResetPasswordPage({
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <Link href="/" className="flex items-center gap-2 self-center font-medium">
-          <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Aperture />
-          </div>
-          Recipe Room
-        </Link>
+        <AuthLogo />
 
         <Card>
           <CardHeader className="text-center">

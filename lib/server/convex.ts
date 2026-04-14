@@ -2,6 +2,13 @@ import { ConvexHttpClient } from "convex/browser"
 
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
+import type {
+  Priority,
+  TeamExperienceType,
+  TeamWorkflowSettings,
+  TemplateType,
+  WorkItemType,
+} from "@/lib/domain/types"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
 const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
@@ -43,6 +50,26 @@ export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {
     name: user.name,
     avatarUrl: user.avatarUrl,
     workosUserId: user.workosUserId,
+  })
+}
+
+export async function ensureConvexUserReadyServer(
+  user: AuthenticatedAppUser
+) {
+  const authContext = await getAuthContextServer({
+    workosUserId: user.workosUserId,
+    email: user.email,
+  })
+
+  if (authContext?.currentUser) {
+    return authContext
+  }
+
+  await ensureConvexUserFromAuth(user)
+
+  return getAuthContextServer({
+    workosUserId: user.workosUserId,
+    email: user.email,
   })
 }
 
@@ -543,10 +570,10 @@ export async function createProjectServer(input: {
   currentUserId: string
   scopeType: "team" | "workspace"
   scopeId: string
-  templateType: "software-delivery" | "bug-tracking" | "project-management"
+  templateType: TemplateType
   name: string
   summary: string
-  priority: "none" | "low" | "medium" | "high" | "urgent"
+  priority: Priority
   settingsTeamId?: string | null
 }) {
   return getConvexServerClient().mutation(
@@ -558,61 +585,7 @@ export async function createProjectServer(input: {
 export async function updateTeamWorkflowSettingsServer(input: {
   currentUserId: string
   teamId: string
-  workflow: {
-    statusOrder: Array<
-      "backlog" | "todo" | "in-progress" | "done" | "cancelled" | "duplicate"
-    >
-    templateDefaults: {
-      "software-delivery": {
-        defaultPriority: "none" | "low" | "medium" | "high" | "urgent"
-        targetWindowDays: number
-        defaultViewLayout: "list" | "board" | "timeline"
-        recommendedItemTypes: Array<
-          | "epic"
-          | "feature"
-          | "requirement"
-          | "task"
-          | "bug"
-          | "sub-task"
-          | "qa-task"
-          | "test-case"
-        >
-        summaryHint: string
-      }
-      "bug-tracking": {
-        defaultPriority: "none" | "low" | "medium" | "high" | "urgent"
-        targetWindowDays: number
-        defaultViewLayout: "list" | "board" | "timeline"
-        recommendedItemTypes: Array<
-          | "epic"
-          | "feature"
-          | "requirement"
-          | "task"
-          | "bug"
-          | "sub-task"
-          | "qa-task"
-          | "test-case"
-        >
-        summaryHint: string
-      }
-      "project-management": {
-        defaultPriority: "none" | "low" | "medium" | "high" | "urgent"
-        targetWindowDays: number
-        defaultViewLayout: "list" | "board" | "timeline"
-        recommendedItemTypes: Array<
-          | "epic"
-          | "feature"
-          | "requirement"
-          | "task"
-          | "bug"
-          | "sub-task"
-          | "qa-task"
-          | "test-case"
-        >
-        summaryHint: string
-      }
-    }
-  }
+  workflow: TeamWorkflowSettings
 }) {
   return getConvexServerClient().mutation(
     api.app.updateTeamWorkflowSettings,
@@ -627,11 +600,7 @@ export async function updateTeamDetailsServer(input: {
   icon: string
   summary: string
   joinCode?: string
-  experience:
-    | "software-development"
-    | "issue-analysis"
-    | "project-management"
-    | "community"
+  experience: TeamExperienceType
   features: {
     issues: boolean
     projects: boolean
@@ -654,11 +623,7 @@ export async function createTeamServer(input: {
   icon: string
   summary: string
   joinCode: string
-  experience:
-    | "software-development"
-    | "issue-analysis"
-    | "project-management"
-    | "community"
+  experience: TeamExperienceType
   features: {
     issues: boolean
     projects: boolean
@@ -794,20 +759,12 @@ export async function createDocumentServer(input: {
 export async function createWorkItemServer(input: {
   currentUserId: string
   teamId: string
-  type:
-    | "epic"
-    | "feature"
-    | "requirement"
-    | "task"
-    | "bug"
-    | "sub-task"
-    | "qa-task"
-    | "test-case"
+  type: WorkItemType
   title: string
   parentId?: string | null
   primaryProjectId: string | null
   assigneeId: string | null
-  priority: "none" | "low" | "medium" | "high" | "urgent"
+  priority: Priority
 }) {
   return getConvexServerClient().mutation(
     api.app.createWorkItem,
@@ -846,6 +803,13 @@ export async function setCallRoomServer(input: {
   return getConvexServerClient().mutation(
     api.app.setCallRoom,
     withServerToken(input)
+  )
+}
+
+export async function backfillWorkItemModelServer() {
+  return getConvexServerClient().mutation(
+    api.app.backfillWorkItemModel,
+    withServerToken({})
   )
 }
 

@@ -67,9 +67,12 @@ import {
   commentSchema,
   createDefaultTeamWorkflowSettings,
   documentSchema,
+  getAllowedRootWorkItemTypesForTemplate,
   getAllowedTemplateTypesForTeamExperience,
   getAllowedWorkItemTypesForTemplate,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
+  getWorkSurfaceCopy,
   inviteSchema,
   joinCodeSchema,
   normalizeTeamIconToken,
@@ -568,7 +571,7 @@ function getWorkItemValidationMessage(
   }
 
   if (!getTeamFeatureSettings(team).issues) {
-    return "Issues are disabled for this team"
+    return getWorkSurfaceCopy(team.settings.experience).disabledLabel
   }
 
   if (
@@ -584,19 +587,19 @@ function getWorkItemValidationMessage(
 
   if (input.parentId) {
     if (!parent) {
-      return "Parent issue not found"
+      return "Parent item not found"
     }
 
     if (parent.teamId !== input.teamId) {
-      return "Parent issue must belong to the same team"
+      return "Parent item must belong to the same team"
     }
 
     if (parent.parentId) {
-      return "Sub-issues can't contain other sub-issues"
+      return "Child items can't contain other child items"
     }
 
     if (input.currentItemId && parent.id === input.currentItemId) {
-      return "Issue cannot be its own parent"
+      return "Item cannot be its own parent"
     }
 
     if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
@@ -614,7 +617,7 @@ function getWorkItemValidationMessage(
       input.currentItemId &&
       getWorkItemDescendantIds(state, input.currentItemId).size > 0
     ) {
-      return "Issues with sub-issues can't be nested under another issue"
+      return "Items with child items can't be nested under another item"
     }
   }
 
@@ -630,11 +633,29 @@ function getWorkItemValidationMessage(
       return "Project must belong to the same team or workspace"
     }
 
+    if (
+      !parent &&
+      !getAllowedRootWorkItemTypesForTemplate(project.templateType).includes(
+        input.type
+      )
+    ) {
+      return "This work item type requires a parent"
+    }
+
     return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
       input.type
     )
       ? null
       : "Work item type is not allowed for the selected project template"
+  }
+
+  if (
+    !parent &&
+    !getDefaultRootWorkItemTypesForTeamExperience(
+      team.settings.experience
+    ).includes(input.type)
+  ) {
+    return "This work item type requires a parent"
   }
 
   return getDefaultWorkItemTypesForTeamExperience(
@@ -883,8 +904,10 @@ function createNotification(
 
 function normalizeChannelPosts<
   T extends { reactions?: { emoji: string; userIds: string[] }[] },
->(channelPosts: T[]) {
-  return channelPosts.map((post) => ({
+>(channelPosts: T[] | undefined) {
+  const entries = channelPosts ?? []
+
+  return entries.map((post) => ({
     ...post,
     reactions: post.reactions ?? [],
   }))
@@ -895,8 +918,10 @@ function normalizeComments<
     mentionUserIds?: string[]
     reactions?: { emoji: string; userIds: string[] }[]
   },
->(comments: T[]) {
-  return comments.map((comment) => ({
+>(comments: T[] | undefined) {
+  const entries = comments ?? []
+
+  return entries.map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
     reactions: comment.reactions ?? [],
@@ -909,8 +934,10 @@ function normalizeChatMessages<
     kind?: "text" | "call"
     callId?: string | null
   },
->(chatMessages: T[]) {
-  return chatMessages.map((message) => ({
+>(chatMessages: T[] | undefined) {
+  const entries = chatMessages ?? []
+
+  return entries.map((message) => ({
     ...message,
     kind: message.kind ?? "text",
     callId: message.callId ?? null,
@@ -919,9 +946,11 @@ function normalizeChatMessages<
 }
 
 function normalizeChannelPostComments<T extends { mentionUserIds?: string[] }>(
-  channelPostComments: T[]
+  channelPostComments: T[] | undefined
 ) {
-  return channelPostComments.map((comment) => ({
+  const entries = channelPostComments ?? []
+
+  return entries.map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
   }))
@@ -982,17 +1011,21 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           ...state,
           ...data,
-          comments: normalizeComments(data.comments),
-          chatMessages: normalizeChatMessages(data.chatMessages),
-          channelPosts: normalizeChannelPosts(data.channelPosts),
+          comments: normalizeComments(data.comments ?? state.comments),
+          chatMessages: normalizeChatMessages(
+            data.chatMessages ?? state.chatMessages
+          ),
+          channelPosts: normalizeChannelPosts(
+            data.channelPosts ?? state.channelPosts
+          ),
           channelPostComments: normalizeChannelPostComments(
-            data.channelPostComments
+            data.channelPostComments ?? state.channelPostComments
           ),
           ui: {
             ...state.ui,
             activeTeamId:
               state.ui.activeTeamId ||
-              data.teams[0]?.id ||
+              data.teams?.[0]?.id ||
               state.ui.activeTeamId,
           },
         }))
@@ -2403,7 +2436,7 @@ export const useAppStore = create<AppStore>()(
         try {
           const result = await syncStartConversationCall(conversationId)
 
-          if (!result?.call || !result.message || !result.joinHref) {
+          if (!result?.message || !result.joinHref) {
             throw new Error("Failed to start call")
           }
 
@@ -2420,10 +2453,14 @@ export const useAppStore = create<AppStore>()(
 
             return {
               ...state,
-              calls: [
-                ...state.calls.filter((entry) => entry.id !== result.call.id),
-                result.call,
-              ],
+              calls: result.call
+                ? [
+                    ...state.calls.filter(
+                      (entry) => entry.id !== result.call?.id
+                    ),
+                    result.call,
+                  ]
+                : state.calls,
               chatMessages: [
                 ...state.chatMessages.filter(
                   (entry) => entry.id !== message.id

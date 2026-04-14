@@ -89,9 +89,12 @@ import {
   getDisplayLabelForWorkItemType,
   getAllowedTemplateTypesForTeamExperience,
   getAllowedChildWorkItemTypesForItem,
+  getAllowedRootWorkItemTypesForTemplate,
   getAllowedWorkItemTypesForTemplate,
   getDefaultTemplateTypeForTeamExperience,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
+  getPreferredWorkItemTypeForTeamExperience,
   getWorkSurfaceCopy,
   priorityMeta,
   projectHealthMeta,
@@ -4125,13 +4128,23 @@ function InlineChildIssueComposer({
         team?.workspaceId === project.scopeId)
   )
   const teamMembers = team ? getTeamMembers(data, teamId) : []
-  const [type, setType] = useState<WorkItemType>("task")
+  const [type, setType] = useState<WorkItemType>(
+    getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
+      parent: true,
+    })
+  )
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const [projectId, setProjectId] = useState<string>(
     parentItem.primaryProjectId ?? "none"
+  )
+  const fallbackType = getPreferredWorkItemTypeForTeamExperience(
+    team?.settings.experience,
+    {
+      parent: true,
+    }
   )
   const selectedProject =
     projectId === "none"
@@ -4145,7 +4158,7 @@ function InlineChildIssueComposer({
   )
   const selectedType = availableItemTypes.includes(type)
     ? type
-    : (availableItemTypes[0] ?? "task")
+    : (availableItemTypes[0] ?? fallbackType)
   const normalizedTitle = title.trim()
   const canCreate =
     !disabled && normalizedTitle.length >= 2 && availableItemTypes.length > 0
@@ -4308,29 +4321,43 @@ function CreateWorkItemDialog({
   )
   const teamMembers = team ? getTeamMembers(data, teamId) : []
   const defaultProjectId = parentItem?.primaryProjectId ?? "none"
-  const [type, setType] = useState<WorkItemType>("task")
+  const [type, setType] = useState<WorkItemType>(
+    getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
+      parent: Boolean(parentItem),
+    })
+  )
   const [title, setTitle] = useState(
     parentItem ? `Follow-up for ${parentItem.title}` : workCopy.createLabel
   )
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const [projectId, setProjectId] = useState<string>(defaultProjectId)
+  const fallbackType = getPreferredWorkItemTypeForTeamExperience(
+    team?.settings.experience,
+    {
+      parent: Boolean(parentItem),
+    }
+  )
   const selectedProject =
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
-  const baseItemTypes = selectedProject
-    ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
-    : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
   const allowedChildTypes = parentItem
     ? getAllowedChildWorkItemTypesForItem(parentItem)
     : null
+  const baseItemTypes = parentItem
+    ? selectedProject
+      ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
+      : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
+    : selectedProject
+      ? getAllowedRootWorkItemTypesForTemplate(selectedProject.templateType)
+      : getDefaultRootWorkItemTypesForTeamExperience(team?.settings.experience)
   const availableItemTypes = allowedChildTypes
     ? baseItemTypes.filter((value) => allowedChildTypes.includes(value))
     : baseItemTypes
   const selectedType = availableItemTypes.includes(type)
     ? type
-    : (availableItemTypes[0] ?? "task")
+    : (availableItemTypes[0] ?? fallbackType)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -10,6 +10,7 @@ import {
 import {
   getSnapshotServer,
   markCallJoinedServer,
+  setCallRoomServer,
   setConversationRoomServer,
 } from "@/lib/server/convex"
 
@@ -34,6 +35,62 @@ function getWorkspaceMeetingRole(
   return workspaceRoles.some((role) => role === "admin" || role === "member")
     ? "host"
     : "guest"
+}
+
+function renderJoinErrorPage(message: string) {
+  const escapedMessage = message
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+
+  return new NextResponse(
+    `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Video unavailable</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0b0b0d;
+        color: #f3f4f6;
+        font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(32rem, calc(100vw - 2rem));
+        padding: 1.5rem;
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.125rem;
+      }
+      p {
+        margin: 0;
+        color: rgba(243, 244, 246, 0.76);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Video call unavailable</h1>
+      <p>${escapedMessage}</p>
+    </main>
+  </body>
+</html>`,
+    {
+      status: 503,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+      },
+    }
+  )
 }
 
 export async function GET(request: Request) {
@@ -100,6 +157,26 @@ export async function GET(request: Request) {
           )
         }
 
+        const room =
+          call.roomId && call.roomName
+            ? {
+                id: call.roomId,
+                name: call.roomName,
+              }
+            : await ensureConversationRoom({
+                roomKey: call.roomKey,
+                roomDescription: call.roomDescription,
+              })
+
+        if (!call.roomId || !call.roomName) {
+          await setCallRoomServer({
+            currentUserId: authContext.currentUser.id,
+            callId: call.id,
+            roomId: room.id,
+            roomName: room.name,
+          })
+        }
+
         await markCallJoinedServer({
           currentUserId: authContext.currentUser.id,
           callId: call.id,
@@ -108,7 +185,7 @@ export async function GET(request: Request) {
         const joinUrl = await createConversationJoinUrl({
           roomKey: call.roomKey,
           roomDescription: call.roomDescription,
-          roomId: call.roomId,
+          roomId: room.id,
           userId: authContext.currentUser.id,
           userName: authContext.currentUser.name,
           role: getWorkspaceMeetingRole(
@@ -132,6 +209,26 @@ export async function GET(request: Request) {
         )
       }
 
+      const room =
+        call.roomId && call.roomName
+          ? {
+              id: call.roomId,
+              name: call.roomName,
+            }
+          : await ensureConversationRoom({
+              roomKey: call.roomKey,
+              roomDescription: call.roomDescription,
+            })
+
+      if (!call.roomId || !call.roomName) {
+        await setCallRoomServer({
+          currentUserId: authContext.currentUser.id,
+          callId: call.id,
+          roomId: room.id,
+          roomName: room.name,
+        })
+      }
+
       await markCallJoinedServer({
         currentUserId: authContext.currentUser.id,
         callId: call.id,
@@ -140,7 +237,7 @@ export async function GET(request: Request) {
       const joinUrl = await createConversationJoinUrl({
         roomKey: call.roomKey,
         roomDescription: call.roomDescription,
-        roomId: call.roomId,
+        roomId: room.id,
         userId: authContext.currentUser.id,
         userName: authContext.currentUser.name,
         role: toMeetingRole(membership.role),
@@ -250,12 +347,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(joinUrl, { status: 307 })
   } catch (error) {
     console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to join the call",
-      },
-      { status: 500 }
+    return renderJoinErrorPage(
+      error instanceof Error ? error.message : "Failed to join the call"
     )
   }
 }

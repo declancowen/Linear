@@ -2,7 +2,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
 import {
-  ensureConvexUserFromAuth,
+  ensureConvexUserReadyServer,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
@@ -21,7 +21,8 @@ function sleep(durationMs: number) {
 }
 
 async function getSnapshotVersionForUser(
-  authenticatedUser: AuthenticatedAppUser
+  authenticatedUser: AuthenticatedAppUser,
+  currentUserId: string
 ) {
   try {
     const snapshotVersion = await getSnapshotVersionServer({
@@ -34,22 +35,15 @@ async function getSnapshotVersionForUser(
       snapshotVersion,
     }
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "Authenticated user not found"
-    ) {
-      await ensureConvexUserFromAuth(authenticatedUser)
+    console.error("Falling back to snapshot stream version 0", error)
 
-      return {
-        error: null,
-        snapshotVersion: await getSnapshotVersionServer({
-          workosUserId: authenticatedUser.workosUserId,
-          email: authenticatedUser.email,
-        }),
-      }
+    return {
+      error: null,
+      snapshotVersion: {
+        version: 0,
+        currentUserId,
+      },
     }
-
-    throw error
   }
 }
 
@@ -65,8 +59,18 @@ export async function GET(request: Request) {
     session.user,
     session.organizationId
   )
+  const authContext = await ensureConvexUserReadyServer(authenticatedUser)
+
+  if (!authContext?.currentUser) {
+    return NextResponse.json(
+      { error: "User context not found" },
+      { status: 404 }
+    )
+  }
+
   const authenticatedSnapshotVersion = await getSnapshotVersionForUser(
-    authenticatedUser
+    authenticatedUser,
+    authContext.currentUser.id
   )
 
   if (authenticatedSnapshotVersion.error) {
@@ -124,7 +128,10 @@ export async function GET(request: Request) {
             }
 
             const nextSnapshotVersion =
-              await getSnapshotVersionForUser(authenticatedUser)
+              await getSnapshotVersionForUser(
+                authenticatedUser,
+                authContext.currentUser.id
+              )
 
             if (nextSnapshotVersion.error) {
               break

@@ -31,6 +31,10 @@ pnpm-debug.log*
 
 # env files
 .env*.local
+.env.vercel.pull
+
+# local toolchains
+.tools/
 
 # typescript
 *.tsbuildinfo

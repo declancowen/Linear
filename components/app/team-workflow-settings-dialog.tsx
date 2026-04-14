@@ -36,6 +36,7 @@ import {
   getDisplayLabelForWorkItemType,
   getAllowedTemplateTypesForTeamExperience,
   getDefaultTemplateTypeForTeamExperience,
+  normalizeStoredWorkflowItemTypes,
   priorityMeta,
   statusMeta,
   templateMeta,
@@ -48,28 +49,36 @@ function cloneWorkflowSettings(
   source: TeamWorkflowSettings | undefined,
   experience: "software-development" | "issue-analysis" | "project-management" | "community"
 ): TeamWorkflowSettings {
-  const workflow = source ?? createDefaultTeamWorkflowSettings(experience)
+  const defaults = createDefaultTeamWorkflowSettings(experience)
+  const workflow = source ?? defaults
+  const sanitizeRecommendedItemTypes = (
+    templateType: keyof TeamWorkflowSettings["templateDefaults"]
+  ) => {
+    const recommendedItemTypes = normalizeStoredWorkflowItemTypes(
+      workflow.templateDefaults[templateType].recommendedItemTypes,
+      experience,
+      templateType
+    )
+
+    return recommendedItemTypes.length > 0
+      ? recommendedItemTypes
+      : [...defaults.templateDefaults[templateType].recommendedItemTypes]
+  }
 
   return {
     statusOrder: [...workflow.statusOrder],
     templateDefaults: {
       "software-delivery": {
         ...workflow.templateDefaults["software-delivery"],
-        recommendedItemTypes: [
-          ...workflow.templateDefaults["software-delivery"].recommendedItemTypes,
-        ],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("software-delivery"),
       },
       "bug-tracking": {
         ...workflow.templateDefaults["bug-tracking"],
-        recommendedItemTypes: [
-          ...workflow.templateDefaults["bug-tracking"].recommendedItemTypes,
-        ],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("bug-tracking"),
       },
       "project-management": {
         ...workflow.templateDefaults["project-management"],
-        recommendedItemTypes: [
-          ...workflow.templateDefaults["project-management"].recommendedItemTypes,
-        ],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("project-management"),
       },
     },
   }

@@ -55,22 +55,63 @@ async function runRouteMutation<T>(
 }
 
 export type StartConversationCallResult = {
-  call: Call
+  call: Call | null
   message: ChatMessage
   joinHref: string
 }
 
-export async function fetchSnapshot() {
+export type SnapshotRoutePayload = {
+  snapshot: AppSnapshot
+  version: number
+}
+
+function isSnapshotRecord(value: unknown): value is AppSnapshot {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "currentUserId" in value &&
+    "teams" in value &&
+    "users" in value
+  )
+}
+
+export async function fetchSnapshotState() {
   if (typeof window === "undefined") {
     return null
   }
 
-  return runRouteMutation<AppSnapshot>("/api/snapshot", {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  })
+  const payload = await runRouteMutation<SnapshotRoutePayload | AppSnapshot>(
+    "/api/snapshot",
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  if (!payload) {
+    return null
+  }
+
+  if ("snapshot" in payload && isSnapshotRecord(payload.snapshot)) {
+    return payload
+  }
+
+  if (isSnapshotRecord(payload)) {
+    return {
+      snapshot: payload,
+      version: 0,
+    }
+  }
+
+  throw new RouteMutationError("Invalid snapshot payload", 500)
+}
+
+export async function fetchSnapshot() {
+  const payload = await fetchSnapshotState()
+
+  return payload?.snapshot ?? null
 }
 
 export async function fetchSnapshotVersion() {

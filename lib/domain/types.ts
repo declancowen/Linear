@@ -37,13 +37,17 @@ export const workItemTypes = [
   "epic",
   "feature",
   "requirement",
+  "story",
   "task",
-  "bug",
+  "issue",
   "sub-task",
-  "qa-task",
-  "test-case",
+  "sub-issue",
 ] as const
 export type WorkItemType = (typeof workItemTypes)[number]
+
+export const legacyWorkItemTypes = ["bug", "qa-task", "test-case"] as const
+export type LegacyWorkItemType = (typeof legacyWorkItemTypes)[number]
+export type StoredWorkItemType = WorkItemType | LegacyWorkItemType
 
 export const workStatuses = [
   "backlog",
@@ -538,19 +542,26 @@ export const templateMeta: Record<
 > = {
   "software-delivery": {
     label: "Software Development",
-    description: "Epics, features, requirements, tasks, and issues.",
+    description: "Epics, features, requirements, stories, and issues.",
     icon: "code",
-    itemTypes: ["epic", "feature", "requirement", "task", "bug", "sub-task"],
+    itemTypes: [
+      "epic",
+      "feature",
+      "requirement",
+      "story",
+      "issue",
+      "sub-task",
+    ],
   },
   "bug-tracking": {
     label: "Issue Tracking",
-    description: "Issues and sub-issues for triage and follow-up.",
+    description: "Issues, sub-issues, triage, and follow-up.",
     icon: "qa",
-    itemTypes: ["bug", "sub-task"],
+    itemTypes: ["issue", "sub-issue"],
   },
   "project-management": {
     label: "Project Management",
-    description: "Tasks and sub-tasks for planning and delivery.",
+    description: "Tasks, sub-tasks, plans, and delivery work.",
     icon: "kanban",
     itemTypes: ["task", "sub-task"],
   },
@@ -564,10 +575,7 @@ export function getAllowedRootWorkItemTypesForTemplate(
   templateType: TemplateType
 ) {
   return getAllowedWorkItemTypesForTemplate(templateType).filter(
-    (itemType) =>
-      itemType !== "sub-task" &&
-      itemType !== "qa-task" &&
-      itemType !== "test-case"
+    (itemType) => itemType !== "sub-task" && itemType !== "sub-issue"
   )
 }
 
@@ -609,6 +617,28 @@ export function getDefaultRootWorkItemTypesForTeamExperience(
   }
 
   return getAllowedRootWorkItemTypesForTemplate("software-delivery")
+}
+
+export function getPreferredWorkItemTypeForTeamExperience(
+  experience: TeamExperienceType | null | undefined,
+  options?: { parent?: boolean }
+): WorkItemType {
+  const resolvedExperience = experience ?? "software-development"
+  const hasParent = Boolean(options?.parent)
+
+  if (resolvedExperience === "issue-analysis") {
+    return hasParent ? "sub-issue" : "issue"
+  }
+
+  if (resolvedExperience === "project-management") {
+    return hasParent ? "sub-task" : "task"
+  }
+
+  if (resolvedExperience === "community") {
+    return hasParent ? "sub-task" : "story"
+  }
+
+  return hasParent ? "sub-task" : "story"
 }
 
 export function getDefaultTemplateTypeForTeamExperience(
@@ -739,19 +769,19 @@ export const teamExperienceMeta: Record<
 > = {
   "software-development": {
     label: "Software Development",
-    description: "Epics, features, requirements, and issues.",
+    description: "Epics, features, requirements, stories, and issues.",
   },
   "issue-analysis": {
     label: "Issue Tracking",
-    description: "Issues and sub-issues for triage and follow-up.",
+    description: "Issues, sub-issues, triage, and follow-up.",
   },
   "project-management": {
     label: "Project Management",
-    description: "Tasks and sub-tasks for planning and delivery.",
+    description: "Tasks, sub-tasks, plans, and delivery work.",
   },
   community: {
     label: "Community",
-    description: "Chat and channels for community updates.",
+    description: "Chat, channels, discussion, and updates.",
   },
 }
 
@@ -879,18 +909,18 @@ export function createDefaultTeamWorkflowSettings(
           "epic",
           "feature",
           "requirement",
-          "task",
-          "bug",
+          "story",
+          "issue",
           "sub-task",
         ],
         summaryHint:
-          "Delivery plan spanning epics, features, requirements, and execution work.",
+          "Delivery plan spanning epics, features, requirements, stories, and issues.",
       },
       "bug-tracking": {
         defaultPriority: "high",
         targetWindowDays: 14,
         defaultViewLayout: "list",
-        recommendedItemTypes: ["bug", "sub-task"],
+        recommendedItemTypes: ["issue", "sub-issue"],
         summaryHint:
           "Issue tracker focused on triage, verification, and regression control.",
       },
@@ -959,32 +989,144 @@ export const workItemTypeMeta: Record<WorkItemType, { label: string }> = {
   epic: { label: "Epic" },
   feature: { label: "Feature" },
   requirement: { label: "Requirement" },
+  story: { label: "Story" },
   task: { label: "Task" },
-  bug: { label: "Bug" },
+  issue: { label: "Issue" },
   "sub-task": { label: "Sub-task" },
-  "qa-task": { label: "QA Task" },
-  "test-case": { label: "Test Case" },
+  "sub-issue": { label: "Sub-issue" },
 }
 
 export function getDisplayLabelForWorkItemType(
   itemType: WorkItemType,
-  experience: TeamExperienceType | null | undefined
+  _experience: TeamExperienceType | null | undefined
 ) {
-  const resolvedExperience = experience ?? "software-development"
-
-  if (
-    itemType === "bug" &&
-    (resolvedExperience === "software-development" ||
-      resolvedExperience === "issue-analysis")
-  ) {
-    return "Issue"
-  }
-
-  if (itemType === "sub-task" && resolvedExperience === "issue-analysis") {
-    return "Sub-issue"
-  }
-
   return workItemTypeMeta[itemType].label
+}
+
+export function normalizeStoredWorkItemType(
+  itemType: StoredWorkItemType,
+  experience: TeamExperienceType | null | undefined,
+  options?: { parentId?: string | null }
+): WorkItemType {
+  const resolvedExperience = experience ?? "software-development"
+  const hasParent = Boolean(options?.parentId)
+
+  if (resolvedExperience === "issue-analysis") {
+    if (
+      hasParent ||
+      itemType === "sub-task" ||
+      itemType === "sub-issue" ||
+      itemType === "qa-task" ||
+      itemType === "test-case"
+    ) {
+      return "sub-issue"
+    }
+
+    return "issue"
+  }
+
+  if (resolvedExperience === "project-management") {
+    if (
+      hasParent ||
+      itemType === "sub-task" ||
+      itemType === "sub-issue" ||
+      itemType === "qa-task" ||
+      itemType === "test-case"
+    ) {
+      return "sub-task"
+    }
+
+    return "task"
+  }
+
+  if (itemType === "bug") {
+    return "issue"
+  }
+
+  if (itemType === "task") {
+    return "story"
+  }
+
+  if (itemType === "sub-issue") {
+    return "sub-task"
+  }
+
+  if (itemType === "qa-task" || itemType === "test-case") {
+    return hasParent ? "sub-task" : "story"
+  }
+
+  return itemType
+}
+
+export function normalizeStoredWorkflowItemTypes(
+  itemTypes: readonly StoredWorkItemType[],
+  experience: TeamExperienceType | null | undefined,
+  templateType: TemplateType
+) {
+  const allowedItemTypes = new Set(
+    getAllowedWorkItemTypesForTemplate(templateType)
+  )
+  const normalizedItemTypes = new Set<WorkItemType>()
+
+  itemTypes.forEach((itemType) => {
+    const normalized = normalizeStoredWorkItemType(itemType, experience, {
+      parentId: itemType === "qa-task" || itemType === "test-case" ? "legacy" : null,
+    })
+
+    if (allowedItemTypes.has(normalized)) {
+      normalizedItemTypes.add(normalized)
+    }
+  })
+
+  return [...normalizedItemTypes]
+}
+
+export function normalizeStoredViewItemTypes(
+  itemTypes: readonly StoredWorkItemType[],
+  experience?: TeamExperienceType | null
+) {
+  const normalizedItemTypes = new Set<WorkItemType>()
+
+  itemTypes.forEach((itemType) => {
+    if (!experience) {
+      if (itemType === "bug") {
+        normalizedItemTypes.add("issue")
+        return
+      }
+
+      if (itemType === "task") {
+        normalizedItemTypes.add("story")
+        normalizedItemTypes.add("task")
+        return
+      }
+
+      if (itemType === "sub-task") {
+        normalizedItemTypes.add("sub-task")
+        normalizedItemTypes.add("sub-issue")
+        return
+      }
+
+      if (itemType === "qa-task" || itemType === "test-case") {
+        normalizedItemTypes.add("sub-task")
+        normalizedItemTypes.add("sub-issue")
+        return
+      }
+
+      normalizedItemTypes.add(itemType)
+      return
+    }
+
+    if (itemType === "qa-task" || itemType === "test-case") {
+      normalizedItemTypes.add(
+        experience === "issue-analysis" ? "sub-issue" : "sub-task"
+      )
+      return
+    }
+
+    normalizedItemTypes.add(normalizeStoredWorkItemType(itemType, experience))
+  })
+
+  return [...normalizedItemTypes]
 }
 
 export function getWorkSurfaceCopy(
@@ -1037,14 +1179,14 @@ export function getWorkSurfaceCopy(
 }
 
 export const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {
-  epic: ["feature", "requirement", "task", "bug"],
-  feature: ["requirement", "task", "bug"],
-  requirement: ["task", "bug", "qa-task", "test-case", "sub-task"],
+  epic: ["feature", "requirement", "story", "issue"],
+  feature: ["requirement", "story", "issue"],
+  requirement: ["story", "issue", "sub-task"],
+  story: ["sub-task"],
   task: ["sub-task"],
-  bug: ["qa-task", "test-case", "sub-task"],
+  issue: ["sub-task", "sub-issue"],
   "sub-task": [],
-  "qa-task": ["test-case", "sub-task"],
-  "test-case": [],
+  "sub-issue": [],
 }
 
 export function getAllowedChildWorkItemTypes(parentType: WorkItemType) {

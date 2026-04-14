@@ -115,13 +115,13 @@ const workspaceLogoUrl = args["workspace-logo"] ?? "RR"
 const workspaceAccent = args["workspace-accent"] ?? "emerald"
 const workspaceDescription =
   args["workspace-description"] ??
-  "A Linear-style workspace that combines product delivery, QA, and operational docs."
+  "A Linear-style workspace that combines product delivery, issue tracking, and operational docs."
 const teamName = args["team-name"] ?? workspaceName
 const teamSlug = args["team-slug"] ?? slugify(teamName)
 const teamExperience = args["team-experience"] ?? "software-development"
 const teamIcon = args["team-icon"] ?? getDefaultTeamIcon(teamExperience)
 const teamSummary =
-  args["team-summary"] ?? "Customer-facing product work and bug triage."
+  args["team-summary"] ?? "Customer-facing product work and issue triage."
 const teamJoinCode =
   normalizeJoinCode(args["team-join-code"] ?? workspaceName.replace(/\s+/g, "").slice(0, 8)) ||
   "TEAMJOIN"

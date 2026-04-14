@@ -2,10 +2,30 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
 import {
-  ensureConvexUserFromAuth,
+  ensureConvexUserReadyServer,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
+
+async function loadSnapshotVersionWithFallback(input: {
+  workosUserId: string
+  email: string
+  currentUserId: string
+}) {
+  try {
+    return await getSnapshotVersionServer({
+      workosUserId: input.workosUserId,
+      email: input.email,
+    })
+  } catch (error) {
+    console.error("Falling back to snapshot version 0", error)
+
+    return {
+      version: 0,
+      currentUserId: input.currentUserId,
+    }
+  }
+}
 
 export async function GET() {
   const session = await withAuth()
@@ -19,45 +39,23 @@ export async function GET() {
       session.user,
       session.organizationId
     )
-    const snapshotVersion = await getSnapshotVersionServer({
+    const authContext = await ensureConvexUserReadyServer(authenticatedUser)
+
+    if (!authContext?.currentUser) {
+      return NextResponse.json(
+        { error: "User context not found" },
+        { status: 404 }
+      )
+    }
+
+    const snapshotVersion = await loadSnapshotVersionWithFallback({
       workosUserId: authenticatedUser.workosUserId,
       email: authenticatedUser.email,
+      currentUserId: authContext.currentUser.id,
     })
 
     return NextResponse.json(snapshotVersion)
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "Authenticated user not found"
-    ) {
-      try {
-        const authenticatedUser = toAuthenticatedAppUser(
-          session.user,
-          session.organizationId
-        )
-
-        await ensureConvexUserFromAuth(authenticatedUser)
-
-        const snapshotVersion = await getSnapshotVersionServer({
-          workosUserId: authenticatedUser.workosUserId,
-          email: authenticatedUser.email,
-        })
-
-        return NextResponse.json(snapshotVersion)
-      } catch (retryError) {
-        console.error(retryError)
-        return NextResponse.json(
-          {
-            error:
-              retryError instanceof Error
-                ? retryError.message
-                : "Failed to load snapshot version",
-          },
-          { status: 500 }
-        )
-      }
-    }
-
     console.error(error)
     return NextResponse.json(
       {

@@ -37,26 +37,25 @@ const teamPresets: Array<{
   {
     id: "software-development",
     label: "Software development",
-    description:
-      "Epics, features, requirements, and delivery planning for product and engineering.",
+    description: "Epics, features, requirements, stories, and issues.",
     experience: "software-development",
   },
   {
     id: "issue-analysis",
     label: "Issue tracking",
-    description: "Issues, sub-issues, triage, and regression follow-up.",
+    description: "Issues, sub-issues, triage, and follow-up.",
     experience: "issue-analysis",
   },
   {
     id: "project-management",
     label: "Project management",
-    description: "Tasks, sub-tasks, planning, and cross-functional execution.",
+    description: "Tasks, sub-tasks, plans, and delivery work.",
     experience: "project-management",
   },
   {
     id: "community",
     label: "Community",
-    description: "Conversation-first teams for shared discussion and updates.",
+    description: "Chat, channels, discussion, and updates.",
     experience: "community",
   },
 ]

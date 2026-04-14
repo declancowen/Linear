@@ -29,9 +29,15 @@ const workItemTypeLiterals = [
   v.literal("epic"),
   v.literal("feature"),
   v.literal("requirement"),
+  v.literal("story"),
   v.literal("task"),
-  v.literal("bug"),
+  v.literal("issue"),
   v.literal("sub-task"),
+  v.literal("sub-issue"),
+] as const
+
+const legacyWorkItemTypeLiterals = [
+  v.literal("bug"),
   v.literal("qa-task"),
   v.literal("test-case"),
 ] as const
@@ -182,6 +188,10 @@ export const teamExperienceTypeValidator = v.union(
   ...teamExperienceTypeLiterals
 )
 export const workItemTypeValidator = v.union(...workItemTypeLiterals)
+export const storedWorkItemTypeValidator = v.union(
+  ...workItemTypeLiterals,
+  ...legacyWorkItemTypeLiterals
+)
 export const workStatusValidator = v.union(...workStatusLiterals)
 export const priorityValidator = v.union(...priorityLiterals)
 export const projectHealthValidator = v.union(...projectHealthLiterals)
@@ -218,9 +228,20 @@ export const teamTemplateConfigValidator = v.object({
   recommendedItemTypes: v.array(workItemTypeValidator),
   summaryHint: v.string(),
 })
+export const storedTeamTemplateConfigValidator = v.object({
+  defaultPriority: priorityValidator,
+  targetWindowDays: v.number(),
+  defaultViewLayout: viewLayoutValidator,
+  recommendedItemTypes: v.array(storedWorkItemTypeValidator),
+  summaryHint: v.string(),
+})
 export const teamWorkflowSettingsValidator = v.object({
   statusOrder: v.array(workStatusValidator),
   templateDefaults: v.record(v.string(), teamTemplateConfigValidator),
+})
+export const storedTeamWorkflowSettingsValidator = v.object({
+  statusOrder: v.array(workStatusValidator),
+  templateDefaults: v.record(v.string(), storedTeamTemplateConfigValidator),
 })
 export const teamFeatureSettingsValidator = v.object({
   issues: v.boolean(),
@@ -259,7 +280,7 @@ export const teamFields = {
     guestWorkItemIds: v.array(v.string()),
     experience: v.optional(teamExperienceTypeValidator),
     features: v.optional(teamFeatureSettingsValidator),
-    workflow: v.optional(teamWorkflowSettingsValidator),
+    workflow: v.optional(storedTeamWorkflowSettingsValidator),
   }),
 }
 
@@ -323,7 +344,7 @@ export const workItemFields = {
   id: v.string(),
   key: v.string(),
   teamId: v.string(),
-  type: workItemTypeValidator,
+  type: storedWorkItemTypeValidator,
   title: v.string(),
   descriptionDocId: v.string(),
   status: workStatusValidator,
@@ -374,6 +395,21 @@ export const viewFiltersValidator = v.object({
   teamIds: v.array(v.string()),
   showCompleted: v.boolean(),
 })
+export const storedViewFiltersValidator = v.object({
+  status: v.array(workStatusValidator),
+  priority: v.array(priorityValidator),
+  assigneeIds: v.array(v.string()),
+  creatorIds: v.array(v.string()),
+  leadIds: v.array(v.string()),
+  health: v.array(projectHealthValidator),
+  milestoneIds: v.array(v.string()),
+  relationTypes: v.array(v.string()),
+  projectIds: v.array(v.string()),
+  itemTypes: v.array(storedWorkItemTypeValidator),
+  labelIds: v.array(v.string()),
+  teamIds: v.array(v.string()),
+  showCompleted: v.boolean(),
+})
 
 export const viewDefinitionFields = {
   id: v.string(),
@@ -383,7 +419,7 @@ export const viewDefinitionFields = {
   scopeId: v.string(),
   entityKind: entityKindValidator,
   layout: viewLayoutValidator,
-  filters: viewFiltersValidator,
+  filters: storedViewFiltersValidator,
   grouping: groupFieldValidator,
   subGrouping: v.union(groupFieldValidator, v.null()),
   ordering: orderingFieldValidator,
@@ -498,8 +534,8 @@ export const callFields = {
   conversationId: v.string(),
   scopeType: conversationScopeTypeValidator,
   scopeId: v.string(),
-  roomId: v.string(),
-  roomName: v.string(),
+  roomId: nullableString,
+  roomName: nullableString,
   roomKey: v.string(),
   roomDescription: v.string(),
   startedBy: v.string(),
