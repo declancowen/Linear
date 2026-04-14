@@ -16,7 +16,6 @@ import {
   DotsThree,
   Gear,
   HashStraight,
-  IdentificationBadge,
   Kanban,
   MagnifyingGlass,
   NotePencil,
@@ -112,7 +111,6 @@ import {
 } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 
-const previewRoles: Role[] = ["admin", "member", "viewer", "guest"]
 const workspaceAccentOptions = [
   "emerald",
   "blue",
@@ -665,35 +663,6 @@ export function AppShell({ children }: AppShellProps) {
                         </button>
                       </form>
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => useAppStore.getState().resetDemo()}
-                    >
-                      <ArrowsClockwise />
-                      Reset demo data
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Role preview</DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        useAppStore.getState().setRolePreview(null)
-                      }
-                    >
-                      <IdentificationBadge />
-                      Actual team role
-                    </DropdownMenuItem>
-                    {previewRoles.map((role) => (
-                      <DropdownMenuItem
-                        key={role}
-                        onSelect={() =>
-                          useAppStore.getState().setRolePreview(role)
-                        }
-                      >
-                        <IdentificationBadge />
-                        Preview as {role}
-                      </DropdownMenuItem>
-                    ))}
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>

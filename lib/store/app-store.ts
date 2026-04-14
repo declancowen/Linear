@@ -11,7 +11,6 @@ import { toast } from "sonner"
 
 import {
   fetchSnapshot,
-  hasConvex,
   syncAddComment,
   syncAddChannelPostComment,
   syncClearViewFilters,
@@ -20,6 +19,7 @@ import {
   syncCreateChannelPost,
   syncCreateDocument,
   syncCreateInvite,
+  syncCreateLabel,
   syncCreateProject,
   syncCreateTeam,
   syncCreateWorkspaceChat,
@@ -45,17 +45,19 @@ import {
   syncUpdateCurrentUserProfile,
   syncUpdateDocument,
   syncUpdateItemDescription,
+  syncUpdateProject,
   syncUpdateTeamWorkflowSettings,
   syncUpdateViewConfig,
   syncUpdateWorkItem,
   syncUpdateWorkspaceBranding,
 } from "@/lib/convex/client"
 import {
+  canEditWorkspace,
   getTeamFeatureSettings,
   getWorkItemDescendantIds,
   getTeamSurfaceDisableReason,
 } from "@/lib/domain/selectors"
-import { createSeedState } from "@/lib/domain/seed"
+import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   canParentWorkItemTypeAcceptChild,
   type AttachmentTargetType,
@@ -65,13 +67,11 @@ import {
   channelSchema,
   chatMessageSchema,
   commentSchema,
+  createDefaultProjectPresentationConfig,
   createDefaultTeamWorkflowSettings,
   documentSchema,
-  getAllowedRootWorkItemTypesForTemplate,
   getAllowedTemplateTypesForTeamExperience,
   getAllowedWorkItemTypesForTemplate,
-  getDefaultRootWorkItemTypesForTeamExperience,
-  getDefaultWorkItemTypesForTeamExperience,
   getWorkSurfaceCopy,
   inviteSchema,
   joinCodeSchema,
@@ -84,13 +84,17 @@ import {
   type Conversation,
   type DisplayProperty,
   type GroupField,
+  type Label,
   type OrderingField,
   type Priority,
+  type ProjectPresentationConfig,
+  type ProjectStatus,
   type Role,
   type ScopeType,
   type TeamFeatureSettings,
   teamDetailsSchema,
   type TeamWorkflowSettings,
+  type WorkItem,
   type WorkItemType,
   type WorkStatus,
   templateMeta,
@@ -106,6 +110,7 @@ type WorkItemPatch = {
   assigneeId?: string | null
   parentId?: string | null
   primaryProjectId?: string | null
+  labelIds?: string[]
   startDate?: string | null
   dueDate?: string | null
   targetDate?: string | null
@@ -119,6 +124,12 @@ type CreateProjectInput = {
   summary: string
   priority: Priority
   settingsTeamId?: string | null
+  presentation?: ProjectPresentationConfig
+}
+
+type ProjectPatch = {
+  status?: ProjectStatus
+  priority?: Priority
 }
 
 type CreateWorkItemInput = {
@@ -128,7 +139,9 @@ type CreateWorkItemInput = {
   parentId?: string | null
   primaryProjectId: string | null
   assigneeId: string | null
+  status?: WorkStatus
   priority: Priority
+  labelIds?: string[]
 }
 
 type CreateDocumentInput =
@@ -238,9 +251,7 @@ type AddChannelPostCommentInput = {
 
 export type AppStore = AppData & {
   replaceDomainData: (data: AppSnapshot) => void
-  resetDemo: () => void
   setActiveTeam: (teamId: string) => void
-  setRolePreview: (role: Role | null) => void
   setSelectedView: (route: string, viewId: string) => void
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
@@ -285,6 +296,7 @@ export type AppStore = AppData & {
     value: string
   ) => void
   clearViewFilters: (viewId: string) => void
+  createLabel: (name: string) => Promise<Label | null>
   updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
@@ -311,6 +323,7 @@ export type AppStore = AppData & {
   createInvite: (input: CreateInviteInput) => void
   joinTeamByCode: (code: string) => Promise<boolean>
   createProject: (input: CreateProjectInput) => void
+  updateProject: (projectId: string, patch: ProjectPatch) => void
   createDocument: (input: CreateDocumentInput) => void
   createWorkItem: (input: CreateWorkItemInput) => string | null
   updateTeamWorkflowSettings: (
@@ -424,15 +437,33 @@ function queueRichTextSync(
 }
 
 function toKeyPrefix(teamId: string) {
-  if (teamId === "team_development") {
-    return "DEV"
+  const alphanumeric = teamId.replace(/[^a-z0-9]+/gi, "").toUpperCase()
+  return alphanumeric.slice(0, 3) || "TEA"
+}
+
+function toTeamKeyPrefix(teamName: string | null | undefined, teamId: string) {
+  const words = (teamName ?? "")
+    .split(/[^a-z0-9]+/gi)
+    .map((word) => word.trim())
+    .filter(Boolean)
+
+  if (words.length >= 2) {
+    return words
+      .slice(0, 3)
+      .map((word) => word[0] ?? "")
+      .join("")
+      .toUpperCase()
   }
 
-  if (teamId === "team_operations") {
-    return "OPS"
+  if (words.length === 1) {
+    const compact = words[0].replace(/[^a-z0-9]+/gi, "").toUpperCase()
+
+    if (compact.length > 0) {
+      return compact.slice(0, 3)
+    }
   }
 
-  return "REC"
+  return toKeyPrefix(teamId)
 }
 
 function createMentionIds(
@@ -562,7 +593,10 @@ function getDocumentCreationValidationMessage(
 
 function getWorkItemValidationMessage(
   state: AppData,
-  input: CreateWorkItemInput & { currentItemId?: string | null }
+  input: CreateWorkItemInput & {
+    currentItemId?: string | null
+    labelIds?: string[]
+  }
 ) {
   const team = state.teams.find((entry) => entry.id === input.teamId)
 
@@ -581,6 +615,16 @@ function getWorkItemValidationMessage(
     return "Assignee must belong to the selected team"
   }
 
+  if (
+    "labelIds" in input &&
+    input.labelIds &&
+    input.labelIds.some(
+      (labelId) => !state.labels.some((label) => label.id === labelId)
+    )
+  ) {
+    return "One or more labels are invalid"
+  }
+
   const parent = input.parentId
     ? (state.workItems.find((entry) => entry.id === input.parentId) ?? null)
     : null
@@ -592,10 +636,6 @@ function getWorkItemValidationMessage(
 
     if (parent.teamId !== input.teamId) {
       return "Parent item must belong to the same team"
-    }
-
-    if (parent.parentId) {
-      return "Child items can't contain other child items"
     }
 
     if (input.currentItemId && parent.id === input.currentItemId) {
@@ -610,14 +650,7 @@ function getWorkItemValidationMessage(
       input.currentItemId &&
       getWorkItemDescendantIds(state, input.currentItemId).has(parent.id)
     ) {
-      return "Issue hierarchy cannot contain cycles"
-    }
-
-    if (
-      input.currentItemId &&
-      getWorkItemDescendantIds(state, input.currentItemId).size > 0
-    ) {
-      return "Items with child items can't be nested under another item"
+      return "Work item hierarchy cannot contain cycles"
     }
   }
 
@@ -633,15 +666,6 @@ function getWorkItemValidationMessage(
       return "Project must belong to the same team or workspace"
     }
 
-    if (
-      !parent &&
-      !getAllowedRootWorkItemTypesForTemplate(project.templateType).includes(
-        input.type
-      )
-    ) {
-      return "This work item type requires a parent"
-    }
-
     return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
       input.type
     )
@@ -649,20 +673,39 @@ function getWorkItemValidationMessage(
       : "Work item type is not allowed for the selected project template"
   }
 
-  if (
-    !parent &&
-    !getDefaultRootWorkItemTypesForTeamExperience(
-      team.settings.experience
-    ).includes(input.type)
-  ) {
-    return "This work item type requires a parent"
-  }
+  return null
+}
 
-  return getDefaultWorkItemTypesForTeamExperience(
-    team.settings.experience
-  ).includes(input.type)
-    ? null
-    : "Work item type is not allowed for this team"
+function getResolvedProjectLinkForWorkItemUpdate(
+  state: AppData,
+  existing: WorkItem,
+  patch: {
+    parentId?: string | null
+    primaryProjectId?: string | null
+  }
+) {
+  const nextParentId =
+    patch.parentId === undefined ? existing.parentId : patch.parentId
+  const nextParent = nextParentId
+    ? (state.workItems.find((entry) => entry.id === nextParentId) ?? null)
+    : null
+  const resolvedPrimaryProjectId =
+    patch.primaryProjectId !== undefined
+      ? patch.primaryProjectId
+      : patch.parentId !== undefined
+        ? nextParent?.primaryProjectId ?? existing.primaryProjectId
+        : existing.primaryProjectId
+  const shouldCascadeProjectLink =
+    patch.primaryProjectId !== undefined ||
+    (patch.parentId !== undefined &&
+      nextParent?.primaryProjectId !== null &&
+      nextParent?.primaryProjectId !== undefined &&
+      nextParent.primaryProjectId !== existing.primaryProjectId)
+
+  return {
+    resolvedPrimaryProjectId,
+    shouldCascadeProjectLink,
+  }
 }
 
 function getWorkItemCascadeDeletePlan(state: AppData, itemId: string) {
@@ -771,17 +814,24 @@ function getWorkItemCascadeDeletePlan(state: AppData, itemId: string) {
 }
 
 function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
+  const workspaceOwnerId =
+    state.workspaces.find((workspace) => workspace.id === workspaceId)
+      ?.createdBy ?? null
   const workspaceTeamIds = state.teams
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
 
-  return [
-    ...new Set(
-      state.teamMemberships
-        .filter((membership) => workspaceTeamIds.includes(membership.teamId))
-        .map((membership) => membership.userId)
-    ),
-  ]
+  const userIds = new Set(
+    state.teamMemberships
+      .filter((membership) => workspaceTeamIds.includes(membership.teamId))
+      .map((membership) => membership.userId)
+  )
+
+  if (workspaceOwnerId) {
+    userIds.add(workspaceOwnerId)
+  }
+
+  return [...userIds]
 }
 
 function getConversationAudienceUserIds(
@@ -835,10 +885,6 @@ function buildWorkspaceChatTitle(
 }
 
 function effectiveRole(data: AppData, teamId: string) {
-  if (data.ui.rolePreview) {
-    return data.ui.rolePreview
-  }
-
   return (
     data.teamMemberships.find(
       (membership) =>
@@ -848,14 +894,7 @@ function effectiveRole(data: AppData, teamId: string) {
 }
 
 function canEditWorkspaceDocuments(data: AppData, workspaceId: string) {
-  return data.teams.some((team) => {
-    if (team.workspaceId !== workspaceId) {
-      return false
-    }
-
-    const role = effectiveRole(data, team.id)
-    return role === "admin" || role === "member"
-  })
+  return canEditWorkspace(data, workspaceId)
 }
 
 function getTeamWorkflowSettings(
@@ -1006,7 +1045,7 @@ async function refreshFromServer() {
 export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => ({
-      ...createSeedState(),
+      ...createEmptyState(),
       replaceDomainData(data) {
         set((state) => ({
           ...state,
@@ -1030,28 +1069,11 @@ export const useAppStore = create<AppStore>()(
           },
         }))
       },
-      resetDemo() {
-        if (hasConvex) {
-          toast.error("Reset is disabled while Convex is connected")
-          return
-        }
-
-        set(createSeedState())
-        toast.success("Demo data reset")
-      },
       setActiveTeam(teamId) {
         set((state) => ({
           ui: {
             ...state.ui,
             activeTeamId: teamId,
-          },
-        }))
-      },
-      setRolePreview(role) {
-        set((state) => ({
-          ui: {
-            ...state.ui,
-            rolePreview: role,
           },
         }))
       },
@@ -1482,6 +1504,46 @@ export const useAppStore = create<AppStore>()(
           "Failed to update filters"
         )
       },
+      async createLabel(name) {
+        const normalizedName = name.trim()
+
+        if (normalizedName.length === 0) {
+          toast.error("Label name is required")
+          return null
+        }
+
+        const existing = get().labels.find(
+          (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
+        )
+
+        if (existing) {
+          return existing
+        }
+
+        try {
+          const result = await syncCreateLabel({
+            name: normalizedName,
+          })
+
+          if (!result?.label) {
+            throw new Error("Failed to create label")
+          }
+
+          set((state) => ({
+            labels: [...state.labels, result.label].sort((left, right) =>
+              left.name.localeCompare(right.name)
+            ),
+          }))
+
+          return result.label
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error ? error.message : "Failed to create label"
+          )
+          return null
+        }
+      },
       updateWorkItem(itemId, patch) {
         const state = get()
         const existing = state.workItems.find((item) => item.id === itemId)
@@ -1489,6 +1551,9 @@ export const useAppStore = create<AppStore>()(
         if (!existing) {
           return
         }
+
+        const { resolvedPrimaryProjectId, shouldCascadeProjectLink } =
+          getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
 
         const validationMessage = getWorkItemValidationMessage(state, {
           teamId: existing.teamId,
@@ -1501,10 +1566,9 @@ export const useAppStore = create<AppStore>()(
               : patch.assigneeId,
           parentId:
             patch.parentId === undefined ? existing.parentId : patch.parentId,
-          primaryProjectId:
-            patch.primaryProjectId === undefined
-              ? existing.primaryProjectId
-              : patch.primaryProjectId,
+          primaryProjectId: resolvedPrimaryProjectId,
+          labelIds:
+            patch.labelIds === undefined ? existing.labelIds : patch.labelIds,
           currentItemId: existing.id,
         })
 
@@ -1513,17 +1577,90 @@ export const useAppStore = create<AppStore>()(
           return
         }
 
+        if (resolvedPrimaryProjectId && shouldCascadeProjectLink) {
+          const descendantIds = getWorkItemDescendantIds(state, itemId)
+          const project = getProjectsForTeamScope(state, existing.teamId).find(
+            (entry) => entry.id === resolvedPrimaryProjectId
+          )
+
+          if (
+            project &&
+            state.workItems
+              .filter((item) => descendantIds.has(item.id))
+              .some(
+                (item) =>
+                  !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+                    item.type
+                  )
+              )
+          ) {
+            toast.error(
+              "Child work item type is not allowed for the selected project template"
+            )
+            return
+          }
+        }
+
         set((state) => {
           const existing = state.workItems.find((item) => item.id === itemId)
           if (!existing) {
             return state
           }
 
-          const nextItems = state.workItems.map((item) =>
-            item.id === itemId
-              ? { ...item, ...patch, updatedAt: getNow() }
-              : item
-          )
+          const now = getNow()
+          const {
+            resolvedPrimaryProjectId,
+            shouldCascadeProjectLink,
+          } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+          const cascadeItemIds = shouldCascadeProjectLink
+            ? new Set<string>([
+                itemId,
+                ...getWorkItemDescendantIds(state, itemId),
+              ])
+            : new Set<string>([itemId])
+          const nextItems = state.workItems.map((item) => {
+            if (item.id === itemId) {
+              return {
+                ...item,
+                ...patch,
+                primaryProjectId: resolvedPrimaryProjectId,
+                updatedAt: now,
+              }
+            }
+
+            if (!shouldCascadeProjectLink || !cascadeItemIds.has(item.id)) {
+              return item
+            }
+
+            return {
+              ...item,
+              primaryProjectId: resolvedPrimaryProjectId,
+              updatedAt: now,
+            }
+          })
+          const cascadeDescriptionDocIds = shouldCascadeProjectLink
+            ? new Set(
+                state.workItems
+                  .filter((item) => cascadeItemIds.has(item.id))
+                  .map((item) => item.descriptionDocId)
+              )
+            : null
+          const nextDocuments = cascadeDescriptionDocIds
+            ? state.documents.map((document) => {
+                if (!cascadeDescriptionDocIds.has(document.id)) {
+                  return document
+                }
+
+                return {
+                  ...document,
+                  linkedProjectIds: resolvedPrimaryProjectId
+                    ? [resolvedPrimaryProjectId]
+                    : [],
+                  updatedBy: state.currentUserId,
+                  updatedAt: now,
+                }
+              })
+            : state.documents
 
           const notifications = [...state.notifications]
           const actor = state.users.find(
@@ -1567,6 +1704,7 @@ export const useAppStore = create<AppStore>()(
 
           return {
             ...state,
+            documents: nextDocuments,
             workItems: nextItems,
             notifications,
           }
@@ -3028,6 +3166,11 @@ export const useAppStore = create<AppStore>()(
           )
           const templateDefaults =
             workflowSettings.templateDefaults[parsed.data.templateType]
+          const presentation =
+            parsed.data.presentation ??
+            createDefaultProjectPresentationConfig(parsed.data.templateType, {
+              layout: templateDefaults.defaultViewLayout,
+            })
           const project = {
             id: createId("project"),
             scopeType: parsed.data.scopeType,
@@ -3041,6 +3184,7 @@ export const useAppStore = create<AppStore>()(
             health: "no-update" as const,
             priority: parsed.data.priority,
             status: "planning" as const,
+            presentation,
             startDate: getNow(),
             targetDate: addDays(
               new Date(),
@@ -3057,20 +3201,53 @@ export const useAppStore = create<AppStore>()(
         })
 
         syncInBackground(
-          syncCreateProject(
-            useAppStore.getState().currentUserId,
-            parsed.data.scopeType,
-            parsed.data.scopeId,
-            parsed.data.templateType,
-            parsed.data.name,
-            parsed.data.summary,
-            parsed.data.priority,
-            parsed.data.settingsTeamId
-          ),
+          syncCreateProject(useAppStore.getState().currentUserId, parsed.data),
           "Failed to create project"
         )
 
         toast.success("Project created")
+      },
+      updateProject(projectId, patch) {
+        const state = get()
+        const project = state.projects.find((entry) => entry.id === projectId)
+
+        if (!project) {
+          return
+        }
+
+        const canEdit =
+          project.scopeType === "team"
+            ? (() => {
+                const role = effectiveRole(state, project.scopeId)
+                return role === "admin" || role === "member"
+              })()
+            : canEditWorkspaceDocuments(state, project.scopeId)
+
+        if (!canEdit) {
+          toast.error("Your current role is read-only")
+          return
+        }
+
+        set((current) => ({
+          projects: current.projects.map((entry) =>
+            entry.id === projectId
+              ? {
+                  ...entry,
+                  ...patch,
+                  updatedAt: getNow(),
+                }
+              : entry
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateProject(
+            useAppStore.getState().currentUserId,
+            projectId,
+            patch
+          ),
+          "Failed to update project"
+        )
       },
       updateTeamWorkflowSettings(teamId, workflow) {
         set((state) => ({
@@ -3214,10 +3391,13 @@ export const useAppStore = create<AppStore>()(
                 (item) => item.id === parsed.data.parentId
               ) ?? null)
             : null
+          const team =
+            state.teams.find((entry) => entry.id === parsed.data.teamId) ??
+            null
           const teamItems = state.workItems.filter(
             (item) => item.teamId === parsed.data.teamId
           )
-          const prefix = toKeyPrefix(parsed.data.teamId)
+          const prefix = toTeamKeyPrefix(team?.name, parsed.data.teamId)
           const nextNumber = 1 + teamItems.length + 100
           const descriptionDocId = createId("doc")
           const resolvedPrimaryProjectId =
@@ -3249,7 +3429,7 @@ export const useAppStore = create<AppStore>()(
             type: parsed.data.type,
             title: parsed.data.title,
             descriptionDocId,
-            status: "backlog" as const,
+            status: parsed.data.status ?? ("backlog" as const),
             priority: parsed.data.priority,
             assigneeId: parsed.data.assigneeId,
             creatorId: state.currentUserId,
@@ -3257,7 +3437,7 @@ export const useAppStore = create<AppStore>()(
             primaryProjectId: resolvedPrimaryProjectId,
             linkedProjectIds: [],
             linkedDocumentIds: [],
-            labelIds: [],
+            labelIds: parsed.data.labelIds ?? [],
             milestoneId: null,
             startDate: getNow(),
             dueDate: addDays(new Date(), 7).toISOString(),
@@ -3281,16 +3461,7 @@ export const useAppStore = create<AppStore>()(
         }
 
         syncInBackground(
-          syncCreateWorkItem(
-            useAppStore.getState().currentUserId,
-            parsed.data.teamId,
-            parsed.data.type,
-            parsed.data.title,
-            parsed.data.parentId ?? null,
-            parsed.data.primaryProjectId,
-            parsed.data.assigneeId,
-            parsed.data.priority
-          ),
+          syncCreateWorkItem(useAppStore.getState().currentUserId, parsed.data),
           "Failed to create work item"
         )
 

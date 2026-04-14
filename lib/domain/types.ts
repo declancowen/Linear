@@ -126,8 +126,11 @@ export const groupFields = [
   "status",
   "assignee",
   "priority",
+  "label",
   "team",
   "type",
+  "epic",
+  "feature",
 ] as const
 export type GroupField = (typeof groupFields)[number]
 
@@ -213,6 +216,58 @@ export type ViewFilters = {
   showCompleted: boolean
 }
 
+export interface ProjectPresentationConfig {
+  layout: ViewLayout
+  grouping: GroupField
+  ordering: OrderingField
+  displayProps: DisplayProperty[]
+  filters: ViewFilters
+}
+
+export function createDefaultViewFilters(): ViewFilters {
+  return {
+    status: [],
+    priority: [],
+    assigneeIds: [],
+    creatorIds: [],
+    leadIds: [],
+    health: [],
+    milestoneIds: [],
+    relationTypes: [],
+    projectIds: [],
+    itemTypes: [],
+    labelIds: [],
+    teamIds: [],
+    showCompleted: true,
+  }
+}
+
+export function createDefaultProjectPresentationConfig(
+  templateType: TemplateType,
+  options?: {
+    layout?: ViewLayout
+  }
+): ProjectPresentationConfig {
+  const layout =
+    options?.layout ??
+    (templateType === "project-management"
+      ? "timeline"
+      : templateType === "bug-tracking"
+        ? "list"
+        : "board")
+
+  return {
+    layout,
+    grouping: "status",
+    ordering: layout === "timeline" ? "targetDate" : "priority",
+    displayProps:
+      layout === "timeline"
+        ? ["id", "status", "assignee", "priority", "dueDate"]
+        : ["id", "status", "assignee", "priority", "labels", "updated"],
+    filters: createDefaultViewFilters(),
+  }
+}
+
 export interface Workspace {
   id: string
   slug: string
@@ -287,6 +342,7 @@ export interface Project {
   health: ProjectHealth
   priority: Priority
   status: ProjectStatus
+  presentation?: ProjectPresentationConfig
   startDate: string | null
   targetDate: string | null
   createdAt: string
@@ -498,7 +554,6 @@ export interface ChannelPostComment {
 
 export interface UiState {
   activeTeamId: string
-  rolePreview: Role | null
   activeInboxNotificationId: string | null
   selectedViewByRoute: Record<string, string>
 }
@@ -544,14 +599,7 @@ export const templateMeta: Record<
     label: "Software Development",
     description: "Epics, features, requirements, stories, and issues.",
     icon: "code",
-    itemTypes: [
-      "epic",
-      "feature",
-      "requirement",
-      "story",
-      "issue",
-      "sub-task",
-    ],
+    itemTypes: ["epic", "feature", "requirement", "story", "issue"],
   },
   "bug-tracking": {
     label: "Issue Tracking",
@@ -567,13 +615,15 @@ export const templateMeta: Record<
   },
 }
 
-export function getAllowedWorkItemTypesForTemplate(templateType: TemplateType) {
+export function getAllowedWorkItemTypesForTemplate(
+  templateType: TemplateType
+): WorkItemType[] {
   return [...templateMeta[templateType].itemTypes]
 }
 
 export function getAllowedRootWorkItemTypesForTemplate(
   templateType: TemplateType
-) {
+): WorkItemType[] {
   return getAllowedWorkItemTypesForTemplate(templateType).filter(
     (itemType) => itemType !== "sub-task" && itemType !== "sub-issue"
   )
@@ -581,7 +631,7 @@ export function getAllowedRootWorkItemTypesForTemplate(
 
 export function getDefaultWorkItemTypesForTeamExperience(
   experience: TeamExperienceType | null | undefined
-) {
+): WorkItemType[] {
   const resolvedExperience = experience ?? "software-development"
 
   if (resolvedExperience === "issue-analysis") {
@@ -601,7 +651,7 @@ export function getDefaultWorkItemTypesForTeamExperience(
 
 export function getDefaultRootWorkItemTypesForTeamExperience(
   experience: TeamExperienceType | null | undefined
-) {
+): WorkItemType[] {
   const resolvedExperience = experience ?? "software-development"
 
   if (resolvedExperience === "issue-analysis") {
@@ -635,10 +685,10 @@ export function getPreferredWorkItemTypeForTeamExperience(
   }
 
   if (resolvedExperience === "community") {
-    return hasParent ? "sub-task" : "story"
+    return "story"
   }
 
-  return hasParent ? "sub-task" : "story"
+  return "story"
 }
 
 export function getDefaultTemplateTypeForTeamExperience(
@@ -911,7 +961,6 @@ export function createDefaultTeamWorkflowSettings(
           "requirement",
           "story",
           "issue",
-          "sub-task",
         ],
         summaryHint:
           "Delivery plan spanning epics, features, requirements, stories, and issues.",
@@ -985,15 +1034,25 @@ export const projectHealthMeta: Record<ProjectHealth, { label: string }> = {
   "off-track": { label: "Off track" },
 }
 
-export const workItemTypeMeta: Record<WorkItemType, { label: string }> = {
-  epic: { label: "Epic" },
-  feature: { label: "Feature" },
-  requirement: { label: "Requirement" },
-  story: { label: "Story" },
-  task: { label: "Task" },
-  issue: { label: "Issue" },
-  "sub-task": { label: "Sub-task" },
-  "sub-issue": { label: "Sub-issue" },
+export const projectStatusMeta: Record<ProjectStatus, { label: string }> = {
+  planning: { label: "Planning" },
+  active: { label: "Active" },
+  paused: { label: "Paused" },
+  completed: { label: "Completed" },
+}
+
+export const workItemTypeMeta: Record<
+  WorkItemType,
+  { label: string; pluralLabel: string }
+> = {
+  epic: { label: "Epic", pluralLabel: "Epics" },
+  feature: { label: "Feature", pluralLabel: "Features" },
+  requirement: { label: "Requirement", pluralLabel: "Requirements" },
+  story: { label: "Story", pluralLabel: "Stories" },
+  task: { label: "Task", pluralLabel: "Tasks" },
+  issue: { label: "Issue", pluralLabel: "Issues" },
+  "sub-task": { label: "Sub-task", pluralLabel: "Sub-tasks" },
+  "sub-issue": { label: "Sub-issue", pluralLabel: "Sub-issues" },
 }
 
 export function getDisplayLabelForWorkItemType(
@@ -1001,6 +1060,13 @@ export function getDisplayLabelForWorkItemType(
   _experience: TeamExperienceType | null | undefined
 ) {
   return workItemTypeMeta[itemType].label
+}
+
+export function getDisplayPluralLabelForWorkItemType(
+  itemType: WorkItemType,
+  _experience: TeamExperienceType | null | undefined
+) {
+  return workItemTypeMeta[itemType].pluralLabel
 }
 
 export function normalizeStoredWorkItemType(
@@ -1048,11 +1114,15 @@ export function normalizeStoredWorkItemType(
   }
 
   if (itemType === "sub-issue") {
-    return "sub-task"
+    return "issue"
+  }
+
+  if (itemType === "sub-task") {
+    return "story"
   }
 
   if (itemType === "qa-task" || itemType === "test-case") {
-    return hasParent ? "sub-task" : "story"
+    return "story"
   }
 
   return itemType
@@ -1101,13 +1171,13 @@ export function normalizeStoredViewItemTypes(
       }
 
       if (itemType === "sub-task") {
+        normalizedItemTypes.add("story")
         normalizedItemTypes.add("sub-task")
-        normalizedItemTypes.add("sub-issue")
         return
       }
 
       if (itemType === "qa-task" || itemType === "test-case") {
-        normalizedItemTypes.add("sub-task")
+        normalizedItemTypes.add("story")
         normalizedItemTypes.add("sub-issue")
         return
       }
@@ -1118,7 +1188,7 @@ export function normalizeStoredViewItemTypes(
 
     if (itemType === "qa-task" || itemType === "test-case") {
       normalizedItemTypes.add(
-        experience === "issue-analysis" ? "sub-issue" : "sub-task"
+        experience === "issue-analysis" ? "sub-issue" : "story"
       )
       return
     }
@@ -1179,12 +1249,12 @@ export function getWorkSurfaceCopy(
 }
 
 export const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {
-  epic: ["feature", "requirement", "story", "issue"],
-  feature: ["requirement", "story", "issue"],
-  requirement: ["story", "issue", "sub-task"],
-  story: ["sub-task"],
+  epic: ["feature"],
+  feature: ["requirement"],
+  requirement: ["story"],
+  story: [],
   task: ["sub-task"],
-  issue: ["sub-task", "sub-issue"],
+  issue: ["sub-issue"],
   "sub-task": [],
   "sub-issue": [],
 }
@@ -1196,7 +1266,7 @@ export function getAllowedChildWorkItemTypes(parentType: WorkItemType) {
 export function getAllowedChildWorkItemTypesForItem(
   item: Pick<WorkItem, "type" | "parentId">
 ) {
-  return item.parentId ? [] : getAllowedChildWorkItemTypes(item.type)
+  return getAllowedChildWorkItemTypes(item.type)
 }
 
 export function canParentWorkItemTypeAcceptChild(
@@ -1205,6 +1275,57 @@ export function canParentWorkItemTypeAcceptChild(
 ) {
   return workItemChildTypeMeta[parentType].includes(childType)
 }
+
+export function getChildWorkItemCopy(
+  parentType: WorkItemType | null | undefined,
+  experience: TeamExperienceType | null | undefined
+) {
+  const workCopy = getWorkSurfaceCopy(experience)
+
+  if (!parentType) {
+    return {
+      childType: null,
+      childLabel: workCopy.singularLabel,
+      childPluralLabel: workCopy.childPluralLabel,
+      addChildLabel: workCopy.addChildLabel,
+      createChildLabel: workCopy.createChildLabel,
+      titlePlaceholder: workCopy.titlePlaceholder,
+    }
+  }
+
+  const allowedChildTypes = getAllowedChildWorkItemTypes(parentType)
+
+  if (allowedChildTypes.length !== 1) {
+    return {
+      childType: null,
+      childLabel: workCopy.singularLabel,
+      childPluralLabel: workCopy.childPluralLabel,
+      addChildLabel: workCopy.addChildLabel,
+      createChildLabel: workCopy.createChildLabel,
+      titlePlaceholder: workCopy.titlePlaceholder,
+    }
+  }
+
+  const childType = allowedChildTypes[0]
+  const childLabel = getDisplayLabelForWorkItemType(childType, experience)
+
+  return {
+    childType,
+    childLabel,
+    childPluralLabel: getDisplayPluralLabelForWorkItemType(
+      childType,
+      experience
+    ),
+    addChildLabel: `Add ${childLabel.toLowerCase()}`,
+    createChildLabel: `New ${childLabel.toLowerCase()}`,
+    titlePlaceholder: `${childLabel} title`,
+  }
+}
+
+export const labelCreateSchema = z.object({
+  name: z.string().trim().min(1).max(32),
+  color: z.string().trim().min(1).max(24).optional(),
+})
 
 export const inviteSchema = z.object({
   teamIds: z.array(z.string().min(1)).min(1).max(12),
@@ -1310,6 +1431,29 @@ export const projectSchema = z.object({
   summary: z.string().trim().min(2).max(140),
   priority: z.enum(priorities),
   settingsTeamId: z.string().nullable().optional(),
+  presentation: z
+    .object({
+      layout: z.enum(viewLayouts),
+      grouping: z.enum(groupFields),
+      ordering: z.enum(orderingFields),
+      displayProps: z.array(z.enum(displayProperties)),
+      filters: z.object({
+        status: z.array(z.enum(workStatuses)),
+        priority: z.array(z.enum(priorities)),
+        assigneeIds: z.array(z.string()),
+        creatorIds: z.array(z.string()),
+        leadIds: z.array(z.string()),
+        health: z.array(z.enum(projectHealths)),
+        milestoneIds: z.array(z.string()),
+        relationTypes: z.array(z.string()),
+        projectIds: z.array(z.string()),
+        itemTypes: z.array(z.enum(workItemTypes)),
+        labelIds: z.array(z.string()),
+        teamIds: z.array(z.string()),
+        showCompleted: z.boolean(),
+      }),
+    })
+    .optional(),
 })
 
 export const workItemSchema = z.object({
@@ -1319,7 +1463,9 @@ export const workItemSchema = z.object({
   parentId: z.string().nullable().optional(),
   primaryProjectId: z.string().nullable(),
   assigneeId: z.string().nullable(),
+  status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
+  labelIds: z.array(z.string()).optional(),
 })
 
 const createDocumentBaseSchema = {

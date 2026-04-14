@@ -3,13 +3,12 @@ import { NextResponse } from "next/server"
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
   buildAuthPageHref,
-  getAppOrigin,
   normalizeAuthNextPath,
   parseAuthMode,
 } from "@/lib/auth-routing"
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getAppOrigin()))
+  return NextResponse.redirect(new URL(path, request.url))
 }
 
 function isLocalRedirectUri(redirectUri: string) {

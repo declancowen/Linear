@@ -66,14 +66,14 @@ Useful commands:
 ```bash
 pnpm convex:codegen
 pnpm convex:deploy
-pnpm bootstrap:workspace -- --email declan@reciperoom.io --workspace-name "Recipe Room" --team-name "Recipe Room" --team-join-code RECIPE24
+pnpm bootstrap:workspace -- --email you@example.com --workspace-name "Your Workspace" --team-name "Core Team" --team-join-code TEAMJOIN
 ```
 
 `CONVEX_URL` is the preferred server-side setting. `NEXT_PUBLIC_CONVEX_URL` is
 still used by the browser to detect whether the app is running against a live
 backend, but snapshot reads now go through authenticated Next.js API routes.
 
-The current repo has already been deployed and seeded against the configured Convex deployment.
+The current repo has already been deployed against the configured Convex deployment.
 
 ## 100ms video
 
@@ -127,6 +127,6 @@ pnpm exec electron --version
 - `components/app/screens.tsx`
 - `components/app/rich-text-editor.tsx`
 - `lib/store/app-store.ts`
-- `lib/domain/seed.ts`
+- `lib/domain/empty-state.ts`
 - `electron/main.mjs`
 - `electron/preload.mjs`

@@ -4,10 +4,12 @@ import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
   Priority,
+  ProjectPresentationConfig,
   TeamExperienceType,
   TeamWorkflowSettings,
   TemplateType,
   WorkItemType,
+  WorkStatus,
 } from "@/lib/domain/types"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -323,6 +325,7 @@ export async function updateWorkItemServer(input: {
     assigneeId?: string | null
     parentId?: string | null
     primaryProjectId?: string | null
+    labelIds?: string[]
     startDate?: string | null
     dueDate?: string | null
     targetDate?: string | null
@@ -330,6 +333,17 @@ export async function updateWorkItemServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.updateWorkItem,
+    withServerToken(input)
+  )
+}
+
+export async function createLabelServer(input: {
+  currentUserId: string
+  name: string
+  color?: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.createLabel,
     withServerToken(input)
   )
 }
@@ -348,7 +362,15 @@ export async function updateViewConfigServer(input: {
   currentUserId: string
   viewId: string
   layout?: "list" | "board" | "timeline"
-  grouping?: "project" | "status" | "assignee" | "priority" | "team" | "type"
+  grouping?:
+    | "project"
+    | "status"
+    | "assignee"
+    | "priority"
+    | "team"
+    | "type"
+    | "epic"
+    | "feature"
   subGrouping?:
     | "project"
     | "status"
@@ -356,6 +378,8 @@ export async function updateViewConfigServer(input: {
     | "priority"
     | "team"
     | "type"
+    | "epic"
+    | "feature"
     | null
   ordering?:
     | "priority"
@@ -575,9 +599,24 @@ export async function createProjectServer(input: {
   summary: string
   priority: Priority
   settingsTeamId?: string | null
+  presentation?: ProjectPresentationConfig
 }) {
   return getConvexServerClient().mutation(
     api.app.createProject,
+    withServerToken(input)
+  )
+}
+
+export async function updateProjectServer(input: {
+  currentUserId: string
+  projectId: string
+  patch: {
+    status?: "planning" | "active" | "paused" | "completed"
+    priority?: Priority
+  }
+}) {
+  return getConvexServerClient().mutation(
+    api.app.updateProject,
     withServerToken(input)
   )
 }
@@ -764,7 +803,9 @@ export async function createWorkItemServer(input: {
   parentId?: string | null
   primaryProjectId: string | null
   assigneeId: string | null
+  status?: WorkStatus
   priority: Priority
+  labelIds?: string[]
 }) {
   return getConvexServerClient().mutation(
     api.app.createWorkItem,

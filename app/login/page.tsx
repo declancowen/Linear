@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 
 import { AuthEntryScreen } from "@/components/app/auth-entry-screen"
 import {
-  buildPostAuthPath,
+  buildSessionResolvePath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 
@@ -24,7 +24,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const auth = await withAuth()
 
   if (auth.user) {
-    redirect(buildPostAuthPath(nextPath))
+    redirect(
+      buildSessionResolvePath({
+        mode: "login",
+        nextPath,
+      })
+    )
   }
 
   return (

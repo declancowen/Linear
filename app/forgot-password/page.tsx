@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
-  buildPostAuthPath,
+  buildSessionResolvePath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 
@@ -43,7 +43,12 @@ export default async function ForgotPasswordPage({
   const auth = await withAuth()
 
   if (auth.user) {
-    redirect(buildPostAuthPath(nextPath))
+    redirect(
+      buildSessionResolvePath({
+        mode: "login",
+        nextPath,
+      })
+    )
   }
 
   return (

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 
 import { AuthEntryScreen } from "@/components/app/auth-entry-screen"
 import {
-  buildPostAuthPath,
+  buildSessionResolvePath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 
@@ -26,7 +26,12 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
   const auth = await withAuth()
 
   if (auth.user) {
-    redirect(buildPostAuthPath(nextPath))
+    redirect(
+      buildSessionResolvePath({
+        mode: "signup",
+        nextPath,
+      })
+    )
   }
 
   return (

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 
 import {
   buildAuthPageHref,
-  getAppOrigin,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 import {
@@ -11,7 +10,7 @@ import {
 } from "@/lib/server/workos"
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getAppOrigin()), {
+  return NextResponse.redirect(new URL(path, request.url), {
     status: request.method === "POST" ? 303 : 307,
   })
 }

@@ -1,12 +1,21 @@
 import { saveSession } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
+import {
+  pendingEmailVerificationCookieName,
+  pendingEmailVerificationCookieOptions,
+  serializePendingEmailVerificationState,
+} from "@/lib/auth-email-verification"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { getWorkOSClient } from "@/lib/server/workos"
+import {
+  getWorkOSAuthErrorCode,
+  getWorkOSClient,
+  getWorkOSPendingAuthentication,
+} from "@/lib/server/workos"
 import {
   buildAuthPageHref,
+  buildEmailVerificationPageHref,
   buildPostAuthPath,
-  getAppOrigin,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 
@@ -22,35 +31,27 @@ function getRequestMetadata(request: Request) {
 }
 
 function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, getAppOrigin()), {
+  return NextResponse.redirect(new URL(path, request.url), {
     status: request.method === "POST" ? 303 : 307,
   })
 }
 
 function mapLoginError(error: unknown) {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "rawData" in error &&
-    typeof error.rawData === "object" &&
-    error.rawData !== null &&
-    "error" in error.rawData &&
-    typeof error.rawData.error === "string"
-  ) {
-    switch (error.rawData.error) {
-      case "invalid_grant":
-      case "invalid_credentials":
-        return "Invalid email or password."
-      case "mfa_enrollment":
-        return "This account requires MFA enrollment before sign in can continue."
-      case "sso_required":
-        return "This account requires single sign-on."
-      default:
-        return "We couldn't sign you in with those credentials."
-    }
+  switch (getWorkOSAuthErrorCode(error)) {
+    case "invalid_grant":
+    case "invalid_credentials":
+      return "Invalid email or password."
+    case "mfa_enrollment":
+      return "This account requires MFA enrollment before sign in can continue."
+    case "mfa_challenge":
+      return "This account requires MFA to finish signing in."
+    case "organization_selection_required":
+      return "Choose an organization to continue signing in."
+    case "sso_required":
+      return "This account requires single sign-on."
+    default:
+      return "We couldn't sign you in with those credentials."
   }
-
-  return "We couldn't sign you in with those credentials."
 }
 
 export async function GET(request: Request) {
@@ -99,6 +100,37 @@ export async function POST(request: Request) {
 
     return redirectTo(request, buildPostAuthPath(nextPath))
   } catch (error) {
+    const pendingAuthentication = getWorkOSPendingAuthentication(error)
+
+    if (
+      getWorkOSAuthErrorCode(error) === "email_verification_required" &&
+      pendingAuthentication
+    ) {
+      const response = redirectTo(
+        request,
+        buildEmailVerificationPageHref({
+          mode: "login",
+          nextPath,
+          email: pendingAuthentication.email ?? email,
+          notice: "Enter the verification code WorkOS sent to continue.",
+        })
+      )
+
+      response.cookies.set(
+        pendingEmailVerificationCookieName,
+        serializePendingEmailVerificationState({
+          email: pendingAuthentication.email ?? email,
+          mode: "login",
+          nextPath,
+          pendingAuthenticationToken:
+            pendingAuthentication.pendingAuthenticationToken,
+        }),
+        pendingEmailVerificationCookieOptions
+      )
+
+      return response
+    }
+
     return redirectTo(
       request,
       buildAuthPageHref("login", {

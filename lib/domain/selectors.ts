@@ -21,10 +21,14 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
   getDisplayLabelForWorkItemType,
+  normalizeTeamIconToken,
   normalizeTeamFeatureSettings,
   priorityMeta,
   statusMeta,
+  teamExperienceMeta,
+  teamIconMeta,
   templateMeta,
+  workItemTypes,
   workStatuses,
 } from "@/lib/domain/types"
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
@@ -56,10 +60,6 @@ export function getTeamBySlug(data: AppData, teamSlug: string) {
 }
 
 export function getTeamRole(data: AppData, teamId: string) {
-  if (data.ui.rolePreview) {
-    return data.ui.rolePreview
-  }
-
   return (
     data.teamMemberships.find(
       (membership) =>
@@ -68,9 +68,30 @@ export function getTeamRole(data: AppData, teamId: string) {
   )
 }
 
+export function isWorkspaceOwner(data: AppData, workspaceId: string) {
+  return (
+    data.workspaces.find((workspace) => workspace.id === workspaceId)
+      ?.createdBy === data.currentUserId
+  )
+}
+
 export function canEditTeam(data: AppData, teamId: string) {
   const role = getTeamRole(data, teamId)
   return role === "admin" || role === "member"
+}
+
+export function canEditWorkspace(data: AppData, workspaceId: string) {
+  if (isWorkspaceOwner(data, workspaceId)) {
+    return true
+  }
+
+  return data.teams.some((team) => {
+    if (team.workspaceId !== workspaceId) {
+      return false
+    }
+
+    return canEditTeam(data, team.id)
+  })
 }
 
 export function canInviteToTeam(data: AppData, teamId: string) {
@@ -158,6 +179,9 @@ export function getTeamMembers(data: AppData, teamId: string) {
 }
 
 export function getWorkspaceUsers(data: AppData, workspaceId: string) {
+  const workspaceOwnerId =
+    data.workspaces.find((workspace) => workspace.id === workspaceId)
+      ?.createdBy ?? null
   const teamIds = data.teams
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
@@ -166,6 +190,10 @@ export function getWorkspaceUsers(data: AppData, workspaceId: string) {
       .filter((membership) => teamIds.includes(membership.teamId))
       .map((membership) => membership.userId)
   )
+
+  if (workspaceOwnerId) {
+    userIds.add(workspaceOwnerId)
+  }
 
   return data.users.filter((user) => userIds.has(user.id))
 }
@@ -234,12 +262,7 @@ export function getProjectsForScope(
 ) {
   if (scopeType === "team") {
     return data.projects.filter(
-      (project) =>
-        (project.scopeType === "team" && project.scopeId === scopeId) ||
-        (project.scopeType === "workspace" &&
-          getAccessibleTeams(data).some(
-            (team) => team.workspaceId === project.scopeId
-          ))
+      (project) => project.scopeType === "team" && project.scopeId === scopeId
     )
   }
 
@@ -252,6 +275,64 @@ export function getProjectsForScope(
 
     return accessibleTeams.includes(project.scopeId)
   })
+}
+
+export function getProjectTeam(
+  data: AppData,
+  project: Project | string | null | undefined
+) {
+  const resolvedProject =
+    typeof project === "string" ? getProject(data, project) : project
+
+  if (!resolvedProject || resolvedProject.scopeType !== "team") {
+    return null
+  }
+
+  return getTeam(data, resolvedProject.scopeId)
+}
+
+export function getProjectContextLabel(
+  data: AppData,
+  project: Project | string | null | undefined
+) {
+  const resolvedProject =
+    typeof project === "string" ? getProject(data, project) : project
+
+  if (!resolvedProject) {
+    return "Project"
+  }
+
+  const team = getProjectTeam(data, resolvedProject)
+
+  if (team) {
+    return team.name
+  }
+
+  return getCurrentWorkspace(data)?.name ?? "Workspace"
+}
+
+export function getProjectHref(
+  data: AppData,
+  project: Project | string | null | undefined
+) {
+  const resolvedProject =
+    typeof project === "string" ? getProject(data, project) : project
+
+  if (!resolvedProject) {
+    return null
+  }
+
+  const team = getProjectTeam(data, resolvedProject)
+
+  if (team) {
+    return `/team/${team.slug}/projects/${resolvedProject.id}`
+  }
+
+  if (resolvedProject.scopeType === "workspace") {
+    return `/workspace/projects/${resolvedProject.id}`
+  }
+
+  return `/projects/${resolvedProject.id}`
 }
 
 export function getWorkspacePersonalViews(
@@ -566,6 +647,66 @@ export function getProjectProgress(data: AppData, projectId: string) {
   }
 }
 
+export function getProjectDetailModel(data: AppData, projectId: string) {
+  const project = getProject(data, projectId)
+
+  if (!project) {
+    return null
+  }
+
+  const team = getProjectTeam(data, project)
+  const progress = getProjectProgress(data, project.id)
+  const items = sortItems(
+    data.workItems.filter(
+      (item) =>
+        item.primaryProjectId === project.id ||
+        item.linkedProjectIds.includes(project.id)
+    ),
+    "priority"
+  )
+  const milestones = data.milestones
+    .filter((milestone) => milestone.projectId === project.id)
+    .sort(
+      (left, right) =>
+        (left.targetDate ?? "").localeCompare(right.targetDate ?? "") ||
+        left.name.localeCompare(right.name)
+    )
+  const updates = data.projectUpdates
+    .filter((update) => update.projectId === project.id)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  const documents = data.documents
+    .filter(
+      (document) =>
+        document.kind !== "item-description" &&
+        document.linkedProjectIds.includes(project.id)
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+  const members = project.memberIds
+    .map((memberId) => getUser(data, memberId))
+    .filter((user): user is UserProfile => Boolean(user))
+
+  return {
+    project,
+    team,
+    progress,
+    items,
+    milestones,
+    updates,
+    documents,
+    members,
+    contextLabel: team ? `${team.name} projects` : "Workspace projects",
+    backHref: team ? `/team/${team.slug}/projects` : "/workspace/projects",
+    teamTypeLabel: team
+      ? teamIconMeta[
+          normalizeTeamIconToken(team.icon, team.settings.experience)
+        ].label
+      : null,
+    teamExperienceLabel: team
+      ? teamExperienceMeta[team.settings.experience].label
+      : null,
+  }
+}
+
 export function isGuestVisible(
   data: AppData,
   team: Team,
@@ -747,8 +888,30 @@ export function getGroupValue(
     return getUser(data, item.assigneeId)?.name ?? "No assignee"
   }
 
+  if (field === "label") {
+    const primaryLabelId = item.labelIds[0]
+    return (
+      data.labels.find((label) => label.id === primaryLabelId)?.name ??
+      "No label"
+    )
+  }
+
   if (field === "team") {
     return getTeam(data, item.teamId)?.name ?? "Unknown team"
+  }
+
+  if (field === "epic" || field === "feature") {
+    let cursor: WorkItem | null = item
+
+    while (cursor) {
+      if (cursor.type === field) {
+        return `${cursor.key} · ${cursor.title}`
+      }
+
+      cursor = cursor.parentId ? getWorkItem(data, cursor.parentId) : null
+    }
+
+    return `No ${field}`
   }
 
   if (field === "type") {
@@ -833,6 +996,15 @@ function compareGroupKeys(
 
   if (field === "priority") {
     return comparePriority(left as Priority, right as Priority)
+  }
+
+  if (field === "type") {
+    const leftIndex = workItemTypes.indexOf(left as WorkItem["type"])
+    const rightIndex = workItemTypes.indexOf(right as WorkItem["type"])
+
+    if (leftIndex !== -1 && rightIndex !== -1) {
+      return leftIndex - rightIndex
+    }
   }
 
   return left.localeCompare(right)
@@ -1038,17 +1210,15 @@ export function searchWorkspace(data: AppData, query: string) {
       id: `project-${project.id}`,
       kind: "project" as const,
       title: project.name,
-      subtitle: `${templateMeta[project.templateType].label} · ${project.summary}`,
-      href: `/projects/${project.id}`,
+      subtitle: `${getProjectContextLabel(data, project)} · ${templateMeta[project.templateType].label} · ${project.summary}`,
+      href: getProjectHref(data, project) ?? "/workspace/projects",
       keywords: [
         project.id,
         project.summary,
         project.templateType,
         getUser(data, project.leadId)?.name ?? "",
-        getTeam(
-          data,
-          project.scopeType === "team" ? project.scopeId : data.ui.activeTeamId
-        )?.name ?? "",
+        getProjectContextLabel(data, project),
+        getProjectTeam(data, project)?.settings.experience ?? "",
       ],
       teamId: project.scopeType === "team" ? project.scopeId : null,
       status: null,

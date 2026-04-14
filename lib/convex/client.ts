@@ -7,8 +7,10 @@ import type {
   AttachmentTargetType,
   DisplayProperty,
   GroupField,
+  Label,
   OrderingField,
   Priority,
+  ProjectPresentationConfig,
   Role,
   ScopeType,
   TeamFeatureSettings,
@@ -136,6 +138,7 @@ type WorkItemPatch = {
   assigneeId?: string | null
   parentId?: string | null
   primaryProjectId?: string | null
+  labelIds?: string[]
   startDate?: string | null
   dueDate?: string | null
   targetDate?: string | null
@@ -333,6 +336,16 @@ export function syncUpdateWorkItem(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(patch),
+  })
+}
+
+export function syncCreateLabel(input: { name: string; color?: string }) {
+  return runRouteMutation<{ label: Label }>("/api/labels", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
   })
 }
 
@@ -535,28 +548,40 @@ export function syncCreateTeam(input: {
 
 export function syncCreateProject(
   _currentUserId: string,
-  scopeType: ScopeType,
-  scopeId: string,
-  templateType: TemplateType,
-  name: string,
-  summary: string,
-  priority: Priority,
-  settingsTeamId?: string | null
+  input: {
+    scopeType: ScopeType
+    scopeId: string
+    templateType: TemplateType
+    name: string
+    summary: string
+    priority: Priority
+    settingsTeamId?: string | null
+    presentation?: ProjectPresentationConfig
+  }
 ) {
   return runRouteMutation("/api/projects", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      scopeType,
-      scopeId,
-      templateType,
-      name,
-      summary,
-      priority,
-      settingsTeamId,
-    }),
+    body: JSON.stringify(input),
+  })
+}
+
+export function syncUpdateProject(
+  _currentUserId: string,
+  projectId: string,
+  patch: {
+    status?: "planning" | "active" | "paused" | "completed"
+    priority?: Priority
+  }
+) {
+  return runRouteMutation(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(patch),
   })
 }
 
@@ -757,28 +782,24 @@ export function syncCreateDocument(
 
 export function syncCreateWorkItem(
   _currentUserId: string,
-  teamId: string,
-  type: WorkItemType,
-  title: string,
-  parentId: string | null,
-  primaryProjectId: string | null,
-  assigneeId: string | null,
-  priority: Priority
+  input: {
+    teamId: string
+    type: WorkItemType
+    title: string
+    parentId?: string | null
+    primaryProjectId: string | null
+    assigneeId: string | null
+    status?: WorkStatus
+    priority: Priority
+    labelIds?: string[]
+  }
 ) {
   return runRouteMutation("/api/items", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      teamId,
-      type,
-      title,
-      parentId,
-      primaryProjectId,
-      assigneeId,
-      priority,
-    }),
+    body: JSON.stringify(input),
   })
 }
 

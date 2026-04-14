@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useEffectEvent } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import { useTheme } from "next-themes"
 
 import {
@@ -27,6 +27,7 @@ function ConvexStateSync({
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
   const { setTheme } = useTheme()
+  const [ready, setReady] = useState(false)
   const applySnapshot = useEffectEvent((snapshot: AppSnapshot) => {
     replaceDomainData(snapshot)
     const currentUser = (snapshot.users ?? []).find(
@@ -96,6 +97,7 @@ function ConvexStateSync({
 
         applySnapshot(snapshotState.snapshot)
         appliedSnapshotVersion = snapshotState.version
+        setReady(true)
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true
@@ -235,6 +237,14 @@ function ConvexStateSync({
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [authenticatedUser?.email])
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading workspace...
+      </div>
+    )
+  }
 
   return <>{children}</>
 }
