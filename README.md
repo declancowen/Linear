@@ -27,11 +27,15 @@ Open `http://localhost:3000`.
 
 ## Convex
 
-The app expects `NEXT_PUBLIC_CONVEX_URL` to be set. An example is included in `.env.example`.
+The app expects a Convex deployment URL plus a shared server token between the
+Next.js app, Convex functions, and operational scripts. An example is included in
+`.env.example`.
 
 Required environment variables:
 
+- `CONVEX_URL`
 - `NEXT_PUBLIC_CONVEX_URL`
+- `CONVEX_SERVER_TOKEN`
 - `CONVEX_DEPLOY_KEY`
 - `WORKOS_CLIENT_ID`
 - `WORKOS_API_KEY`
@@ -65,6 +69,10 @@ pnpm convex:deploy
 pnpm bootstrap:workspace -- --email declan@reciperoom.io --workspace-name "Recipe Room" --team-name "Recipe Room" --team-join-code RECIPE24
 ```
 
+`CONVEX_URL` is the preferred server-side setting. `NEXT_PUBLIC_CONVEX_URL` is
+still used by the browser to detect whether the app is running against a live
+backend, but snapshot reads now go through authenticated Next.js API routes.
+
 The current repo has already been deployed and seeded against the configured Convex deployment.
 
 ## 100ms video
@@ -79,8 +87,9 @@ Add these environment variables before using it:
 - `HMS_TEMPLATE_ID`
 - `HMS_TEMPLATE_SUBDOMAIN`
 
-The server creates or reuses a room per team, creates role-specific room codes,
-and maps app roles to 100ms roles:
+The server persists a stable room per chat conversation for the persistent join
+flow, creates one-off rooms for started call threads, and maps app roles to 100ms
+roles:
 
 - `admin` and `member` join as `host`
 - `viewer` and `guest` join as `guest`

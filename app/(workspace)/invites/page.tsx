@@ -43,18 +43,8 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
         </p>
       </header>
 
-      <JoinWorkspacePanel
-        authenticated
-        initialCode={joinCode}
-        joinedTeamIds={joinedTeamIds}
-      />
-
-      {/* Pending invites */}
-      {pendingInvites.length === 0 ? (
-        <div className="mx-auto w-full max-w-lg rounded-lg border border-dashed border-border/70 px-4 py-8 text-center">
-          <p className="text-sm text-muted-foreground">No pending invites</p>
-        </div>
-      ) : (
+      {pendingInvites.length > 0 ? (
+        <>
         <div className="mx-auto w-full max-w-lg rounded-lg border border-border/70 bg-card">
           <div className="border-b px-4 py-3">
             <span className="text-sm font-medium">Pending invites</span>
@@ -84,7 +74,22 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
             )}
           </div>
         </div>
-      )}
+
+        <div className="mx-auto flex w-full max-w-lg items-center gap-3">
+          <div className="h-px flex-1 bg-border/70" />
+          <span className="text-[10px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
+            Or join with code
+          </span>
+          <div className="h-px flex-1 bg-border/70" />
+        </div>
+        </>
+      ) : null}
+
+      <JoinWorkspacePanel
+        authenticated
+        initialCode={joinCode}
+        joinedTeamIds={joinedTeamIds}
+      />
     </main>
   )
 }

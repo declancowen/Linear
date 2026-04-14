@@ -67,8 +67,12 @@ import {
   commentSchema,
   createDefaultTeamWorkflowSettings,
   documentSchema,
+  getAllowedRootWorkItemTypesForTemplate,
+  getAllowedTemplateTypesForTeamExperience,
   getAllowedWorkItemTypesForTemplate,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
+  getWorkSurfaceCopy,
   inviteSchema,
   joinCodeSchema,
   normalizeTeamIconToken,
@@ -77,6 +81,7 @@ import {
   projectSchema,
   type AppData,
   type CommentTargetType,
+  type Conversation,
   type DisplayProperty,
   type GroupField,
   type OrderingField,
@@ -352,11 +357,7 @@ const queuedRichTextSyncs = new Map<string, QueuedSyncEntry>()
 
 async function handleSyncFailure(error: unknown, fallbackMessage: string) {
   console.error(error)
-  const state = useAppStore.getState()
-  const currentUserEmail = state.users.find(
-    (user) => user.id === state.currentUserId
-  )?.email
-  const snapshot = await fetchSnapshot(currentUserEmail)
+  const snapshot = await fetchSnapshot()
 
   if (snapshot) {
     useAppStore.getState().replaceDomainData(snapshot)
@@ -434,14 +435,22 @@ function toKeyPrefix(teamId: string) {
   return "REC"
 }
 
-function createMentionIds(content: string, users: AppData["users"]) {
+function createMentionIds(
+  content: string,
+  users: AppData["users"],
+  allowedUserIds?: Iterable<string>
+) {
+  const audience = allowedUserIds ? new Set(allowedUserIds) : null
   const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
     match[1]?.toLowerCase()
   )
 
-  return users
-    .filter((user) => handles.includes(user.handle.toLowerCase()))
-    .map((user) => user.id)
+  return [...new Set(
+    users
+      .filter((user) => handles.includes(user.handle.toLowerCase()))
+      .filter((user) => (audience ? audience.has(user.id) : true))
+      .map((user) => user.id)
+  )]
 }
 
 function toggleReactionUsers(
@@ -508,19 +517,28 @@ function getProjectCreationValidationMessage(
   state: AppData,
   input: CreateProjectInput
 ) {
-  if (input.scopeType !== "team") {
+  const settingsTeamId =
+    input.settingsTeamId ?? (input.scopeType === "team" ? input.scopeId : null)
+
+  if (!settingsTeamId) {
     return null
   }
 
-  const team = state.teams.find((entry) => entry.id === input.scopeId)
+  const team = state.teams.find((entry) => entry.id === settingsTeamId)
 
   if (!team) {
-    return "Team not found"
+    return input.scopeType === "team" ? "Team not found" : "Settings team not found"
   }
 
-  return getTeamFeatureSettings(team).projects
+  if (!getTeamFeatureSettings(team).projects) {
+    return "Projects are disabled for this team"
+  }
+
+  return getAllowedTemplateTypesForTeamExperience(team.settings.experience).includes(
+    input.templateType
+  )
     ? null
-    : "Projects are disabled for this team"
+    : "Project template is not allowed for this team"
 }
 
 function getDocumentCreationValidationMessage(
@@ -553,7 +571,7 @@ function getWorkItemValidationMessage(
   }
 
   if (!getTeamFeatureSettings(team).issues) {
-    return "Issues are disabled for this team"
+    return getWorkSurfaceCopy(team.settings.experience).disabledLabel
   }
 
   if (
@@ -569,19 +587,19 @@ function getWorkItemValidationMessage(
 
   if (input.parentId) {
     if (!parent) {
-      return "Parent issue not found"
+      return "Parent item not found"
     }
 
     if (parent.teamId !== input.teamId) {
-      return "Parent issue must belong to the same team"
+      return "Parent item must belong to the same team"
     }
 
     if (parent.parentId) {
-      return "Sub-issues can't contain other sub-issues"
+      return "Child items can't contain other child items"
     }
 
     if (input.currentItemId && parent.id === input.currentItemId) {
-      return "Issue cannot be its own parent"
+      return "Item cannot be its own parent"
     }
 
     if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
@@ -599,7 +617,7 @@ function getWorkItemValidationMessage(
       input.currentItemId &&
       getWorkItemDescendantIds(state, input.currentItemId).size > 0
     ) {
-      return "Issues with sub-issues can't be nested under another issue"
+      return "Items with child items can't be nested under another item"
     }
   }
 
@@ -615,11 +633,29 @@ function getWorkItemValidationMessage(
       return "Project must belong to the same team or workspace"
     }
 
+    if (
+      !parent &&
+      !getAllowedRootWorkItemTypesForTemplate(project.templateType).includes(
+        input.type
+      )
+    ) {
+      return "This work item type requires a parent"
+    }
+
     return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
       input.type
     )
       ? null
       : "Work item type is not allowed for the selected project template"
+  }
+
+  if (
+    !parent &&
+    !getDefaultRootWorkItemTypesForTeamExperience(
+      team.settings.experience
+    ).includes(input.type)
+  ) {
+    return "This work item type requires a parent"
   }
 
   return getDefaultWorkItemTypesForTeamExperience(
@@ -748,6 +784,25 @@ function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
   ]
 }
 
+function getConversationAudienceUserIds(
+  state: AppData,
+  conversation: Conversation
+) {
+  if (conversation.scopeType === "team") {
+    return getTeamMemberIds(state, conversation.scopeId)
+  }
+
+  const workspaceUserIds = new Set(
+    getWorkspaceMemberIds(state, conversation.scopeId)
+  )
+
+  if (conversation.kind === "channel") {
+    return [...workspaceUserIds]
+  }
+
+  return conversation.participantIds.filter((userId) => workspaceUserIds.has(userId))
+}
+
 function buildWorkspaceChatTitle(
   state: AppData,
   currentUserId: string,
@@ -849,8 +904,10 @@ function createNotification(
 
 function normalizeChannelPosts<
   T extends { reactions?: { emoji: string; userIds: string[] }[] },
->(channelPosts: T[]) {
-  return channelPosts.map((post) => ({
+>(channelPosts: T[] | undefined) {
+  const entries = channelPosts ?? []
+
+  return entries.map((post) => ({
     ...post,
     reactions: post.reactions ?? [],
   }))
@@ -861,8 +918,10 @@ function normalizeComments<
     mentionUserIds?: string[]
     reactions?: { emoji: string; userIds: string[] }[]
   },
->(comments: T[]) {
-  return comments.map((comment) => ({
+>(comments: T[] | undefined) {
+  const entries = comments ?? []
+
+  return entries.map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
     reactions: comment.reactions ?? [],
@@ -875,8 +934,10 @@ function normalizeChatMessages<
     kind?: "text" | "call"
     callId?: string | null
   },
->(chatMessages: T[]) {
-  return chatMessages.map((message) => ({
+>(chatMessages: T[] | undefined) {
+  const entries = chatMessages ?? []
+
+  return entries.map((message) => ({
     ...message,
     kind: message.kind ?? "text",
     callId: message.callId ?? null,
@@ -885,9 +946,11 @@ function normalizeChatMessages<
 }
 
 function normalizeChannelPostComments<T extends { mentionUserIds?: string[] }>(
-  channelPostComments: T[]
+  channelPostComments: T[] | undefined
 ) {
-  return channelPostComments.map((comment) => ({
+  const entries = channelPostComments ?? []
+
+  return entries.map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
   }))
@@ -933,11 +996,7 @@ function getTeamDetailsDisableMessage(
 }
 
 async function refreshFromServer() {
-  const state = useAppStore.getState()
-  const currentUserEmail = state.users.find(
-    (user) => user.id === state.currentUserId
-  )?.email
-  const snapshot = await fetchSnapshot(currentUserEmail)
+  const snapshot = await fetchSnapshot()
 
   if (snapshot) {
     useAppStore.getState().replaceDomainData(snapshot)
@@ -952,17 +1011,21 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           ...state,
           ...data,
-          comments: normalizeComments(data.comments),
-          chatMessages: normalizeChatMessages(data.chatMessages),
-          channelPosts: normalizeChannelPosts(data.channelPosts),
+          comments: normalizeComments(data.comments ?? state.comments),
+          chatMessages: normalizeChatMessages(
+            data.chatMessages ?? state.chatMessages
+          ),
+          channelPosts: normalizeChannelPosts(
+            data.channelPosts ?? state.channelPosts
+          ),
           channelPostComments: normalizeChannelPostComments(
-            data.channelPostComments
+            data.channelPostComments ?? state.channelPostComments
           ),
           ui: {
             ...state.ui,
             activeTeamId:
               state.ui.activeTeamId ||
-              data.teams[0]?.id ||
+              data.teams?.[0]?.id ||
               state.ui.activeTeamId,
           },
         }))
@@ -1187,11 +1250,7 @@ export const useAppStore = create<AppStore>()(
         } catch (error) {
           console.error(error)
 
-          const currentState = useAppStore.getState()
-          const currentUserEmail = currentState.users.find(
-            (user) => user.id === currentState.currentUserId
-          )?.email
-          const snapshot = await fetchSnapshot(currentUserEmail)
+          const snapshot = await fetchSnapshot()
 
           if (snapshot) {
             useAppStore.getState().replaceDomainData(snapshot)
@@ -1934,9 +1993,11 @@ export const useAppStore = create<AppStore>()(
             return state
           }
 
+          const audienceUserIds = getTeamMemberIds(state, teamId)
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
+            state.users,
+            audienceUserIds
           )
           const comment = {
             id: createId("comment"),
@@ -1984,6 +2045,7 @@ export const useAppStore = create<AppStore>()(
           for (const followerId of followerIds) {
             if (
               !followerId ||
+              !audienceUserIds.includes(followerId) ||
               followerId === state.currentUserId ||
               notifiedUserIds.has(followerId)
             ) {
@@ -2069,6 +2131,11 @@ export const useAppStore = create<AppStore>()(
         let participantIdsForSync: string[] = []
 
         set((state) => {
+          if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
+            toast.error("Your current role is read-only")
+            return state
+          }
+
           const workspaceMemberIds = new Set(
             getWorkspaceMemberIds(state, parsed.data.workspaceId)
           )
@@ -2104,6 +2171,8 @@ export const useAppStore = create<AppStore>()(
                 ),
                 description: parsed.data.description.trim(),
                 participantIds,
+                roomId: null,
+                roomName: null,
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -2191,6 +2260,8 @@ export const useAppStore = create<AppStore>()(
                 description:
                   parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, parsed.data.teamId),
+                roomId: null,
+                roomName: null,
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -2247,6 +2318,11 @@ export const useAppStore = create<AppStore>()(
               return state
             }
 
+            if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
+              toast.error("Your current role is read-only")
+              return state
+            }
+
             const now = getNow()
             conversationId = createId("conversation")
 
@@ -2268,6 +2344,8 @@ export const useAppStore = create<AppStore>()(
                     state,
                     parsed.data.workspaceId
                   ),
+                  roomId: null,
+                  roomName: null,
                   createdBy: state.currentUserId,
                   createdAt: now,
                   updatedAt: now,
@@ -2328,6 +2406,8 @@ export const useAppStore = create<AppStore>()(
                 description:
                   parsed.data.description.trim() || team.settings.summary,
                 participantIds: getTeamMemberIds(state, teamId),
+                roomId: null,
+                roomName: null,
                 createdBy: state.currentUserId,
                 createdAt: now,
                 updatedAt: now,
@@ -2356,7 +2436,7 @@ export const useAppStore = create<AppStore>()(
         try {
           const result = await syncStartConversationCall(conversationId)
 
-          if (!result?.call || !result.message || !result.joinHref) {
+          if (!result?.message || !result.joinHref) {
             throw new Error("Failed to start call")
           }
 
@@ -2373,10 +2453,14 @@ export const useAppStore = create<AppStore>()(
 
             return {
               ...state,
-              calls: [
-                ...state.calls.filter((entry) => entry.id !== result.call.id),
-                result.call,
-              ],
+              calls: result.call
+                ? [
+                    ...state.calls.filter(
+                      (entry) => entry.id !== result.call?.id
+                    ),
+                    result.call,
+                  ]
+                : state.calls,
               chatMessages: [
                 ...state.chatMessages.filter(
                   (entry) => entry.id !== message.id
@@ -2424,6 +2508,11 @@ export const useAppStore = create<AppStore>()(
               toast.error("You do not have access to this chat")
               return state
             }
+
+            if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+              toast.error("Your current role is read-only")
+              return state
+            }
           } else {
             const role = effectiveRole(state, conversation.scopeId)
             if (role === "viewer" || role === "guest" || !role) {
@@ -2438,8 +2527,9 @@ export const useAppStore = create<AppStore>()(
           )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
-          ).filter((userId) => conversation.participantIds.includes(userId))
+            state.users,
+            getConversationAudienceUserIds(state, conversation)
+          )
           const notifications = [...state.notifications]
           const notifiedUserIds = new Set<string>()
 
@@ -2520,6 +2610,9 @@ export const useAppStore = create<AppStore>()(
               toast.error("Your current role is read-only")
               return state
             }
+          } else if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+            toast.error("Your current role is read-only")
+            return state
           }
 
           const now = getNow()
@@ -2529,7 +2622,8 @@ export const useAppStore = create<AppStore>()(
           )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
+            state.users,
+            getConversationAudienceUserIds(state, conversation)
           )
           const notifications = [...state.notifications]
           const entityTitle = parsed.data.title.trim() || "a channel post"
@@ -2619,15 +2713,23 @@ export const useAppStore = create<AppStore>()(
               toast.error("Your current role is read-only")
               return state
             }
+          } else if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+            toast.error("Your current role is read-only")
+            return state
           }
 
           const now = getNow()
           const actor = state.users.find(
             (user) => user.id === state.currentUserId
           )
+          const audienceUserIds = getConversationAudienceUserIds(
+            state,
+            conversation
+          )
           const mentionUserIds = createMentionIds(
             parsed.data.content,
-            state.users
+            state.users,
+            audienceUserIds
           )
           const notifications = [...state.notifications]
           const notifiedUserIds = new Set<string>()
@@ -2663,6 +2765,7 @@ export const useAppStore = create<AppStore>()(
           for (const followerId of followerIds) {
             if (
               !followerId ||
+              !audienceUserIds.includes(followerId) ||
               followerId === state.currentUserId ||
               notifiedUserIds.has(followerId)
             ) {

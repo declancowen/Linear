@@ -1,7 +1,7 @@
 import type { ComponentType } from "react"
 import {
+  BugBeetle,
   Briefcase,
-  CheckCircle,
   CodesandboxLogo,
   Kanban,
   Robot,
@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 const teamIconComponents: Record<TeamIconToken, ComponentType<IconProps>> = {
   robot: Robot,
   code: CodesandboxLogo,
-  qa: CheckCircle,
+  qa: BugBeetle,
   kanban: Kanban,
   briefcase: Briefcase,
   users: UsersThree,

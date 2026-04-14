@@ -1,6 +1,13 @@
 "use client"
 
-import { useRef, useEffect, useState, type ReactNode } from "react"
+import {
+  useRef,
+  useEffect,
+  useState,
+  useEffectEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowUp,
@@ -40,7 +47,13 @@ import {
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent, resolveImageAssetSource } from "@/lib/utils"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarGroup,
+  AvatarGroupCount,
+  AvatarImage,
+} from "@/components/ui/avatar"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
@@ -90,6 +103,18 @@ const CHANNEL_REACTION_OPTIONS = [
   { emoji: "🙌", label: "Nice work" },
   { emoji: "😄", label: "Smile" },
 ] as const
+
+const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY = "workspace-chat-list-width"
+const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH = 256
+const WORKSPACE_CHAT_LIST_MIN_WIDTH = 224
+const WORKSPACE_CHAT_LIST_MAX_WIDTH = 420
+
+function clampWorkspaceChatListWidth(value: number) {
+  return Math.min(
+    WORKSPACE_CHAT_LIST_MAX_WIDTH,
+    Math.max(WORKSPACE_CHAT_LIST_MIN_WIDTH, value)
+  )
+}
 
 function getUserInitials(name: string | null | undefined) {
   const parts = (name ?? "")
@@ -218,38 +243,18 @@ function CallInviteLauncher({ conversationId }: { conversationId: string }) {
   const [loading, setLoading] = useState(false)
 
   async function handleLaunch() {
-    const popup = window.open("", "_blank")
-    if (popup) {
-      popup.opener = null
-    }
-
     setLoading(true)
 
     try {
-      const joinHref = await useAppStore
-        .getState()
-        .startConversationCall(conversationId)
+      const joinHref =
+        await useAppStore.getState().startConversationCall(conversationId)
 
       if (!joinHref) {
-        popup?.close()
         return
       }
 
-      if (popup) {
-        popup.location.replace(joinHref)
-        popup.focus()
-        return
-      }
-
-      const nextPopup = window.open(joinHref, "_blank", "noopener,noreferrer")
-
-      if (!nextPopup) {
-        toast.error(
-          "The call was posted, but your browser blocked the new window."
-        )
-      }
+      toast.success("Call link added to the thread")
     } catch (error) {
-      popup?.close()
       console.error(error)
       toast.error(
         error instanceof Error ? error.message : "Failed to start the call"
@@ -281,6 +286,7 @@ function ConversationList({
   conversations,
   selectedId,
   onSelect,
+  renderLeading,
   renderPreview,
 }: {
   conversations: Array<{
@@ -290,30 +296,38 @@ function ConversationList({
   }>
   selectedId: string | null
   onSelect: (id: string) => void
+  renderLeading?: (id: string) => ReactNode
   renderPreview: (id: string) => string
 }) {
   return (
     <div className="flex h-full flex-col border-r">
       <ScrollArea className="flex-1">
-        <div className="flex flex-col py-1">
+        <div className="flex flex-col px-1 py-1">
           {conversations.map((conversation) => (
             <button
               key={conversation.id}
               className={cn(
-                "mx-1 rounded-md px-3 py-2 text-left transition-colors",
+                "block max-w-full overflow-hidden rounded-md px-3 py-2 text-left transition-colors",
                 selectedId === conversation.id
                   ? "bg-accent"
                   : "hover:bg-accent/50"
               )}
               onClick={() => onSelect(conversation.id)}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">
-                    {conversation.title}
-                  </div>
-                  <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                    {renderPreview(conversation.id)}
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 overflow-hidden">
+                  {renderLeading ? (
+                    <div className="shrink-0 pt-0.5">
+                      {renderLeading(conversation.id)}
+                    </div>
+                  ) : null}
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium">
+                      {conversation.title}
+                    </div>
+                    <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
+                      {renderPreview(conversation.id)}
+                    </div>
                   </div>
                 </div>
                 <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">
@@ -1458,6 +1472,110 @@ export function WorkspaceChatsScreen() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [conversationListWidth, setConversationListWidth] = useState(
+    WORKSPACE_CHAT_LIST_DEFAULT_WIDTH
+  )
+  const [conversationListResizing, setConversationListResizing] =
+    useState(false)
+  const [conversationListWidthReady, setConversationListWidthReady] =
+    useState(false)
+  const conversationListDragRef = useRef<{
+    startX: number
+    startWidth: number
+  } | null>(null)
+
+  useEffect(() => {
+    const storedWidth = window.localStorage.getItem(
+      WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY
+    )
+
+    if (!storedWidth) {
+      setConversationListWidthReady(true)
+      return
+    }
+
+    const parsedWidth = Number(storedWidth)
+
+    if (!Number.isFinite(parsedWidth)) {
+      setConversationListWidthReady(true)
+      return
+    }
+
+    setConversationListWidth(clampWorkspaceChatListWidth(parsedWidth))
+    setConversationListWidthReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!conversationListWidthReady) {
+      return
+    }
+
+    window.localStorage.setItem(
+      WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY,
+      String(conversationListWidth)
+    )
+  }, [conversationListWidth, conversationListWidthReady])
+
+  const stopConversationListResize = useEffectEvent(() => {
+    conversationListDragRef.current = null
+    setConversationListResizing(false)
+    document.body.style.removeProperty("cursor")
+    document.body.style.removeProperty("user-select")
+  })
+
+  const handleConversationListResizeMove = useEffectEvent(
+    (event: PointerEvent) => {
+      const dragState = conversationListDragRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      setConversationListWidth(
+        clampWorkspaceChatListWidth(
+          dragState.startWidth + event.clientX - dragState.startX
+        )
+      )
+    }
+  )
+
+  useEffect(() => {
+    if (!conversationListResizing) {
+      return
+    }
+
+    window.addEventListener("pointermove", handleConversationListResizeMove)
+    window.addEventListener("pointerup", stopConversationListResize)
+    window.addEventListener("pointercancel", stopConversationListResize)
+
+    return () => {
+      window.removeEventListener(
+        "pointermove",
+        handleConversationListResizeMove
+      )
+      window.removeEventListener("pointerup", stopConversationListResize)
+      window.removeEventListener("pointercancel", stopConversationListResize)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+  }, [conversationListResizing])
+
+  function handleConversationListResizeStart(
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    if (event.button !== 0) {
+      return
+    }
+
+    event.preventDefault()
+    conversationListDragRef.current = {
+      startX: event.clientX,
+      startWidth: conversationListWidth,
+    }
+    setConversationListResizing(true)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
 
   if (!workspace) {
     return (
@@ -1476,6 +1594,59 @@ export function WorkspaceChatsScreen() {
   const activeChat =
     chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null
   const members = getConversationParticipants(data, activeChat)
+
+  function renderConversationAvatar(conversationId: string) {
+    const conversation = chats.find((entry) => entry.id === conversationId)
+
+    if (!conversation) {
+      return <UserAvatar name="Chat" size="default" />
+    }
+
+    const participants = conversation.participantIds
+      .filter((userId) => userId !== data.currentUserId)
+      .map((userId) => getUser(data, userId))
+      .filter(
+        (
+          participant
+        ): participant is NonNullable<ReturnType<typeof getUser>> =>
+          Boolean(participant)
+      )
+
+    if (participants.length <= 1) {
+      const participant = participants[0]
+
+      return (
+        <UserAvatar
+          name={participant?.name ?? conversation.title}
+          avatarImageUrl={participant?.avatarImageUrl}
+          avatarUrl={participant?.avatarUrl}
+          size="default"
+        />
+      )
+    }
+
+    const visibleParticipants = participants.slice(0, 2)
+    const overflowCount = participants.length - visibleParticipants.length
+
+    return (
+      <AvatarGroup>
+        {visibleParticipants.map((participant) => (
+          <UserAvatar
+            key={participant.id}
+            name={participant.name}
+            avatarImageUrl={participant.avatarImageUrl}
+            avatarUrl={participant.avatarUrl}
+            size="default"
+          />
+        ))}
+        {overflowCount > 0 ? (
+          <AvatarGroupCount className="text-[10px] font-medium">
+            +{overflowCount}
+          </AvatarGroupCount>
+        ) : null}
+      </AvatarGroup>
+    )
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1538,13 +1709,20 @@ export function WorkspaceChatsScreen() {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="w-64 shrink-0">
+          <div
+            className="relative shrink-0"
+            style={{
+              width: `${conversationListWidth}px`,
+              flexBasis: `${conversationListWidth}px`,
+            }}
+          >
             <ConversationList
               conversations={chats}
               selectedId={activeChat?.id ?? null}
               onSelect={(id) =>
                 router.replace(`/chats?chatId=${id}`, { scroll: false })
               }
+              renderLeading={renderConversationAvatar}
               renderPreview={(id) => {
                 const latest = getChatMessages(data, id).at(-1)
 
@@ -1560,6 +1738,28 @@ export function WorkspaceChatsScreen() {
                 return callInvite?.title ?? latest.content
               }}
             />
+            <button
+              type="button"
+              aria-label="Resize chat list"
+              className={cn(
+                "group absolute top-0 -right-1.5 z-10 hidden h-full w-3 cursor-col-resize touch-none md:block",
+                conversationListResizing && "bg-accent/20"
+              )}
+              onPointerDown={handleConversationListResizeStart}
+              onDoubleClick={() =>
+                setConversationListWidth(WORKSPACE_CHAT_LIST_DEFAULT_WIDTH)
+              }
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-y-3 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors",
+                  conversationListResizing
+                    ? "bg-foreground/25"
+                    : "group-hover:bg-foreground/20"
+                )}
+              />
+            </button>
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {activeChat ? (

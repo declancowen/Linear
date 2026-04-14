@@ -11,6 +11,7 @@
     "start": "next start",
     "convex:codegen": "convex codegen",
     "convex:deploy": "convex deploy",
+    "backfill:work-item-model": "node --env-file=.env.local scripts/backfill-work-item-model.mjs",
     "bootstrap:workspace": "node --env-file=.env.local scripts/bootstrap-app-workspace.mjs",
     "notifications:send-digests": "node --env-file=.env.local scripts/send-notification-digests.mjs",
     "sync:workos:workspaces": "node --env-file=.env.local scripts/sync-workspace-organizations.mjs",

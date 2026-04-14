@@ -1,7 +1,7 @@
 import { saveSession } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
   buildAuthPageHref,
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
       })
 
     await saveSession(authenticationResponse, request.url)
-    await ensureAuthenticatedAppContext(
+    await reconcileAuthenticatedAppContext(
       authenticationResponse.user,
       authenticationResponse.organizationId
     )

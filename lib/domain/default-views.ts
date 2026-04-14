@@ -1,4 +1,8 @@
-import type { ViewDefinition } from "@/lib/domain/types"
+import {
+  getWorkSurfaceCopy,
+  type TeamExperienceType,
+  type ViewDefinition,
+} from "@/lib/domain/types"
 
 function createDefaultFilters(): ViewDefinition["filters"] {
   return {
@@ -18,39 +22,55 @@ function createDefaultFilters(): ViewDefinition["filters"] {
   }
 }
 
-export const canonicalTeamIssueViewNames = [
-  "All issues",
-  "Active",
-  "Backlog",
-] as const
+function getCanonicalPrimaryViewName(
+  experience: TeamExperienceType | null | undefined
+) {
+  const surfaceLabel = getWorkSurfaceCopy(experience).surfaceLabel
 
-function getCanonicalTeamIssueViewOrder(name: string) {
-  const index = canonicalTeamIssueViewNames.indexOf(
-    name as (typeof canonicalTeamIssueViewNames)[number]
-  )
+  if (surfaceLabel === "Tasks") {
+    return "All tasks"
+  }
 
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index
+  if (surfaceLabel === "Issues") {
+    return "All issues"
+  }
+
+  return "All work"
 }
 
-export function isCanonicalTeamIssueViewName(name: string) {
-  return canonicalTeamIssueViewNames.includes(
-    name as (typeof canonicalTeamIssueViewNames)[number]
-  )
+function getCanonicalTeamViewOrder(name: string) {
+  if (name === "All work" || name === "All issues" || name === "All tasks") {
+    return 0
+  }
+
+  if (name === "Active") {
+    return 1
+  }
+
+  if (name === "Backlog") {
+    return 2
+  }
+
+  return Number.MAX_SAFE_INTEGER
 }
 
-export function buildTeamIssueViews(input: {
+export function buildTeamWorkViews(input: {
   teamId: string
   teamSlug: string
   createdAt: string
   updatedAt?: string
+  experience?: TeamExperienceType | null
 }): ViewDefinition[] {
   const route = `/team/${input.teamSlug}/work`
   const updatedAt = input.updatedAt ?? input.createdAt
+  const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
+  const primaryViewName = getCanonicalPrimaryViewName(input.experience)
+  const lowercaseSurfaceLabel = surfaceLabel.toLowerCase()
 
   return [
     {
-      id: `view_${input.teamId}_all_issues`,
-      name: "All issues",
+      id: `view_${input.teamId}_all_items`,
+      name: primaryViewName,
       description: "Everything in the team grouped by status.",
       scopeType: "team",
       scopeId: input.teamId,
@@ -75,9 +95,9 @@ export function buildTeamIssueViews(input: {
       updatedAt,
     },
     {
-      id: `view_${input.teamId}_active_issues`,
+      id: `view_${input.teamId}_active_items`,
       name: "Active",
-      description: "Current work ready for execution.",
+      description: `Current ${lowercaseSurfaceLabel} ready for execution.`,
       scopeType: "team",
       scopeId: input.teamId,
       entityKind: "items",
@@ -104,9 +124,9 @@ export function buildTeamIssueViews(input: {
       updatedAt,
     },
     {
-      id: `view_${input.teamId}_backlog_issues`,
+      id: `view_${input.teamId}_backlog_items`,
       name: "Backlog",
-      description: "Upcoming work still in queue.",
+      description: `Upcoming ${lowercaseSurfaceLabel} still in queue.`,
       scopeType: "team",
       scopeId: input.teamId,
       entityKind: "items",
@@ -131,8 +151,8 @@ export function buildTeamIssueViews(input: {
 export function sortViewsForDisplay(views: ViewDefinition[]) {
   return [...views].sort((left, right) => {
     const canonicalOrderDiff =
-      getCanonicalTeamIssueViewOrder(left.name) -
-      getCanonicalTeamIssueViewOrder(right.name)
+      getCanonicalTeamViewOrder(left.name) -
+      getCanonicalTeamViewOrder(right.name)
 
     if (canonicalOrderDiff !== 0) {
       return canonicalOrderDiff

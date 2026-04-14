@@ -39,10 +39,14 @@ export function JoinWorkspacePanel({
   authenticated,
   initialCode = "",
   joinedTeamIds = [],
+  loginHref = "/login",
+  signupHref = "/signup",
 }: {
   authenticated: boolean
   initialCode?: string
   joinedTeamIds?: string[]
+  loginHref?: string
+  signupHref?: string
 }) {
   const [code, setCode] = useState(() => normalizeJoinCodeInput(initialCode))
   const deferredCode = useDeferredValue(code)
@@ -177,8 +181,8 @@ export function JoinWorkspacePanel({
           authenticated={authenticated}
           alreadyJoined={alreadyJoined}
           joinCode={lookupResult.team.joinCode}
-          loginHref="/login"
-          signupHref="/signup"
+          loginHref={loginHref}
+          signupHref={signupHref}
           teamName={lookupResult.team.name}
           teamSummary={lookupResult.team.summary}
           workspaceLogo={lookupResult.workspace.logoUrl}

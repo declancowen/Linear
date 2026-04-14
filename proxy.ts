@@ -33,6 +33,7 @@ export const config = {
     "/api/notifications/:path*",
     "/api/projects/:path*",
     "/api/profile/:path*",
+    "/api/snapshot/:path*",
     "/api/settings-images/:path*",
     "/api/teams/:path*",
     "/api/views/:path*",

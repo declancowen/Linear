@@ -33,13 +33,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import {
   createDefaultTeamWorkflowSettings,
+  getDisplayLabelForWorkItemType,
+  getAllowedTemplateTypesForTeamExperience,
   getDefaultTemplateTypeForTeamExperience,
+  normalizeStoredWorkflowItemTypes,
   priorityMeta,
   statusMeta,
   templateMeta,
   type TeamWorkflowSettings,
   type ViewLayout,
-  workItemTypeMeta,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 
@@ -47,28 +49,36 @@ function cloneWorkflowSettings(
   source: TeamWorkflowSettings | undefined,
   experience: "software-development" | "issue-analysis" | "project-management" | "community"
 ): TeamWorkflowSettings {
-  const workflow = source ?? createDefaultTeamWorkflowSettings(experience)
+  const defaults = createDefaultTeamWorkflowSettings(experience)
+  const workflow = source ?? defaults
+  const sanitizeRecommendedItemTypes = (
+    templateType: keyof TeamWorkflowSettings["templateDefaults"]
+  ) => {
+    const recommendedItemTypes = normalizeStoredWorkflowItemTypes(
+      workflow.templateDefaults[templateType].recommendedItemTypes,
+      experience,
+      templateType
+    )
+
+    return recommendedItemTypes.length > 0
+      ? recommendedItemTypes
+      : [...defaults.templateDefaults[templateType].recommendedItemTypes]
+  }
 
   return {
     statusOrder: [...workflow.statusOrder],
     templateDefaults: {
       "software-delivery": {
         ...workflow.templateDefaults["software-delivery"],
-        recommendedItemTypes: [
-          ...workflow.templateDefaults["software-delivery"].recommendedItemTypes,
-        ],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("software-delivery"),
       },
       "bug-tracking": {
         ...workflow.templateDefaults["bug-tracking"],
-        recommendedItemTypes: [
-          ...workflow.templateDefaults["bug-tracking"].recommendedItemTypes,
-        ],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("bug-tracking"),
       },
       "project-management": {
         ...workflow.templateDefaults["project-management"],
-        recommendedItemTypes: [
-          ...workflow.templateDefaults["project-management"].recommendedItemTypes,
-        ],
+        recommendedItemTypes: sanitizeRecommendedItemTypes("project-management"),
       },
     },
   }
@@ -131,9 +141,16 @@ export function TeamWorkflowSettingsDialog({
 }) {
   const team = useAppStore((state) => state.teams.find((entry) => entry.id === teamId) ?? null)
   const teamExperience = team?.settings.experience ?? "software-development"
+  const availableTemplateTypes = [
+    ...getAllowedTemplateTypesForTeamExperience(teamExperience),
+  ]
   const [activeTemplate, setActiveTemplate] = useState<
     keyof TeamWorkflowSettings["templateDefaults"]
-  >(() => getDefaultTemplateTypeForTeamExperience(teamExperience))
+  >(
+    () =>
+      availableTemplateTypes[0] ??
+      getDefaultTemplateTypeForTeamExperience(teamExperience)
+  )
   const [workflow, setWorkflow] = useState<TeamWorkflowSettings>(() =>
     cloneWorkflowSettings(team?.settings.workflow, teamExperience)
   )
@@ -243,9 +260,9 @@ export function TeamWorkflowSettingsDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {Object.entries(templateMeta).map(([value, meta]) => (
+                      {availableTemplateTypes.map((value) => (
                         <SelectItem key={value} value={value}>
-                          {meta.label}
+                          {templateMeta[value].label}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -358,7 +375,7 @@ export function TeamWorkflowSettingsDialog({
                       variant="secondary"
                       className="text-xs font-normal"
                     >
-                      {workItemTypeMeta[itemType].label}
+                      {getDisplayLabelForWorkItemType(itemType, teamExperience)}
                     </Badge>
                   ))}
                 </div>

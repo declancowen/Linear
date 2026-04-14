@@ -86,10 +86,16 @@ import {
 } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
+  getDisplayLabelForWorkItemType,
+  getAllowedTemplateTypesForTeamExperience,
   getAllowedChildWorkItemTypesForItem,
+  getAllowedRootWorkItemTypesForTemplate,
   getAllowedWorkItemTypesForTemplate,
   getDefaultTemplateTypeForTeamExperience,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
+  getPreferredWorkItemTypeForTeamExperience,
+  getWorkSurfaceCopy,
   priorityMeta,
   projectHealthMeta,
   statusMeta,
@@ -106,7 +112,6 @@ import {
   type ViewDefinition,
   type WorkItem,
   type WorkItemType,
-  workItemTypeMeta,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
@@ -270,20 +275,22 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
     return <MissingState title="Team not found" />
   }
 
+  const workCopy = getWorkSurfaceCopy(team.settings.experience)
+
   if (!teamHasFeature(team, "issues")) {
-    return <MissingState title="Issues are disabled for this team" />
+    return <MissingState title={workCopy.disabledLabel} />
   }
 
   const views = getViewsForScope(data, "team", team.id, "items")
 
   return (
     <WorkSurface
-      title="Issues"
+      title={workCopy.surfaceLabel}
       routeKey={`/team/${team.slug}/work`}
       views={views}
       items={getVisibleWorkItems(data, { teamId: team.id })}
       team={team}
-      emptyLabel="No work items yet"
+      emptyLabel={workCopy.emptyLabel}
     />
   )
 }
@@ -1182,6 +1189,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
   const currentItem = item
   const team = getTeam(data, currentItem.teamId)
+  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const editable = team ? canEditTeam(data, team.id) : false
   const description = getDocument(data, currentItem.descriptionDocId)
   const statusOptions = getStatusOrderForTeam(team).map((status) => ({
@@ -1271,7 +1279,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }
 
   async function handleDeleteItem() {
-    const itemLabel = workItemTypeMeta[currentItem.type].label.toLowerCase()
+    const itemLabel = getDisplayLabelForWorkItemType(
+      currentItem.type,
+      team?.settings.experience
+    ).toLowerCase()
     const cascadeMessage =
       descendantCount > 0
         ? `Delete this ${itemLabel} and ${descendantCount} nested item${
@@ -1333,7 +1344,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   }}
                 >
                   <Trash className="size-4" />
-                  Delete {workItemTypeMeta[currentItem.type].label}
+                  Delete{" "}
+                  {getDisplayLabelForWorkItemType(
+                    currentItem.type,
+                    team?.settings.experience
+                  )}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1359,7 +1374,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 href={`/items/${parentItem.id}`}
                 className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
               >
-                <span>Parent issue</span>
+                <span>{workCopy.parentLabel}</span>
                 <Badge variant="outline">{parentItem.key}</Badge>
                 <span className="truncate">{parentItem.title}</span>
               </Link>
@@ -1401,7 +1416,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     ) : (
                       <CaretRight className="size-3" />
                     )}
-                    <span>Sub-issues</span>
+                    <span>{workCopy.childPluralLabel}</span>
                     <span className="text-xs font-normal tabular-nums">
                       {completedChildItems}/{childItems.length}
                     </span>
@@ -1482,7 +1497,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                         onClick={() => setChildComposerOpen(true)}
                       >
                         <Plus className="size-3" />
-                        <span>Add sub-issue</span>
+                        <span>{workCopy.addChildLabel}</span>
                       </button>
                     ) : null}
                   </div>
@@ -1697,7 +1712,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 value="issues"
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               >
-                Issues
+                Items
               </TabsTrigger>
             </TabsList>
             <TabsContent value="overview" className="mt-4">
@@ -3087,6 +3102,10 @@ function IssueActionMenuContent({
 }) {
   const team = getTeam(data, item.teamId)
   const editable = team ? canEditTeam(data, team.id) : false
+  const itemLabel = getDisplayLabelForWorkItemType(
+    item.type,
+    team?.settings.experience
+  ).toLowerCase()
   const teamMembers = team ? getTeamMembers(data, team.id) : []
   const statusOptions = getStatusOrderForTeam(team)
   const MenuLabel: ElementType =
@@ -3196,7 +3215,7 @@ function IssueActionMenuContent({
             }}
           >
             <Trash className="size-4" />
-            Delete issue
+            Delete {itemLabel}
           </MenuItem>
         </>
       ) : null}
@@ -3885,9 +3904,12 @@ function CreateProjectDialog({
 }) {
   const data = useAppStore()
   const settingsTeam = settingsTeamId ? getTeam(data, settingsTeamId) : null
-  const initialTemplateType = getDefaultTemplateTypeForTeamExperience(
-    settingsTeam?.settings.experience
-  )
+  const availableTemplateTypes = [
+    ...getAllowedTemplateTypesForTeamExperience(settingsTeam?.settings.experience),
+  ]
+  const initialTemplateType =
+    availableTemplateTypes[0] ??
+    getDefaultTemplateTypeForTeamExperience(settingsTeam?.settings.experience)
   const initialTemplateDefaults = getTemplateDefaultsForTeam(
     settingsTeam,
     initialTemplateType
@@ -3951,14 +3973,14 @@ function CreateProjectDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {Object.entries(templateMeta).map(([value, meta]) => (
+                  {availableTemplateTypes.map((value) => (
                     <SelectItem key={value} value={value}>
                       <div className="flex items-center gap-2">
                         <ProjectTemplateGlyph
-                          templateType={value as Project["templateType"]}
+                          templateType={value}
                           className="size-3.5"
                         />
-                        <span>{meta.label}</span>
+                        <span>{templateMeta[value].label}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -4098,6 +4120,7 @@ function InlineChildIssueComposer({
 }) {
   const data = useAppStore()
   const team = getTeam(data, teamId)
+  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const teamProjects = data.projects.filter(
     (project) =>
       (project.scopeType === "team" && project.scopeId === teamId) ||
@@ -4105,13 +4128,23 @@ function InlineChildIssueComposer({
         team?.workspaceId === project.scopeId)
   )
   const teamMembers = team ? getTeamMembers(data, teamId) : []
-  const [type, setType] = useState<WorkItemType>("task")
+  const [type, setType] = useState<WorkItemType>(
+    getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
+      parent: true,
+    })
+  )
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const [projectId, setProjectId] = useState<string>(
     parentItem.primaryProjectId ?? "none"
+  )
+  const fallbackType = getPreferredWorkItemTypeForTeamExperience(
+    team?.settings.experience,
+    {
+      parent: true,
+    }
   )
   const selectedProject =
     projectId === "none"
@@ -4125,7 +4158,7 @@ function InlineChildIssueComposer({
   )
   const selectedType = availableItemTypes.includes(type)
     ? type
-    : (availableItemTypes[0] ?? "task")
+    : (availableItemTypes[0] ?? fallbackType)
   const normalizedTitle = title.trim()
   const canCreate =
     !disabled && normalizedTitle.length >= 2 && availableItemTypes.length > 0
@@ -4165,7 +4198,7 @@ function InlineChildIssueComposer({
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Issue title"
+            placeholder={workCopy.titlePlaceholder}
             className="h-auto border-none px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
             autoFocus
           />
@@ -4191,7 +4224,10 @@ function InlineChildIssueComposer({
             <SelectGroup>
               {availableItemTypes.map((value) => (
                 <SelectItem key={value} value={value}>
-                  {workItemTypeMeta[value].label}
+                  {getDisplayLabelForWorkItemType(
+                    value,
+                    team?.settings.experience
+                  )}
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -4276,6 +4312,7 @@ function CreateWorkItemDialog({
 }) {
   const data = useAppStore()
   const team = getTeam(data, teamId)
+  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const teamProjects = data.projects.filter(
     (project) =>
       (project.scopeType === "team" && project.scopeId === teamId) ||
@@ -4284,29 +4321,43 @@ function CreateWorkItemDialog({
   )
   const teamMembers = team ? getTeamMembers(data, teamId) : []
   const defaultProjectId = parentItem?.primaryProjectId ?? "none"
-  const [type, setType] = useState<WorkItemType>("task")
+  const [type, setType] = useState<WorkItemType>(
+    getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
+      parent: Boolean(parentItem),
+    })
+  )
   const [title, setTitle] = useState(
-    parentItem ? `Follow-up for ${parentItem.title}` : "New work item"
+    parentItem ? `Follow-up for ${parentItem.title}` : workCopy.createLabel
   )
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const [projectId, setProjectId] = useState<string>(defaultProjectId)
+  const fallbackType = getPreferredWorkItemTypeForTeamExperience(
+    team?.settings.experience,
+    {
+      parent: Boolean(parentItem),
+    }
+  )
   const selectedProject =
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
-  const baseItemTypes = selectedProject
-    ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
-    : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
   const allowedChildTypes = parentItem
     ? getAllowedChildWorkItemTypesForItem(parentItem)
     : null
+  const baseItemTypes = parentItem
+    ? selectedProject
+      ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
+      : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
+    : selectedProject
+      ? getAllowedRootWorkItemTypesForTemplate(selectedProject.templateType)
+      : getDefaultRootWorkItemTypesForTeamExperience(team?.settings.experience)
   const availableItemTypes = allowedChildTypes
     ? baseItemTypes.filter((value) => allowedChildTypes.includes(value))
     : baseItemTypes
   const selectedType = availableItemTypes.includes(type)
     ? type
-    : (availableItemTypes[0] ?? "task")
+    : (availableItemTypes[0] ?? fallbackType)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -4314,19 +4365,19 @@ function CreateWorkItemDialog({
         <div className="px-5 pt-5 pb-1">
           <DialogHeader className="mb-3 p-0">
             <DialogTitle className="text-base">
-              {parentItem ? "New child issue" : "New issue"}
+              {parentItem ? workCopy.createChildLabel : workCopy.createLabel}
             </DialogTitle>
           </DialogHeader>
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Issue title"
+            placeholder={workCopy.titlePlaceholder}
             className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
             autoFocus
           />
           {parentItem ? (
             <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Parent</span>
+              <span>{workCopy.parentLabel}</span>
               <Badge variant="outline">{parentItem.key}</Badge>
               <span className="truncate">{parentItem.title}</span>
             </div>
@@ -4349,7 +4400,10 @@ function CreateWorkItemDialog({
                 <SelectGroup>
                   {availableItemTypes.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {workItemTypeMeta[value].label}
+                      {getDisplayLabelForWorkItemType(
+                        value,
+                        team?.settings.experience
+                      )}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -4436,7 +4490,11 @@ function CreateWorkItemDialog({
               onOpenChange(false)
             }}
           >
-            Create issue
+            Create{" "}
+            {getDisplayLabelForWorkItemType(
+              selectedType,
+              team?.settings.experience
+            ).toLowerCase()}
           </Button>
         </div>
       </DialogContent>
@@ -4840,7 +4898,7 @@ function MissingState({ title }: { title: string }) {
 
 function formatEntityKind(entityKind: ViewDefinition["entityKind"]) {
   if (entityKind === "items") {
-    return "Issues"
+    return "Items"
   }
 
   if (entityKind === "projects") {

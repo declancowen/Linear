@@ -1,12 +1,9 @@
 "use client"
 
-import { ConvexHttpClient } from "convex/browser"
-import { ConvexReactClient } from "convex/react"
-
-import { api } from "@/convex/_generated/api"
 import type {
   Call,
   ChatMessage,
+  AppSnapshot,
   AttachmentTargetType,
   DisplayProperty,
   GroupField,
@@ -24,11 +21,15 @@ import type {
 export const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? ""
 export const hasConvex = convexUrl.length > 0
 
-export const convexReactClient = hasConvex
-  ? new ConvexReactClient(convexUrl)
-  : null
+export class RouteMutationError extends Error {
+  status: number
 
-const convexHttpClient = hasConvex ? new ConvexHttpClient(convexUrl) : null
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "RouteMutationError"
+    this.status = status
+  }
+}
 
 async function runRouteMutation<T>(
   input: RequestInfo | URL,
@@ -44,25 +45,88 @@ async function runRouteMutation<T>(
   } | null
 
   if (!response.ok) {
-    throw new Error(payload?.error ?? "Request failed")
+    throw new RouteMutationError(
+      payload?.error ?? "Request failed",
+      response.status
+    )
   }
 
   return payload as T
 }
 
 export type StartConversationCallResult = {
-  call: Call
+  call: Call | null
   message: ChatMessage
   joinHref: string
 }
 
-export async function fetchSnapshot(email?: string) {
-  if (!convexHttpClient) {
+export type SnapshotRoutePayload = {
+  snapshot: AppSnapshot
+  version: number
+}
+
+function isSnapshotRecord(value: unknown): value is AppSnapshot {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "currentUserId" in value &&
+    "teams" in value &&
+    "users" in value
+  )
+}
+
+export async function fetchSnapshotState() {
+  if (typeof window === "undefined") {
     return null
   }
 
-  return convexHttpClient.query(api.app.getSnapshot, {
-    email,
+  const payload = await runRouteMutation<SnapshotRoutePayload | AppSnapshot>(
+    "/api/snapshot",
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  if (!payload) {
+    return null
+  }
+
+  if ("snapshot" in payload && isSnapshotRecord(payload.snapshot)) {
+    return payload
+  }
+
+  if (isSnapshotRecord(payload)) {
+    return {
+      snapshot: payload,
+      version: 0,
+    }
+  }
+
+  throw new RouteMutationError("Invalid snapshot payload", 500)
+}
+
+export async function fetchSnapshot() {
+  const payload = await fetchSnapshotState()
+
+  return payload?.snapshot ?? null
+}
+
+export async function fetchSnapshotVersion() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  return runRouteMutation<{
+    version: number
+    currentUserId: string
+  }>("/api/snapshot/version", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 

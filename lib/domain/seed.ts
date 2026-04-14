@@ -26,7 +26,7 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
-import { buildTeamIssueViews } from "@/lib/domain/default-views"
+import { buildTeamWorkViews } from "@/lib/domain/default-views"
 
 function iso(date: Date) {
   return date.toISOString()
@@ -92,7 +92,7 @@ export function createSeedState(): AppData {
     settings: {
       accent: "emerald",
       description:
-        "A Linear-style workspace that combines product delivery, QA, and operational docs.",
+        "A Linear-style workspace that combines product delivery, issue tracking, and operational docs.",
     },
   }
 
@@ -105,7 +105,7 @@ export function createSeedState(): AppData {
       icon: "robot",
       settings: {
         joinCode: "RECIPE24",
-        summary: "Customer-facing product work and bug triage.",
+        summary: "Customer-facing product work and issue triage.",
         guestProjectIds: ["project_release_hub"],
         guestDocumentIds: ["doc_release_playbook"],
         guestWorkItemIds: ["item_auth_reliability"],
@@ -609,7 +609,7 @@ export function createSeedState(): AppData {
       id: "item_routes_404",
       key: "REC-139",
       teamId: "team_recipe_room",
-      type: "task",
+      type: "story",
       title: "Page for routes that don’t exist",
       descriptionDocId: "doc_item_routes",
       status: "backlog",
@@ -657,7 +657,7 @@ export function createSeedState(): AppData {
       id: "item_fix_navigation",
       key: "REC-69",
       teamId: "team_recipe_room",
-      type: "bug",
+      type: "issue",
       title: "Fix live navigation",
       descriptionDocId: "doc_item_routes",
       status: "in-progress",
@@ -681,7 +681,7 @@ export function createSeedState(): AppData {
       id: "item_auth_reliability",
       key: "REC-117",
       teamId: "team_recipe_room",
-      type: "bug",
+      type: "issue",
       title: "Auth reliability",
       descriptionDocId: "doc_item_auth",
       status: "backlog",
@@ -705,7 +705,7 @@ export function createSeedState(): AppData {
       id: "item_mobile_cards",
       key: "REC-67",
       teamId: "team_recipe_room",
-      type: "task",
+      type: "story",
       title: "Mobile cards",
       descriptionDocId: "doc_item_mobile_cards",
       status: "backlog",
@@ -729,7 +729,7 @@ export function createSeedState(): AppData {
       id: "item_release_notes",
       key: "REC-64",
       teamId: "team_recipe_room",
-      type: "task",
+      type: "story",
       title: "Release notes",
       descriptionDocId: "doc_item_release",
       status: "todo",
@@ -777,7 +777,7 @@ export function createSeedState(): AppData {
       id: "item_comment_permissions",
       key: "DEV-19",
       teamId: "team_development",
-      type: "task",
+      type: "story",
       title: "Comment permission guardrails",
       descriptionDocId: "doc_platform_principles",
       status: "backlog",
@@ -801,7 +801,7 @@ export function createSeedState(): AppData {
       id: "item_electron_boot",
       key: "REC-144",
       teamId: "team_recipe_room",
-      type: "task",
+      type: "story",
       title: "Wire Electron shell boot",
       descriptionDocId: "doc_shell_inventory",
       status: "todo",
@@ -992,23 +992,26 @@ export function createSeedState(): AppData {
   }
 
   const views: ViewDefinition[] = [
-    ...buildTeamIssueViews({
+    ...buildTeamWorkViews({
       teamId: "team_recipe_room",
       teamSlug: "recipe-room",
       createdAt: iso(subDays(now, 18)),
       updatedAt: iso(subDays(now, 1)),
+      experience: "software-development",
     }),
-    ...buildTeamIssueViews({
+    ...buildTeamWorkViews({
       teamId: "team_development",
       teamSlug: "development",
       createdAt: iso(subDays(now, 12)),
       updatedAt: iso(subDays(now, 2)),
+      experience: "software-development",
     }),
-    ...buildTeamIssueViews({
+    ...buildTeamWorkViews({
       teamId: "team_operations",
       teamSlug: "project-management",
       createdAt: iso(subDays(now, 10)),
       updatedAt: iso(subDays(now, 2)),
+      experience: "project-management",
     }),
     {
       id: "view_workspace_projects",

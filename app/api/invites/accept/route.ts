@@ -6,7 +6,10 @@ import {
   acceptInviteServer,
   getInviteByTokenServer,
 } from "@/lib/server/convex"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  ensureAuthenticatedAppContext,
+  reconcileAuthenticatedAppContext,
+} from "@/lib/server/authenticated-app"
 
 const acceptInviteSchema = z.object({
   token: z.string().min(1),
@@ -52,7 +55,7 @@ export async function POST(request: NextRequest) {
       currentUserId: ensuredUser.userId,
       token: parsed.data.token,
     })
-    await ensureAuthenticatedAppContext(session.user, session.organizationId)
+    await reconcileAuthenticatedAppContext(session.user, session.organizationId)
 
     return NextResponse.json({
       ok: true,

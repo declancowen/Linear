@@ -21,7 +21,18 @@ export async function POST(
       session.user,
       session.organizationId
     )
-    const snapshot = await getSnapshotServer(session.user.email)
+    const snapshot = await getSnapshotServer({
+      workosUserId: session.user.id,
+      email: session.user.email,
+    })
+
+    if (!snapshot) {
+      return NextResponse.json(
+        { error: "Snapshot not available" },
+        { status: 404 }
+      )
+    }
+
     const team = snapshot?.teams.find((entry) => entry.id === teamId)
 
     if (!team) {
