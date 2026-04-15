@@ -14,7 +14,7 @@ import {
   getWorkspaceDoc,
   type AppCtx,
 } from "./data"
-import { haveSameIds, normalizeUniqueIds } from "./collaboration-utils"
+import { haveSameIds, normalizeUniqueIds } from "./collaboration_utils"
 
 export async function getTeamMemberIds(ctx: AppCtx, teamId: string) {
   const memberships = await ctx.db

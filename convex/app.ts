@@ -43,11 +43,11 @@ import {
   getSnapshotVersionHandler,
   listWorkspacesForSyncHandler,
   lookupTeamByJoinCodeHandler,
-} from "./app/auth-bootstrap"
+} from "./app/auth_bootstrap"
 import {
   normalizeAppConfigHandler,
   wipeAllAppDataHandler,
-} from "./app/maintenance-handlers"
+} from "./app/maintenance_handlers"
 import {
   archiveNotificationHandler,
   deleteNotificationHandler,
@@ -56,12 +56,12 @@ import {
   markNotificationsEmailedHandler,
   toggleNotificationReadHandler,
   unarchiveNotificationHandler,
-} from "./app/notification-handlers"
+} from "./app/notification_handlers"
 import {
   backfillChatMessageKindsHandler,
   backfillUserPreferenceThemesHandler,
   backfillWorkItemModelHandler,
-} from "./app/backfill-handlers"
+} from "./app/backfill_handlers"
 import {
   addChannelPostCommentHandler,
   createChannelHandler,
@@ -75,7 +75,7 @@ import {
   setConversationRoomHandler,
   startChatCallHandler,
   toggleChannelPostReactionHandler,
-} from "./app/collaboration-handlers"
+} from "./app/collaboration_handlers"
 import {
   clearDocumentPresenceHandler,
   createAttachmentHandler,
@@ -89,34 +89,34 @@ import {
   updateDocumentContentHandler,
   updateDocumentHandler,
   updateItemDescriptionHandler,
-} from "./app/document-handlers"
+} from "./app/document_handlers"
 import {
   addCommentHandler,
   toggleCommentReactionHandler,
-} from "./app/comment-handlers"
+} from "./app/comment_handlers"
 import {
   acceptInviteHandler,
   createInviteHandler,
   declineInviteHandler,
   joinTeamByCodeHandler,
-} from "./app/invite-handlers"
+} from "./app/invite_handlers"
 import {
   createProjectHandler,
   updateProjectHandler,
-} from "./app/project-handlers"
+} from "./app/project_handlers"
 import {
   clearViewFiltersHandler,
   toggleViewDisplayPropertyHandler,
   toggleViewFilterValueHandler,
   toggleViewHiddenValueHandler,
   updateViewConfigHandler,
-} from "./app/view-handlers"
+} from "./app/view_handlers"
 import {
   createWorkItemHandler,
   deleteWorkItemHandler,
   shiftTimelineItemHandler,
   updateWorkItemHandler,
-} from "./app/work-item-handlers"
+} from "./app/work_item_handlers"
 import {
   createLabelHandler,
   createTeamHandler,
@@ -130,7 +130,7 @@ import {
   updateTeamDetailsHandler,
   updateTeamWorkflowSettingsHandler,
   updateWorkspaceBrandingHandler,
-} from "./app/workspace-team-handlers"
+} from "./app/workspace_team_handlers"
 async function bumpSnapshotVersion(ctx: MutationCtx) {
   const config = await getOrCreateAppConfig(ctx)
 
