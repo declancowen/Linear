@@ -93,6 +93,7 @@ type RichTextEditorProps = {
   autoFocus?: boolean
   onUploadAttachment?: (file: File) => Promise<UploadedAttachment | null>
   onSubmitShortcut?: () => void
+  submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
   mentionCandidates?: Array<
     Pick<UserProfile, "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl">
@@ -315,6 +316,7 @@ export function RichTextEditor({
   autoFocus = false,
   onUploadAttachment,
   onSubmitShortcut,
+  submitOnEnter = false,
   onStatsChange,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
@@ -648,6 +650,17 @@ export function RichTextEditor({
             setMentionIndex(0)
             previousMentionQueryRef.current = null
           }
+        }
+
+        if (
+          onSubmitShortcut &&
+          submitOnEnter &&
+          event.key === "Enter" &&
+          !event.shiftKey
+        ) {
+          event.preventDefault()
+          onSubmitShortcut()
+          return true
         }
 
         if (

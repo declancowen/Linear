@@ -1532,7 +1532,13 @@ export const channelSchema = z
 
 export const chatMessageSchema = z.object({
   conversationId: z.string().min(1),
-  content: z.string().trim().min(1).max(4000),
+  content: z
+    .string()
+    .trim()
+    .max(4000)
+    .refine((value) => getPlainTextContent(value).length >= 1, {
+      message: "Message content must include at least 1 character",
+    }),
 })
 
 export const channelPostSchema = z.object({

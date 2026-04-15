@@ -7161,15 +7161,18 @@ export const sendChatMessage = mutation({
     const now = getNow()
     const messageId = createId("chat_message")
     const actor = users.find((user) => user.id === args.currentUserId)
+    const messageHtml = args.content.trim()
+    const messageText = getPlainTextContent(messageHtml)
+
+    if (!messageText) {
+      throw new Error("Message content must include at least 1 character")
+    }
+
     const audienceUserIds = await getConversationAudienceUserIds(
       ctx,
       conversation
     )
-    const mentionUserIds = createMentionIds(
-      args.content,
-      users,
-      audienceUserIds
-    )
+    const mentionUserIds = createMentionIds(messageHtml, users, audienceUserIds)
     const mentionEmails: Array<{
       notificationId: string
       email: string
@@ -7184,14 +7187,13 @@ export const sendChatMessage = mutation({
     }> = []
     const entityTitle = conversation.title.trim() || "a chat"
     const entityPath = await getChatConversationPath(ctx, conversation)
-    const messageText = args.content.trim()
     const notifiedUserIds = new Set<string>()
 
     await ctx.db.insert("chatMessages", {
       id: messageId,
       conversationId: conversation.id,
       kind: "text",
-      content: messageText,
+      content: messageHtml,
       callId: null,
       mentionUserIds,
       createdBy: args.currentUserId,

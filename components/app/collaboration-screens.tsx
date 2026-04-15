@@ -94,6 +94,26 @@ function formatShortDate(value: string) {
   return format(d, "MMM d")
 }
 
+const CHAT_MESSAGE_HTML_PATTERN =
+  /^\s*<(p|h[1-6]|ul|ol|li|blockquote|pre|table|div|span|a|img)\b/i
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function getChatMessageMarkup(content: string) {
+  if (CHAT_MESSAGE_HTML_PATTERN.test(content)) {
+    return content
+  }
+
+  return `<p>${escapeHtml(content).replace(/\r?\n/g, "<br />")}</p>`
+}
+
 const CHANNEL_REACTION_OPTIONS = [
   { emoji: "👍", label: "Thumbs up" },
   { emoji: "❤️", label: "Love" },
@@ -464,46 +484,39 @@ function TeamSurfaceSidebar({
 function ChatComposer({
   placeholder = "Write a message…",
   onSend,
+  mentionCandidates,
 }: {
   placeholder?: string
   onSend: (content: string) => void
+  mentionCandidates: ReturnType<typeof getConversationParticipants>
 }) {
   const [content, setContent] = useState("")
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Auto-resize
-  useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
-  }, [content])
+  const [composerKey, setComposerKey] = useState(0)
+  const contentText = getPlainTextContent(content)
 
   const handleSend = () => {
-    if (!content.trim()) return
+    if (!contentText) return
     onSend(content)
     setContent("")
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto"
-    }
+    setComposerKey((current) => current + 1)
   }
 
   return (
     <div className="px-4 py-3">
       <div className="flex min-h-[2.75rem] items-end gap-2 rounded-lg border bg-background px-3 py-2.5 shadow-sm focus-within:ring-1 focus-within:ring-ring/40">
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault()
-              handleSend()
-            }
-          }}
+        <RichTextEditor
+          key={composerKey}
+          content={content}
+          onChange={setContent}
+          compact
+          autoFocus={composerKey > 0}
+          showToolbar={false}
+          showStats={false}
           placeholder={placeholder}
-          rows={1}
-          className="max-h-40 min-h-[1.5rem] flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+          mentionCandidates={mentionCandidates}
+          onSubmitShortcut={handleSend}
+          submitOnEnter
+          className="min-w-0 flex-1 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.5rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-sm [&_.ProseMirror]:outline-none"
         />
         <div className="flex shrink-0 items-center gap-1.5">
           <button
@@ -515,10 +528,10 @@ function ChatComposer({
           <button
             type="button"
             onClick={handleSend}
-            disabled={!content.trim()}
+            disabled={!contentText}
             className={cn(
               "flex size-7 items-center justify-center rounded-full transition-colors",
-              content.trim()
+              contentText
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground/50"
             )}
@@ -790,7 +803,7 @@ function ChatThread({
                         ) : null}
                         <div
                           className={cn(
-                            "rounded-2xl px-3 py-2.5 text-sm leading-normal whitespace-pre-wrap shadow-sm",
+                            "rounded-2xl px-3 py-2.5 text-sm leading-normal shadow-sm",
                             isCurrentUser
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted text-foreground",
@@ -826,7 +839,14 @@ function ChatThread({
                               </Button>
                             </div>
                           ) : (
-                            message.content
+                            <RichTextContent
+                              content={getChatMessageMarkup(message.content)}
+                              className={cn(
+                                "text-sm leading-6 [&_p]:leading-6 [&_p+p]:mt-1.5",
+                                isCurrentUser &&
+                                  "[&_a]:text-primary-foreground hover:[&_a]:text-primary-foreground/90"
+                              )}
+                            />
                           )}
                         </div>
                       </div>
@@ -843,6 +863,7 @@ function ChatThread({
       <div className="shrink-0 border-t bg-background/95 backdrop-blur">
         <ChatComposer
           placeholder={`Message ${title}…`}
+          mentionCandidates={members}
           onSend={(content) => {
             useAppStore.getState().sendChatMessage({ conversationId, content })
           }}
