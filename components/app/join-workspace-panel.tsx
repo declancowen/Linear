@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { SpinnerGap, UsersThree } from "@phosphor-icons/react"
+import { SpinnerGap } from "@phosphor-icons/react"
 
 import { OnboardingJoinCard } from "@/components/app/onboarding-join-card"
 import { Input } from "@/components/ui/input"
@@ -119,28 +119,32 @@ export function JoinWorkspacePanel({
     }
   }, [deferredCode, lookupResult?.team.joinCode])
 
+  const matchedLookupResult =
+    lookupResult?.team.joinCode === code ? lookupResult : null
+  const remainingCharacters = FULL_JOIN_CODE_LENGTH - code.length
   const statusLabel =
     code.length === 0
-      ? "Paste the 12-character team code."
+      ? "Paste or type a 12-character team code."
       : code.length < FULL_JOIN_CODE_LENGTH
-        ? `Enter ${FULL_JOIN_CODE_LENGTH - code.length} more character${
-            FULL_JOIN_CODE_LENGTH - code.length === 1 ? "" : "s"
+        ? `${remainingCharacters} more character${
+            remainingCharacters === 1 ? "" : "s"
           }.`
-        : loading
-          ? "Looking up team…"
-          : "Team found."
+        : lookupError
+          ? null
+          : matchedLookupResult
+            ? "Team found."
+            : "Looking up team…"
+  const showSpinner =
+    loading &&
+    code.length === FULL_JOIN_CODE_LENGTH &&
+    !lookupError &&
+    matchedLookupResult === null
   const alreadyJoined =
-    lookupResult !== null && joinedTeamIds.includes(lookupResult.team.id)
+    matchedLookupResult !== null &&
+    joinedTeamIds.includes(matchedLookupResult.team.id)
 
   return (
-    <section className="mx-auto w-full max-w-lg space-y-4">
-      <div className="space-y-1 text-center">
-        <div className="flex items-center justify-center gap-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-          <UsersThree className="size-3.5" />
-          Team code
-        </div>
-      </div>
-
+    <div className="space-y-4">
       <div className="space-y-2">
         <Input
           id="code"
@@ -153,20 +157,25 @@ export function JoinWorkspacePanel({
           spellCheck={false}
           value={code}
           className="h-11 text-center text-sm tracking-[0.28em] uppercase"
-          onChange={(event) =>
-            setCode(normalizeJoinCodeInput(event.target.value))
-          }
+          onChange={(event) => {
+            const nextCode = normalizeJoinCodeInput(event.target.value)
+
+            setCode(nextCode)
+            setLookupError(null)
+
+            if (lookupResult?.team.joinCode !== nextCode) {
+              setLookupResult(null)
+            }
+          }}
         />
-        <div className="relative flex min-h-5 items-center justify-center text-xs text-muted-foreground">
-          {loading || code.length === FULL_JOIN_CODE_LENGTH ? (
-            <div className="flex items-center gap-2">
-              {loading ? (
-                <SpinnerGap className="size-3.5 animate-spin" />
-              ) : null}
-              <span>{statusLabel}</span>
-            </div>
-          ) : null}
-          <span className="absolute right-0">{code.length}/12</span>
+        <div className="flex min-h-5 items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            {showSpinner ? (
+              <SpinnerGap className="size-3.5 animate-spin" />
+            ) : null}
+            {statusLabel ? <span>{statusLabel}</span> : null}
+          </div>
+          <span className="shrink-0">{code.length}/12</span>
         </div>
       </div>
 
@@ -176,19 +185,19 @@ export function JoinWorkspacePanel({
         </div>
       ) : null}
 
-      {lookupResult ? (
+      {matchedLookupResult ? (
         <OnboardingJoinCard
           authenticated={authenticated}
           alreadyJoined={alreadyJoined}
-          joinCode={lookupResult.team.joinCode}
+          joinCode={matchedLookupResult.team.joinCode}
           loginHref={loginHref}
           signupHref={signupHref}
-          teamName={lookupResult.team.name}
-          teamSummary={lookupResult.team.summary}
-          workspaceLogo={lookupResult.workspace.logoUrl}
-          workspaceName={lookupResult.workspace.name}
+          teamName={matchedLookupResult.team.name}
+          teamSummary={matchedLookupResult.team.summary}
+          workspaceLogo={matchedLookupResult.workspace.logoUrl}
+          workspaceName={matchedLookupResult.workspace.name}
         />
       ) : null}
-    </section>
+    </div>
   )
 }

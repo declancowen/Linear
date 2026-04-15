@@ -10,6 +10,8 @@ import {
 import { toast } from "sonner"
 
 import {
+  syncArchiveNotification,
+  syncArchiveNotifications,
   fetchSnapshot,
   syncAddComment,
   syncAddChannelPostComment,
@@ -24,8 +26,12 @@ import {
   syncCreateTeam,
   syncCreateWorkspaceChat,
   syncCreateWorkItem,
+  syncDeleteCurrentWorkspace,
   syncDeleteAttachment,
   syncDeleteChannelPost,
+  syncDeleteDocument,
+  syncDeleteNotification,
+  syncDeleteTeam,
   syncDeleteWorkItem,
   syncEnsureTeamChat,
   syncGenerateAttachmentUploadUrl,
@@ -38,6 +44,8 @@ import {
   syncToggleChannelPostReaction,
   syncToggleCommentReaction,
   syncToggleNotificationRead,
+  syncUnarchiveNotification,
+  syncUnarchiveNotifications,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,
@@ -94,6 +102,8 @@ import {
   type TeamFeatureSettings,
   teamDetailsSchema,
   type TeamWorkflowSettings,
+  type UserStatus,
+  userStatuses,
   type WorkItem,
   type WorkItemType,
   type WorkStatus,
@@ -189,12 +199,20 @@ type UpdateProfileInput = {
   avatarUrl: string
   avatarImageStorageId?: string
   clearAvatarImage?: boolean
+  clearStatus?: boolean
+  status?: UserStatus
+  statusMessage?: string
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
   }
+}
+
+type UpdateUserStatusInput = {
+  status: UserStatus
+  statusMessage: string
 }
 
 type AddCommentInput = {
@@ -256,18 +274,27 @@ export type AppStore = AppData & {
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
   toggleNotificationRead: (notificationId: string) => void
+  archiveNotification: (notificationId: string) => void
+  archiveNotifications: (notificationIds: string[]) => void
+  unarchiveNotification: (notificationId: string) => void
+  unarchiveNotifications: (notificationIds: string[]) => void
+  deleteNotification: (notificationId: string) => Promise<void>
   updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
+  deleteCurrentWorkspace: () => Promise<boolean>
   createTeam: (input: CreateTeamInput) => Promise<{
     teamId: string
     teamSlug: string
     features: TeamFeatureSettings
   } | null>
+  deleteTeam: (teamId: string) => Promise<boolean>
   updateTeamDetails: (
     teamId: string,
     input: UpdateTeamDetailsInput
   ) => Promise<boolean>
   regenerateTeamJoinCode: (teamId: string) => Promise<boolean>
   updateCurrentUserProfile: (input: UpdateProfileInput) => void
+  updateCurrentUserStatus: (input: UpdateUserStatusInput) => void
+  clearCurrentUserStatus: () => void
   updateViewConfig: (
     viewId: string,
     patch: Partial<{
@@ -302,6 +329,7 @@ export type AppStore = AppData & {
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
   renameDocument: (documentId: string, title: string) => void
+  deleteDocument: (documentId: string) => Promise<void>
   updateItemDescription: (itemId: string, content: string) => void
   uploadAttachment: (
     targetType: AttachmentTargetType,
@@ -355,6 +383,26 @@ function extractDocumentTitleFromContent(content: string) {
 
   const plainTitle = match[1].replace(/<[^>]*>/g, "").trim()
   return plainTitle.length > 0 ? plainTitle : null
+}
+
+function escapeDocumentHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function replaceDocumentHeading(content: string, title: string) {
+  const escapedTitle = escapeDocumentHtml(title)
+  const headingPattern = /(<h1[^>]*>)[\s\S]*?(<\/h1>)/i
+
+  if (headingPattern.test(content)) {
+    return content.replace(headingPattern, `$1${escapedTitle}$2`)
+  }
+
+  return `<h1>${escapedTitle}</h1>${content}`
 }
 
 const RICH_TEXT_SYNC_DELAY_MS = 350
@@ -476,12 +524,14 @@ function createMentionIds(
     match[1]?.toLowerCase()
   )
 
-  return [...new Set(
-    users
-      .filter((user) => handles.includes(user.handle.toLowerCase()))
-      .filter((user) => (audience ? audience.has(user.id) : true))
-      .map((user) => user.id)
-  )]
+  return [
+    ...new Set(
+      users
+        .filter((user) => handles.includes(user.handle.toLowerCase()))
+        .filter((user) => (audience ? audience.has(user.id) : true))
+        .map((user) => user.id)
+    ),
+  ]
 }
 
 function toggleReactionUsers(
@@ -558,16 +608,18 @@ function getProjectCreationValidationMessage(
   const team = state.teams.find((entry) => entry.id === settingsTeamId)
 
   if (!team) {
-    return input.scopeType === "team" ? "Team not found" : "Settings team not found"
+    return input.scopeType === "team"
+      ? "Team not found"
+      : "Settings team not found"
   }
 
   if (!getTeamFeatureSettings(team).projects) {
     return "Projects are disabled for this team"
   }
 
-  return getAllowedTemplateTypesForTeamExperience(team.settings.experience).includes(
-    input.templateType
-  )
+  return getAllowedTemplateTypesForTeamExperience(
+    team.settings.experience
+  ).includes(input.templateType)
     ? null
     : "Project template is not allowed for this team"
 }
@@ -655,8 +707,8 @@ function getWorkItemValidationMessage(
   }
 
   const resolvedPrimaryProjectId = parent
-    ? parent.primaryProjectId ?? null
-    : input.primaryProjectId ?? null
+    ? (parent.primaryProjectId ?? null)
+    : (input.primaryProjectId ?? null)
 
   if (resolvedPrimaryProjectId) {
     const project = getProjectsForTeamScope(state, input.teamId).find(
@@ -693,12 +745,12 @@ function getResolvedProjectLinkForWorkItemUpdate(
     patch.primaryProjectId !== undefined
       ? patch.primaryProjectId
       : patch.parentId !== undefined
-        ? nextParent?.primaryProjectId ?? existing.primaryProjectId
+        ? (nextParent?.primaryProjectId ?? existing.primaryProjectId)
         : existing.primaryProjectId
   const parentIds = new Map<string, string | null>(
     state.workItems.map((item) => [
       item.id,
-      item.id === existing.id ? nextParentId ?? null : item.parentId,
+      item.id === existing.id ? (nextParentId ?? null) : item.parentId,
     ])
   )
   let rootItemId = existing.id
@@ -895,7 +947,44 @@ function getConversationAudienceUserIds(
     return [...workspaceUserIds]
   }
 
-  return conversation.participantIds.filter((userId) => workspaceUserIds.has(userId))
+  return conversation.participantIds.filter((userId) =>
+    workspaceUserIds.has(userId)
+  )
+}
+
+function normalizeUniqueIds(ids: string[]) {
+  return [...new Set(ids)].sort()
+}
+
+function haveSameIds(left: string[], right: string[]) {
+  const normalizedLeft = normalizeUniqueIds(left)
+  const normalizedRight = normalizeUniqueIds(right)
+
+  return (
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((value, index) => value === normalizedRight[index])
+  )
+}
+
+function findWorkspaceDirectConversation(
+  state: AppData,
+  workspaceId: string,
+  participantIds: string[]
+) {
+  return (
+    state.conversations
+      .filter(
+        (conversation) =>
+          conversation.kind === "chat" &&
+          conversation.scopeType === "workspace" &&
+          conversation.scopeId === workspaceId &&
+          conversation.variant === "direct" &&
+          haveSameIds(conversation.participantIds, participantIds)
+      )
+      .sort((left, right) =>
+        right.lastActivityAt.localeCompare(left.lastActivityAt)
+      )[0] ?? null
+  )
 }
 
 function buildWorkspaceChatTitle(
@@ -981,9 +1070,21 @@ function createNotification(
     entityId,
     type,
     readAt: null,
+    archivedAt: null,
     emailedAt: null,
     createdAt: getNow(),
   }
+}
+
+function normalizeNotifications<T extends { archivedAt?: string | null }>(
+  notifications: T[] | undefined
+) {
+  const entries = notifications ?? []
+
+  return entries.map((notification) => ({
+    ...notification,
+    archivedAt: notification.archivedAt ?? null,
+  }))
 }
 
 function normalizeChannelPosts<
@@ -1037,6 +1138,29 @@ function normalizeChannelPostComments<T extends { mentionUserIds?: string[] }>(
   return entries.map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
+  }))
+}
+
+function normalizeUsers<
+  T extends {
+    hasExplicitStatus?: boolean | null
+    status?: string | null
+    statusMessage?: string | null
+  },
+>(users: T[] | undefined) {
+  const entries = users ?? []
+
+  return entries.map((user) => ({
+    ...user,
+    hasExplicitStatus:
+      typeof user.hasExplicitStatus === "boolean"
+        ? user.hasExplicitStatus
+        : user.status != null,
+    status: userStatuses.includes(user.status as UserStatus)
+      ? (user.status as UserStatus)
+      : ("active" as const),
+    statusMessage:
+      typeof user.statusMessage === "string" ? user.statusMessage : "",
   }))
 }
 
@@ -1095,6 +1219,10 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           ...state,
           ...data,
+          users: normalizeUsers(data.users ?? state.users),
+          notifications: normalizeNotifications(
+            data.notifications ?? state.notifications
+          ),
           comments: normalizeComments(data.comments ?? state.comments),
           chatMessages: normalizeChatMessages(
             data.chatMessages ?? state.chatMessages
@@ -1107,10 +1235,11 @@ export const useAppStore = create<AppStore>()(
           ),
           ui: {
             ...state.ui,
-            activeTeamId:
-              state.ui.activeTeamId ||
-              data.teams?.[0]?.id ||
-              state.ui.activeTeamId,
+            activeTeamId: data.teams.some(
+              (team) => team.id === state.ui.activeTeamId
+            )
+              ? state.ui.activeTeamId
+              : (data.teams[0]?.id ?? ""),
           },
         }))
       },
@@ -1172,6 +1301,123 @@ export const useAppStore = create<AppStore>()(
           "Failed to update notification"
         )
       },
+      archiveNotification(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notification.id === notificationId
+              ? {
+                  ...notification,
+                  archivedAt: notification.archivedAt ?? getNow(),
+                }
+              : notification
+          ),
+        }))
+
+        syncInBackground(
+          syncArchiveNotification(notificationId),
+          "Failed to archive notification"
+        )
+      },
+      archiveNotifications(notificationIds) {
+        if (notificationIds.length === 0) {
+          return
+        }
+
+        const notificationIdSet = new Set(notificationIds)
+        const archivedAt = getNow()
+
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notificationIdSet.has(notification.id)
+              ? {
+                  ...notification,
+                  archivedAt: notification.archivedAt ?? archivedAt,
+                }
+              : notification
+          ),
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId: state.ui.activeInboxNotificationId
+              ? notificationIdSet.has(state.ui.activeInboxNotificationId)
+                ? null
+                : state.ui.activeInboxNotificationId
+              : null,
+          },
+        }))
+
+        syncInBackground(
+          syncArchiveNotifications(notificationIds),
+          "Failed to archive notifications"
+        )
+      },
+      unarchiveNotification(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notification.id === notificationId
+              ? {
+                  ...notification,
+                  archivedAt: null,
+                }
+              : notification
+          ),
+        }))
+
+        syncInBackground(
+          syncUnarchiveNotification(notificationId),
+          "Failed to unarchive notification"
+        )
+      },
+      unarchiveNotifications(notificationIds) {
+        if (notificationIds.length === 0) {
+          return
+        }
+
+        const notificationIdSet = new Set(notificationIds)
+
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notificationIdSet.has(notification.id)
+              ? {
+                  ...notification,
+                  archivedAt: null,
+                }
+              : notification
+          ),
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId: state.ui.activeInboxNotificationId
+              ? notificationIdSet.has(state.ui.activeInboxNotificationId)
+                ? null
+                : state.ui.activeInboxNotificationId
+              : null,
+          },
+        }))
+
+        syncInBackground(
+          syncUnarchiveNotifications(notificationIds),
+          "Failed to unarchive notifications"
+        )
+      },
+      async deleteNotification(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.filter(
+            (notification) => notification.id !== notificationId
+          ),
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId:
+              state.ui.activeInboxNotificationId === notificationId
+                ? null
+                : state.ui.activeInboxNotificationId,
+          },
+        }))
+
+        try {
+          await syncDeleteNotification(notificationId)
+        } catch (error) {
+          await handleSyncFailure(error, "Failed to delete notification")
+        }
+      },
       updateWorkspaceBranding(input) {
         const parsed = workspaceBrandingSchema.safeParse(input)
         if (!parsed.success) {
@@ -1216,6 +1462,31 @@ export const useAppStore = create<AppStore>()(
 
         toast.success("Workspace updated")
       },
+      async deleteCurrentWorkspace() {
+        const workspace = get().workspaces.find(
+          (entry) => entry.id === get().currentWorkspaceId
+        )
+
+        if (!workspace) {
+          toast.error("Workspace not found")
+          return false
+        }
+
+        try {
+          await syncDeleteCurrentWorkspace()
+          await refreshFromServer()
+          toast.success("Workspace deleted")
+          return true
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to delete workspace"
+          )
+          return false
+        }
+      },
       async createTeam(input) {
         const parsed = teamDetailsSchema.safeParse({
           ...input,
@@ -1248,6 +1519,27 @@ export const useAppStore = create<AppStore>()(
             error instanceof Error ? error.message : "Failed to create team"
           )
           return null
+        }
+      },
+      async deleteTeam(teamId) {
+        const team = get().teams.find((entry) => entry.id === teamId)
+
+        if (!team) {
+          toast.error("Team not found")
+          return false
+        }
+
+        try {
+          await syncDeleteTeam(teamId)
+          await refreshFromServer()
+          toast.success("Team deleted")
+          return true
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error ? error.message : "Failed to delete team"
+          )
+          return false
         }
       },
       async updateTeamDetails(teamId, input) {
@@ -1391,6 +1683,11 @@ export const useAppStore = create<AppStore>()(
               ? {
                   ...user,
                   ...parsed.data,
+                  hasExplicitStatus: parsed.data.clearStatus
+                    ? false
+                    : parsed.data.status === undefined
+                      ? user.hasExplicitStatus
+                      : true,
                   avatarImageUrl: parsed.data.clearAvatarImage
                     ? null
                     : user.avatarImageUrl,
@@ -1409,12 +1706,110 @@ export const useAppStore = create<AppStore>()(
             {
               avatarImageStorageId: parsed.data.avatarImageStorageId,
               clearAvatarImage: parsed.data.clearAvatarImage,
+              clearStatus: parsed.data.clearStatus,
+              status: parsed.data.status,
+              statusMessage: parsed.data.statusMessage,
             }
           ),
           "Failed to update profile"
         )
 
         toast.success("Profile updated")
+      },
+      updateCurrentUserStatus(input) {
+        const currentUserId = get().currentUserId
+        const currentUser = get().users.find(
+          (user) => user.id === currentUserId
+        )
+
+        if (!currentUser) {
+          toast.error("Profile not found")
+          return
+        }
+
+        const statusMessage = input.statusMessage.trim()
+
+        if (
+          currentUser.status === input.status &&
+          currentUser.statusMessage === statusMessage
+        ) {
+          return
+        }
+
+        set((state) => ({
+          users: state.users.map((user) =>
+            user.id === currentUserId
+              ? {
+                  ...user,
+                  hasExplicitStatus: true,
+                  status: input.status,
+                  statusMessage,
+                }
+              : user
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateCurrentUserProfile(
+            currentUser.id,
+            currentUser.name,
+            currentUser.title,
+            currentUser.avatarUrl,
+            currentUser.preferences,
+            {
+              status: input.status,
+              statusMessage,
+            }
+          ),
+          "Failed to update status"
+        )
+
+        toast.success("Status updated")
+      },
+      clearCurrentUserStatus() {
+        const currentUserId = get().currentUserId
+        const currentUser = get().users.find(
+          (user) => user.id === currentUserId
+        )
+
+        if (!currentUser) {
+          toast.error("Profile not found")
+          return
+        }
+
+        if (!currentUser.hasExplicitStatus && !currentUser.statusMessage) {
+          return
+        }
+
+        set((state) => ({
+          users: state.users.map((user) =>
+            user.id === currentUserId
+              ? {
+                  ...user,
+                  hasExplicitStatus: false,
+                  status: "active" as const,
+                  statusMessage: "",
+                }
+              : user
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateCurrentUserProfile(
+            currentUser.id,
+            currentUser.name,
+            currentUser.title,
+            currentUser.avatarUrl,
+            currentUser.preferences,
+            {
+              clearStatus: true,
+              statusMessage: "",
+            }
+          ),
+          "Failed to clear status"
+        )
+
+        toast.success("Status cleared")
       },
       updateViewConfig(viewId, patch) {
         set((state) => ({
@@ -1601,8 +1996,7 @@ export const useAppStore = create<AppStore>()(
           cascadeItemIds,
           resolvedPrimaryProjectId,
           shouldCascadeProjectLink,
-        } =
-          getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+        } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
 
         const validationMessage = getWorkItemValidationMessage(state, {
           teamId: existing.teamId,
@@ -1637,9 +2031,9 @@ export const useAppStore = create<AppStore>()(
               .filter((item) => cascadeItemIds.has(item.id))
               .some(
                 (item) =>
-                  !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-                    item.type
-                  )
+                  !getAllowedWorkItemTypesForTemplate(
+                    project.templateType
+                  ).includes(item.type)
               )
           ) {
             toast.error(
@@ -1907,13 +2301,18 @@ export const useAppStore = create<AppStore>()(
       },
       renameDocument(documentId, title) {
         const updatedAt = getNow()
+        const normalizedTitle = title.trim() || "Untitled document"
 
         set((state) => ({
           documents: state.documents.map((document) =>
             document.id === documentId
               ? {
                   ...document,
-                  title,
+                  title: normalizedTitle,
+                  content: replaceDocumentHeading(
+                    document.content,
+                    normalizedTitle
+                  ),
                   updatedAt,
                   updatedBy: state.currentUserId,
                 }
@@ -1940,6 +2339,66 @@ export const useAppStore = create<AppStore>()(
           },
           "Failed to update document"
         )
+      },
+      async deleteDocument(documentId) {
+        set((state) => {
+          const deletedNotificationIds = new Set(
+            state.notifications
+              .filter(
+                (notification) =>
+                  notification.entityType === "document" &&
+                  notification.entityId === documentId
+              )
+              .map((notification) => notification.id)
+          )
+
+          return {
+            documents: state.documents.filter(
+              (document) => document.id !== documentId
+            ),
+            comments: state.comments.filter(
+              (comment) =>
+                !(
+                  comment.targetType === "document" &&
+                  comment.targetId === documentId
+                )
+            ),
+            attachments: state.attachments.filter(
+              (attachment) =>
+                !(
+                  attachment.targetType === "document" &&
+                  attachment.targetId === documentId
+                )
+            ),
+            notifications: state.notifications.filter(
+              (notification) =>
+                !(
+                  notification.entityType === "document" &&
+                  notification.entityId === documentId
+                )
+            ),
+            workItems: state.workItems.map((item) => ({
+              ...item,
+              linkedDocumentIds: item.linkedDocumentIds.filter(
+                (linkedDocumentId) => linkedDocumentId !== documentId
+              ),
+            })),
+            ui: {
+              ...state.ui,
+              activeInboxNotificationId:
+                state.ui.activeInboxNotificationId &&
+                deletedNotificationIds.has(state.ui.activeInboxNotificationId)
+                  ? null
+                  : state.ui.activeInboxNotificationId,
+            },
+          }
+        })
+
+        try {
+          await syncDeleteDocument(documentId)
+        } catch (error) {
+          await handleSyncFailure(error, "Failed to delete document")
+        }
       },
       updateItemDescription(itemId, content) {
         const updatedAt = getNow()
@@ -2310,6 +2769,7 @@ export const useAppStore = create<AppStore>()(
 
         let conversationId: string | null = null
         let participantIdsForSync: string[] = []
+        let reusedConversation = false
 
         set((state) => {
           if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
@@ -2326,6 +2786,21 @@ export const useAppStore = create<AppStore>()(
 
           if (participantIds.length < 2) {
             toast.error("Select at least one other workspace member")
+            return state
+          }
+
+          const existingConversation =
+            participantIds.length === 2
+              ? findWorkspaceDirectConversation(
+                  state,
+                  parsed.data.workspaceId,
+                  participantIds
+                )
+              : null
+
+          if (existingConversation) {
+            conversationId = existingConversation.id
+            reusedConversation = true
             return state
           }
 
@@ -2366,6 +2841,11 @@ export const useAppStore = create<AppStore>()(
 
         if (!conversationId) {
           return null
+        }
+
+        if (reusedConversation) {
+          toast.success("Opened existing chat")
+          return conversationId
         }
 
         syncInBackground(
@@ -3435,8 +3915,7 @@ export const useAppStore = create<AppStore>()(
               ) ?? null)
             : null
           const team =
-            state.teams.find((entry) => entry.id === parsed.data.teamId) ??
-            null
+            state.teams.find((entry) => entry.id === parsed.data.teamId) ?? null
           const teamItems = state.workItems.filter(
             (item) => item.teamId === parsed.data.teamId
           )
@@ -3444,7 +3923,7 @@ export const useAppStore = create<AppStore>()(
           const nextNumber = 1 + teamItems.length + 100
           const descriptionDocId = createId("doc")
           const resolvedPrimaryProjectId = parent
-            ? parent.primaryProjectId ?? null
+            ? (parent.primaryProjectId ?? null)
             : parsed.data.primaryProjectId
 
           const descriptionDoc = {

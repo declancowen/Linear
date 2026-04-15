@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { workspaceBrandingSchema } from "@/lib/domain/types"
 import {
+  deleteWorkspaceServer,
   setWorkspaceWorkosOrganizationServer,
   updateWorkspaceBrandingServer,
 } from "@/lib/server/convex"
@@ -83,6 +84,49 @@ export async function PATCH(request: NextRequest) {
       {
         error:
           error instanceof Error ? error.message : "Failed to update workspace",
+      },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE() {
+  const session = await withAuth()
+
+  if (!session.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
+    const { authContext } = await ensureAuthenticatedAppContext(
+      session.user,
+      session.organizationId
+    )
+
+    if (!authContext?.currentWorkspace || !authContext.currentUser) {
+      return NextResponse.json(
+        { error: "Workspace not found" },
+        { status: 404 }
+      )
+    }
+
+    const result = await deleteWorkspaceServer({
+      currentUserId: authContext.currentUser.id,
+      workspaceId: authContext.currentWorkspace.id,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      workspaceId: result?.workspaceId ?? authContext.currentWorkspace.id,
+      deletedTeamIds: result?.deletedTeamIds ?? [],
+      deletedUserIds: result?.deletedUserIds ?? [],
+    })
+  } catch (error) {
+    console.error(error)
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to delete workspace",
       },
       { status: 500 }
     )

@@ -14,6 +14,7 @@ import {
   CodesandboxLogo,
   CopySimple,
   DotsThree,
+  EnvelopeSimple,
   Gear,
   HashStraight,
   Kanban,
@@ -25,6 +26,8 @@ import {
   SignIn,
   SquaresFour,
   UserCircle,
+  UsersThree,
+  X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
@@ -44,24 +47,29 @@ import {
   getDefaultTeamIconForExperience,
   getWorkSurfaceCopy,
   normalizeTeamIconToken,
+  resolveUserStatus,
   type Role,
   type TeamFeatureSettings,
   type TeamExperienceType,
+  type UserStatus,
   teamExperienceMeta,
   teamIconMeta,
   teamIconTokens,
   teamExperienceTypes,
+  userStatusMessageMaxLength,
+  userStatusMeta,
+  userStatuses,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -71,7 +79,12 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -140,7 +153,9 @@ export function AppShell({ children }: AppShellProps) {
   const data = useAppStore()
   const unread = data.notifications.filter(
     (notification) =>
-      notification.userId === data.currentUserId && notification.readAt === null
+      notification.userId === data.currentUserId &&
+      notification.readAt === null &&
+      notification.archivedAt == null
   ).length
   const workspace = getCurrentWorkspace(data)
   const currentUser = getCurrentUser(data)
@@ -149,20 +164,23 @@ export function AppShell({ children }: AppShellProps) {
     workspace?.logoUrl
   )
   const currentUserAvatarImageSrc = resolveImageAssetSource(
-    currentUser.avatarImageUrl,
-    currentUser.avatarUrl
+    currentUser?.avatarImageUrl,
+    currentUser?.avatarUrl
   )
-  const pendingInviteCount = data.invites.filter((invite) => {
-    if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
-      return false
-    }
+  const currentUserStatus = resolveUserStatus(currentUser?.status)
+  const pendingInviteCount = currentUser
+    ? data.invites.filter((invite) => {
+        if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
+          return false
+        }
 
-    if (invite.acceptedAt || invite.declinedAt) {
-      return false
-    }
+        if (invite.acceptedAt || invite.declinedAt) {
+          return false
+        }
 
-    return true
-  }).length
+        return true
+      }).length
+    : 0
   const teams = getAccessibleTeams(data)
 
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -170,6 +188,7 @@ export function AppShell({ children }: AppShellProps) {
     "workspace"
   )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
@@ -205,6 +224,14 @@ export function AppShell({ children }: AppShellProps) {
     })
   }
 
+  if (!currentUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading workspace...
+      </div>
+    )
+  }
+
   return (
     <SidebarProvider>
       <InviteDialog
@@ -217,6 +244,10 @@ export function AppShell({ children }: AppShellProps) {
         }}
         mode={inviteMode}
         presetTeamIds={invitePresetTeamIds}
+      />
+      <StatusDialog
+        open={statusDialogOpen}
+        onOpenChange={setStatusDialogOpen}
       />
       {searchOpen ? (
         <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
@@ -375,30 +406,6 @@ export function AppShell({ children }: AppShellProps) {
                     label="Views"
                     active={pathname.startsWith("/workspace/views")}
                   />
-                  <SidebarMenuItem>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <SidebarMenuButton>
-                          <DotsThree />
-                          <span>More</span>
-                        </SidebarMenuButton>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-48">
-                        <DropdownMenuItem asChild>
-                          <Link href="/workspace/search">
-                            <MagnifyingGlass />
-                            Search
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/workspace/reports">
-                            <Kanban />
-                            Reports
-                          </Link>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             ) : null}
@@ -619,7 +626,7 @@ export function AppShell({ children }: AppShellProps) {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton>
-                    <div className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                    <div className="relative flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                       {currentUserAvatarImageSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -630,6 +637,10 @@ export function AppShell({ children }: AppShellProps) {
                       ) : (
                         currentUser.avatarUrl
                       )}
+                      <UserStatusDot
+                        status={currentUserStatus}
+                        className="absolute -right-0.5 -bottom-0.5 size-2.5 ring-2 ring-background"
+                      />
                     </div>
                     <span className="truncate text-[12px]">
                       {currentUser.name}
@@ -637,8 +648,73 @@ export function AppShell({ children }: AppShellProps) {
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuLabel>Account</DropdownMenuLabel>
+                  <UserHoverCard
+                    user={currentUser}
+                    userId={currentUser.id}
+                    currentUserId={data.currentUserId}
+                    workspaceId={data.currentWorkspaceId}
+                    side="right"
+                  >
+                    <DropdownMenuLabel className="space-y-1.5">
+                      <div className="font-medium text-foreground">
+                        {currentUser.name}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <UserStatusDot status={currentUserStatus} />
+                        <span>{userStatusMeta[currentUserStatus].label}</span>
+                      </div>
+                    </DropdownMenuLabel>
+                  </UserHoverCard>
+                  <DropdownMenuSeparator />
                   <DropdownMenuGroup>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <UserStatusDot status={currentUserStatus} />
+                        Set status
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuRadioGroup
+                          value={currentUserStatus}
+                          onValueChange={(value) => {
+                            useAppStore.getState().updateCurrentUserStatus({
+                              status: value as UserStatus,
+                              statusMessage: currentUser.statusMessage,
+                            })
+                          }}
+                        >
+                          {userStatuses.map((status) => (
+                            <DropdownMenuRadioItem key={status} value={status}>
+                              <UserStatusDot status={status} />
+                              {userStatusMeta[status].label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setStatusDialogOpen(true)
+                      }}
+                    >
+                      <NotePencil />
+                      {currentUser.statusMessage
+                        ? "Edit status message"
+                        : "Set status message"}
+                    </DropdownMenuItem>
+                    {currentUser.statusMessage ? (
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          useAppStore.getState().updateCurrentUserStatus({
+                            status: currentUserStatus,
+                            statusMessage: "",
+                          })
+                        }}
+                      >
+                        <X />
+                        Clear status message
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
                       <Link href="/settings/profile">
                         <UserCircle />
@@ -669,9 +745,159 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {children}
+        </div>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function StatusDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const data = useAppStore()
+  const currentUser = getCurrentUser(data)
+  const [status, setStatus] = useState<UserStatus>(
+    resolveUserStatus(currentUser?.status)
+  )
+  const [statusMessage, setStatusMessage] = useState(
+    currentUser?.statusMessage ?? ""
+  )
+
+  useEffect(() => {
+    if (!open || !currentUser) {
+      return
+    }
+
+    setStatus(resolveUserStatus(currentUser.status))
+    setStatusMessage(currentUser.statusMessage)
+  }, [currentUser?.id, currentUser?.status, currentUser?.statusMessage, open])
+
+  if (!currentUser) {
+    return null
+  }
+
+  const normalizedStatusMessage = statusMessage.trim()
+  const currentUserStatus = resolveUserStatus(currentUser.status)
+  const hasChanges =
+    status !== currentUserStatus ||
+    normalizedStatusMessage !== currentUser.statusMessage
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <div className="px-5 pt-5 pb-2">
+          <DialogHeader className="items-start gap-1.5 p-0">
+            <div className="space-y-1.5">
+              <DialogTitle className="text-base">Set your status</DialogTitle>
+              <DialogDescription className="text-sm">
+                Set how you appear to your team.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+        </div>
+
+        <div className="space-y-5 px-5 py-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="user-status">Status</FieldLabel>
+              <FieldContent>
+                <Select
+                  value={status}
+                  onValueChange={(value) => setStatus(value as UserStatus)}
+                >
+                  <SelectTrigger id="user-status" className="w-full">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <UserStatusDot status={status} />
+                      <span className="truncate">
+                        {userStatusMeta[status].label}
+                      </span>
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent position="popper" className="z-[60]">
+                    <SelectGroup>
+                      {userStatuses.map((value) => (
+                        <SelectItem
+                          key={value}
+                          value={value}
+                          className="items-start py-2"
+                        >
+                          <div className="flex items-start gap-2">
+                            <UserStatusDot status={value} className="mt-1" />
+                            <div className="flex flex-col gap-0.5">
+                              <span>{userStatusMeta[value].label}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {userStatusMeta[value].description}
+                              </span>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="status-message">Status message</FieldLabel>
+              <FieldContent>
+                <Textarea
+                  id="status-message"
+                  value={statusMessage}
+                  onChange={(event) => setStatusMessage(event.target.value)}
+                  placeholder="Heads down on planning, back this afternoon"
+                  maxLength={userStatusMessageMaxLength}
+                />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-t px-5 py-3">
+          <div>
+            {currentUser.hasExplicitStatus || currentUser.statusMessage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  useAppStore.getState().clearCurrentUserStatus()
+                  onOpenChange(false)
+                }}
+              >
+                Clear status
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!hasChanges}
+              onClick={() => {
+                useAppStore.getState().updateCurrentUserStatus({
+                  status,
+                  statusMessage: normalizedStatusMessage,
+                })
+                onOpenChange(false)
+              }}
+            >
+              Save status
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -844,6 +1070,7 @@ function TeamEditorFields({
   surfaceDisableReasons,
   disabled = false,
   canChangeExperience = false,
+  showJoinCode = true,
   onExperienceChange,
   onRegenerateJoinCode,
   joinCodeReadonlyLabel = "Generated automatically after the team is created.",
@@ -866,6 +1093,7 @@ function TeamEditorFields({
   surfaceDisableReasons: TeamSurfaceDisableReasons
   disabled?: boolean
   canChangeExperience?: boolean
+  showJoinCode?: boolean
   onExperienceChange?: (experience: TeamExperienceType) => void
   onRegenerateJoinCode?: (() => Promise<void>) | null
   joinCodeReadonlyLabel?: string
@@ -992,39 +1220,45 @@ function TeamEditorFields({
                 Used in team discovery and sidebars.
               </FieldDescription>
             </Field>
-            <Field>
-              <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
-              <FieldContent>
-                <div className="flex gap-2">
-                  <Input
-                    id="team-join-code"
-                    value={joinCode || "Generated on create"}
-                    readOnly
-                  />
-                  {joinCode ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleCopyJoinCode()}
-                    >
-                      {copiedJoinCode === joinCode ? <Check /> : <CopySimple />}
-                      {copiedJoinCode === joinCode ? "Copied" : "Copy"}
-                    </Button>
-                  ) : null}
-                  {onRegenerateJoinCode ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void onRegenerateJoinCode()}
-                    >
-                      <ArrowsClockwise />
-                      Regenerate
-                    </Button>
-                  ) : null}
-                </div>
-              </FieldContent>
-              <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
-            </Field>
+            {showJoinCode ? (
+              <Field>
+                <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
+                <FieldContent>
+                  <div className="flex gap-2">
+                    <Input
+                      id="team-join-code"
+                      value={joinCode || "Generated on create"}
+                      readOnly
+                    />
+                    {joinCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleCopyJoinCode()}
+                      >
+                        {copiedJoinCode === joinCode ? (
+                          <Check />
+                        ) : (
+                          <CopySimple />
+                        )}
+                        {copiedJoinCode === joinCode ? "Copied" : "Copy"}
+                      </Button>
+                    ) : null}
+                    {onRegenerateJoinCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void onRegenerateJoinCode()}
+                      >
+                        <ArrowsClockwise />
+                        Regenerate
+                      </Button>
+                    ) : null}
+                  </div>
+                </FieldContent>
+                <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
+              </Field>
+            ) : null}
           </FieldGroup>
         </section>
 
@@ -1033,107 +1267,49 @@ function TeamEditorFields({
             Surfaces
           </h3>
           {experience === "community" ? (
-            <FieldGroup className="gap-4">
-              <Field>
-                <FieldContent>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        features.chat && !features.channels
-                          ? "border-primary/40 bg-primary/5"
-                          : "hover:bg-accent/40"
-                      )}
-                      disabled={
-                        disabled ||
-                        savedFeatures.channels &&
-                        Boolean(surfaceDisableReasons.channels)
-                      }
-                      onClick={() =>
-                        setFeatures({
-                          issues: false,
-                          projects: false,
-                          views: false,
-                          docs: false,
-                          chat: true,
-                          channels: false,
-                        })
-                      }
-                    >
-                      <div className="text-sm font-medium">Chat only</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Real-time conversation.
+            <div className="divide-y">
+              {optionalFeatures.map((feature) => (
+                <div
+                  key={feature.key}
+                  className="flex items-center justify-between gap-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm">{feature.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {feature.description}
+                    </div>
+                    {savedFeatures[feature.key] &&
+                    surfaceDisableReasons[feature.key] ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {surfaceDisableReasons[feature.key]}
                       </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        !features.chat && features.channels
-                          ? "border-primary/40 bg-primary/5"
-                          : "hover:bg-accent/40"
-                      )}
-                      disabled={
-                        disabled ||
-                        savedFeatures.chat &&
-                        Boolean(surfaceDisableReasons.chat)
-                      }
-                      onClick={() =>
-                        setFeatures({
-                          issues: false,
-                          projects: false,
-                          views: false,
-                          docs: false,
-                          chat: false,
-                          channels: true,
-                        })
-                      }
-                    >
-                      <div className="text-sm font-medium">Channel only</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Forum posts with threaded replies.
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        features.chat && features.channels
-                          ? "border-primary/40 bg-primary/5"
-                          : "hover:bg-accent/40"
-                      )}
-                      disabled={disabled}
-                      onClick={() =>
-                        setFeatures({
-                          issues: false,
-                          projects: false,
-                          views: false,
-                          docs: false,
-                          chat: true,
-                          channels: true,
-                        })
-                      }
-                    >
-                      <div className="text-sm font-medium">Chat + channel</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Enable both conversation modes.
-                      </div>
-                    </button>
+                    ) : null}
                   </div>
-                </FieldContent>
-                {savedFeatures.chat && surfaceDisableReasons.chat ? (
-                  <div className="text-xs text-muted-foreground">
-                    {surfaceDisableReasons.chat}
-                  </div>
-                ) : null}
-                {savedFeatures.channels && surfaceDisableReasons.channels ? (
-                  <div className="text-xs text-muted-foreground">
-                    {surfaceDisableReasons.channels}
-                  </div>
-                ) : null}
-              </Field>
-            </FieldGroup>
+                  <Switch
+                    checked={features[feature.key]}
+                    disabled={
+                      disabled ||
+                      (savedFeatures[feature.key] &&
+                        Boolean(surfaceDisableReasons[feature.key]))
+                    }
+                    onCheckedChange={(checked) =>
+                      setFeatures((current) => ({
+                        ...current,
+                        issues: false,
+                        projects: false,
+                        views: false,
+                        [feature.key]: checked,
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+              {!(features.docs || features.chat || features.channels) ? (
+                <div className="pt-3 text-xs text-muted-foreground">
+                  Enable at least one surface for community teams.
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -1174,8 +1350,8 @@ function TeamEditorFields({
                       checked={features[feature.key]}
                       disabled={
                         disabled ||
-                        savedFeatures[feature.key] &&
-                        Boolean(surfaceDisableReasons[feature.key])
+                        (savedFeatures[feature.key] &&
+                          Boolean(surfaceDisableReasons[feature.key]))
                       }
                       onCheckedChange={(checked) =>
                         setFeatures((current) => ({
@@ -1251,11 +1427,12 @@ function TeamEditorFields({
           </h3>
           <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
             <p>
-              {workCopy.surfaceLabel}, projects, and views stay on for this
-              team type.
+              {workCopy.surfaceLabel}, projects, and views stay on for this team
+              type.
             </p>
             <p>
-              Community spaces can enable chat, channel, or both.
+              Community spaces can enable docs, chat, channel, or any
+              combination.
             </p>
             <p>Docs remain optional for non-community teams.</p>
           </div>
@@ -1318,6 +1495,7 @@ function CreateTeamDialog({
             savedFeatures={features}
             surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
             canChangeExperience
+            showJoinCode={false}
             onExperienceChange={(nextExperience) => {
               setExperience(nextExperience)
               setIcon(getDefaultTeamIconForExperience(nextExperience))
@@ -1484,14 +1662,43 @@ function InviteDialog({
   const data = useAppStore()
   const teams = getAccessibleTeams(data)
   const [teamIds, setTeamIds] = useState<string[]>([])
-  const [email, setEmail] = useState("new.person@example.com")
+  const [email, setEmail] = useState("")
   const [role, setRole] = useState<Role>("viewer")
   const [submitting, setSubmitting] = useState(false)
+  const inviteRoleOptions: Array<{
+    value: Role
+    label: string
+    description: string
+  }> = [
+    {
+      value: "member",
+      label: "Member",
+      description: "Can create and edit work items and projects.",
+    },
+    {
+      value: "viewer",
+      label: "Viewer",
+      description: "Can view work across the assigned teams.",
+    },
+    {
+      value: "guest",
+      label: "Guest",
+      description: "Limited access for external collaborators.",
+    },
+  ]
   const inviteableTeams = teams.filter((team) => {
     const teamRole = getTeamRole(data, team.id)
     return teamRole === "admin" || teamRole === "member"
   })
+  const workspaceInviteMode = mode === "workspace"
   const lockedToTeam = mode === "team" && presetTeamIds.length > 0
+  const lockedTeam = teams.find((team) => team.id === presetTeamIds[0])
+  const lockedTeamIcon = lockedTeam
+    ? normalizeTeamIconToken(lockedTeam.icon, lockedTeam.settings.experience)
+    : null
+  const selectedRoleDescription =
+    inviteRoleOptions.find((option) => option.value === role)?.description ??
+    inviteRoleOptions[1].description
 
   useEffect(() => {
     if (!open) {
@@ -1499,9 +1706,12 @@ function InviteDialog({
     }
 
     setTeamIds(lockedToTeam ? presetTeamIds : [])
+    setEmail("")
+    setRole("viewer")
   }, [lockedToTeam, open, presetTeamIds])
 
   const canInvite =
+    email.trim().length > 0 &&
     teamIds.length > 0 &&
     teamIds.every((teamId) =>
       inviteableTeams.some((team) => team.id === teamId)
@@ -1513,53 +1723,98 @@ function InviteDialog({
         key={`${data.ui.activeTeamId}-${mode}-${open}`}
         className="max-w-lg gap-0 overflow-hidden p-0"
       >
-        <div className="px-5 pt-5 pb-1">
-          <DialogHeader className="mb-1 p-0">
-            <DialogTitle className="text-base">Invite people</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              {mode === "team"
-                ? "Invite someone to this team."
-                : "Invite someone and grant access through one or more teams."}
-            </DialogDescription>
+        <div className="px-6 pt-6 pb-2">
+          <DialogHeader className="items-start gap-4 p-0">
+            <div className="flex size-12 items-center justify-center rounded-full bg-primary/8 ring-1 ring-border/60">
+              <EnvelopeSimple
+                className="size-6 text-primary"
+                weight="duotone"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <DialogTitle className="text-lg">Invite people</DialogTitle>
+              <DialogDescription className="max-w-md text-sm leading-relaxed">
+                {workspaceInviteMode
+                  ? "Invite someone to your workspace. Select which teams they should join."
+                  : "They'll receive an email with a link to get started."}
+              </DialogDescription>
+            </div>
           </DialogHeader>
         </div>
 
-        <div className="px-5 py-3">
-          <Input
-            id="invite-email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Email address"
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
-            autoFocus
-          />
-        </div>
+        <div className="space-y-5 px-6 py-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="invite-email">Email address</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="invite-email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="colleague@company.com"
+                  autoFocus
+                />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
 
-        <div className="flex flex-col border-t px-5 py-2">
-          {/* Team selection */}
-          <div className="py-2">
-            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-              {lockedToTeam ? "Team" : "Teams"}
-            </span>
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium">
+                {lockedToTeam ? "Team" : "Teams"}
+              </div>
+              {workspaceInviteMode ? (
+                <div className="rounded-full border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  {teamIds.length} selected
+                </div>
+              ) : null}
+            </div>
             {lockedToTeam ? (
-              <div className="mt-1.5 text-sm">
-                {teams.find((team) => team.id === presetTeamIds[0])?.name ??
-                  "Selected team"}
+              <div className="flex items-center gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
+                  {lockedTeamIcon ? (
+                    <TeamIconGlyph
+                      icon={lockedTeamIcon}
+                      className="size-4 text-muted-foreground"
+                    />
+                  ) : (
+                    <UsersThree className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {lockedTeam?.name ?? "Selected team"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    This invite is locked to a single team.
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <div
+                className={cn(
+                  "flex flex-wrap gap-2",
+                  workspaceInviteMode
+                    ? "rounded-xl border bg-muted/15 p-3"
+                    : undefined
+                )}
+              >
                 {inviteableTeams.map((team) => {
                   const selected = teamIds.includes(team.id)
+                  const teamIcon = normalizeTeamIconToken(
+                    team.icon,
+                    team.settings.experience
+                  )
 
                   return (
                     <button
                       key={team.id}
                       type="button"
                       className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
                         selected
                           ? "border-primary/30 bg-primary/10 font-medium text-foreground"
-                          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                          : "border-border/60 text-muted-foreground hover:border-border hover:bg-muted/30 hover:text-foreground"
                       )}
                       onClick={() =>
                         setTeamIds((current) =>
@@ -1569,7 +1824,14 @@ function InviteDialog({
                         )
                       }
                     >
-                      {team.name}
+                      <TeamIconGlyph
+                        icon={teamIcon}
+                        className="size-3.5 shrink-0"
+                      />
+                      <span>{team.name}</span>
+                      {selected ? (
+                        <Check className="size-3.5 shrink-0" />
+                      ) : null}
                     </button>
                   )
                 })}
@@ -1577,28 +1839,34 @@ function InviteDialog({
             )}
           </div>
 
-          {/* Role */}
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Role</span>
-            <Select
-              value={role}
-              onValueChange={(value) => setRole(value as Role)}
-            >
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="member">Member</SelectItem>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                  <SelectItem value="guest">Guest</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+              <FieldContent>
+                <Select
+                  value={role}
+                  onValueChange={(value) => setRole(value as Role)}
+                >
+                  <SelectTrigger id="invite-role" className="w-full">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {inviteRoleOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+              <FieldDescription>{selectedRoleDescription}</FieldDescription>
+            </Field>
+          </FieldGroup>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -1640,7 +1908,17 @@ function InviteDialog({
               }
             }}
           >
-            {submitting ? "Sending..." : "Send invite"}
+            {submitting ? (
+              <>
+                <ArrowsClockwise className="animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <PaperPlaneTilt />
+                Send invite
+              </>
+            )}
           </Button>
         </div>
       </DialogContent>
@@ -1657,23 +1935,41 @@ function ProfileDialog({
 }) {
   const data = useAppStore()
   const currentUser = getCurrentUser(data)
-  const [name, setName] = useState(currentUser.name)
-  const [title, setTitle] = useState(currentUser.title)
-  const [avatarUrl, setAvatarUrl] = useState(currentUser.avatarUrl)
-  const [email, setEmail] = useState(currentUser.email)
+  const [name, setName] = useState(currentUser?.name ?? "")
+  const [title, setTitle] = useState(currentUser?.title ?? "")
+  const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? "")
+  const [email, setEmail] = useState(currentUser?.email ?? "")
   const [emailMentions, setEmailMentions] = useState(
-    currentUser.preferences.emailMentions
+    currentUser?.preferences.emailMentions ?? false
   )
   const [emailAssignments, setEmailAssignments] = useState(
-    currentUser.preferences.emailAssignments
+    currentUser?.preferences.emailAssignments ?? false
   )
   const [emailDigest, setEmailDigest] = useState(
-    currentUser.preferences.emailDigest
+    currentUser?.preferences.emailDigest ?? false
   )
   const [changingEmail, setChangingEmail] = useState(false)
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
 
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
+    setName(currentUser.name)
+    setTitle(currentUser.title)
+    setAvatarUrl(currentUser.avatarUrl)
+    setEmail(currentUser.email)
+    setEmailMentions(currentUser.preferences.emailMentions)
+    setEmailAssignments(currentUser.preferences.emailAssignments)
+    setEmailDigest(currentUser.preferences.emailDigest)
+  }, [currentUser?.id])
+
   async function handleEmailChange() {
+    if (!currentUser) {
+      return
+    }
+
     if (email.trim().toLowerCase() === currentUser.email.toLowerCase()) {
       toast.error("Enter a different email address")
       return
@@ -1751,6 +2047,10 @@ function ProfileDialog({
     } finally {
       setSendingPasswordReset(false)
     }
+  }
+
+  if (!currentUser) {
+    return null
   }
 
   return (

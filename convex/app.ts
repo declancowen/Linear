@@ -7,9 +7,7 @@ import {
 } from "./_generated/server"
 import { v } from "convex/values"
 
-import {
-  buildTeamWorkViews,
-} from "../lib/domain/default-views"
+import { buildTeamWorkViews } from "../lib/domain/default-views"
 import {
   canParentWorkItemTypeAcceptChild,
   createDefaultProjectPresentationConfig,
@@ -26,6 +24,7 @@ import {
   type StoredWorkItemType,
   type TeamExperienceType,
   type TeamWorkflowSettings,
+  type UserStatus,
   type ViewDefinition,
   type WorkItemType,
 } from "../lib/domain/types"
@@ -46,6 +45,7 @@ import {
   themePreferenceValidator,
   teamWorkflowSettingsValidator,
   templateTypeValidator,
+  userStatusValidator,
   viewFiltersValidator,
   viewLayoutValidator,
   workItemTypeValidator,
@@ -73,6 +73,8 @@ const defaultUserPreferences = {
   emailDigest: true,
   theme: "light" as const,
 }
+const defaultUserStatus = "active" as const
+const defaultUserStatusMessage = ""
 const labelColors = [
   "blue",
   "violet",
@@ -83,12 +85,16 @@ const labelColors = [
   "orange",
   "indigo",
 ] as const
+const DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS = 2 * 60 * 1000
 const serverAccessArgs = {
   serverToken: v.string(),
 }
 
 function getDefaultLabelColor(name: string) {
-  const seed = [...name].reduce((sum, character) => sum + character.charCodeAt(0), 0)
+  const seed = [...name].reduce(
+    (sum, character) => sum + character.charCodeAt(0),
+    0
+  )
   return labelColors[seed % labelColors.length]
 }
 
@@ -332,10 +338,22 @@ async function getProjectDoc(ctx: AppCtx, id: string) {
 }
 
 async function getUserByEmail(ctx: AppCtx, email: string) {
-  return ctx.db
+  const exactMatch = await ctx.db
     .query("users")
     .withIndex("by_email", (q) => q.eq("email", email))
     .unique()
+
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  const normalizedEmail = email.trim().toLowerCase()
+  const users = await ctx.db.query("users").collect()
+
+  return (
+    users.find((user) => user.email.trim().toLowerCase() === normalizedEmail) ??
+    null
+  )
 }
 
 async function getUserByWorkOSUserId(ctx: AppCtx, workosUserId: string) {
@@ -495,11 +513,20 @@ async function getActiveInvitesForTeamAndEmail(
 }
 
 async function getAppConfig(ctx: AppCtx) {
-  const config = await ctx.db
+  const configs = await ctx.db
     .query("appConfig")
     .withIndex("by_key", (q) => q.eq("key", "singleton"))
-    .unique()
-  return config
+    .collect()
+
+  if (configs.length === 0) {
+    return null
+  }
+
+  return configs.reduce((selected, config) =>
+    (config.snapshotVersion ?? 0) > (selected.snapshotVersion ?? 0)
+      ? config
+      : selected
+  )
 }
 
 async function getOrCreateAppConfig(ctx: MutationCtx) {
@@ -621,15 +648,16 @@ async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
       "admin",
     ])
 
-    workspaceRoleMap[workspace.id] = [
-      ...ownedRoles,
-    ]
+    workspaceRoleMap[workspace.id] = [...ownedRoles]
   }
 
   return workspaceRoleMap
 }
 
-async function bootstrapFirstAuthenticatedUser(ctx: MutationCtx, userId: string) {
+async function bootstrapFirstAuthenticatedUser(
+  ctx: MutationCtx,
+  userId: string
+) {
   void ctx
   void userId
   return false
@@ -862,7 +890,9 @@ async function validateWorkItemParent(
     }
   )
 
-  if (!canParentWorkItemTypeAcceptChild(normalizedParentType, options.itemType)) {
+  if (
+    !canParentWorkItemTypeAcceptChild(normalizedParentType, options.itemType)
+  ) {
     throw new Error("Parent item type cannot contain this child type")
   }
 
@@ -1034,16 +1064,16 @@ function getResolvedProjectLinkForWorkItemUpdate(
     patch.primaryProjectId !== undefined
       ? patch.primaryProjectId
       : patch.parentId !== undefined
-        ? parent?.primaryProjectId ?? existing.primaryProjectId
+        ? (parent?.primaryProjectId ?? existing.primaryProjectId)
         : existing.primaryProjectId
   const nextParentId =
     patch.parentId === undefined
-      ? existingItem?.parentId ?? null
+      ? (existingItem?.parentId ?? null)
       : patch.parentId
   const parentIds = new Map<string, string | null>(
     items.map((item) => [
       item.id,
-      item.id === itemId ? nextParentId ?? null : item.parentId,
+      item.id === itemId ? (nextParentId ?? null) : item.parentId,
     ])
   )
   let rootItemId = itemId
@@ -1086,7 +1116,7 @@ function getResolvedProjectLinkForWorkItemUpdate(
       const currentProjectId =
         candidateId === itemId
           ? existing.primaryProjectId
-          : projectIds.get(candidateId) ?? null
+          : (projectIds.get(candidateId) ?? null)
 
       return currentProjectId !== resolvedPrimaryProjectId
     })
@@ -1126,7 +1156,7 @@ async function requireViewMutationAccess(
   return view
 }
 
-async function requireNotificationOwnership(
+async function getOwnedNotificationOrNull(
   ctx: AppCtx,
   notificationId: string,
   userId: string
@@ -1134,7 +1164,7 @@ async function requireNotificationOwnership(
   const notification = await getNotificationDoc(ctx, notificationId)
 
   if (!notification) {
-    throw new Error("Notification not found")
+    return null
   }
 
   if (notification.userId !== userId) {
@@ -1142,6 +1172,39 @@ async function requireNotificationOwnership(
   }
 
   return notification
+}
+
+async function archiveInviteNotifications(
+  ctx: MutationCtx,
+  input: {
+    userId: string
+    inviteIds: string[]
+  }
+) {
+  if (input.inviteIds.length === 0) {
+    return
+  }
+
+  const now = getNow()
+  const inviteIds = new Set(input.inviteIds)
+  const notifications = await ctx.db
+    .query("notifications")
+    .withIndex("by_user", (q) => q.eq("userId", input.userId))
+    .collect()
+
+  for (const notification of notifications) {
+    if (
+      notification.entityType !== "invite" ||
+      !inviteIds.has(notification.entityId)
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(notification._id, {
+      readAt: notification.readAt ?? now,
+      archivedAt: now,
+    })
+  }
 }
 
 async function resolveAttachmentTarget(
@@ -1253,6 +1316,34 @@ async function findTeamChatConversation(ctx: AppCtx, teamId: string) {
   return (
     conversations.find((conversation) => conversation.variant === "team") ??
     null
+  )
+}
+
+async function findWorkspaceDirectConversation(
+  ctx: AppCtx,
+  workspaceId: string,
+  participantIds: string[]
+) {
+  const conversations = await ctx.db
+    .query("conversations")
+    .withIndex("by_kind_scope", (q) =>
+      q
+        .eq("kind", "chat")
+        .eq("scopeType", "workspace")
+        .eq("scopeId", workspaceId)
+    )
+    .collect()
+
+  return (
+    conversations
+      .filter(
+        (conversation) =>
+          conversation.variant === "direct" &&
+          haveSameIds(conversation.participantIds, participantIds)
+      )
+      .sort((left, right) =>
+        right.lastActivityAt.localeCompare(left.lastActivityAt)
+      )[0] ?? null
   )
 }
 
@@ -1464,12 +1555,14 @@ function createMentionIds(
     match[1]?.toLowerCase()
   )
 
-  return [...new Set(
-    users
-      .filter((user) => handles.includes(user.handle.toLowerCase()))
-      .filter((user) => (audience ? audience.has(user.id) : true))
-      .map((user) => user.id)
-  )]
+  return [
+    ...new Set(
+      users
+        .filter((user) => handles.includes(user.handle.toLowerCase()))
+        .filter((user) => (audience ? audience.has(user.id) : true))
+        .map((user) => user.id)
+    ),
+  ]
 }
 
 async function getConversationAudienceUserIds(
@@ -1492,7 +1585,9 @@ async function getConversationAudienceUserIds(
     return [...workspaceUserIds]
   }
 
-  return conversation.participantIds.filter((userId) => workspaceUserIds.has(userId))
+  return conversation.participantIds.filter((userId) =>
+    workspaceUserIds.has(userId)
+  )
 }
 
 async function syncTeamConversationMemberships(
@@ -1515,7 +1610,10 @@ async function syncTeamConversationMemberships(
     ctx,
     team.workspaceId
   )
-  const workspaceParticipantIds = await getWorkspaceUserIds(ctx, team.workspaceId)
+  const workspaceParticipantIds = await getWorkspaceUserIds(
+    ctx,
+    team.workspaceId
+  )
 
   await syncConversationParticipants(
     ctx,
@@ -1720,6 +1818,7 @@ function createNotification(
     entityId,
     type,
     readAt: null,
+    archivedAt: null,
     emailedAt: null,
     createdAt: getNow(),
   }
@@ -1734,7 +1833,14 @@ function normalizeWorkspace<T extends { workosOrganizationId?: string | null }>(
   }
 }
 
-function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
+function normalizeUser<
+  T extends {
+    workosUserId?: string | null
+    status?: string | null
+    statusMessage?: string | null
+    hasExplicitStatus?: boolean | null
+  },
+>(user: T) {
   const preferences =
     "preferences" in user &&
     user.preferences &&
@@ -1745,6 +1851,12 @@ function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
   return {
     ...user,
     workosUserId: user.workosUserId ?? null,
+    hasExplicitStatus:
+      typeof user.hasExplicitStatus === "boolean"
+        ? user.hasExplicitStatus
+        : user.status != null,
+    status: resolveUserStatus(user.status),
+    statusMessage: user.statusMessage ?? defaultUserStatusMessage,
     ...(preferences
       ? {
           preferences: {
@@ -1753,6 +1865,569 @@ function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
           },
         }
       : {}),
+  }
+}
+
+function resolveUserStatus(status: string | null | undefined): UserStatus {
+  return status === "active" ||
+    status === "away" ||
+    status === "busy" ||
+    status === "out-of-office"
+    ? status
+    : defaultUserStatus
+}
+
+function filterRemovedIds(ids: string[], removedIds: Set<string>) {
+  return ids.filter((id) => !removedIds.has(id))
+}
+
+async function deleteDocs(
+  ctx: MutationCtx,
+  docs: Array<{ _id: Parameters<MutationCtx["db"]["delete"]>[0] }>
+) {
+  for (const doc of docs) {
+    await ctx.db.delete(doc._id)
+  }
+}
+
+async function deleteStorageObjects(
+  ctx: MutationCtx,
+  storageIds: Iterable<string>
+) {
+  for (const storageId of new Set(storageIds)) {
+    await ctx.storage.delete(storageId as never)
+  }
+}
+
+async function cleanupViewFiltersForDeletedEntities(
+  ctx: MutationCtx,
+  input: {
+    deletedTeamIds?: Set<string>
+    deletedProjectIds?: Set<string>
+    deletedMilestoneIds?: Set<string>
+  }
+) {
+  const deletedTeamIds = input.deletedTeamIds ?? new Set<string>()
+  const deletedProjectIds = input.deletedProjectIds ?? new Set<string>()
+  const deletedMilestoneIds = input.deletedMilestoneIds ?? new Set<string>()
+  const views = await ctx.db.query("views").collect()
+
+  for (const view of views) {
+    const nextFilters = {
+      ...view.filters,
+      teamIds: filterRemovedIds(view.filters.teamIds, deletedTeamIds),
+      projectIds: filterRemovedIds(view.filters.projectIds, deletedProjectIds),
+      milestoneIds: filterRemovedIds(
+        view.filters.milestoneIds,
+        deletedMilestoneIds
+      ),
+    }
+
+    if (
+      nextFilters.teamIds.length === view.filters.teamIds.length &&
+      nextFilters.projectIds.length === view.filters.projectIds.length &&
+      nextFilters.milestoneIds.length === view.filters.milestoneIds.length
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(view._id, {
+      filters: nextFilters,
+      updatedAt: getNow(),
+    })
+  }
+}
+
+async function cleanupRemainingLinksAfterDelete(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    deletedDocumentIds?: Set<string>
+    deletedWorkItemIds?: Set<string>
+    deletedProjectIds?: Set<string>
+    deletedMilestoneIds?: Set<string>
+  }
+) {
+  const deletedDocumentIds = input.deletedDocumentIds ?? new Set<string>()
+  const deletedWorkItemIds = input.deletedWorkItemIds ?? new Set<string>()
+  const deletedProjectIds = input.deletedProjectIds ?? new Set<string>()
+  const deletedMilestoneIds = input.deletedMilestoneIds ?? new Set<string>()
+  const documents = await ctx.db.query("documents").collect()
+  const workItems = await ctx.db.query("workItems").collect()
+
+  for (const document of documents) {
+    if (deletedDocumentIds.has(document.id)) {
+      continue
+    }
+
+    const nextLinkedProjectIds = filterRemovedIds(
+      document.linkedProjectIds,
+      deletedProjectIds
+    )
+    const nextLinkedWorkItemIds = filterRemovedIds(
+      document.linkedWorkItemIds,
+      deletedWorkItemIds
+    )
+
+    if (
+      nextLinkedProjectIds.length === document.linkedProjectIds.length &&
+      nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(document._id, {
+      linkedProjectIds: nextLinkedProjectIds,
+      linkedWorkItemIds: nextLinkedWorkItemIds,
+      updatedAt: getNow(),
+      updatedBy: input.currentUserId,
+    })
+  }
+
+  for (const workItem of workItems) {
+    if (deletedWorkItemIds.has(workItem.id)) {
+      continue
+    }
+
+    const nextLinkedDocumentIds = filterRemovedIds(
+      workItem.linkedDocumentIds,
+      deletedDocumentIds
+    )
+    const nextLinkedProjectIds = filterRemovedIds(
+      workItem.linkedProjectIds,
+      deletedProjectIds
+    )
+    const nextPrimaryProjectId =
+      workItem.primaryProjectId &&
+      deletedProjectIds.has(workItem.primaryProjectId)
+        ? null
+        : workItem.primaryProjectId
+    const nextMilestoneId =
+      workItem.milestoneId && deletedMilestoneIds.has(workItem.milestoneId)
+        ? null
+        : workItem.milestoneId
+
+    if (
+      nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length &&
+      nextLinkedProjectIds.length === workItem.linkedProjectIds.length &&
+      nextPrimaryProjectId === workItem.primaryProjectId &&
+      nextMilestoneId === workItem.milestoneId
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(workItem._id, {
+      linkedDocumentIds: nextLinkedDocumentIds,
+      linkedProjectIds: nextLinkedProjectIds,
+      primaryProjectId: nextPrimaryProjectId,
+      milestoneId: nextMilestoneId,
+      updatedAt: getNow(),
+    })
+  }
+}
+
+async function cleanupUnusedLabels(ctx: MutationCtx) {
+  const labels = await ctx.db.query("labels").collect()
+  const workItems = await ctx.db.query("workItems").collect()
+  const usedLabelIds = new Set(
+    workItems.flatMap((workItem) => workItem.labelIds)
+  )
+  const views = await ctx.db.query("views").collect()
+  const deletedLabelIds: string[] = []
+
+  for (const label of labels) {
+    if (usedLabelIds.has(label.id)) {
+      continue
+    }
+
+    deletedLabelIds.push(label.id)
+  }
+
+  if (deletedLabelIds.length === 0) {
+    return deletedLabelIds
+  }
+
+  const deletedLabelIdSet = new Set(deletedLabelIds)
+
+  for (const view of views) {
+    const nextLabelIds = filterRemovedIds(
+      view.filters.labelIds,
+      deletedLabelIdSet
+    )
+
+    if (nextLabelIds.length === view.filters.labelIds.length) {
+      continue
+    }
+
+    await ctx.db.patch(view._id, {
+      filters: {
+        ...view.filters,
+        labelIds: nextLabelIds,
+      },
+      updatedAt: getNow(),
+    })
+  }
+
+  for (const label of labels) {
+    if (!deletedLabelIdSet.has(label.id)) {
+      continue
+    }
+
+    await ctx.db.delete(label._id)
+  }
+
+  return deletedLabelIds
+}
+
+async function cleanupUserAppStatesForDeletedWorkspace(
+  ctx: MutationCtx,
+  deletedWorkspaceId: string
+) {
+  const userAppStates = await ctx.db.query("userAppStates").collect()
+  const teams = await ctx.db.query("teams").collect()
+  const workspaces = await ctx.db.query("workspaces").collect()
+
+  for (const userAppState of userAppStates) {
+    if (userAppState.currentWorkspaceId !== deletedWorkspaceId) {
+      continue
+    }
+
+    const memberships = await ctx.db
+      .query("teamMemberships")
+      .withIndex("by_user", (q) => q.eq("userId", userAppState.userId))
+      .collect()
+    const accessibleWorkspaceIds = new Set<string>([
+      ...teams
+        .filter((team) =>
+          memberships.some((membership) => membership.teamId === team.id)
+        )
+        .map((team) => team.workspaceId),
+      ...workspaces
+        .filter((workspace) => workspace.createdBy === userAppState.userId)
+        .map((workspace) => workspace.id),
+    ])
+
+    const nextWorkspaceId = resolvePreferredWorkspaceId({
+      selectedWorkspaceId: null,
+      accessibleWorkspaceIds,
+      fallbackWorkspaceIds: [...accessibleWorkspaceIds],
+    })
+
+    if (nextWorkspaceId) {
+      await ctx.db.patch(userAppState._id, {
+        currentWorkspaceId: nextWorkspaceId,
+      })
+      continue
+    }
+
+    await ctx.db.delete(userAppState._id)
+  }
+}
+
+async function cleanupUnreferencedUsers(
+  ctx: MutationCtx,
+  candidateUserIds: Iterable<string>
+) {
+  const userIds = [...new Set(candidateUserIds)]
+
+  if (userIds.length === 0) {
+    return []
+  }
+
+  const workspaces = await ctx.db.query("workspaces").collect()
+  const teamMemberships = await ctx.db.query("teamMemberships").collect()
+  const userAppStates = await ctx.db.query("userAppStates").collect()
+  const projects = await ctx.db.query("projects").collect()
+  const workItems = await ctx.db.query("workItems").collect()
+  const documents = await ctx.db.query("documents").collect()
+  const views = await ctx.db.query("views").collect()
+  const comments = await ctx.db.query("comments").collect()
+  const attachments = await ctx.db.query("attachments").collect()
+  const notifications = await ctx.db.query("notifications").collect()
+  const invites = await ctx.db.query("invites").collect()
+  const projectUpdates = await ctx.db.query("projectUpdates").collect()
+  const conversations = await ctx.db.query("conversations").collect()
+  const calls = await ctx.db.query("calls").collect()
+  const chatMessages = await ctx.db.query("chatMessages").collect()
+  const channelPosts = await ctx.db.query("channelPosts").collect()
+  const channelPostComments = await ctx.db
+    .query("channelPostComments")
+    .collect()
+  const deletedUserIds: string[] = []
+
+  for (const userId of userIds) {
+    const user = await getUserDoc(ctx, userId)
+
+    if (!user) {
+      continue
+    }
+
+    const hasReference =
+      workspaces.some((workspace) => workspace.createdBy === userId) ||
+      teamMemberships.some((membership) => membership.userId === userId) ||
+      projects.some(
+        (project) =>
+          project.leadId === userId || project.memberIds.includes(userId)
+      ) ||
+      workItems.some(
+        (workItem) =>
+          workItem.assigneeId === userId ||
+          workItem.creatorId === userId ||
+          workItem.subscriberIds.includes(userId)
+      ) ||
+      documents.some(
+        (document) =>
+          document.createdBy === userId || document.updatedBy === userId
+      ) ||
+      views.some(
+        (view) =>
+          (view.scopeType === "personal" && view.scopeId === userId) ||
+          view.filters.assigneeIds.includes(userId) ||
+          view.filters.creatorIds.includes(userId) ||
+          view.filters.leadIds.includes(userId)
+      ) ||
+      comments.some(
+        (comment) =>
+          comment.createdBy === userId ||
+          (comment.mentionUserIds ?? []).includes(userId)
+      ) ||
+      attachments.some((attachment) => attachment.uploadedBy === userId) ||
+      notifications.some(
+        (notification) =>
+          notification.userId === userId || notification.actorId === userId
+      ) ||
+      invites.some((invite) => invite.invitedBy === userId) ||
+      projectUpdates.some((update) => update.createdBy === userId) ||
+      conversations.some(
+        (conversation) =>
+          conversation.createdBy === userId ||
+          conversation.participantIds.includes(userId)
+      ) ||
+      calls.some(
+        (call) =>
+          call.startedBy === userId ||
+          (call.participantUserIds ?? []).includes(userId) ||
+          call.lastJoinedBy === userId
+      ) ||
+      chatMessages.some(
+        (message) =>
+          message.createdBy === userId ||
+          (message.mentionUserIds ?? []).includes(userId)
+      ) ||
+      channelPosts.some(
+        (post) =>
+          post.createdBy === userId ||
+          (post.reactions ?? []).some((reaction) =>
+            reaction.userIds.includes(userId)
+          )
+      ) ||
+      channelPostComments.some(
+        (comment) =>
+          comment.createdBy === userId ||
+          (comment.mentionUserIds ?? []).includes(userId)
+      )
+
+    if (hasReference) {
+      continue
+    }
+
+    const userAppState =
+      userAppStates.find((entry) => entry.userId === userId) ?? null
+
+    if (userAppState) {
+      await ctx.db.delete(userAppState._id)
+    }
+
+    if (user.avatarImageStorageId) {
+      await ctx.storage.delete(user.avatarImageStorageId as never)
+    }
+
+    await ctx.db.delete(user._id)
+    deletedUserIds.push(userId)
+  }
+
+  return deletedUserIds
+}
+
+async function cascadeDeleteTeamData(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    teamId: string
+    syncWorkspaceChannel?: boolean
+    cleanupGlobalState?: boolean
+  }
+) {
+  const team = await getTeamDoc(ctx, input.teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  const teamMemberships = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team", (q) => q.eq("teamId", team.id))
+    .collect()
+  const membershipUserIds = teamMemberships.map(
+    (membership) => membership.userId
+  )
+  const projects = (await ctx.db.query("projects").collect()).filter(
+    (project) => project.scopeType === "team" && project.scopeId === team.id
+  )
+  const deletedProjectIds = new Set(projects.map((project) => project.id))
+  const milestones = (await ctx.db.query("milestones").collect()).filter(
+    (milestone) => deletedProjectIds.has(milestone.projectId)
+  )
+  const deletedMilestoneIds = new Set(
+    milestones.map((milestone) => milestone.id)
+  )
+  const projectUpdates = (
+    await ctx.db.query("projectUpdates").collect()
+  ).filter((update) => deletedProjectIds.has(update.projectId))
+  const workItems = await ctx.db
+    .query("workItems")
+    .withIndex("by_team_id", (q) => q.eq("teamId", team.id))
+    .collect()
+  const deletedWorkItemIds = new Set(workItems.map((workItem) => workItem.id))
+  const deletedDescriptionDocIds = new Set(
+    workItems.map((workItem) => workItem.descriptionDocId)
+  )
+  const documents = (await ctx.db.query("documents").collect()).filter(
+    (document) =>
+      document.teamId === team.id || deletedDescriptionDocIds.has(document.id)
+  )
+  const deletedDocumentIds = new Set(documents.map((document) => document.id))
+  const views = (await ctx.db.query("views").collect()).filter(
+    (view) => view.scopeType === "team" && view.scopeId === team.id
+  )
+  const conversations = await ctx.db
+    .query("conversations")
+    .withIndex("by_scope", (q) =>
+      q.eq("scopeType", "team").eq("scopeId", team.id)
+    )
+    .collect()
+  const deletedConversationIds = new Set(
+    conversations.map((conversation) => conversation.id)
+  )
+  const calls = (await ctx.db.query("calls").collect()).filter((call) =>
+    deletedConversationIds.has(call.conversationId)
+  )
+  const chatMessages = (await ctx.db.query("chatMessages").collect()).filter(
+    (message) => deletedConversationIds.has(message.conversationId)
+  )
+  const deletedChatMessageIds = new Set(
+    chatMessages.map((message) => message.id)
+  )
+  const channelPosts = (await ctx.db.query("channelPosts").collect()).filter(
+    (post) => deletedConversationIds.has(post.conversationId)
+  )
+  const deletedChannelPostIds = new Set(channelPosts.map((post) => post.id))
+  const channelPostComments = (
+    await ctx.db.query("channelPostComments").collect()
+  ).filter((comment) => deletedChannelPostIds.has(comment.postId))
+  const attachments = (await ctx.db.query("attachments").collect()).filter(
+    (attachment) =>
+      (attachment.targetType === "workItem" &&
+        deletedWorkItemIds.has(attachment.targetId)) ||
+      (attachment.targetType === "document" &&
+        deletedDocumentIds.has(attachment.targetId))
+  )
+  const comments = (await ctx.db.query("comments").collect()).filter(
+    (comment) =>
+      (comment.targetType === "workItem" &&
+        deletedWorkItemIds.has(comment.targetId)) ||
+      (comment.targetType === "document" &&
+        deletedDocumentIds.has(comment.targetId))
+  )
+  const invites = (await ctx.db.query("invites").collect()).filter(
+    (invite) => invite.teamId === team.id
+  )
+  const deletedInviteIds = new Set(invites.map((invite) => invite.id))
+  const notifications = (await ctx.db.query("notifications").collect()).filter(
+    (notification) => {
+      switch (notification.entityType) {
+        case "workItem":
+          return deletedWorkItemIds.has(notification.entityId)
+        case "document":
+          return deletedDocumentIds.has(notification.entityId)
+        case "project":
+          return deletedProjectIds.has(notification.entityId)
+        case "invite":
+          return deletedInviteIds.has(notification.entityId)
+        case "chat":
+          return deletedChatMessageIds.has(notification.entityId)
+        case "channelPost":
+          return deletedChannelPostIds.has(notification.entityId)
+        default:
+          return false
+      }
+    }
+  )
+
+  await cleanupRemainingLinksAfterDelete(ctx, {
+    currentUserId: input.currentUserId,
+    deletedDocumentIds,
+    deletedWorkItemIds,
+    deletedProjectIds,
+    deletedMilestoneIds,
+  })
+  await cleanupViewFiltersForDeletedEntities(ctx, {
+    deletedTeamIds: new Set([team.id]),
+    deletedProjectIds,
+    deletedMilestoneIds,
+  })
+  await deleteStorageObjects(
+    ctx,
+    attachments.map((attachment) => attachment.storageId as string)
+  )
+  await deleteDocs(ctx, channelPostComments)
+  await deleteDocs(ctx, channelPosts)
+  await deleteDocs(ctx, chatMessages)
+  await deleteDocs(ctx, calls)
+  await deleteDocs(ctx, comments)
+  await deleteDocs(ctx, attachments)
+  await deleteDocs(ctx, notifications)
+  await deleteDocs(ctx, projectUpdates)
+  await deleteDocs(ctx, invites)
+  await deleteDocs(ctx, views)
+  await deleteDocs(ctx, documents)
+  await deleteDocs(ctx, workItems)
+  await deleteDocs(ctx, milestones)
+  await deleteDocs(ctx, projects)
+  await deleteDocs(ctx, conversations)
+  await deleteDocs(ctx, teamMemberships)
+  await ctx.db.delete(team._id)
+
+  if (input.syncWorkspaceChannel !== false) {
+    const workspaceChannel = await findPrimaryWorkspaceChannelConversation(
+      ctx,
+      team.workspaceId
+    )
+    const workspaceParticipantIds = await getWorkspaceUserIds(
+      ctx,
+      team.workspaceId
+    )
+
+    await syncConversationParticipants(
+      ctx,
+      workspaceChannel,
+      workspaceParticipantIds
+    )
+  }
+
+  const deletedLabelIds =
+    input.cleanupGlobalState === false ? [] : await cleanupUnusedLabels(ctx)
+  const deletedUserIds =
+    input.cleanupGlobalState === false
+      ? []
+      : await cleanupUnreferencedUsers(ctx, membershipUserIds)
+
+  return {
+    teamId: team.id,
+    workspaceId: team.workspaceId,
+    membershipUserIds,
+    deletedLabelIds,
+    deletedUserIds,
   }
 }
 
@@ -1806,7 +2481,7 @@ async function resolveUserSnapshot<
     avatarImageStorageId?: string | null
     workosUserId?: string | null
   },
->(ctx: QueryCtx, user: T) {
+>(ctx: AppCtx, user: T) {
   const avatarImageUrl = user.avatarImageStorageId
     ? await ctx.storage.getUrl(user.avatarImageStorageId as never)
     : null
@@ -1817,12 +2492,75 @@ async function resolveUserSnapshot<
   }
 }
 
+function isActiveDocumentPresence(lastSeenAt: string) {
+  const parsedLastSeenAt = Date.parse(lastSeenAt)
+
+  if (!Number.isFinite(parsedLastSeenAt)) {
+    return false
+  }
+
+  return Date.now() - parsedLastSeenAt <= DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS
+}
+
+function getDocumentPresenceViewerKey(entry: {
+  userId: string
+  workosUserId?: string | null
+}) {
+  return entry.workosUserId ?? entry.userId
+}
+
+async function listDocumentPresenceViewers(
+  ctx: AppCtx,
+  documentId: string,
+  currentUserId: string,
+  currentWorkosUserId?: string
+) {
+  const entries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_document", (q) => q.eq("documentId", documentId))
+    .collect()
+
+  const currentViewerKey = currentWorkosUserId ?? currentUserId
+  const latestEntryByViewerKey = new Map<string, (typeof entries)[number]>()
+
+  for (const entry of entries
+    .filter((candidate) => isActiveDocumentPresence(candidate.lastSeenAt))
+    .sort(
+      (left, right) =>
+        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+    )) {
+    const viewerKey = getDocumentPresenceViewerKey(entry)
+
+    if (
+      viewerKey === currentViewerKey ||
+      latestEntryByViewerKey.has(viewerKey)
+    ) {
+      continue
+    }
+
+    latestEntryByViewerKey.set(viewerKey, entry)
+  }
+
+  const filteredViewers = [...latestEntryByViewerKey.values()].map((entry) => ({
+    userId: getDocumentPresenceViewerKey(entry),
+    name: entry.name ?? "User",
+    avatarUrl: entry.avatarUrl ?? "",
+    avatarImageUrl: null,
+    lastSeenAt: entry.lastSeenAt,
+  }))
+
+  return filteredViewers
+}
+
 function normalizeTeamWorkflowSettings(
   workflow:
     | (Omit<TeamWorkflowSettings, "templateDefaults"> & {
         templateDefaults: Record<
           "software-delivery" | "bug-tracking" | "project-management",
-          Omit<TeamWorkflowSettings["templateDefaults"]["software-delivery"], "recommendedItemTypes"> & {
+          Omit<
+            TeamWorkflowSettings["templateDefaults"]["software-delivery"],
+            "recommendedItemTypes"
+          > & {
             recommendedItemTypes: StoredWorkItemType[]
           }
         >
@@ -1872,7 +2610,8 @@ function normalizeTeamWorkflowSettings(
       "project-management": {
         ...defaults.templateDefaults["project-management"],
         ...workflow.templateDefaults["project-management"],
-        recommendedItemTypes: sanitizeRecommendedItemTypes("project-management"),
+        recommendedItemTypes:
+          sanitizeRecommendedItemTypes("project-management"),
       },
     },
   }
@@ -2011,15 +2750,18 @@ function normalizeViewDefinition<
 ) {
   const experience =
     view.scopeType === "team"
-      ? teams.find((team) => team.id === view.scopeId)?.settings?.experience ??
-        "software-development"
+      ? (teams.find((team) => team.id === view.scopeId)?.settings?.experience ??
+        "software-development")
       : null
 
   return {
     ...view,
     filters: {
       ...view.filters,
-      itemTypes: normalizeStoredViewItemTypes(view.filters.itemTypes, experience),
+      itemTypes: normalizeStoredViewItemTypes(
+        view.filters.itemTypes,
+        experience
+      ),
     },
   }
 }
@@ -2415,6 +3157,9 @@ export const bootstrapAppWorkspace = mutation({
         avatarUrl: args.avatarUrl,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
+        status: resolveUserStatus(resolvedUser.status),
+        statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
+        hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
         preferences: {
           ...defaultUserPreferences,
           ...resolvedUser.preferences,
@@ -2429,6 +3174,9 @@ export const bootstrapAppWorkspace = mutation({
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
         title: "Founder / Product",
+        status: defaultUserStatus,
+        statusMessage: defaultUserStatusMessage,
+        hasExplicitStatus: false,
         preferences: defaultUserPreferences,
       })
     }
@@ -2607,10 +3355,15 @@ export const getSnapshot = query({
         }))
     )
     const visibleNotifications = currentUserId
-      ? await ctx.db
-          .query("notifications")
-          .withIndex("by_user", (q) => q.eq("userId", currentUserId))
-          .collect()
+      ? (
+          await ctx.db
+            .query("notifications")
+            .withIndex("by_user", (q) => q.eq("userId", currentUserId))
+            .collect()
+        ).map((notification) => ({
+          ...notification,
+          archivedAt: notification.archivedAt ?? null,
+        }))
       : []
     const visibleInvites = (await ctx.db.query("invites").collect()).filter(
       (invite) =>
@@ -2872,6 +3625,9 @@ export const ensureUserFromAuth = mutation({
         email: args.email,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
+        status: resolveUserStatus(existing.status),
+        statusMessage: existing.statusMessage ?? defaultUserStatusMessage,
+        hasExplicitStatus: existing.hasExplicitStatus ?? false,
         preferences: {
           ...defaultUserPreferences,
           ...existing.preferences,
@@ -2894,6 +3650,9 @@ export const ensureUserFromAuth = mutation({
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
       title: "Member",
+      status: defaultUserStatus,
+      statusMessage: defaultUserStatusMessage,
+      hasExplicitStatus: false,
       preferences: defaultUserPreferences,
     })
 
@@ -2969,6 +3728,9 @@ export const bootstrapWorkspaceUser = mutation({
         email: args.email,
         name: args.name,
         workosUserId: args.workosUserId,
+        status: resolveUserStatus(resolvedUser.status),
+        statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
+        hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
         preferences: {
           ...defaultUserPreferences,
           ...resolvedUser.preferences,
@@ -2983,6 +3745,9 @@ export const bootstrapWorkspaceUser = mutation({
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
         title: "Founder / Product",
+        status: defaultUserStatus,
+        statusMessage: defaultUserStatusMessage,
+        hasExplicitStatus: false,
         preferences: defaultUserPreferences,
       })
     }
@@ -3152,6 +3917,7 @@ export const listPendingNotificationDigests = query({
             (notification) =>
               notification.userId === user.id &&
               !notification.readAt &&
+              !notification.archivedAt &&
               !notification.emailedAt
           )
           .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
@@ -3188,11 +3954,15 @@ export const markNotificationRead = mutation({
   },
   handler: async (ctx, args) => {
     assertServerToken(args.serverToken)
-    const notification = await requireNotificationOwnership(
+    const notification = await getOwnedNotificationOrNull(
       ctx,
       args.notificationId,
       args.currentUserId
     )
+
+    if (!notification) {
+      return
+    }
 
     await ctx.db.patch(notification._id, {
       readAt: notification.readAt ?? getNow(),
@@ -3231,15 +4001,89 @@ export const toggleNotificationRead = mutation({
   },
   handler: async (ctx, args) => {
     assertServerToken(args.serverToken)
-    const notification = await requireNotificationOwnership(
+    const notification = await getOwnedNotificationOrNull(
       ctx,
       args.notificationId,
       args.currentUserId
     )
 
+    if (!notification) {
+      return
+    }
+
     await ctx.db.patch(notification._id, {
       readAt: notification.readAt ? null : getNow(),
     })
+  },
+})
+
+export const archiveNotification = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    notificationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const notification = await getOwnedNotificationOrNull(
+      ctx,
+      args.notificationId,
+      args.currentUserId
+    )
+
+    if (!notification) {
+      return
+    }
+
+    await ctx.db.patch(notification._id, {
+      archivedAt: notification.archivedAt ?? getNow(),
+    })
+  },
+})
+
+export const unarchiveNotification = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    notificationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const notification = await getOwnedNotificationOrNull(
+      ctx,
+      args.notificationId,
+      args.currentUserId
+    )
+
+    if (!notification) {
+      return
+    }
+
+    await ctx.db.patch(notification._id, {
+      archivedAt: null,
+    })
+  },
+})
+
+export const deleteNotification = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    notificationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const notification = await getOwnedNotificationOrNull(
+      ctx,
+      args.notificationId,
+      args.currentUserId
+    )
+
+    if (!notification) {
+      return
+    }
+
+    await ctx.db.delete(notification._id)
   },
 })
 
@@ -3333,6 +4177,169 @@ export const updateWorkspaceBranding = mutation({
   },
 })
 
+export const deleteWorkspace = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    workspaceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
+
+    if (!workspace) {
+      throw new Error("Workspace not found")
+    }
+
+    const isOwner = await isWorkspaceOwner(
+      ctx,
+      args.workspaceId,
+      args.currentUserId
+    )
+
+    if (!isOwner) {
+      throw new Error("Only the workspace owner can delete the workspace")
+    }
+
+    const candidateUserIds = await getWorkspaceUserIds(ctx, workspace.id)
+    const workspaceTeams = (await ctx.db.query("teams").collect()).filter(
+      (team) => team.workspaceId === workspace.id
+    )
+
+    for (const team of workspaceTeams) {
+      await cascadeDeleteTeamData(ctx, {
+        currentUserId: args.currentUserId,
+        teamId: team.id,
+        syncWorkspaceChannel: false,
+        cleanupGlobalState: false,
+      })
+    }
+
+    const projects = (await ctx.db.query("projects").collect()).filter(
+      (project) =>
+        project.scopeType === "workspace" && project.scopeId === workspace.id
+    )
+    const deletedProjectIds = new Set(projects.map((project) => project.id))
+    const milestones = (await ctx.db.query("milestones").collect()).filter(
+      (milestone) => deletedProjectIds.has(milestone.projectId)
+    )
+    const deletedMilestoneIds = new Set(
+      milestones.map((milestone) => milestone.id)
+    )
+    const projectUpdates = (
+      await ctx.db.query("projectUpdates").collect()
+    ).filter((update) => deletedProjectIds.has(update.projectId))
+    const documents = (await ctx.db.query("documents").collect()).filter(
+      (document) => document.workspaceId === workspace.id
+    )
+    const deletedDocumentIds = new Set(documents.map((document) => document.id))
+    const views = (await ctx.db.query("views").collect()).filter(
+      (view) => view.scopeType === "workspace" && view.scopeId === workspace.id
+    )
+    const conversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_scope", (q) =>
+        q.eq("scopeType", "workspace").eq("scopeId", workspace.id)
+      )
+      .collect()
+    const deletedConversationIds = new Set(
+      conversations.map((conversation) => conversation.id)
+    )
+    const calls = (await ctx.db.query("calls").collect()).filter((call) =>
+      deletedConversationIds.has(call.conversationId)
+    )
+    const chatMessages = (await ctx.db.query("chatMessages").collect()).filter(
+      (message) => deletedConversationIds.has(message.conversationId)
+    )
+    const deletedChatMessageIds = new Set(
+      chatMessages.map((message) => message.id)
+    )
+    const channelPosts = (await ctx.db.query("channelPosts").collect()).filter(
+      (post) => deletedConversationIds.has(post.conversationId)
+    )
+    const deletedChannelPostIds = new Set(channelPosts.map((post) => post.id))
+    const channelPostComments = (
+      await ctx.db.query("channelPostComments").collect()
+    ).filter((comment) => deletedChannelPostIds.has(comment.postId))
+    const attachments = (await ctx.db.query("attachments").collect()).filter(
+      (attachment) =>
+        attachment.targetType === "document" &&
+        deletedDocumentIds.has(attachment.targetId)
+    )
+    const comments = (await ctx.db.query("comments").collect()).filter(
+      (comment) =>
+        comment.targetType === "document" &&
+        deletedDocumentIds.has(comment.targetId)
+    )
+    const invites = (await ctx.db.query("invites").collect()).filter(
+      (invite) => invite.workspaceId === workspace.id
+    )
+    const deletedInviteIds = new Set(invites.map((invite) => invite.id))
+    const notifications = (
+      await ctx.db.query("notifications").collect()
+    ).filter((notification) => {
+      switch (notification.entityType) {
+        case "document":
+          return deletedDocumentIds.has(notification.entityId)
+        case "project":
+          return deletedProjectIds.has(notification.entityId)
+        case "invite":
+          return deletedInviteIds.has(notification.entityId)
+        case "chat":
+          return deletedChatMessageIds.has(notification.entityId)
+        case "channelPost":
+          return deletedChannelPostIds.has(notification.entityId)
+        default:
+          return false
+      }
+    })
+
+    await cleanupRemainingLinksAfterDelete(ctx, {
+      currentUserId: args.currentUserId,
+      deletedDocumentIds,
+      deletedProjectIds,
+      deletedMilestoneIds,
+    })
+    await cleanupViewFiltersForDeletedEntities(ctx, {
+      deletedProjectIds,
+      deletedMilestoneIds,
+    })
+    await deleteStorageObjects(ctx, [
+      ...attachments.map((attachment) => attachment.storageId as string),
+      ...(workspace.logoImageStorageId
+        ? [workspace.logoImageStorageId as string]
+        : []),
+    ])
+    await deleteDocs(ctx, channelPostComments)
+    await deleteDocs(ctx, channelPosts)
+    await deleteDocs(ctx, chatMessages)
+    await deleteDocs(ctx, calls)
+    await deleteDocs(ctx, comments)
+    await deleteDocs(ctx, attachments)
+    await deleteDocs(ctx, notifications)
+    await deleteDocs(ctx, projectUpdates)
+    await deleteDocs(ctx, invites)
+    await deleteDocs(ctx, views)
+    await deleteDocs(ctx, documents)
+    await deleteDocs(ctx, milestones)
+    await deleteDocs(ctx, projects)
+    await deleteDocs(ctx, conversations)
+    await ctx.db.delete(workspace._id)
+
+    await cleanupUserAppStatesForDeletedWorkspace(ctx, workspace.id)
+
+    const deletedLabelIds = await cleanupUnusedLabels(ctx)
+    const deletedUserIds = await cleanupUnreferencedUsers(ctx, candidateUserIds)
+
+    return {
+      workspaceId: workspace.id,
+      deletedTeamIds: workspaceTeams.map((team) => team.id),
+      deletedLabelIds,
+      deletedUserIds,
+    }
+  },
+})
+
 export const setWorkspaceWorkosOrganization = mutation({
   args: {
     ...serverAccessArgs,
@@ -3368,6 +4375,9 @@ export const updateCurrentUserProfile = mutation({
     avatarUrl: v.string(),
     avatarImageStorageId: v.optional(v.id("_storage")),
     clearAvatarImage: v.optional(v.boolean()),
+    clearStatus: v.optional(v.boolean()),
+    status: v.optional(userStatusValidator),
+    statusMessage: v.optional(v.string()),
     preferences: v.object({
       emailMentions: v.boolean(),
       emailAssignments: v.boolean(),
@@ -3410,6 +4420,15 @@ export const updateCurrentUserProfile = mutation({
       title: args.title,
       avatarUrl: args.avatarUrl,
       avatarImageStorageId: nextAvatarImageStorageId,
+      status: args.clearStatus
+        ? defaultUserStatus
+        : (args.status ?? resolveUserStatus(user.status)),
+      statusMessage: args.clearStatus
+        ? defaultUserStatusMessage
+        : (args.statusMessage ?? user.statusMessage ?? defaultUserStatusMessage),
+      hasExplicitStatus: args.clearStatus
+        ? false
+        : (args.status !== undefined ? true : (user.hasExplicitStatus ?? false)),
       preferences: {
         ...defaultUserPreferences,
         ...args.preferences,
@@ -3553,6 +4572,29 @@ export const createTeam = mutation({
       joinCode: normalizedJoinCode,
       features: normalizedFeatures,
     }
+  },
+})
+
+export const deleteTeam = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    teamId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const team = await getTeamDoc(ctx, args.teamId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    await requireWorkspaceAdminAccess(ctx, team.workspaceId, args.currentUserId)
+
+    return cascadeDeleteTeamData(ctx, {
+      currentUserId: args.currentUserId,
+      teamId: team.id,
+    })
   },
 })
 
@@ -4059,7 +5101,9 @@ export const updateWorkItem = mutation({
             (item) =>
               item.id !== existing.id &&
               cascadeItemIds.has(item.id) &&
-              !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+              !getAllowedWorkItemTypesForTemplate(
+                project.templateType
+              ).includes(
                 normalizeStoredWorkItemType(
                   item.type as StoredWorkItemType,
                   normalizedExperience,
@@ -4406,6 +5450,139 @@ export const updateDocument = mutation({
   },
 })
 
+export const heartbeatDocumentPresence = convexMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+    workosUserId: v.string(),
+    email: v.string(),
+    name: v.string(),
+    avatarUrl: v.string(),
+    sessionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+
+    const document = await getDocumentDoc(ctx, args.documentId)
+    await requireReadableDocumentAccess(ctx, document, args.currentUserId)
+
+    const existingPresenceEntries = await ctx.db
+      .query("documentPresence")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect()
+    const now = getNow()
+    const existingPresence = [...existingPresenceEntries]
+      .filter(
+        (entry) =>
+          entry.workosUserId === args.workosUserId ||
+          (!entry.workosUserId && entry.userId === args.currentUserId)
+      )
+      .sort(
+        (left, right) =>
+          Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+      )[0]
+
+    const conflictingPresenceEntries = existingPresenceEntries.filter(
+      (entry) =>
+        entry.workosUserId
+          ? entry.workosUserId !== args.workosUserId
+          : entry.userId !== args.currentUserId
+    )
+
+    if (conflictingPresenceEntries.length > 0) {
+      throw new Error("Document presence session is already in use")
+    }
+
+    if (existingPresence) {
+      await ctx.db.patch(existingPresence._id, {
+        avatarUrl: args.avatarUrl,
+        documentId: args.documentId,
+        email: args.email,
+        lastSeenAt: now,
+        name: args.name,
+        userId: args.currentUserId,
+        workosUserId: args.workosUserId,
+      })
+
+      for (const duplicateEntry of existingPresenceEntries) {
+        if (
+          duplicateEntry._id !== existingPresence._id &&
+          (duplicateEntry.workosUserId
+            ? duplicateEntry.workosUserId === args.workosUserId
+            : duplicateEntry.userId === args.currentUserId)
+        ) {
+          await ctx.db.delete(duplicateEntry._id)
+        }
+      }
+    } else {
+      await ctx.db.insert("documentPresence", {
+        avatarUrl: args.avatarUrl,
+        documentId: args.documentId,
+        userId: args.currentUserId,
+        email: args.email,
+        name: args.name,
+        sessionId: args.sessionId,
+        createdAt: now,
+        lastSeenAt: now,
+        workosUserId: args.workosUserId,
+      })
+    }
+
+    const viewers = await listDocumentPresenceViewers(
+      ctx,
+      args.documentId,
+      args.currentUserId,
+      args.workosUserId
+    )
+
+    return viewers
+  },
+})
+
+export const clearDocumentPresence = convexMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+    workosUserId: v.string(),
+    sessionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+
+    const existingPresenceEntries = await ctx.db
+      .query("documentPresence")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect()
+
+    if (existingPresenceEntries.length === 0) {
+      return { ok: true }
+    }
+
+    const conflictingPresenceEntries = existingPresenceEntries.filter(
+      (entry) =>
+        entry.workosUserId
+          ? entry.workosUserId !== args.workosUserId
+          : entry.userId !== args.currentUserId
+    )
+
+    if (conflictingPresenceEntries.length > 0) {
+      throw new Error("Document presence session is already in use")
+    }
+
+    for (const existingPresence of existingPresenceEntries) {
+      if (existingPresence.documentId !== args.documentId) {
+        continue
+      }
+
+      await ctx.db.delete(existingPresence._id)
+    }
+
+    return { ok: true }
+  },
+})
+
 export const renameDocument = mutation({
   args: {
     ...serverAccessArgs,
@@ -4428,6 +5605,62 @@ export const renameDocument = mutation({
       updatedAt: getNow(),
       updatedBy: args.currentUserId,
     })
+  },
+})
+
+export const deleteDocument = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const document = await getDocumentDoc(ctx, args.documentId)
+
+    if (!document) {
+      throw new Error("Document not found")
+    }
+
+    if (document.kind === "item-description") {
+      throw new Error(
+        "Work item description documents can't be deleted directly"
+      )
+    }
+
+    await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+
+    const deletedDocumentIds = new Set([document.id])
+    const comments = (await ctx.db.query("comments").collect()).filter(
+      (comment) =>
+        comment.targetType === "document" &&
+        deletedDocumentIds.has(comment.targetId)
+    )
+    const attachments = (await ctx.db.query("attachments").collect()).filter(
+      (attachment) =>
+        attachment.targetType === "document" &&
+        deletedDocumentIds.has(attachment.targetId)
+    )
+    const notifications = (
+      await ctx.db.query("notifications").collect()
+    ).filter(
+      (notification) =>
+        notification.entityType === "document" &&
+        deletedDocumentIds.has(notification.entityId)
+    )
+
+    await cleanupRemainingLinksAfterDelete(ctx, {
+      currentUserId: args.currentUserId,
+      deletedDocumentIds,
+    })
+    await deleteStorageObjects(
+      ctx,
+      attachments.map((attachment) => attachment.storageId as string)
+    )
+    await deleteDocs(ctx, comments)
+    await deleteDocs(ctx, attachments)
+    await deleteDocs(ctx, notifications)
+    await ctx.db.delete(document._id)
   },
 })
 
@@ -4710,7 +5943,11 @@ export const addComment = mutation({
     const users = await ctx.db.query("users").collect()
     const actor = users.find((user) => user.id === args.currentUserId)
     const audienceUserIds = new Set(await getTeamMemberIds(ctx, teamId))
-    const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
+    const mentionUserIds = createMentionIds(
+      args.content,
+      users,
+      audienceUserIds
+    )
     const notifiedUserIds = new Set<string>()
     const mentionEmails: Array<{
       notificationId: string
@@ -4888,6 +6125,22 @@ export const createInvite = mutation({
 
     await ctx.db.insert("invites", invite)
 
+    const invitedUser = await getUserByEmail(ctx, args.email)
+
+    if (invitedUser) {
+      await ctx.db.insert(
+        "notifications",
+        createNotification(
+          invitedUser.id,
+          args.currentUserId,
+          `You've been invited to join ${team.name} as ${args.role}`,
+          "invite",
+          invite.id,
+          "invite"
+        )
+      )
+    }
+
     const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
 
     return {
@@ -4960,21 +6213,16 @@ export const acceptInvite = mutation({
 
     const team = await getTeamDoc(ctx, invite.teamId)
     const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
-    await setCurrentWorkspaceForUser(ctx, args.currentUserId, invite.workspaceId)
+    await setCurrentWorkspaceForUser(
+      ctx,
+      args.currentUserId,
+      invite.workspaceId
+    )
 
-    if (!existingMembership || existingMembership.role !== resolvedRole) {
-      await ctx.db.insert(
-        "notifications",
-        createNotification(
-          args.currentUserId,
-          args.currentUserId,
-          `You joined ${team?.name ?? "the team"} as ${resolvedRole}`,
-          "invite",
-          invite.teamId,
-          "invite"
-        )
-      )
-    }
+    await archiveInviteNotifications(ctx, {
+      userId: args.currentUserId,
+      inviteIds: [invite.id],
+    })
 
     return {
       teamSlug: team?.slug ?? null,
@@ -5008,6 +6256,11 @@ export const declineInvite = mutation({
         declinedAt: getNow(),
       })
     }
+
+    await archiveInviteNotifications(ctx, {
+      userId: args.currentUserId,
+      inviteIds: [invite.id],
+    })
 
     return {
       inviteId: invite.id,
@@ -5090,18 +6343,11 @@ export const joinTeamByCode = mutation({
 
     await setCurrentWorkspaceForUser(ctx, args.currentUserId, team.workspaceId)
 
-    if (!existingMembership || existingMembership.role !== resolvedRole) {
-      await ctx.db.insert(
-        "notifications",
-        createNotification(
-          args.currentUserId,
-          args.currentUserId,
-          `You joined ${team.name} as ${resolvedRole}`,
-          "invite",
-          team.id,
-          "invite"
-        )
-      )
+    if (matchingInvites.length > 0) {
+      await archiveInviteNotifications(ctx, {
+        userId: args.currentUserId,
+        inviteIds: matchingInvites.map((invite) => invite.id),
+      })
     }
 
     const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
@@ -5195,9 +6441,9 @@ export const createProject = mutation({
       )?.experience ?? "software-development"
 
     if (
-      !getAllowedTemplateTypesForTeamExperience(settingsTeamExperience).includes(
-        args.templateType
-      )
+      !getAllowedTemplateTypesForTeamExperience(
+        settingsTeamExperience
+      ).includes(args.templateType)
     ) {
       throw new Error("Project template is not allowed for this team")
     }
@@ -5368,11 +6614,13 @@ export const createWorkItem = mutation({
       parentId: args.parentId ?? null,
     })
     const resolvedPrimaryProjectId = parent
-      ? parent.primaryProjectId ?? null
+      ? (parent.primaryProjectId ?? null)
       : args.primaryProjectId
 
     if (!normalizedTeam.settings.features.issues) {
-      throw new Error(getWorkSurfaceCopy(normalizedTeam.settings.experience).disabledLabel)
+      throw new Error(
+        getWorkSurfaceCopy(normalizedTeam.settings.experience).disabledLabel
+      )
     }
 
     if (
@@ -5538,6 +6786,21 @@ export const createWorkspaceChat = mutation({
 
     const users = await ctx.db.query("users").collect()
     const variant = participantIds.length === 2 ? "direct" : "group"
+
+    if (variant === "direct") {
+      const existingConversation = await findWorkspaceDirectConversation(
+        ctx,
+        args.workspaceId,
+        participantIds
+      )
+
+      if (existingConversation) {
+        return {
+          conversationId: existingConversation.id,
+        }
+      }
+    }
+
     const otherParticipantIds = participantIds.filter(
       (userId) => userId !== args.currentUserId
     )
@@ -6054,7 +7317,8 @@ export const backfillWorkItemModel = mutation({
 
       if (
         normalizedTeam.icon === team.icon &&
-        JSON.stringify(normalizedTeam.settings) === JSON.stringify(team.settings)
+        JSON.stringify(normalizedTeam.settings) ===
+          JSON.stringify(team.settings)
       ) {
         continue
       }

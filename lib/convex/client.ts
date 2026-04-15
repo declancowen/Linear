@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   AppSnapshot,
   AttachmentTargetType,
+  DocumentPresenceViewer,
   DisplayProperty,
   GroupField,
   Label,
@@ -16,6 +17,7 @@ import type {
   TeamFeatureSettings,
   TeamWorkflowSettings,
   TemplateType,
+  UserStatus,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -132,6 +134,49 @@ export async function fetchSnapshotVersion() {
   })
 }
 
+export async function syncHeartbeatDocumentPresence(
+  documentId: string,
+  sessionId: string
+) {
+  const payload = await runRouteMutation<{
+    viewers: DocumentPresenceViewer[]
+  }>(`/api/documents/${documentId}/presence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "heartbeat",
+      sessionId,
+    }),
+  })
+
+  return payload?.viewers ?? []
+}
+
+export function syncClearDocumentPresence(
+  documentId: string,
+  sessionId: string,
+  options?: {
+    keepalive?: boolean
+  }
+) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/documents/${documentId}/presence`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "leave",
+        sessionId,
+      }),
+      keepalive: options?.keepalive,
+    }
+  )
+}
+
 type WorkItemPatch = {
   status?: WorkStatus
   priority?: Priority
@@ -176,6 +221,62 @@ export function syncToggleNotificationRead(notificationId: string) {
   })
 }
 
+export function syncArchiveNotification(notificationId: string) {
+  return runRouteMutation(`/api/notifications/${notificationId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "archive",
+    }),
+  })
+}
+
+export function syncUnarchiveNotification(notificationId: string) {
+  return runRouteMutation(`/api/notifications/${notificationId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "unarchive",
+    }),
+  })
+}
+
+export function syncArchiveNotifications(notificationIds: string[]) {
+  return runRouteMutation("/api/notifications", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "archive",
+      notificationIds,
+    }),
+  })
+}
+
+export function syncUnarchiveNotifications(notificationIds: string[]) {
+  return runRouteMutation("/api/notifications", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "unarchive",
+      notificationIds,
+    }),
+  })
+}
+
+export function syncDeleteNotification(notificationId: string) {
+  return runRouteMutation(`/api/notifications/${notificationId}`, {
+    method: "DELETE",
+  })
+}
+
 export function syncUpdateWorkspaceBranding(
   _workspaceId: string,
   name: string,
@@ -205,6 +306,16 @@ export function syncUpdateWorkspaceBranding(
   })
 }
 
+export function syncDeleteCurrentWorkspace() {
+  return runRouteMutation<{
+    workspaceId: string
+    deletedTeamIds: string[]
+    deletedUserIds: string[]
+  }>("/api/workspace/current", {
+    method: "DELETE",
+  })
+}
+
 export function syncUpdateCurrentUserProfile(
   _userId: string,
   name: string,
@@ -219,6 +330,9 @@ export function syncUpdateCurrentUserProfile(
   options?: {
     avatarImageStorageId?: string
     clearAvatarImage?: boolean
+    clearStatus?: boolean
+    status?: UserStatus
+    statusMessage?: string
   }
 ) {
   return runRouteMutation("/api/profile", {
@@ -234,6 +348,11 @@ export function syncUpdateCurrentUserProfile(
         ? { avatarImageStorageId: options.avatarImageStorageId }
         : {}),
       ...(options?.clearAvatarImage ? { clearAvatarImage: true } : {}),
+      ...(options?.clearStatus ? { clearStatus: true } : {}),
+      ...(options?.status !== undefined ? { status: options.status } : {}),
+      ...(options?.statusMessage !== undefined
+        ? { statusMessage: options.statusMessage }
+        : {}),
       preferences,
     }),
   })
@@ -384,6 +503,12 @@ export function syncUpdateDocument(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(patch),
+  })
+}
+
+export function syncDeleteDocument(documentId: string) {
+  return runRouteMutation(`/api/documents/${documentId}`, {
+    method: "DELETE",
   })
 }
 
@@ -618,6 +743,16 @@ export function syncUpdateTeamDetails(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
+  })
+}
+
+export function syncDeleteTeam(teamId: string) {
+  return runRouteMutation<{
+    teamId: string
+    workspaceId: string | null
+    deletedUserIds: string[]
+  }>(`/api/teams/${teamId}/details`, {
+    method: "DELETE",
   })
 }
 

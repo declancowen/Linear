@@ -1,4 +1,10 @@
+import { cookies } from "next/headers"
 import { signOut } from "@workos-inc/authkit-nextjs"
+
+import {
+  clearPendingEmailVerificationCookieOptions,
+  pendingEmailVerificationCookieName,
+} from "@/lib/auth-email-verification"
 
 function resolveReturnTo(requestUrl: URL, requestedReturnTo: string | null) {
   const fallbackReturnTo = new URL("/login", requestUrl.origin)
@@ -37,6 +43,13 @@ async function handleLogout(request: Request) {
       ? String(formData.get("returnTo"))
       : null)
   const returnTo = resolveReturnTo(url, requestedReturnTo)
+  const cookieStore = await cookies()
 
-  await signOut({ returnTo })
+  cookieStore.set(
+    pendingEmailVerificationCookieName,
+    "",
+    clearPendingEmailVerificationCookieOptions
+  )
+
+  return signOut({ returnTo })
 }

@@ -10,6 +10,7 @@ import {
   commentFields,
   conversationFields,
   documentFields,
+  documentPresenceFields,
   inviteFields,
   labelFields,
   milestoneFields,
@@ -50,6 +51,9 @@ export default defineSchema({
     .index("by_domain_id", ["id"])
     .index("by_team_id", ["teamId"]),
   documents: defineTable(documentFields).index("by_domain_id", ["id"]),
+  documentPresence: defineTable(documentPresenceFields)
+    .index("by_document", ["documentId"])
+    .index("by_session", ["sessionId"]),
   views: defineTable(viewDefinitionFields).index("by_domain_id", ["id"]),
   comments: defineTable(commentFields).index("by_domain_id", ["id"]),
   attachments: defineTable(attachmentFields)
@@ -61,7 +65,9 @@ export default defineSchema({
   invites: defineTable(inviteFields)
     .index("by_domain_id", ["id"])
     .index("by_token", ["token"]),
-  projectUpdates: defineTable(projectUpdateFields).index("by_domain_id", ["id"]),
+  projectUpdates: defineTable(projectUpdateFields).index("by_domain_id", [
+    "id",
+  ]),
   conversations: defineTable(conversationFields)
     .index("by_domain_id", ["id"])
     .index("by_scope", ["scopeType", "scopeId"])

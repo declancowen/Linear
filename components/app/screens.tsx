@@ -7,8 +7,10 @@ import {
   useRef,
   useState,
   type ElementType,
+  type ReactNode,
   type SyntheticEvent,
 } from "react"
+import { toast } from "sonner"
 import {
   closestCorners,
   DndContext,
@@ -30,25 +32,32 @@ import {
   subDays,
 } from "date-fns"
 import {
+  Archive,
   ArrowSquareOut,
+  Bell,
   CalendarDots,
   CaretDown,
   CaretRight,
+  ChatCircle,
   Circle,
   CheckCircle,
   CodesandboxLogo,
   DotsSixVertical,
   DotsThree,
+  EnvelopeSimple,
   FadersHorizontal,
-  GearSix,
-  Kanban,
   FileText,
+  GearSix,
+  Hash,
+  Kanban,
   NotePencil,
   Plus,
   Rows,
   SidebarSimple,
+  Target,
   Trash,
   XCircle,
+  ArrowCounterClockwise,
 } from "@phosphor-icons/react"
 
 import {
@@ -57,6 +66,7 @@ import {
   canAdminTeam,
   canEditTeam,
   getChannelPostHref,
+  buildItemGroupsWithEmptyGroups,
   getCommentsForTarget,
   getConversationHref,
   getDocumentContextLabel,
@@ -108,8 +118,10 @@ import {
   workItemTypes,
   type AppData,
   type Document,
+  type DocumentPresenceViewer,
   type DisplayProperty,
   type GroupField,
+  type NotificationEntityType,
   type OrderingField,
   type Priority,
   type Project,
@@ -121,6 +133,10 @@ import {
   type WorkItemType,
   type WorkStatus,
 } from "@/lib/domain/types"
+import {
+  syncClearDocumentPresence,
+  syncHeartbeatDocumentPresence,
+} from "@/lib/convex/client"
 import { useAppStore } from "@/lib/store/app-store"
 import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -128,6 +144,14 @@ import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-setti
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarGroup,
+  AvatarGroupCount,
+  AvatarImage,
+} from "@/components/ui/avatar"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -169,6 +193,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -185,7 +210,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { getViewHref } from "@/lib/domain/default-views"
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 const displayPropertyOptions: DisplayProperty[] = [
   "id",
@@ -212,6 +237,33 @@ const groupOptions: GroupField[] = [
   "epic",
   "feature",
 ]
+const DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
+const DOCUMENT_PRESENCE_SESSION_STORAGE_KEY =
+  "linear.document-presence-session-id"
+const PROPERTY_SELECT_SEPARATOR_VALUE = "__separator__"
+const MAX_VISIBLE_DOCUMENT_VIEWERS = 3
+let documentPresenceSessionIdFallback: string | null = null
+
+function getNotificationEntityIcon(
+  entityType: NotificationEntityType
+): ElementType {
+  switch (entityType) {
+    case "workItem":
+      return Target
+    case "document":
+      return FileText
+    case "channelPost":
+      return Hash
+    case "chat":
+      return ChatCircle
+    case "invite":
+      return EnvelopeSimple
+    case "project":
+      return Kanban
+    default:
+      return Circle
+  }
+}
 
 const orderingOptions: OrderingField[] = [
   "priority",
@@ -395,174 +447,448 @@ export function AssignedScreen() {
 }
 
 export function InboxScreen() {
+  const router = useRouter()
   const data = useAppStore()
+  const [inboxTab, setInboxTab] = useState<"inbox" | "archived">("inbox")
+  const [acceptingInvite, setAcceptingInvite] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingNotification, setDeletingNotification] = useState(false)
   const notifications = [...data.notifications]
     .filter((notification) => notification.userId === data.currentUserId)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-  const activeId =
-    data.ui.activeInboxNotificationId ?? notifications[0]?.id ?? null
+  const visibleNotifications = notifications.filter((notification) =>
+    inboxTab === "inbox"
+      ? notification.archivedAt == null
+      : notification.archivedAt != null
+  )
+  const selectedNotification =
+    visibleNotifications.find(
+      (notification) => notification.id === data.ui.activeInboxNotificationId
+    ) ?? null
   const activeNotification =
-    notifications.find((notification) => notification.id === activeId) ?? null
+    selectedNotification ??
+    (data.ui.activeInboxNotificationId
+      ? (visibleNotifications[0] ?? null)
+      : null)
+  const activeId = activeNotification?.id ?? null
   const activeChannelPostHref = activeNotification
     ? getChannelPostHref(data, activeNotification.entityId)
     : null
   const activeChatHref = activeNotification
     ? getConversationHref(data, activeNotification.entityId)
     : null
+  const activeInvite =
+    activeNotification?.entityType === "invite"
+      ? (data.invites.find(
+          (invite) => invite.id === activeNotification.entityId
+        ) ?? null)
+      : null
+  const hasPendingActiveInvite = activeInvite
+    ? !activeInvite.acceptedAt &&
+      !activeInvite.declinedAt &&
+      new Date(activeInvite.expiresAt).getTime() >= Date.now()
+    : false
+  const activeProject =
+    activeNotification?.entityType === "project"
+      ? getProject(data, activeNotification.entityId)
+      : null
+  const activeProjectHref = activeProject
+    ? (getProjectHref(data, activeProject) ?? "/workspace/projects")
+    : null
+  const shouldShowPrimaryAction =
+    activeNotification?.entityType === "workItem" ||
+    activeNotification?.entityType === "document" ||
+    activeNotification?.entityType === "project" ||
+    (activeNotification?.entityType === "channelPost" &&
+      activeChannelPostHref != null) ||
+    (activeNotification?.entityType === "chat" && activeChatHref != null) ||
+    hasPendingActiveInvite
+
+  useEffect(() => {
+    if (
+      visibleNotifications.length === 0 ||
+      selectedNotification ||
+      data.ui.activeInboxNotificationId !== null
+    ) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .setActiveInboxNotification(visibleNotifications[0].id)
+  }, [
+    data.ui.activeInboxNotificationId,
+    selectedNotification,
+    visibleNotifications,
+  ])
+
+  const updateActiveNotificationAfterMove = (notificationId: string) => {
+    if (activeId !== notificationId) {
+      return
+    }
+
+    const nextActiveNotification =
+      visibleNotifications.find(
+        (notification) => notification.id !== notificationId
+      ) ?? null
+
+    useAppStore
+      .getState()
+      .setActiveInboxNotification(nextActiveNotification?.id ?? null)
+  }
+
+  const archiveNotification = (notificationId: string) => {
+    updateActiveNotificationAfterMove(notificationId)
+    useAppStore.getState().archiveNotification(notificationId)
+  }
+
+  const unarchiveNotification = (notificationId: string) => {
+    updateActiveNotificationAfterMove(notificationId)
+    useAppStore.getState().unarchiveNotification(notificationId)
+  }
+
+  const deleteNotification = async (notificationId: string) => {
+    updateActiveNotificationAfterMove(notificationId)
+    await useAppStore.getState().deleteNotification(notificationId)
+  }
+
+  const moveAllVisibleNotifications = () => {
+    const notificationIds = visibleNotifications.map(
+      (notification) => notification.id
+    )
+
+    if (notificationIds.length === 0) {
+      return
+    }
+
+    if (inboxTab === "inbox") {
+      useAppStore.getState().archiveNotifications(notificationIds)
+      return
+    }
+
+    useAppStore.getState().unarchiveNotifications(notificationIds)
+  }
+
+  async function handleAcceptInvite() {
+    if (!activeInvite || !hasPendingActiveInvite) {
+      return
+    }
+
+    setAcceptingInvite(true)
+
+    try {
+      const response = await fetch("/api/invites/accept", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: activeInvite.token }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        teamSlug?: string | null
+      } | null
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to accept invite")
+      }
+
+      toast.success("Invite accepted")
+      router.push(
+        payload?.teamSlug
+          ? `/team/${payload.teamSlug}/work`
+          : "/workspace/projects"
+      )
+      router.refresh()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to accept invite"
+      )
+    } finally {
+      setAcceptingInvite(false)
+    }
+  }
+
+  async function handleDeleteNotification() {
+    if (!activeNotification) {
+      return
+    }
+
+    setDeletingNotification(true)
+
+    try {
+      await deleteNotification(activeNotification.id)
+      setDeleteDialogOpen(false)
+    } finally {
+      setDeletingNotification(false)
+    }
+  }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
-      <ScreenHeader title="Inbox" />
-      <div className="flex min-h-0 flex-1">
-        {/* Notification list */}
-        <div className="w-[22rem] shrink-0 border-r">
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <span className="text-sm font-medium">Inbox</span>
-            <div className="flex items-center gap-1">
-              <Button size="icon-xs" variant="ghost">
-                <FadersHorizontal className="size-3.5" />
-              </Button>
-              <Button size="icon-xs" variant="ghost">
-                <GearSix className="size-3.5" />
-              </Button>
-            </div>
-          </div>
-          <ScrollArea className="h-full">
-            <div className="flex flex-col">
-              {notifications.map((notification) => (
-                <button
-                  key={notification.id}
-                  className={cn(
-                    "border-b px-4 py-3 text-left transition-colors",
-                    notification.id === activeId
-                      ? "bg-accent"
-                      : "hover:bg-accent/50"
-                  )}
-                  onClick={() => {
-                    useAppStore
-                      .getState()
-                      .setActiveInboxNotification(notification.id)
-                    useAppStore.getState().markNotificationRead(notification.id)
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span
-                        className={cn(
-                          "truncate text-sm",
-                          !notification.readAt && "font-medium"
-                        )}
-                      >
-                        {notification.message}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {format(
-                          new Date(notification.createdAt),
-                          "MMM d, h:mm a"
-                        )}
-                      </span>
-                    </div>
-                    {notification.readAt ? null : (
-                      <div className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ScreenHeader title="Inbox" />
+        <div className="flex min-h-0 flex-1">
+          {/* Notification list */}
+          <div className="flex min-h-0 w-[18rem] shrink-0 flex-col border-r">
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
+              <div className="flex items-center gap-1">
+                {(["inbox", "archived"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={cn(
+                      "h-6 rounded-sm px-2 text-xs transition-colors",
+                      tab === inboxTab
+                        ? "bg-accent font-medium text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
                     )}
-                  </div>
-                </button>
-              ))}
-              {notifications.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 text-sm text-muted-foreground">
-                  No notifications
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </div>
-        {/* Detail pane */}
-        <div className="min-w-0 flex-1">
-          {activeNotification ? (
-            <div className="p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <Badge variant="outline">{activeNotification.type}</Badge>
-                <Badge variant="secondary">
-                  {activeNotification.entityType}
-                </Badge>
-              </div>
-              <p className="mb-4 max-w-2xl text-sm leading-7">
-                {activeNotification.message}
-              </p>
-              <div className="mb-6 flex flex-wrap gap-2">
-                {activeNotification.entityType === "workItem" ? (
-                  <Button size="sm" asChild>
-                    <Link href={`/items/${activeNotification.entityId}`}>
-                      Open work item
-                    </Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "document" ? (
-                  <Button size="sm" asChild>
-                    <Link href={`/docs/${activeNotification.entityId}`}>
-                      Open document
-                    </Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "channelPost" &&
-                activeChannelPostHref ? (
-                  <Button size="sm" asChild>
-                    <Link href={activeChannelPostHref}>Open channel post</Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "chat" && activeChatHref ? (
-                  <Button size="sm" asChild>
-                    <Link href={activeChatHref}>Open chat</Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "invite" ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      useAppStore
-                        .getState()
-                        .joinTeamByCode(
-                          data.teams.find(
-                            (team) => team.id === activeNotification.entityId
-                          )?.settings.joinCode ?? ""
-                        )
-                    }
+                    onClick={() => setInboxTab(tab)}
                   >
-                    Accept join code
-                  </Button>
+                    {tab === "inbox" ? "Inbox" : "Archived"}
+                  </button>
+                ))}
+              </div>
+              <Button
+                size="xs"
+                variant="ghost"
+                className="h-6 px-2 text-muted-foreground hover:text-foreground"
+                onClick={moveAllVisibleNotifications}
+                disabled={visibleNotifications.length === 0}
+              >
+                {inboxTab === "inbox" ? "Archive all" : "Unarchive all"}
+              </Button>
+            </div>
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="flex flex-col">
+                {visibleNotifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={cn(
+                      "flex items-start border-b transition-colors",
+                      notification.id === activeId
+                        ? "bg-accent"
+                        : "hover:bg-accent/50"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left"
+                      onClick={() => {
+                        useAppStore
+                          .getState()
+                          .setActiveInboxNotification(notification.id)
+                        useAppStore
+                          .getState()
+                          .markNotificationRead(notification.id)
+                      }}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {(() => {
+                          const NotificationIcon = getNotificationEntityIcon(
+                            notification.entityType
+                          )
+
+                          return (
+                            <NotificationIcon className="size-4 text-muted-foreground" />
+                          )
+                        })()}
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          className={cn(
+                            "truncate text-sm text-foreground",
+                            !notification.readAt && "font-medium"
+                          )}
+                        >
+                          {notification.message}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(
+                            new Date(notification.createdAt),
+                            "MMM d, h:mm a"
+                          )}
+                        </span>
+                      </div>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1 px-2 py-3">
+                      {notification.readAt ? null : (
+                        <div className="size-2 rounded-full bg-primary" />
+                      )}
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        className="size-7 rounded-md text-muted-foreground/40 transition-colors hover:bg-background hover:text-muted-foreground"
+                        onClick={() => {
+                          if (notification.archivedAt) {
+                            unarchiveNotification(notification.id)
+                            return
+                          }
+
+                          archiveNotification(notification.id)
+                        }}
+                        aria-label={
+                          notification.archivedAt
+                            ? "Unarchive notification"
+                            : "Archive notification"
+                        }
+                      >
+                        {notification.archivedAt ? (
+                          <ArrowCounterClockwise className="size-4" />
+                        ) : (
+                          <Archive className="size-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {visibleNotifications.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-20 text-sm text-muted-foreground">
+                    {inboxTab === "inbox"
+                      ? "No inbox notifications"
+                      : "No archived notifications"}
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+          {/* Detail pane */}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            {activeNotification ? (
+              <div className="p-6">
+                <p className="max-w-2xl text-sm leading-relaxed">
+                  {activeNotification.message}
+                </p>
+                {shouldShowPrimaryAction ? (
+                  <div className="mt-4">
+                    {activeNotification.entityType === "workItem" ? (
+                      <Button size="sm" asChild>
+                        <Link href={`/items/${activeNotification.entityId}`}>
+                          Open work item
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "document" ? (
+                      <Button size="sm" asChild>
+                        <Link href={`/docs/${activeNotification.entityId}`}>
+                          Open document
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "project" &&
+                    activeProjectHref ? (
+                      <Button size="sm" asChild>
+                        <Link href={activeProjectHref}>Open project</Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "channelPost" &&
+                    activeChannelPostHref ? (
+                      <Button size="sm" asChild>
+                        <Link href={activeChannelPostHref}>
+                          Open channel post
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "chat" &&
+                    activeChatHref ? (
+                      <Button size="sm" asChild>
+                        <Link href={activeChatHref}>Open chat</Link>
+                      </Button>
+                    ) : null}
+                    {hasPendingActiveInvite ? (
+                      <Button
+                        size="sm"
+                        disabled={acceptingInvite}
+                        onClick={() => void handleAcceptInvite()}
+                      >
+                        {acceptingInvite ? "..." : "Accept invite"}
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
+                <div
+                  className={cn(
+                    "flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground",
+                    shouldShowPrimaryAction ? "mt-6" : "mt-4"
+                  )}
+                >
+                  <span>
+                    Received{" "}
+                    {format(
+                      new Date(activeNotification.createdAt),
+                      "MMM d, h:mm a"
+                    )}{" "}
+                    · {activeNotification.readAt ? "Read" : "Unread"}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        activeNotification.archivedAt
+                          ? unarchiveNotification(activeNotification.id)
+                          : archiveNotification(activeNotification.id)
+                      }
+                      aria-label={
+                        activeNotification.archivedAt
+                          ? "Unarchive notification"
+                          : "Archive notification"
+                      }
+                    >
+                      {activeNotification.archivedAt ? (
+                        <ArrowCounterClockwise className="size-4" />
+                      ) : (
+                        <Archive className="size-4" />
+                      )}
+                    </Button>
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      aria-label="Delete notification"
+                    >
+                      <Trash className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <Separator />
-              <div className="mt-4 flex gap-6 text-xs text-muted-foreground">
-                <span>
-                  Read:{" "}
-                  {activeNotification.readAt
-                    ? format(
-                        new Date(activeNotification.readAt),
-                        "MMM d, h:mm a"
-                      )
-                    : "Unread"}
-                </span>
-                <span>
-                  Email:{" "}
-                  {activeNotification.emailedAt
-                    ? format(
-                        new Date(activeNotification.emailedAt),
-                        "MMM d, h:mm a"
-                      )
-                    : "In-app only"}
-                </span>
+            ) : (
+              <div className="flex h-full items-center justify-center px-6">
+                {visibleNotifications.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <Bell className="size-5 text-muted-foreground" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        All caught up
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        No new notifications
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Select a notification to view details.
+                  </p>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              No notifications
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete notification"
+        description="This notification will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deletingNotification}
+        onConfirm={() => void handleDeleteNotification()}
+      />
+    </>
   )
 }
 
@@ -599,7 +925,7 @@ export function ProjectsScreen({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ScreenHeader
         title={title}
         actions={
@@ -647,73 +973,75 @@ export function ProjectsScreen({
           disabled={!editable}
         />
       ) : null}
-      {projects.length === 0 ? (
-        <MissingState title="No projects yet" />
-      ) : layout === "board" ? (
-        <ProjectBoard data={data} projects={projects} />
-      ) : (
-        <div className="flex flex-col">
-          {projects.map((project, index) => {
-            const progress = getProjectProgress(data, project.id)
-            return (
-              <Link
-                key={project.id}
-                className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
-                href={getProjectHref(data, project) ?? "/workspace/projects"}
-              >
-                {/* Health dot */}
-                <div
-                  className={cn(
-                    "size-2 shrink-0 rounded-full",
-                    project.health === "on-track"
-                      ? "bg-green-500"
-                      : project.health === "at-risk"
-                        ? "bg-yellow-500"
-                        : project.health === "off-track"
-                          ? "bg-red-500"
-                          : "bg-muted-foreground/30"
-                  )}
-                />
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {projects.length === 0 ? (
+          <MissingState title="No projects yet" />
+        ) : layout === "board" ? (
+          <ProjectBoard data={data} projects={projects} />
+        ) : (
+          <div className="flex flex-col">
+            {projects.map((project, index) => {
+              const progress = getProjectProgress(data, project.id)
+              return (
+                <Link
+                  key={project.id}
+                  className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
+                  href={getProjectHref(data, project) ?? "/workspace/projects"}
+                >
+                  {/* Health dot */}
+                  <div
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      project.health === "on-track"
+                        ? "bg-green-500"
+                        : project.health === "at-risk"
+                          ? "bg-yellow-500"
+                          : project.health === "off-track"
+                            ? "bg-red-500"
+                            : "bg-muted-foreground/30"
+                    )}
+                  />
 
-                {/* Name */}
-                <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:underline">
-                  {project.name}
-                </span>
-
-                {/* Progress bar */}
-                <div className="flex w-20 shrink-0 items-center gap-2">
-                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary/60 transition-all"
-                      style={{ width: `${progress.percent}%` }}
-                    />
-                  </div>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">
-                    {progress.percent}%
+                  {/* Name */}
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:underline">
+                    {project.name}
                   </span>
-                </div>
 
-                {/* Priority */}
-                <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                  {priorityMeta[project.priority].label}
-                </span>
+                  {/* Progress bar */}
+                  <div className="flex w-20 shrink-0 items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary/60 transition-all"
+                        style={{ width: `${progress.percent}%` }}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {progress.percent}%
+                    </span>
+                  </div>
 
-                {/* Lead */}
-                <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
-                  {getUser(data, project.leadId)?.name ?? "—"}
-                </span>
+                  {/* Priority */}
+                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                    {priorityMeta[project.priority].label}
+                  </span>
 
-                {/* Target date */}
-                <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                  {project.targetDate
-                    ? format(new Date(project.targetDate), "MMM d")
-                    : "—"}
-                </span>
-              </Link>
-            )
-          })}
-        </div>
-      )}
+                  {/* Lead */}
+                  <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
+                    {getUser(data, project.leadId)?.name ?? "—"}
+                  </span>
+
+                  {/* Target date */}
+                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                    {project.targetDate
+                      ? format(new Date(project.targetDate), "MMM d")
+                      : "—"}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -755,7 +1083,7 @@ export function ViewsScreen({
   })
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ScreenHeader
         title={title}
         actions={
@@ -771,79 +1099,81 @@ export function ViewsScreen({
           </div>
         }
       />
-      {views.length === 0 ? (
-        <MissingState title="No saved views yet" />
-      ) : layout === "board" ? (
-        <SavedViewsBoard
-          views={orderedViews}
-          showDescriptions={showDescriptions}
-        />
-      ) : (
-        <div className="px-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Name
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Entity
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Layout
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Grouping
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Sharing
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {orderedViews.map((view) => (
-                <TableRow key={view.id}>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <Link
-                        className="flex items-center gap-2 text-sm font-medium hover:underline"
-                        href={getViewHref(view)}
-                      >
-                        <span className="text-muted-foreground">
-                          {getEntityKindIcon(view.entityKind)}
-                        </span>
-                        {view.name}
-                      </Link>
-                      {showDescriptions ? (
-                        <span className="text-xs text-muted-foreground">
-                          {view.description}
-                        </span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatEntityKind(view.entityKind)}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {view.layout}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {view.grouping}
-                    {view.subGrouping ? ` / ${view.subGrouping}` : ""}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {view.isShared
-                      ? scopeType === "workspace"
-                        ? "Workspace"
-                        : "Team"
-                      : "Personal"}
-                  </TableCell>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {views.length === 0 ? (
+          <MissingState title="No saved views yet" />
+        ) : layout === "board" ? (
+          <SavedViewsBoard
+            views={orderedViews}
+            showDescriptions={showDescriptions}
+          />
+        ) : (
+          <div className="px-6">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Name
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Entity
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Layout
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Grouping
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Sharing
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+              </TableHeader>
+              <TableBody>
+                {orderedViews.map((view) => (
+                  <TableRow key={view.id}>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <Link
+                          className="flex items-center gap-2 text-sm font-medium hover:underline"
+                          href={getViewHref(view)}
+                        >
+                          <span className="text-muted-foreground">
+                            {getEntityKindIcon(view.entityKind)}
+                          </span>
+                          {view.name}
+                        </Link>
+                        {showDescriptions ? (
+                          <span className="text-xs text-muted-foreground">
+                            {view.description}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatEntityKind(view.entityKind)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {view.layout}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {view.grouping}
+                      {view.subGrouping ? ` / ${view.subGrouping}` : ""}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {view.isShared
+                        ? scopeType === "workspace"
+                          ? "Workspace"
+                          : "Team"
+                        : "Personal"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -909,7 +1239,7 @@ export function DocsScreen({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {isWorkspaceDocs ? (
         <div className={SCREEN_HEADER_CLASS_NAME}>
           <div className="flex min-w-0 items-center gap-2">
@@ -971,52 +1301,55 @@ export function DocsScreen({
         input={dialogInput}
         disabled={!editable}
       />
-      {documents.length === 0 ? (
-        <MissingState title={emptyTitle} />
-      ) : layout === "board" ? (
-        <DocumentBoard data={data} documents={documents} />
-      ) : (
-        <div className="flex flex-col divide-y px-6">
-          {documents.map((document) => {
-            const preview = extractTextContent(document.content)
-            const author = getUser(
-              data,
-              document.updatedBy ?? document.createdBy
-            )
-            return (
-              <Link
-                key={document.id}
-                className="group flex items-start gap-3 rounded-md px-3 py-3.5 transition-colors hover:bg-accent/40"
-                href={`/docs/${document.id}`}
-              >
-                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-                  <FileText className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {document.title}
-                    </span>
-                  </div>
-                  {preview ? (
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                      {preview}
-                    </p>
-                  ) : null}
-                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span>{getDocumentContextLabel(data, document)}</span>
-                    <span>·</span>
-                    <span>{author?.name ?? "Unknown"}</span>
-                    <span>·</span>
-                    <span>{format(new Date(document.updatedAt), "MMM d")}</span>
-                  </div>
-                </div>
-                <ArrowSquareOut className="mt-1 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-              </Link>
-            )
-          })}
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {documents.length === 0 ? (
+          <MissingState icon={FileText} title={emptyTitle} />
+        ) : layout === "board" ? (
+          <DocumentBoard data={data} documents={documents} />
+        ) : (
+          <div className="flex flex-col divide-y">
+            {documents.map((document) => {
+              const preview = getDocumentPreview(document)
+              const author = getUser(
+                data,
+                document.updatedBy ?? document.createdBy
+              )
+              return (
+                <DocumentContextMenu
+                  key={document.id}
+                  data={data}
+                  document={document}
+                >
+                  <Link
+                    className="flex items-start px-6 py-3.5 transition-colors hover:bg-accent/40"
+                    href={`/docs/${document.id}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {document.title}
+                        </span>
+                      </div>
+                      {preview ? (
+                        <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                          {preview}
+                        </p>
+                      ) : null}
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span>{author?.name ?? "Unknown"}</span>
+                        <span>·</span>
+                        <span>
+                          {format(new Date(document.updatedAt), "MMM d")}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                </DocumentContextMenu>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1076,7 +1409,7 @@ function ProjectBoard({
                   style={{ width: `${progress.percent}%` }}
                 />
               </div>
-              <span className="text-[10px] tabular-nums text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground tabular-nums">
                 {progress.percent}%
               </span>
             </div>
@@ -1165,52 +1498,278 @@ function DocumentBoard({
   return (
     <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       {documents.map((document) => {
-        const preview = extractTextContent(document.content)
+        const preview = getDocumentPreview(document)
         const author = getUser(data, document.updatedBy ?? document.createdBy)
 
         return (
-          <Link
+          <DocumentContextMenu
             key={document.id}
-            className="group flex h-full flex-col rounded-lg border bg-card p-0 transition-colors hover:border-foreground/15 hover:bg-accent/30"
-            href={`/docs/${document.id}`}
+            data={data}
+            document={document}
           >
-            {/* Card body */}
-            <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-              <div className="flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-                  <FileText className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm leading-snug font-medium">
-                    {document.title}
-                  </h3>
-                  <span className="mt-0.5 text-[11px] text-muted-foreground">
-                    {getDocumentContextLabel(data, document)}
-                  </span>
-                </div>
-                <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            <Link
+              className="flex flex-col self-start rounded-lg border bg-card p-0 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+              href={`/docs/${document.id}`}
+            >
+              {/* Card body */}
+              <div className="px-4 pt-4 pb-3">
+                <h3 className="text-sm leading-snug font-medium">
+                  {document.title}
+                </h3>
+                {preview ? (
+                  <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                    {preview}
+                  </p>
+                ) : null}
               </div>
-              {preview ? (
-                <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                  {preview}
-                </p>
-              ) : (
-                <p className="mt-3 text-xs text-muted-foreground/50 italic">
-                  Empty document
-                </p>
-              )}
-            </div>
 
-            {/* Card footer */}
-            <div className="flex items-center gap-2 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
-              {author ? <span className="truncate">{author.name}</span> : null}
-              <span className="ml-auto shrink-0">
-                {format(new Date(document.updatedAt), "MMM d")}
-              </span>
-            </div>
-          </Link>
+              {/* Card footer */}
+              <div className="flex items-center gap-2 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
+                <DocumentAuthorAvatar
+                  avatarImageUrl={author?.avatarImageUrl}
+                  avatarUrl={author?.avatarUrl}
+                  name={author?.name ?? "Unknown"}
+                />
+                <span className="truncate">{author?.name ?? "Unknown"}</span>
+                <span className="ml-auto shrink-0">
+                  {format(new Date(document.updatedAt), "MMM d")}
+                </span>
+              </div>
+            </Link>
+          </DocumentContextMenu>
         )
       })}
+    </div>
+  )
+}
+
+function canEditDocumentInUi(data: AppData, document: Document) {
+  if (document.kind === "item-description") {
+    return false
+  }
+
+  if (document.kind === "team-document") {
+    return document.teamId ? canEditTeam(data, document.teamId) : false
+  }
+
+  if (document.kind === "private-document") {
+    return document.createdBy === data.currentUserId
+  }
+
+  return document.workspaceId
+    ? canEditWorkspace(data, document.workspaceId)
+    : false
+}
+
+function DocumentActionMenuContent({
+  document,
+  canDeleteDocument,
+  onRequestDelete,
+}: {
+  document: Document
+  canDeleteDocument: boolean
+  onRequestDelete: () => void
+}) {
+  const router = useRouter()
+
+  return (
+    <>
+      <ContextMenuLabel className="truncate">{document.title}</ContextMenuLabel>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => router.push(`/docs/${document.id}`)}>
+        <ArrowSquareOut className="size-4" />
+        Open document
+      </ContextMenuItem>
+      {canDeleteDocument ? (
+        <ContextMenuItem
+          variant="destructive"
+          onSelect={() => {
+            onRequestDelete()
+          }}
+        >
+          <Trash className="size-4" />
+          Delete document
+        </ContextMenuItem>
+      ) : null}
+    </>
+  )
+}
+
+function DocumentContextMenu({
+  data,
+  document,
+  children,
+}: {
+  data: AppData
+  document: Document
+  children: React.ReactNode
+}) {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingDocument, setDeletingDocument] = useState(false)
+  const canDeleteDocument = canEditDocumentInUi(data, document)
+
+  async function handleDelete() {
+    setDeletingDocument(true)
+
+    try {
+      await useAppStore.getState().deleteDocument(document.id)
+      setDeleteDialogOpen(false)
+    } finally {
+      setDeletingDocument(false)
+    }
+  }
+
+  return (
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuContent className="w-56">
+          <DocumentActionMenuContent
+            document={document}
+            canDeleteDocument={canDeleteDocument}
+            onRequestDelete={() => {
+              setDeleteDialogOpen(true)
+            }}
+          />
+        </ContextMenuContent>
+      </ContextMenu>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete document"
+        description="This document will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deletingDocument}
+        onConfirm={() => void handleDelete()}
+      />
+    </>
+  )
+}
+
+function getUserInitials(name: string | null | undefined) {
+  const parts = (name ?? "")
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return "?"
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+}
+
+function createPresenceSessionId() {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `presence_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function getDocumentPresenceSessionId() {
+  if (typeof window === "undefined") {
+    return createPresenceSessionId()
+  }
+
+  try {
+    const existingSessionId = window.sessionStorage.getItem(
+      DOCUMENT_PRESENCE_SESSION_STORAGE_KEY
+    )
+
+    if (existingSessionId) {
+      return existingSessionId
+    }
+
+    const nextSessionId = createPresenceSessionId()
+    window.sessionStorage.setItem(
+      DOCUMENT_PRESENCE_SESSION_STORAGE_KEY,
+      nextSessionId
+    )
+
+    return nextSessionId
+  } catch (error) {
+    if (!documentPresenceSessionIdFallback) {
+      documentPresenceSessionIdFallback = createPresenceSessionId()
+    }
+
+    console.warn(
+      "Falling back to in-memory document presence session id",
+      error
+    )
+
+    return documentPresenceSessionIdFallback
+  }
+}
+
+function DocumentAuthorAvatar({
+  avatarImageUrl,
+  avatarUrl,
+  name,
+  className,
+  title,
+}: {
+  avatarImageUrl?: string | null
+  avatarUrl?: string | null
+  name: string
+  className?: string
+  title?: string
+}) {
+  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
+
+  return (
+    <Avatar size="sm" className={cn("size-5", className)} title={title}>
+      {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
+      <AvatarFallback className="text-[9px]">
+        {getUserInitials(name)}
+      </AvatarFallback>
+    </Avatar>
+  )
+}
+
+function DocumentPresenceAvatarGroup({
+  viewers,
+}: {
+  viewers: DocumentPresenceViewer[]
+}) {
+  if (viewers.length === 0) {
+    return null
+  }
+
+  const visibleViewers = viewers.slice(0, MAX_VISIBLE_DOCUMENT_VIEWERS)
+  const hiddenViewerCount = viewers.length - visibleViewers.length
+  const viewerNames = viewers.map((viewer) => viewer.name).join(", ")
+
+  return (
+    <div
+      className="flex items-center"
+      aria-label={`Also viewing: ${viewerNames}`}
+      title={`Also viewing: ${viewerNames}`}
+    >
+      <AvatarGroup className="*:data-[slot=avatar]:ring-1 *:data-[slot=avatar]:ring-background">
+        {visibleViewers.map((viewer) => (
+          <DocumentAuthorAvatar
+            key={viewer.userId}
+            avatarImageUrl={viewer.avatarImageUrl}
+            avatarUrl={viewer.avatarUrl}
+            name={viewer.name}
+            title={viewer.name}
+          />
+        ))}
+        {hiddenViewerCount > 0 ? (
+          <AvatarGroupCount className="size-5 text-[9px]">
+            +{hiddenViewerCount}
+          </AvatarGroupCount>
+        ) : null}
+      </AvatarGroup>
     </div>
   )
 }
@@ -1335,6 +1894,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const data = useAppStore()
   const item = data.workItems.find((entry) => entry.id === itemId)
   const [deletingItem, setDeletingItem] = useState(false)
+  const [projectConfirmOpen, setProjectConfirmOpen] = useState(false)
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [childComposerOpen, setChildComposerOpen] = useState(false)
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
@@ -1352,10 +1914,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const editable = team ? canEditTeam(data, team.id) : false
   const description = getDocument(data, currentItem.descriptionDocId)
-  const statusOptions = getStatusOrderForTeam(team).map((status) => ({
-    value: status,
-    label: statusMeta[status].label,
-  }))
+  const statusOptions = buildPropertyStatusOptions(getStatusOrderForTeam(team))
   const teamMembers = team ? getTeamMembers(data, team.id) : []
   const teamProjects = getTeamProjectOptions(
     data,
@@ -1384,6 +1943,16 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const canCreateChildItem = editable && allowedChildTypes.length > 0
   const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
   const hierarchySize = getWorkItemHierarchyIds(data, currentItem.id).size
+  const itemLabel = getDisplayLabelForWorkItemType(
+    currentItem.type,
+    team?.settings.experience
+  ).toLowerCase()
+  const cascadeMessage =
+    descendantCount > 0
+      ? `Delete this ${itemLabel} and ${descendantCount} nested item${
+          descendantCount === 1 ? "" : "s"
+        }?`
+      : `Delete this ${itemLabel}?`
   const completedChildItems = childItems.filter(
     (child) => child.status === "done"
   ).length
@@ -1428,12 +1997,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       return
     }
 
-    if (
-      hierarchySize > 1 &&
-      !window.confirm(
-        "Changing the project for this item will also update all parent and child items in this hierarchy to the new project. Do you want to confirm?"
-      )
-    ) {
+    if (hierarchySize > 1) {
+      setPendingProjectId(nextProjectId)
+      setProjectConfirmOpen(true)
       return
     }
 
@@ -1462,24 +2028,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }
 
   async function handleDeleteItem() {
-    const itemLabel = getDisplayLabelForWorkItemType(
-      currentItem.type,
-      team?.settings.experience
-    ).toLowerCase()
-    const cascadeMessage =
-      descendantCount > 0
-        ? `Delete this ${itemLabel} and ${descendantCount} nested item${
-            descendantCount === 1 ? "" : "s"
-          }?`
-        : `Delete this ${itemLabel}?`
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`${cascadeMessage} This can't be undone.`)
-    ) {
-      return
-    }
-
     setDeletingItem(true)
 
     const deleted = await useAppStore.getState().deleteWorkItem(currentItem.id)
@@ -1489,342 +2037,414 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       return
     }
 
+    setDeleteDialogOpen(false)
     router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
   }
 
+  function handleProjectConfirmOpenChange(open: boolean) {
+    setProjectConfirmOpen(open)
+
+    if (!open) {
+      setPendingProjectId(null)
+    }
+  }
+
+  function handleConfirmProjectChange() {
+    useAppStore.getState().updateWorkItem(currentItem.id, {
+      primaryProjectId: pendingProjectId,
+    })
+    setProjectConfirmOpen(false)
+    setPendingProjectId(null)
+  }
+
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
-      {/* Breadcrumb header */}
-      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex items-center gap-2 text-sm">
-          <SidebarTrigger className="size-5 shrink-0" />
-          <Link
-            href={`/team/${team?.slug}/work`}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            {team?.name}
-          </Link>
-          <CaretRight className="size-3 text-muted-foreground" />
-          <span>
-            {currentItem.key} {currentItem.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {editable ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon-sm" variant="ghost" disabled={deletingItem}>
-                  <DotsThree className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44 min-w-44">
-                <DropdownMenuItem
-                  variant="destructive"
-                  disabled={deletingItem}
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    void handleDeleteItem()
-                  }}
-                >
-                  <Trash className="size-4" />
-                  Delete{" "}
-                  {getDisplayLabelForWorkItemType(
-                    currentItem.type,
-                    team?.settings.experience
-                  )}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className={cn(!propertiesOpen && "text-muted-foreground")}
-            onClick={() => setPropertiesOpen((current) => !current)}
-          >
-            <SidebarSimple className="size-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Main content — scrollable */}
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-8 py-8">
-            {/* Title */}
-            {parentItem ? (
-              <Link
-                href={`/items/${parentItem.id}`}
-                className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <span>{workCopy.parentLabel}</span>
-                <Badge variant="outline">{parentItem.key}</Badge>
-                <span className="truncate">{parentItem.title}</span>
-              </Link>
-            ) : null}
-            <h1 className="mb-1 text-2xl font-semibold">{currentItem.title}</h1>
-            <div className="mb-4">
-              <WorkItemTypeBadge data={data} item={currentItem} />
-            </div>
-
-            {/* Description — seamless inline editor */}
-            <div className="mt-4">
-              <RichTextEditor
-                content={description?.content ?? "<p>Add a description…</p>"}
-                editable={editable}
-                placeholder="Add a description…"
-                mentionCandidates={
-                  team ? getTeamMembers(data, team.id) : data.users
-                }
-                onChange={(content) =>
-                  useAppStore
-                    .getState()
-                    .updateItemDescription(currentItem.id, content)
-                }
-                onUploadAttachment={(file) =>
-                  useAppStore
-                    .getState()
-                    .uploadAttachment("workItem", currentItem.id, file)
-                }
-              />
-            </div>
-
-            {showSubIssuesSection ? (
-              <div className="mt-8">
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                    onClick={() => setSubIssuesOpen((current) => !current)}
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Breadcrumb header */}
+        <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex items-center gap-2 text-sm">
+            <SidebarTrigger className="size-5 shrink-0" />
+            <Link
+              href={`/team/${team?.slug}/work`}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {team?.name}
+            </Link>
+            <CaretRight className="size-3 text-muted-foreground" />
+            <span>
+              {currentItem.key} {currentItem.title}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            {editable ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    disabled={deletingItem}
                   >
-                    {subIssuesOpen ? (
-                      <CaretDown className="size-3" />
-                    ) : (
-                      <CaretRight className="size-3" />
+                    <DotsThree className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44 min-w-44">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={deletingItem}
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      setDeleteDialogOpen(true)
+                    }}
+                  >
+                    <Trash className="size-4" />
+                    Delete{" "}
+                    {getDisplayLabelForWorkItemType(
+                      currentItem.type,
+                      team?.settings.experience
                     )}
-                    <span>{childCopy.childPluralLabel}</span>
-                    <span className="text-xs font-normal tabular-nums">
-                      {completedChildItems}/{childItems.length}
-                    </span>
-                  </button>
-                  {canCreateChildItem ? (
-                    <Button
-                      size="icon-sm"
-                      variant={childComposerOpen ? "outline" : "ghost"}
-                      disabled={!canCreateChildItem}
-                      onClick={() => {
-                        setSubIssuesOpen(true)
-                        setChildComposerOpen((current) => !current)
-                      }}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className={cn(!propertiesOpen && "text-muted-foreground")}
+              onClick={() => setPropertiesOpen((current) => !current)}
+            >
+              <SidebarSimple className="size-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          {/* Main content — scrollable */}
+          <div className="min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl px-8 py-8">
+              {/* Title */}
+              {parentItem ? (
+                <Link
+                  href={`/items/${parentItem.id}`}
+                  className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <span>{workCopy.parentLabel}</span>
+                  <Badge variant="outline">{parentItem.key}</Badge>
+                  <span className="truncate">{parentItem.title}</span>
+                </Link>
+              ) : null}
+              <h1 className="mb-1 text-2xl font-semibold">
+                {currentItem.title}
+              </h1>
+              <div className="mb-4">
+                <WorkItemTypeBadge data={data} item={currentItem} />
+              </div>
+
+              {/* Description — seamless inline editor */}
+              <div className="mt-4">
+                <RichTextEditor
+                  content={description?.content ?? "<p>Add a description…</p>"}
+                  editable={editable}
+                  placeholder="Add a description…"
+                  mentionCandidates={
+                    team ? getTeamMembers(data, team.id) : data.users
+                  }
+                  onChange={(content) =>
+                    useAppStore
+                      .getState()
+                      .updateItemDescription(currentItem.id, content)
+                  }
+                  onUploadAttachment={(file) =>
+                    useAppStore
+                      .getState()
+                      .uploadAttachment("workItem", currentItem.id, file)
+                  }
+                />
+              </div>
+
+              {showSubIssuesSection ? (
+                <div className="mt-8">
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setSubIssuesOpen((current) => !current)}
                     >
-                      <Plus className="size-3.5" />
-                    </Button>
-                  ) : null}
-                </div>
-
-                {/* Progress bar */}
-                {childItems.length > 0 ? (
-                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-green-500 transition-all"
-                      style={{
-                        width: `${childItems.length > 0 ? (completedChildItems / childItems.length) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                ) : null}
-
-                {subIssuesOpen ? (
-                  <div className="mt-3 flex flex-col rounded-lg border">
-                    {childItems.map((child, index) => (
-                      <Link
-                        key={child.id}
-                        href={`/items/${child.id}`}
-                        className={cn(
-                          "group/sub flex items-center gap-3 px-3 py-2 transition-colors hover:bg-accent/40",
-                          index !== childItems.length - 1 && "border-b"
-                        )}
+                      {subIssuesOpen ? (
+                        <CaretDown className="size-3" />
+                      ) : (
+                        <CaretRight className="size-3" />
+                      )}
+                      <span>{childCopy.childPluralLabel}</span>
+                      <span className="text-xs font-normal tabular-nums">
+                        {completedChildItems}/{childItems.length}
+                      </span>
+                    </button>
+                    {canCreateChildItem ? (
+                      <Button
+                        size="icon-sm"
+                        variant={childComposerOpen ? "outline" : "ghost"}
+                        disabled={!canCreateChildItem}
+                        onClick={() => {
+                          setSubIssuesOpen(true)
+                          setChildComposerOpen((current) => !current)
+                        }}
                       >
-                        <StatusIcon status={child.status} />
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {child.title}
-                        </span>
-                        <WorkItemTypeBadge data={data} item={child} />
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {child.key}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {priorityMeta[child.priority].label}
-                        </span>
-                        {child.assigneeId ? (
-                          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-                            {getUser(data, child.assigneeId)?.avatarUrl ?? "?"}
-                          </div>
-                        ) : null}
-                      </Link>
-                    ))}
-
-                    {childComposerOpen ? (
-                      <div className="border-t">
-                        <InlineChildIssueComposer
-                          teamId={currentItem.teamId}
-                          parentItem={currentItem}
-                          disabled={!editable}
-                          onCancel={() => setChildComposerOpen(false)}
-                          onCreated={() => setChildComposerOpen(false)}
-                        />
-                      </div>
-                    ) : canCreateChildItem ? (
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
-                          childItems.length > 0 && "border-t"
-                        )}
-                        onClick={() => setChildComposerOpen(true)}
-                      >
-                        <Plus className="size-3" />
-                        <span>{childCopy.addChildLabel}</span>
-                      </button>
+                        <Plus className="size-3.5" />
+                      </Button>
                     ) : null}
                   </div>
-                ) : null}
-              </div>
-            ) : null}
 
-            <Separator className="my-6" />
+                  {/* Progress bar */}
+                  {childItems.length > 0 ? (
+                    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-green-500 transition-all"
+                        style={{
+                          width: `${childItems.length > 0 ? (completedChildItems / childItems.length) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
 
-            {/* Activity */}
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Activity</h3>
+                  {subIssuesOpen ? (
+                    <div className="mt-3 flex flex-col rounded-lg border">
+                      {childItems.map((child, index) => (
+                        <Link
+                          key={child.id}
+                          href={`/items/${child.id}`}
+                          className={cn(
+                            "group/sub flex items-center gap-3 px-3 py-2 transition-colors hover:bg-accent/40",
+                            index !== childItems.length - 1 && "border-b"
+                          )}
+                        >
+                          <StatusIcon status={child.status} />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {child.title}
+                          </span>
+                          <WorkItemTypeBadge data={data} item={child} />
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {child.key}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {priorityMeta[child.priority].label}
+                          </span>
+                          {child.assigneeId ? (
+                            <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+                              {getUser(data, child.assigneeId)?.avatarUrl ??
+                                "?"}
+                            </div>
+                          ) : null}
+                        </Link>
+                      ))}
+
+                      {childComposerOpen ? (
+                        <div className="border-t">
+                          <InlineChildIssueComposer
+                            teamId={currentItem.teamId}
+                            parentItem={currentItem}
+                            disabled={!editable}
+                            onCancel={() => setChildComposerOpen(false)}
+                            onCreated={() => setChildComposerOpen(false)}
+                          />
+                        </div>
+                      ) : canCreateChildItem ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
+                            childItems.length > 0 && "border-t"
+                          )}
+                          onClick={() => setChildComposerOpen(true)}
+                        >
+                          <Plus className="size-3" />
+                          <span>{childCopy.addChildLabel}</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <Separator className="my-6" />
+
+              {/* Activity */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Activity</h3>
+                </div>
+                <CommentsInline
+                  targetType="workItem"
+                  targetId={currentItem.id}
+                  editable={editable}
+                />
               </div>
-              <CommentsInline
-                targetType="workItem"
-                targetId={currentItem.id}
-                editable={editable}
-              />
             </div>
           </div>
+
+          {/* Right sidebar */}
+          <CollapsibleRightSidebar open={propertiesOpen} width="18rem">
+            <div className="flex-1 overflow-y-auto">
+              <div className="flex flex-col p-4">
+                <CollapsibleSection title="Properties" defaultOpen>
+                  <PropertyRow
+                    label="Type"
+                    value={getDisplayLabelForWorkItemType(
+                      currentItem.type,
+                      team?.settings.experience
+                    )}
+                  />
+                  <PropertySelect
+                    label="Status"
+                    value={currentItem.status}
+                    disabled={!editable}
+                    options={statusOptions}
+                    renderValue={(value, label) => (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <StatusIcon status={value} />
+                        <span className="truncate">{label}</span>
+                      </div>
+                    )}
+                    renderOption={(value, label) => (
+                      <div className="flex items-center gap-2">
+                        <StatusIcon status={value} />
+                        <span>{label}</span>
+                      </div>
+                    )}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        status: value as WorkItem["status"],
+                      })
+                    }
+                  />
+                  <PropertySelect
+                    label="Priority"
+                    value={currentItem.priority}
+                    disabled={!editable}
+                    options={Object.entries(priorityMeta).map(
+                      ([value, meta]) => ({
+                        value,
+                        label: meta.label,
+                      })
+                    )}
+                    renderValue={(value, label) => (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <PriorityDot priority={value} />
+                        <span className="truncate">{label}</span>
+                      </div>
+                    )}
+                    renderOption={(value, label) => (
+                      <div className="flex items-center gap-2">
+                        <PriorityDot priority={value} />
+                        <span>{label}</span>
+                      </div>
+                    )}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        priority: value as Priority,
+                      })
+                    }
+                  />
+                  <PropertySelect
+                    label="Assignee"
+                    value={currentItem.assigneeId ?? "unassigned"}
+                    disabled={!editable}
+                    options={[
+                      { value: "unassigned", label: "Assign" },
+                      ...teamMembers.map((user) => ({
+                        value: user.id,
+                        label: user.name,
+                      })),
+                    ]}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        assigneeId: value === "unassigned" ? null : value,
+                      })
+                    }
+                  />
+                  <PropertySelect
+                    label="Parent"
+                    value={currentItem.parentId ?? "none"}
+                    disabled={
+                      !editable ||
+                      (parentOptions.length === 1 && !currentItem.parentId)
+                    }
+                    options={parentOptions}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        parentId: value === "none" ? null : value,
+                      })
+                    }
+                  />
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Schedule" defaultOpen>
+                  <PropertyDateField
+                    label="Start date"
+                    value={currentItem.startDate}
+                    disabled={!editable}
+                    onValueChange={handleStartDateChange}
+                  />
+                  <PropertyDateField
+                    label="End date"
+                    value={displayedEndDate}
+                    disabled={!editable}
+                    onValueChange={handleEndDateChange}
+                  />
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Labels" defaultOpen>
+                  <WorkItemLabelsEditor
+                    item={currentItem}
+                    editable={editable}
+                  />
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Project" defaultOpen>
+                  <PropertySelect
+                    label=""
+                    value={currentItem.primaryProjectId ?? "none"}
+                    disabled={!editable}
+                    options={[
+                      { value: "none", label: "No project" },
+                      ...teamProjects.map((project) => ({
+                        value: project.id,
+                        label: project.name,
+                      })),
+                    ]}
+                    onValueChange={handleProjectChange}
+                  />
+                </CollapsibleSection>
+              </div>
+            </div>
+          </CollapsibleRightSidebar>
         </div>
-
-        {/* Right sidebar */}
-        <CollapsibleRightSidebar open={propertiesOpen} width="18rem">
-          <div className="flex-1 overflow-y-auto">
-            <div className="flex flex-col p-4">
-              <CollapsibleSection title="Properties" defaultOpen>
-                <PropertyRow
-                  label="Type"
-                  value={getDisplayLabelForWorkItemType(
-                    currentItem.type,
-                    team?.settings.experience
-                  )}
-                />
-                <PropertySelect
-                  label="Status"
-                  value={currentItem.status}
-                  disabled={!editable}
-                  options={statusOptions}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      status: value as WorkItem["status"],
-                    })
-                  }
-                />
-                <PropertySelect
-                  label="Priority"
-                  value={currentItem.priority}
-                  disabled={!editable}
-                  options={Object.entries(priorityMeta).map(
-                    ([value, meta]) => ({
-                      value,
-                      label: meta.label,
-                    })
-                  )}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      priority: value as Priority,
-                    })
-                  }
-                />
-                <PropertySelect
-                  label="Assignee"
-                  value={currentItem.assigneeId ?? "unassigned"}
-                  disabled={!editable}
-                  options={[
-                    { value: "unassigned", label: "Assign" },
-                    ...teamMembers.map((user) => ({
-                      value: user.id,
-                      label: user.name,
-                    })),
-                  ]}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      assigneeId: value === "unassigned" ? null : value,
-                    })
-                  }
-                />
-                <PropertySelect
-                  label="Parent"
-                  value={currentItem.parentId ?? "none"}
-                  disabled={
-                    !editable ||
-                    (parentOptions.length === 1 && !currentItem.parentId)
-                  }
-                  options={parentOptions}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      parentId: value === "none" ? null : value,
-                    })
-                  }
-                />
-              </CollapsibleSection>
-
-              <Separator className="my-3" />
-
-              <CollapsibleSection title="Schedule" defaultOpen>
-                <PropertyDateField
-                  label="Start date"
-                  value={currentItem.startDate}
-                  disabled={!editable}
-                  onValueChange={handleStartDateChange}
-                />
-                <PropertyDateField
-                  label="End date"
-                  value={displayedEndDate}
-                  disabled={!editable}
-                  onValueChange={handleEndDateChange}
-                />
-              </CollapsibleSection>
-
-              <Separator className="my-3" />
-
-              <CollapsibleSection title="Labels" defaultOpen>
-                <WorkItemLabelsEditor item={currentItem} editable={editable} />
-              </CollapsibleSection>
-
-              <Separator className="my-3" />
-
-              <CollapsibleSection title="Project" defaultOpen>
-                <PropertySelect
-                  label=""
-                  value={currentItem.primaryProjectId ?? "none"}
-                  disabled={!editable}
-                  options={[
-                    { value: "none", label: "No project" },
-                    ...teamProjects.map((project) => ({
-                      value: project.id,
-                      label: project.name,
-                    })),
-                  ]}
-                  onValueChange={handleProjectChange}
-                />
-              </CollapsibleSection>
-            </div>
-          </div>
-        </CollapsibleRightSidebar>
       </div>
-    </div>
+      <ConfirmDialog
+        open={projectConfirmOpen}
+        onOpenChange={handleProjectConfirmOpenChange}
+        title="Update project for hierarchy"
+        description="Changing the project for this item will also update all parent and child items in this hierarchy."
+        confirmLabel="Update"
+        variant="default"
+        onConfirm={handleConfirmProjectChange}
+      />
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete item"
+        description={`${cascadeMessage} This can't be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deletingItem}
+        onConfirm={() => void handleDeleteItem()}
+      />
+    </>
   )
 }
 
@@ -1832,35 +2452,37 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore()
   const projectModel = getProjectDetailModel(data, projectId)
   const defaultProjectPresentation = projectModel?.project
-    ? projectModel.project.presentation ??
-      createDefaultProjectPresentationConfig(projectModel.project.templateType, {
-        layout: getTemplateDefaultsForTeam(
-          projectModel.team,
-          projectModel.project.templateType
-        ).defaultViewLayout,
-      })
+    ? (projectModel.project.presentation ??
+      createDefaultProjectPresentationConfig(
+        projectModel.project.templateType,
+        {
+          layout: getTemplateDefaultsForTeam(
+            projectModel.team,
+            projectModel.project.templateType
+          ).defaultViewLayout,
+        }
+      ))
     : null
   const initialProjectPresentation =
     defaultProjectPresentation ??
     createDefaultProjectPresentationConfig("software-delivery")
   const [propertiesOpen, setPropertiesOpen] = useState(true)
-  const [projectTab, setProjectTab] = useState<"overview" | "activity" | "issues">(
-    "overview"
-  )
-  const [projectItemsLayout, setProjectItemsLayout] =
-    useState<ViewDefinition["layout"]>(() => initialProjectPresentation.layout)
+  const [projectTab, setProjectTab] = useState<
+    "overview" | "activity" | "issues"
+  >("overview")
+  const [projectItemsLayout, setProjectItemsLayout] = useState<
+    ViewDefinition["layout"]
+  >(() => initialProjectPresentation.layout)
   const [projectItemsGrouping, setProjectItemsGrouping] = useState<GroupField>(
     () => initialProjectPresentation.grouping
   )
   const [projectItemsSubGrouping, setProjectItemsSubGrouping] =
     useState<GroupField | null>(null)
-  const [projectItemsOrdering, setProjectItemsOrdering] = useState<
-    OrderingField
-  >(() => initialProjectPresentation.ordering)
-  const [projectItemsFilters, setProjectItemsFilters] =
-    useState<ViewDefinition["filters"]>(() =>
-      cloneViewFilters(initialProjectPresentation.filters)
-    )
+  const [projectItemsOrdering, setProjectItemsOrdering] =
+    useState<OrderingField>(() => initialProjectPresentation.ordering)
+  const [projectItemsFilters, setProjectItemsFilters] = useState<
+    ViewDefinition["filters"]
+  >(() => cloneViewFilters(initialProjectPresentation.filters))
   const [projectItemsDisplayProps, setProjectItemsDisplayProps] = useState<
     DisplayProperty[]
   >(() => [...initialProjectPresentation.displayProps])
@@ -1998,7 +2620,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <SidebarTrigger className="size-5 shrink-0" />
@@ -2047,19 +2669,19 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 >
                   <TabsTrigger
                     value="overview"
-                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
                   >
                     Overview
                   </TabsTrigger>
                   <TabsTrigger
                     value="activity"
-                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
                   >
                     Activity
                   </TabsTrigger>
                   <TabsTrigger
                     value="issues"
-                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
                   >
                     Items
                   </TabsTrigger>
@@ -2067,7 +2689,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 <div
                   className={cn(
                     "flex items-center gap-1 pb-1",
-                    projectTab !== "issues" && "invisible pointer-events-none"
+                    projectTab !== "issues" && "pointer-events-none invisible"
                   )}
                 >
                   <FilterPopover
@@ -2140,7 +2762,10 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 {milestone.targetDate
-                                  ? format(new Date(milestone.targetDate), "MMM d")
+                                  ? format(
+                                      new Date(milestone.targetDate),
+                                      "MMM d"
+                                    )
                                   : "No date"}
                               </span>
                             </div>
@@ -2204,6 +2829,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                         data={data}
                         items={visibleProjectItems}
                         view={projectItemsView}
+                        editable={editable}
                       />
                     ) : null}
                     {projectItemsView.layout === "timeline" ? (
@@ -2246,6 +2872,18 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                   value={project.priority}
                   disabled={!editable}
                   options={priorityOptions}
+                  renderValue={(value, label) => (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <PriorityDot priority={value} />
+                      <span className="truncate">{label}</span>
+                    </div>
+                  )}
+                  renderOption={(value, label) => (
+                    <div className="flex items-center gap-2">
+                      <PriorityDot priority={value} />
+                      <span>{label}</span>
+                    </div>
+                  )}
                   onValueChange={(value) =>
                     useAppStore.getState().updateProject(project.id, {
                       priority: value as Priority,
@@ -2307,72 +2945,279 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 }
 
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
+  const router = useRouter()
   const data = useAppStore()
   const document = data.documents.find((entry) => entry.id === documentId)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [draftTitle, setDraftTitle] = useState("")
+  const [documentStats, setDocumentStats] = useState({
+    words: 0,
+    characters: 0,
+  })
+  const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
+    DocumentPresenceViewer[]
+  >([])
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingDocument, setDeletingDocument] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setIsEditingTitle(false)
+  }, [document?.id])
+
+  useEffect(() => {
+    if (!document || document.kind === "item-description" || isEditingTitle) {
+      return
+    }
+
+    setDraftTitle(document.title)
+  }, [document?.id, document?.kind, document?.title, isEditingTitle])
+
+  useEffect(() => {
+    if (!isEditingTitle) {
+      return
+    }
+
+    titleInputRef.current?.focus()
+    titleInputRef.current?.select()
+  }, [isEditingTitle])
+
+  useEffect(() => {
+    if (!document || document.kind === "item-description") {
+      setDocumentPresenceViewers([])
+      return
+    }
+
+    let cancelled = false
+    let heartbeatTimeoutId: number | null = null
+    const activeDocumentId = document.id
+    const sessionId = getDocumentPresenceSessionId()
+
+    function clearHeartbeatTimeout() {
+      if (heartbeatTimeoutId !== null) {
+        window.clearTimeout(heartbeatTimeoutId)
+        heartbeatTimeoutId = null
+      }
+    }
+
+    function scheduleHeartbeat(delayMs: number) {
+      clearHeartbeatTimeout()
+
+      if (cancelled) {
+        return
+      }
+
+      heartbeatTimeoutId = window.setTimeout(() => {
+        void sendHeartbeat()
+      }, delayMs)
+    }
+
+    async function sendHeartbeat() {
+      if (cancelled) {
+        return
+      }
+
+      try {
+        const viewers = await syncHeartbeatDocumentPresence(
+          activeDocumentId,
+          sessionId
+        )
+
+        if (!cancelled) {
+          setDocumentPresenceViewers(viewers)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to sync document presence", error)
+        }
+      } finally {
+        scheduleHeartbeat(DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS)
+      }
+    }
+
+    function leaveDocument(options?: { keepalive?: boolean }) {
+      clearHeartbeatTimeout()
+
+      if (!cancelled) {
+        setDocumentPresenceViewers([])
+      }
+
+      void syncClearDocumentPresence(activeDocumentId, sessionId, {
+        keepalive: options?.keepalive,
+      }).catch((error) => {
+        if (!cancelled && window.document.visibilityState === "visible") {
+          console.error("Failed to clear document presence", error)
+        }
+      })
+    }
+
+    const handleVisibilityChange = () => {
+      if (window.document.visibilityState === "visible") {
+        void sendHeartbeat()
+      }
+    }
+    const handlePageHide = () => {
+      leaveDocument({ keepalive: true })
+    }
+
+    void sendHeartbeat()
+
+    window.document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("pagehide", handlePageHide)
+
+    return () => {
+      cancelled = true
+      clearHeartbeatTimeout()
+      window.document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      )
+      window.removeEventListener("pagehide", handlePageHide)
+      void syncClearDocumentPresence(activeDocumentId, sessionId, {
+        keepalive: true,
+      }).catch(() => {})
+    }
+  }, [document?.id, document?.kind])
 
   if (!document || document.kind === "item-description") {
+    if (deletingDocument) {
+      return null
+    }
+
     return <MissingState title="Document not found" />
   }
 
   const team = document.teamId ? getTeam(data, document.teamId) : null
-  const editable =
-    document.kind === "team-document"
-      ? !!team && canEditTeam(data, team.id)
-      : true
-  const updater = getUser(data, document.updatedBy ?? document.createdBy)
+  const editable = canEditDocumentInUi(data, document)
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
+  const currentDocumentId = document.id
+  const saveTitle = () => {
+    const normalizedTitle = draftTitle.trim() || "Untitled document"
+    setIsEditingTitle(false)
+    setDraftTitle(normalizedTitle)
+
+    if (normalizedTitle !== document.title) {
+      useAppStore.getState().renameDocument(document.id, normalizedTitle)
+    }
+  }
+
+  async function handleDeleteDocument() {
+    setDeletingDocument(true)
+
+    try {
+      await useAppStore.getState().deleteDocument(currentDocumentId)
+      setDeleteDialogOpen(false)
+      router.push(backHref)
+    } finally {
+      setDeletingDocument(false)
+    }
+  }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
-      {/* Breadcrumb header */}
-      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <SidebarTrigger className="size-5 shrink-0" />
-          <Link
-            href={backHref}
-            className="text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {getDocumentContextLabel(data, document)}
-          </Link>
-          <CaretRight className="size-3 text-muted-foreground" />
-          <span className="truncate font-medium">{document.title}</span>
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-          {updater ? (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Breadcrumb header */}
+        <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm">
+            <SidebarTrigger className="size-5 shrink-0" />
+            <Link
+              href={backHref}
+              className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Docs
+            </Link>
+            <span className="text-muted-foreground/50">/</span>
+            {editable ? (
+              isEditingTitle ? (
+                <Input
+                  ref={titleInputRef}
+                  value={draftTitle}
+                  onBlur={saveTitle}
+                  onChange={(event) => setDraftTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      event.currentTarget.blur()
+                    }
+                  }}
+                  className="h-7 w-full max-w-sm border-none bg-transparent px-1 py-0 text-sm font-medium shadow-none focus-visible:bg-background focus-visible:ring-1"
+                  placeholder="Untitled document"
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="max-w-full min-w-0 truncate rounded-sm px-1 py-0.5 font-medium transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() => {
+                    setDraftTitle(document.title)
+                    setIsEditingTitle(true)
+                  }}
+                >
+                  {document.title}
+                </button>
+              )
+            ) : (
+              <span className="truncate font-medium">{document.title}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>
-              Edited by {updater.name} ·{" "}
-              {format(new Date(document.updatedAt), "MMM d, h:mm a")}
+              {documentStats.words} words · {documentStats.characters}{" "}
+              characters
             </span>
-          ) : null}
+            <DocumentPresenceAvatarGroup viewers={documentPresenceViewers} />
+            {editable ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <Trash className="size-3.5" />
+                Delete
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Full canvas editor */}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <RichTextEditor
+            content={document.content}
+            editable={editable}
+            fullPage
+            showStats={false}
+            placeholder="Start writing…"
+            mentionCandidates={
+              team
+                ? getTeamMembers(data, team.id)
+                : getWorkspaceUsers(data, data.currentWorkspaceId)
+            }
+            onStatsChange={setDocumentStats}
+            onChange={(content) =>
+              useAppStore.getState().updateDocumentContent(document.id, content)
+            }
+            onUploadAttachment={
+              document.kind === "team-document"
+                ? (file) =>
+                    useAppStore
+                      .getState()
+                      .uploadAttachment("document", document.id, file)
+                : undefined
+            }
+          />
         </div>
       </div>
-
-      {/* Full canvas editor */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <RichTextEditor
-          content={document.content}
-          editable={editable}
-          fullPage
-          placeholder="Start writing…"
-          mentionCandidates={
-            team
-              ? getTeamMembers(data, team.id)
-              : getWorkspaceUsers(data, data.currentWorkspaceId)
-          }
-          onChange={(content) =>
-            useAppStore.getState().updateDocumentContent(document.id, content)
-          }
-          onUploadAttachment={
-            document.kind === "team-document"
-              ? (file) =>
-                  useAppStore
-                    .getState()
-                    .uploadAttachment("document", document.id, file)
-              : undefined
-          }
-        />
-      </div>
-    </div>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete document"
+        description="This document will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deletingDocument}
+        onConfirm={() => void handleDeleteDocument()}
+      />
+    </>
   )
 }
 
@@ -2429,7 +3274,7 @@ function WorkSurface({
       : filteredItems
 
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Screen header with tabs */}
       <div className={SCREEN_HEADER_CLASS_NAME}>
         <div className="flex min-w-0 items-center gap-2">
@@ -2482,7 +3327,7 @@ function WorkSurface({
       ) : null}
 
       {/* View content */}
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {activeView ? (
           <>
             {activeView.layout === "board" ? (
@@ -2494,7 +3339,12 @@ function WorkSurface({
               />
             ) : null}
             {activeView.layout === "list" ? (
-              <ListView data={data} items={visibleItems} view={activeView} />
+              <ListView
+                data={data}
+                items={visibleItems}
+                view={activeView}
+                editable={editable}
+              />
             ) : null}
             {activeView.layout === "timeline" ? (
               <TimelineView
@@ -2632,9 +3482,7 @@ function FilterPopover({
                   key={priority}
                   label={meta.label}
                   active={view.filters.priority.includes(priority as Priority)}
-                  onClick={() =>
-                    handleToggleFilterValue("priority", priority)
-                  }
+                  onClick={() => handleToggleFilterValue("priority", priority)}
                 />
               ))}
             </div>
@@ -2984,6 +3832,51 @@ function buildNestedListRows(items: WorkItem[]) {
   return ordered
 }
 
+function parseGroupDropTarget(id: string, scope: "board" | "list") {
+  const [dropScope, groupValue, subgroupValue] = id.split("::")
+
+  if (dropScope === `${scope}-group` && groupValue) {
+    return {
+      groupValue,
+      subgroupValue: undefined,
+    }
+  }
+
+  if (dropScope === scope && groupValue) {
+    return {
+      groupValue,
+      subgroupValue,
+    }
+  }
+
+  return null
+}
+
+function buildGroupedWorkItemPatch({
+  data,
+  items,
+  itemId,
+  view,
+  groupValue,
+  subgroupValue,
+}: {
+  data: AppData
+  items: WorkItem[]
+  itemId: string
+  view: Pick<ViewDefinition, "grouping" | "subGrouping">
+  groupValue: string
+  subgroupValue?: string
+}) {
+  const item = items.find((entry) => entry.id === itemId) ?? null
+
+  return {
+    ...getPatchForField(data, item, view.grouping, groupValue),
+    ...(subgroupValue === undefined
+      ? {}
+      : getPatchForField(data, item, view.subGrouping, subgroupValue)),
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Board view                                                         */
 /* ------------------------------------------------------------------ */
@@ -2999,7 +3892,9 @@ function BoardView({
   view: ViewDefinition
   editable: boolean
 }) {
-  const groups = [...buildItemGroups(data, items, view).entries()]
+  const groups = [
+    ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
+  ]
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const hiddenGroups = groups.filter(([groupName]) =>
     view.hiddenState.groups.includes(groupName)
@@ -3019,25 +3914,20 @@ function BoardView({
       return
     }
 
-    const [scope, groupValue, subgroupValue] = String(event.over.id).split("::")
-    if (scope !== "board") {
+    const target = parseGroupDropTarget(String(event.over.id), "board")
+
+    if (!target) {
       return
     }
 
-    const patch = {
-      ...getPatchForField(
-        data,
-        items.find((item) => item.id === String(event.active.id)) ?? null,
-        view.grouping,
-        groupValue
-      ),
-      ...getPatchForField(
-        data,
-        items.find((item) => item.id === String(event.active.id)) ?? null,
-        view.subGrouping,
-        subgroupValue
-      ),
-    }
+    const patch = buildGroupedWorkItemPatch({
+      data,
+      items,
+      itemId: String(event.active.id),
+      view,
+      groupValue: target.groupValue,
+      subgroupValue: target.subgroupValue,
+    })
 
     useAppStore.getState().updateWorkItem(String(event.active.id), patch)
   }
@@ -3048,6 +3938,7 @@ function BoardView({
     <DndContext
       collisionDetection={closestCorners}
       onDragStart={handleDragStart}
+      onDragCancel={() => setActiveItemId(null)}
       onDragEnd={handleDragEnd}
     >
       <ScrollArea className="w-full">
@@ -3065,8 +3956,7 @@ function BoardView({
                 key={groupName}
                 className="flex w-[20rem] shrink-0 flex-col rounded-lg bg-muted/50"
               >
-                {/* Column header */}
-                <div className="flex items-center justify-between px-3 py-2.5">
+                <BoardGroupHeader id={`board-group::${groupName}`}>
                   <div className="flex items-center gap-2">
                     {groupAdornment}
                     <span className="text-sm font-medium">{groupLabel}</span>
@@ -3082,7 +3972,7 @@ function BoardView({
                       <Plus className="size-3.5" />
                     </Button>
                   </div>
-                </div>
+                </BoardGroupHeader>
                 {/* Column items */}
                 <div className="flex flex-col gap-1.5 px-2 pb-2">
                   {Array.from(subgroups.entries()).map(
@@ -3116,6 +4006,11 @@ function BoardView({
                       )
                     }
                   )}
+                  {subgroups.size === 0 ? (
+                    <div className="flex min-h-20 items-center justify-center rounded-md border border-dashed border-border/60 px-3 text-xs text-muted-foreground">
+                      {editable ? "Drop items onto the header" : "No items"}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             )
@@ -3135,8 +4030,8 @@ function BoardView({
                 className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                 onClick={() =>
                   useAppStore
-                  .getState()
-                  .toggleViewHiddenValue(view.id, "groups", groupName)
+                    .getState()
+                    .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
                 {getGroupValueLabel(view.grouping, groupName)}
@@ -3165,13 +4060,18 @@ function ListView({
   data,
   items,
   view,
+  editable,
 }: {
   data: AppData
   items: WorkItem[]
   view: ViewDefinition
+  editable: boolean
 }) {
-  const groups = [...buildItemGroups(data, items, view).entries()]
+  const groups = [
+    ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
+  ]
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [activeItemId, setActiveItemId] = useState<string | null>(null)
 
   function toggleGroup(groupName: string) {
     setCollapsedGroups((current) => {
@@ -3185,93 +4085,166 @@ function ListView({
     })
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    setActiveItemId(String(event.active.id))
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveItemId(null)
+
+    if (!editable || !event.over) {
+      return
+    }
+
+    const target = parseGroupDropTarget(String(event.over.id), "list")
+
+    if (!target) {
+      return
+    }
+
+    const patch = buildGroupedWorkItemPatch({
+      data,
+      items,
+      itemId: String(event.active.id),
+      view,
+      groupValue: target.groupValue,
+      subgroupValue: target.subgroupValue,
+    })
+
+    useAppStore.getState().updateWorkItem(String(event.active.id), patch)
+  }
+
+  const activeItem = items.find((item) => item.id === activeItemId) ?? null
+
   return (
-    <div className="flex flex-col">
-      {groups.map(([groupName, subgroups]) => {
-        if (view.hiddenState.groups.includes(groupName)) {
-          return null
-        }
+    <DndContext
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragCancel={() => setActiveItemId(null)}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="flex flex-col">
+        {groups.map(([groupName, subgroups]) => {
+          if (view.hiddenState.groups.includes(groupName)) {
+            return null
+          }
 
-        const groupCount = Array.from(subgroups.values()).flat().length
-        const isCollapsed = collapsedGroups.has(groupName)
-        const groupLabel = getGroupValueLabel(view.grouping, groupName)
-        const groupAdornment = getGroupValueAdornment(view.grouping, groupName)
+          const groupCount = Array.from(subgroups.values()).flat().length
+          const isCollapsed = collapsedGroups.has(groupName)
+          const groupLabel = getGroupValueLabel(view.grouping, groupName)
+          const groupAdornment = getGroupValueAdornment(
+            view.grouping,
+            groupName
+          )
 
-        return (
-          <div key={groupName}>
-            {/* Group header */}
-            <button
-              className="flex w-full items-center gap-2 border-b px-4 py-2 transition-colors hover:bg-accent/50"
-              onClick={() => toggleGroup(groupName)}
-            >
-              {isCollapsed ? (
-                <CaretRight className="size-3 text-muted-foreground" />
-              ) : (
-                <CaretDown className="size-3 text-muted-foreground" />
-              )}
-              {groupAdornment}
-              <span className="text-sm font-medium">{groupLabel}</span>
-              <span className="text-xs text-muted-foreground">
-                {groupCount}
-              </span>
-            </button>
+          return (
+            <div key={groupName}>
+              <ListGroupHeader
+                id={`list-group::${groupName}`}
+                groupAdornment={groupAdornment}
+                groupCount={groupCount}
+                groupLabel={groupLabel}
+                isCollapsed={isCollapsed}
+                onClick={() => toggleGroup(groupName)}
+              />
 
-            {/* Group items */}
-            {!isCollapsed && (
-              <div className="flex flex-col">
-                {Array.from(subgroups.entries()).map(
-                  ([subgroupName, subItems]) => {
-                    if (view.hiddenState.subgroups.includes(subgroupName)) {
-                      return null
+              {!isCollapsed ? (
+                <div className="flex flex-col">
+                  {Array.from(subgroups.entries()).map(
+                    ([subgroupName, subItems]) => {
+                      if (view.hiddenState.subgroups.includes(subgroupName)) {
+                        return null
+                      }
+
+                      return (
+                        <div key={`${groupName}-${subgroupName}`}>
+                          {view.subGrouping ? (
+                            <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
+                              {getGroupValueLabel(
+                                view.subGrouping,
+                                subgroupName
+                              )}
+                            </div>
+                          ) : null}
+                          <ListDropLane
+                            id={`list::${groupName}::${subgroupName}`}
+                          >
+                            {buildNestedListRows(subItems).map(
+                              ({ item, depth }) =>
+                                editable ? (
+                                  <DraggableListRow
+                                    key={item.id}
+                                    data={data}
+                                    item={item}
+                                    displayProps={view.displayProps}
+                                    depth={depth}
+                                  />
+                                ) : (
+                                  <ListRow
+                                    key={item.id}
+                                    data={data}
+                                    item={item}
+                                    displayProps={view.displayProps}
+                                    depth={depth}
+                                  />
+                                )
+                            )}
+                          </ListDropLane>
+                        </div>
+                      )
                     }
+                  )}
+                  {subgroups.size === 0 ? (
+                    <div className="border-b px-8 py-3 text-xs text-muted-foreground">
+                      {editable
+                        ? "Drop items onto the group header"
+                        : "No items"}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
 
-                    return (
-                      <div key={`${groupName}-${subgroupName}`}>
-                        {view.subGrouping ? (
-                          <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
-                            {getGroupValueLabel(view.subGrouping, subgroupName)}
-                          </div>
-                        ) : null}
-                        {buildNestedListRows(subItems).map(({ item, depth }) => (
-                          <ListRow
-                            key={item.id}
-                            data={data}
-                            item={item}
-                            displayProps={view.displayProps}
-                            depth={depth}
-                          />
-                        ))}
-                      </div>
-                    )
-                  }
-                )}
-              </div>
-            )}
+        {view.hiddenState.groups.length > 0 ? (
+          <div className="border-t px-4 py-3">
+            <div className="mb-2 text-xs text-muted-foreground">
+              Hidden rows
+            </div>
+            {view.hiddenState.groups.map((groupName) => (
+              <button
+                key={groupName}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                onClick={() =>
+                  useAppStore
+                    .getState()
+                    .toggleViewHiddenValue(view.id, "groups", groupName)
+                }
+              >
+                {getGroupValueAdornment(view.grouping, groupName)}
+                <span>{getGroupValueLabel(view.grouping, groupName)}</span>
+                <span className="ml-auto text-xs text-muted-foreground">0</span>
+              </button>
+            ))}
           </div>
-        )
-      })}
+        ) : null}
+      </div>
 
-      {view.hiddenState.groups.length > 0 ? (
-        <div className="border-t px-4 py-3">
-          <div className="mb-2 text-xs text-muted-foreground">Hidden rows</div>
-          {view.hiddenState.groups.map((groupName) => (
-            <button
-              key={groupName}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-              onClick={() =>
-                useAppStore
-                  .getState()
-                  .toggleViewHiddenValue(view.id, "groups", groupName)
-              }
-            >
-              {getGroupValueAdornment(view.grouping, groupName)}
-              <span>{getGroupValueLabel(view.grouping, groupName)}</span>
-              <span className="ml-auto text-xs text-muted-foreground">0</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+      <DragOverlay>
+        {activeItem ? (
+          <div className="w-full max-w-4xl rounded-md border bg-card shadow-sm">
+            <ListRowBody
+              data={data}
+              item={activeItem}
+              displayProps={view.displayProps}
+              depth={0}
+              interactive={false}
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   )
 }
 
@@ -3783,16 +4756,11 @@ function IssueActionMenuContent({
     kind === "dropdown" ? DropdownMenuSubContent : ContextMenuSubContent
   const MenuItem: ElementType =
     kind === "dropdown" ? DropdownMenuItem : ContextMenuItem
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   async function handleDelete() {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete ${item.key}? This can't be undone.`)
-    ) {
-      return
-    }
-
     await useAppStore.getState().deleteWorkItem(item.id)
+    setDeleteDialogOpen(false)
   }
 
   return (
@@ -3874,7 +4842,7 @@ function IssueActionMenuContent({
             variant="destructive"
             onSelect={(event: Event) => {
               event.preventDefault()
-              void handleDelete()
+              setDeleteDialogOpen(true)
             }}
           >
             <Trash className="size-4" />
@@ -3882,6 +4850,15 @@ function IssueActionMenuContent({
           </MenuItem>
         </>
       ) : null}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title={`Delete ${item.key}`}
+        description="This work item will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={() => void handleDelete()}
+      />
     </>
   )
 }
@@ -3953,6 +4930,157 @@ function WorkItemTypeBadge({
   )
 }
 
+function ListGroupHeader({
+  id,
+  groupAdornment,
+  groupCount,
+  groupLabel,
+  isCollapsed,
+  onClick,
+}: {
+  id: string
+  groupAdornment: React.ReactNode
+  groupCount: number
+  groupLabel: string
+  isCollapsed: boolean
+  onClick: () => void
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn("transition-colors", isOver && "bg-accent/50")}
+    >
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 border-b px-4 py-2 transition-colors hover:bg-accent/50"
+        onClick={onClick}
+      >
+        {isCollapsed ? (
+          <CaretRight className="size-3 text-muted-foreground" />
+        ) : (
+          <CaretDown className="size-3 text-muted-foreground" />
+        )}
+        {groupAdornment}
+        <span className="text-sm font-medium">{groupLabel}</span>
+        <span className="text-xs text-muted-foreground">{groupCount}</span>
+      </button>
+    </div>
+  )
+}
+
+function ListDropLane({
+  id,
+  children,
+}: {
+  id: string
+  children: React.ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex flex-col transition-colors",
+        isOver && "bg-accent/20"
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+function ListRowBody({
+  data,
+  item,
+  displayProps,
+  depth,
+  dragHandle,
+  interactive = true,
+}: {
+  data: AppData
+  item: WorkItem
+  displayProps: DisplayProperty[]
+  depth: number
+  dragHandle?: React.ReactNode
+  interactive?: boolean
+}) {
+  const content = (
+    <>
+      <span className="w-20 shrink-0 text-xs text-muted-foreground">
+        {item.key}
+      </span>
+      <StatusIcon status={item.status} />
+      <div className="min-w-0 flex-1" style={{ paddingLeft: depth * 16 }}>
+        <div className="truncate text-sm">{item.title}</div>
+      </div>
+      <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
+      {displayProps.includes("priority") ? (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {priorityMeta[item.priority].label}
+        </span>
+      ) : null}
+      {displayProps.includes("assignee") ? (
+        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+          {item.assigneeId
+            ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
+            : ""}
+        </div>
+      ) : null}
+      {displayProps.includes("project") ? (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {getProject(data, item.primaryProjectId)?.name ?? ""}
+        </span>
+      ) : null}
+      {displayProps.includes("created") ? (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {format(new Date(item.createdAt), "MMM d")}
+        </span>
+      ) : null}
+      {displayProps.includes("updated") ? (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {format(new Date(item.updatedAt), "MMM d")}
+        </span>
+      ) : null}
+    </>
+  )
+
+  const body = (
+    <div className="group flex items-center gap-3 border-b px-4 py-2 transition-colors hover:bg-accent/50">
+      {interactive ? (
+        <IssueActionMenu
+          data={data}
+          item={item}
+          triggerClassName="opacity-0 transition-opacity group-hover:opacity-100"
+        />
+      ) : (
+        <span className="size-4 shrink-0" />
+      )}
+      {dragHandle}
+      {interactive ? (
+        <Link
+          href={`/items/${item.id}`}
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          {content}
+        </Link>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-3">{content}</div>
+      )}
+    </div>
+  )
+
+  return interactive ? (
+    <IssueContextMenu data={data} item={item}>
+      {body}
+    </IssueContextMenu>
+  ) : (
+    body
+  )
+}
+
 function ListRow({
   data,
   item,
@@ -3965,61 +5093,78 @@ function ListRow({
   depth: number
 }) {
   return (
-    <IssueContextMenu data={data} item={item}>
-      <Link
-        href={`/items/${item.id}`}
-        className="group flex items-center gap-3 border-b px-4 py-2 transition-colors hover:bg-accent/50"
-      >
-        <IssueActionMenu
-          data={data}
-          item={item}
-          triggerClassName="opacity-0 transition-opacity group-hover:opacity-100"
-        />
+    <ListRowBody
+      data={data}
+      item={item}
+      displayProps={displayProps}
+      depth={depth}
+    />
+  )
+}
 
-        {/* Issue key */}
-        <span className="w-20 shrink-0 text-xs text-muted-foreground">
-          {item.key}
-        </span>
+function DraggableListRow({
+  data,
+  item,
+  displayProps,
+  depth,
+}: {
+  data: AppData
+  item: WorkItem
+  displayProps: DisplayProperty[]
+  depth: number
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: item.id,
+    })
 
-        {/* Status icon */}
-        <StatusIcon status={item.status} />
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={cn(isDragging ? "opacity-60" : "opacity-100")}
+    >
+      <ListRowBody
+        data={data}
+        item={item}
+        displayProps={displayProps}
+        depth={depth}
+        dragHandle={
+          <button
+            type="button"
+            className="cursor-grab rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
+            aria-label={`Drag ${item.title}`}
+            onClick={stopMenuEvent}
+            {...listeners}
+            {...attributes}
+          >
+            <DotsSixVertical className="size-4" />
+          </button>
+        }
+      />
+    </div>
+  )
+}
 
-        {/* Title */}
-        <div className="min-w-0 flex-1" style={{ paddingLeft: depth * 16 }}>
-          <div className="truncate text-sm">{item.title}</div>
-        </div>
+function BoardGroupHeader({
+  id,
+  children,
+}: {
+  id: string
+  children: React.ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id })
 
-        {/* Display properties */}
-        <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
-        {displayProps.includes("priority") && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {priorityMeta[item.priority].label}
-          </span>
-        )}
-        {displayProps.includes("assignee") && (
-          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-            {item.assigneeId
-              ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
-              : ""}
-          </div>
-        )}
-        {displayProps.includes("project") && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {getProject(data, item.primaryProjectId)?.name ?? ""}
-          </span>
-        )}
-        {displayProps.includes("created") && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {format(new Date(item.createdAt), "MMM d")}
-          </span>
-        )}
-        {displayProps.includes("updated") && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {format(new Date(item.updatedAt), "MMM d")}
-          </span>
-        )}
-      </Link>
-    </IssueContextMenu>
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex items-center justify-between px-3 py-2.5 transition-colors",
+        isOver && "bg-accent/50"
+      )}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -4037,7 +5182,7 @@ function BoardDropLane({
       ref={setNodeRef}
       className={cn(
         "flex min-h-8 flex-col gap-2 rounded-md p-1 transition-colors",
-        isOver ? "bg-accent/50" : ""
+        isOver && "bg-accent/50"
       )}
     >
       {children}
@@ -4594,7 +5739,10 @@ function CreateProjectDialog({
   const templateType = getDefaultTemplateTypeForTeamExperience(
     settingsTeam?.settings.experience
   )
-  const templateDefaults = getTemplateDefaultsForTeam(settingsTeam, templateType)
+  const templateDefaults = getTemplateDefaultsForTeam(
+    settingsTeam,
+    templateType
+  )
   const teamMembers = settingsTeam ? getTeamMembers(data, teamId) : []
   const teamStatuses = getStatusOrderForTeam(settingsTeam)
   const availableLabels = [...data.labels].sort((left, right) =>
@@ -4719,7 +5867,11 @@ function CreateProjectDialog({
           </div>
 
           <div className="mt-5 flex items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -4849,17 +6001,17 @@ function ProjectPresentationPopover({
           <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
             Configuration
           </div>
-            <ConfigSelect
-              label="Grouping"
-              value={presentation.grouping}
-              options={groupingOptions.map((option) => ({
-                value: option,
-                label: getGroupFieldOptionLabel(option as GroupField),
-              }))}
-              onValueChange={(value) =>
-                onUpdatePresentation({ grouping: value as GroupField })
-              }
-            />
+          <ConfigSelect
+            label="Grouping"
+            value={presentation.grouping}
+            options={groupingOptions.map((option) => ({
+              value: option,
+              label: getGroupFieldOptionLabel(option as GroupField),
+            }))}
+            onValueChange={(value) =>
+              onUpdatePresentation({ grouping: value as GroupField })
+            }
+          />
           <ConfigSelect
             label="Ordering"
             value={presentation.ordering}
@@ -5090,39 +6242,43 @@ function CreateDocumentDialog({
     | { kind: "workspace-document" | "private-document"; workspaceId: string }
   disabled: boolean
 }) {
-  const defaultTitle =
+  const data = useAppStore()
+  const team =
+    input.kind === "team-document" ? getTeam(data, input.teamId) : null
+  const contextLabel =
     input.kind === "private-document"
-      ? "New Private Document"
+      ? "Private document"
       : input.kind === "workspace-document"
-        ? "New Workspace Document"
-        : "New Team Document"
-  const [title, setTitle] = useState(defaultTitle)
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setTitle(defaultTitle)
+        ? "Workspace document"
+        : team
+          ? `Team document · ${team.name}`
+          : "Team document"
+  const [title, setTitle] = useState("")
+
+  useEffect(() => {
+    if (open) {
+      setTitle("")
     }
-    onOpenChange(nextOpen)
-  }
+  }, [input.kind, open])
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
         <div className="px-5 pt-5 pb-4">
-          <DialogHeader className="mb-3 p-0">
+          <DialogHeader className="items-start gap-1 p-0">
             <DialogTitle className="text-base">New document</DialogTitle>
+            <p className="text-xs text-muted-foreground">{contextLabel}</p>
           </DialogHeader>
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Document title"
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            placeholder="Untitled document"
+            className="mt-3"
             autoFocus
           />
         </div>
 
-        <Separator />
-
-        <div className="flex items-center justify-end gap-2 px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -5130,7 +6286,10 @@ function CreateDocumentDialog({
             size="sm"
             disabled={disabled}
             onClick={() => {
-              useAppStore.getState().createDocument({ ...input, title })
+              const normalizedTitle = title.trim() || "Untitled document"
+              useAppStore
+                .getState()
+                .createDocument({ ...input, title: normalizedTitle })
               onOpenChange(false)
             }}
           >
@@ -5367,9 +6526,7 @@ function CreateWorkItemDialog({
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [status, setStatus] = useState<WorkStatus>(
-    teamStatuses.includes("todo")
-      ? "todo"
-      : (teamStatuses[0] ?? "backlog")
+    teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
   )
   const [priority, setPriority] = useState<Priority>(
     getTemplateDefaultsForTeam(
@@ -5386,7 +6543,8 @@ function CreateWorkItemDialog({
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
-  const activeTemplateType = selectedProject?.templateType ?? defaultTemplateType
+  const activeTemplateType =
+    selectedProject?.templateType ?? defaultTemplateType
   const availableItemTypes = getCreateDialogItemTypes(activeTemplateType)
   const fallbackType = getPreferredCreateDialogType(activeTemplateType)
   const selectedType =
@@ -5412,7 +6570,7 @@ function CreateWorkItemDialog({
     selectedLabels.length === 0
       ? "Labels"
       : selectedLabels.length === 1
-        ? selectedLabels[0]?.name ?? "Labels"
+        ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
 
   function toggleLabel(labelId: string) {
@@ -5717,7 +6875,11 @@ function CreateWorkItemDialog({
           ) : null}
 
           <div className="mt-5 flex items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
@@ -5899,7 +7061,7 @@ function CollectionDisplaySettingsPopover({
 }
 
 const SCREEN_HEADER_CLASS_NAME =
-  "flex min-h-10 items-center justify-between gap-2 border-b px-4 py-2"
+  "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2"
 
 function HeaderTitle({
   icon,
@@ -5944,6 +7106,54 @@ function StatusIcon({ status }: { status: string }) {
   }
   // backlog / default
   return <Circle className="size-3.5 shrink-0 text-muted-foreground/50" />
+}
+
+function buildPropertyStatusOptions(statuses: WorkStatus[]) {
+  const firstTerminalStatusIndex = statuses.findIndex(
+    (status) =>
+      status === "done" || status === "cancelled" || status === "duplicate"
+  )
+
+  return statuses.flatMap((status, index) => [
+    ...(index === firstTerminalStatusIndex
+      ? [{ value: PROPERTY_SELECT_SEPARATOR_VALUE, label: "" }]
+      : []),
+    {
+      value: status,
+      label: statusMeta[status].label,
+    },
+  ])
+}
+
+function getPriorityDotClassName(priority: string) {
+  if (priority === "urgent") {
+    return "bg-red-500"
+  }
+
+  if (priority === "high") {
+    return "bg-orange-500"
+  }
+
+  if (priority === "medium") {
+    return "bg-yellow-500"
+  }
+
+  if (priority === "low") {
+    return "bg-blue-500"
+  }
+
+  return "bg-muted-foreground/30"
+}
+
+function PriorityDot({ priority }: { priority: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex size-2 shrink-0 rounded-full",
+        getPriorityDotClassName(priority)
+      )}
+    />
+  )
 }
 
 function SidebarSection({
@@ -5998,27 +7208,51 @@ function PropertySelect({
   options,
   onValueChange,
   disabled,
+  renderValue,
+  renderOption,
 }: {
   label: string
   value: string
   options: Array<{ value: string; label: string }>
   onValueChange: (value: string) => void
   disabled?: boolean
+  renderValue?: (value: string, label: string) => ReactNode
+  renderOption?: (value: string, label: string) => ReactNode
 }) {
+  const selectedOption =
+    options.find(
+      (option) =>
+        option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
+        option.value === value
+    ) ?? null
+
   return (
     <div className="flex items-center justify-between py-1">
       {label && <span className="text-sm text-muted-foreground">{label}</span>}
       <Select disabled={disabled} value={value} onValueChange={onValueChange}>
         <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-sm shadow-none">
-          <SelectValue />
+          {renderValue ? (
+            renderValue(
+              selectedOption?.value ?? value,
+              selectedOption?.label ?? value
+            )
+          ) : (
+            <SelectValue />
+          )}
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
+            {options.map((option, index) =>
+              option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
+                <SelectSeparator key={`separator-${index}`} />
+              ) : (
+                <SelectItem key={option.value} value={option.value}>
+                  {renderOption
+                    ? renderOption(option.value, option.label)
+                    : option.label}
+                </SelectItem>
+              )
+            )}
           </SelectGroup>
         </SelectContent>
       </Select>
@@ -6255,10 +7489,32 @@ function FilterChip({
   )
 }
 
-function MissingState({ title }: { title: string }) {
+function MissingState({
+  icon: Icon,
+  title,
+  subtitle,
+}: {
+  icon?: ElementType
+  title: string
+  subtitle?: string
+}) {
+  if (!Icon && !subtitle) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+        {title}
+      </div>
+    )
+  }
+
   return (
-    <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
-      {title}
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <div className="flex max-w-sm flex-col items-center justify-center text-center">
+        {Icon ? <Icon className="size-8 text-muted-foreground/30" /> : null}
+        <div className="mt-3 text-sm font-medium">{title}</div>
+        {subtitle ? (
+          <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -6295,6 +7551,15 @@ function extractTextContent(content: string) {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function getDocumentPreview(document: Pick<Document, "content" | "title">) {
+  const rawPreview = extractTextContent(document.content)
+  const preview = rawPreview.startsWith(document.title)
+    ? rawPreview.slice(document.title.length).trim()
+    : rawPreview
+
+  return preview.length > 0 ? preview : ""
 }
 
 function getPatchForField(

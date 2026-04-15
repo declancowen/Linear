@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 
 import {
   ensureConvexUserReadyServer,
+  getErrorDiagnostics,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
@@ -35,7 +36,10 @@ async function getSnapshotVersionForUser(
       snapshotVersion,
     }
   } catch (error) {
-    console.error("Falling back to snapshot stream version 0", error)
+    console.error(
+      "Falling back to snapshot stream version 0",
+      getErrorDiagnostics(error)
+    )
 
     return {
       error: null,
@@ -155,7 +159,10 @@ export async function GET(request: Request) {
             }
           }
         } catch (error) {
-          console.error(error)
+          console.error(
+            "Snapshot event stream failed",
+            getErrorDiagnostics(error)
+          )
         } finally {
           close()
         }

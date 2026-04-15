@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 
 import {
   ensureConvexUserReadyServer,
+  getErrorDiagnostics,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
@@ -18,7 +19,7 @@ async function loadSnapshotVersionWithFallback(input: {
       email: input.email,
     })
   } catch (error) {
-    console.error("Falling back to snapshot version 0", error)
+    console.error("Falling back to snapshot version 0", getErrorDiagnostics(error))
 
     return {
       version: 0,
@@ -56,7 +57,7 @@ export async function GET() {
 
     return NextResponse.json(snapshotVersion)
   } catch (error) {
-    console.error(error)
+    console.error("Failed to load snapshot version", getErrorDiagnostics(error))
     return NextResponse.json(
       {
         error:

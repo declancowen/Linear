@@ -23,6 +23,7 @@ import {
   getDisplayLabelForWorkItemType,
   normalizeTeamIconToken,
   normalizeTeamFeatureSettings,
+  priorities,
   priorityMeta,
   statusMeta,
   teamExperienceMeta,
@@ -33,9 +34,11 @@ import {
 } from "@/lib/domain/types"
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
 
-export function getCurrentUser(data: AppData) {
+export function getCurrentUser(data: AppData): UserProfile | null {
   return (
-    data.users.find((user) => user.id === data.currentUserId) ?? data.users[0]
+    data.users.find((user) => user.id === data.currentUserId) ??
+    data.users[0] ??
+    null
   )
 }
 
@@ -958,6 +961,80 @@ export function getGroupValue(
   return item[field]
 }
 
+export function getAvailableGroupKeysForItems(
+  data: AppData,
+  items: WorkItem[],
+  field: GroupField | null
+) {
+  if (!field || items.length === 0) {
+    return []
+  }
+
+  const keys = new Set<string>()
+  const teamIds = new Set(items.map((item) => item.teamId))
+  const workspaceIds = new Set(
+    [...teamIds]
+      .map((teamId) => getTeam(data, teamId)?.workspaceId ?? null)
+      .filter((workspaceId): workspaceId is string => workspaceId !== null)
+  )
+
+  if (field === "status") {
+    getStatusOrderForItems(data, items).forEach((status) => keys.add(status))
+  }
+
+  if (field === "priority") {
+    priorities.forEach((priority) => keys.add(priority))
+  }
+
+  if (field === "assignee") {
+    keys.add("No assignee")
+
+    const memberIds = new Set(
+      data.teamMemberships
+        .filter((membership) => teamIds.has(membership.teamId))
+        .map((membership) => membership.userId)
+    )
+
+    data.users.forEach((user) => {
+      if (memberIds.has(user.id)) {
+        keys.add(user.name)
+      }
+    })
+  }
+
+  if (field === "project") {
+    keys.add("No project")
+
+    data.projects.forEach((project) => {
+      if (
+        (project.scopeType === "team" && teamIds.has(project.scopeId)) ||
+        (project.scopeType === "workspace" &&
+          workspaceIds.has(project.scopeId))
+      ) {
+        keys.add(project.name)
+      }
+    })
+  }
+
+  if (field === "team") {
+    data.teams.forEach((team) => {
+      if (workspaceIds.has(team.workspaceId) || teamIds.has(team.id)) {
+        keys.add(team.name)
+      }
+    })
+  }
+
+  if (field === "type") {
+    workItemTypes.forEach((type) => keys.add(type))
+  }
+
+  items.forEach((item) => {
+    keys.add(getGroupValue(data, item, field))
+  })
+
+  return [...keys]
+}
+
 export function buildItemGroups(
   data: AppData,
   items: WorkItem[],
@@ -1001,6 +1078,29 @@ export function buildItemGroups(
           )
         ),
       ])
+  )
+}
+
+export function buildItemGroupsWithEmptyGroups(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition
+) {
+  const groups = new Map(buildItemGroups(data, items, view))
+  const statusOrder = getStatusOrderForItems(data, items)
+
+  getAvailableGroupKeysForItems(data, items, view.grouping).forEach(
+    (groupKey) => {
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, new Map())
+      }
+    }
+  )
+
+  return new Map(
+    [...groups.entries()].sort((left, right) =>
+      compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
+    )
   )
 }
 
@@ -1050,7 +1150,9 @@ function compareGroupKeys(
 export function getUnreadNotifications(data: AppData) {
   return data.notifications.filter(
     (notification) =>
-      notification.userId === data.currentUserId && notification.readAt === null
+      notification.userId === data.currentUserId &&
+      notification.readAt === null &&
+      notification.archivedAt == null
   )
 }
 
@@ -1087,7 +1189,7 @@ export type GlobalSearchResult = {
   id: string
   kind: "navigation" | "team" | "project" | "item" | "document"
   title: string
-  subtitle: string
+  subtitle?: string | null
   href: string
   keywords: string[]
   teamId?: string | null
@@ -1219,14 +1321,6 @@ export function searchWorkspace(data: AppData, query: string) {
         "Expanded search with faceted results across the workspace graph",
       href: "/workspace/search",
       keywords: ["search", "discover", "workspace"],
-    },
-    {
-      id: "nav-reports",
-      kind: "navigation",
-      title: "Workspace Reports",
-      subtitle: "Delivery health, capacity, and execution signals",
-      href: "/workspace/reports",
-      keywords: ["reports", "analytics", "health", "capacity"],
     },
   ]
 
@@ -1365,7 +1459,7 @@ export function searchWorkspace(data: AppData, query: string) {
       return true
     }
 
-    const haystack = [result.title, result.subtitle, ...result.keywords]
+    const haystack = [result.title, result.subtitle ?? "", ...result.keywords]
       .join(" ")
       .toLowerCase()
 

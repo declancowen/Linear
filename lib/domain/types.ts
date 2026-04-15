@@ -144,6 +144,52 @@ export const orderingFields = [
 ] as const
 export type OrderingField = (typeof orderingFields)[number]
 
+export const userStatuses = [
+  "active",
+  "away",
+  "busy",
+  "out-of-office",
+] as const
+export type UserStatus = (typeof userStatuses)[number]
+export const userStatusMessageMaxLength = 80
+export const userStatusMeta: Record<
+  UserStatus,
+  {
+    label: string
+    description: string
+    colorClassName: string
+  }
+> = {
+  active: {
+    label: "Online",
+    description: "Available and following along.",
+    colorClassName: "bg-emerald-500",
+  },
+  away: {
+    label: "Away",
+    description: "Stepped away for a bit.",
+    colorClassName: "bg-amber-400",
+  },
+  busy: {
+    label: "Busy",
+    description: "Heads down and minimizing interruptions.",
+    colorClassName: "bg-rose-500",
+  },
+  "out-of-office": {
+    label: "Out of office",
+    description: "Offline for the day or longer.",
+    colorClassName: "bg-purple-500",
+  },
+}
+
+export function resolveUserStatus(
+  status: UserStatus | null | undefined
+): UserStatus {
+  return userStatuses.includes(status as UserStatus)
+    ? (status as UserStatus)
+    : "active"
+}
+
 export const themePreferences = ["light", "dark", "system"] as const
 export type ThemePreference = (typeof themePreferences)[number]
 
@@ -315,6 +361,9 @@ export interface UserProfile {
   avatarImageUrl?: string | null
   workosUserId: string | null
   title: string
+  status: UserStatus
+  statusMessage: string
+  hasExplicitStatus?: boolean
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
@@ -397,6 +446,14 @@ export interface Document {
   updatedAt: string
 }
 
+export interface DocumentPresenceViewer {
+  userId: string
+  name: string
+  avatarUrl: string
+  avatarImageUrl?: string | null
+  lastSeenAt: string
+}
+
 export interface ViewDefinition {
   id: string
   name: string
@@ -452,6 +509,7 @@ export interface Notification {
   actorId: string
   message: string
   readAt: string | null
+  archivedAt: string | null
   emailedAt: string | null
   createdAt: string
 }
@@ -597,9 +655,9 @@ export const templateMeta: Record<
 > = {
   "software-delivery": {
     label: "Software Development",
-    description: "Epics, features, requirements, stories, and issues.",
+    description: "Epics, features, requirements, and stories.",
     icon: "code",
-    itemTypes: ["epic", "feature", "requirement", "story", "issue"],
+    itemTypes: ["epic", "feature", "requirement", "story"],
   },
   "bug-tracking": {
     label: "Issue Tracking",
@@ -819,7 +877,7 @@ export const teamExperienceMeta: Record<
 > = {
   "software-development": {
     label: "Software Development",
-    description: "Epics, features, requirements, stories, and issues.",
+    description: "Epics, features, requirements, and stories.",
   },
   "issue-analysis": {
     label: "Issue Tracking",
@@ -897,17 +955,12 @@ export function getTeamFeatureValidationMessage(
   features: TeamFeatureSettings
 ) {
   if (experience === "community") {
-    if (
-      features.issues ||
-      features.projects ||
-      features.views ||
-      features.docs
-    ) {
-      return "Community teams can only enable chat and channel surfaces."
+    if (features.issues || features.projects || features.views) {
+      return "Community teams can only enable docs, chat, and channel surfaces."
     }
 
-    if (!features.chat && !features.channels) {
-      return "Community teams must enable chat, channel, or both."
+    if (!features.docs && !features.chat && !features.channels) {
+      return "Community teams must enable docs, chat, channel, or a combination."
     }
 
     return null
@@ -955,15 +1008,9 @@ export function createDefaultTeamWorkflowSettings(
         defaultPriority: "high",
         targetWindowDays: 28,
         defaultViewLayout: "board",
-        recommendedItemTypes: [
-          "epic",
-          "feature",
-          "requirement",
-          "story",
-          "issue",
-        ],
+        recommendedItemTypes: ["epic", "feature", "requirement", "story"],
         summaryHint:
-          "Delivery plan spanning epics, features, requirements, stories, and issues.",
+          "Delivery plan spanning epics, features, requirements, and stories.",
       },
       "bug-tracking": {
         defaultPriority: "high",
@@ -1362,6 +1409,13 @@ export const profileSchema = z.object({
   avatarUrl: z.string().trim().min(1),
   avatarImageStorageId: z.string().trim().min(1).optional(),
   clearAvatarImage: z.boolean().optional(),
+  clearStatus: z.boolean().optional(),
+  status: z.enum(userStatuses).optional(),
+  statusMessage: z
+    .string()
+    .trim()
+    .max(userStatusMessageMaxLength)
+    .optional(),
   preferences: z.object({
     emailMentions: z.boolean(),
     emailAssignments: z.boolean(),
