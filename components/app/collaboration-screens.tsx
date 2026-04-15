@@ -485,10 +485,12 @@ function ChatComposer({
   placeholder = "Write a message…",
   onSend,
   mentionCandidates,
+  action,
 }: {
   placeholder?: string
   onSend: (content: string) => void
   mentionCandidates: ReturnType<typeof getConversationParticipants>
+  action?: ReactNode
 }) {
   const [content, setContent] = useState("")
   const [composerKey, setComposerKey] = useState(0)
@@ -519,6 +521,7 @@ function ChatComposer({
           className="min-w-0 flex-1 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.5rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-5 [&_.ProseMirror]:outline-none"
         />
         <div className="flex shrink-0 items-center gap-1.5">
+          {action ?? null}
           <button
             type="button"
             className="rounded-md p-1 text-muted-foreground/50 transition-colors hover:text-muted-foreground"
@@ -618,7 +621,7 @@ function ChatThread({
   const data = useAppStore()
   const messages = getChatMessages(data, conversationId)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const hasHeaderActions = videoAction != null || detailsAction != null
+  const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
 
@@ -645,10 +648,7 @@ function ChatThread({
           </div>
           {hasHeaderActions ? (
             <div className="flex items-center gap-1.5">
-              <ChatHeaderActions
-                videoAction={videoAction}
-                detailsAction={detailsAction}
-              />
+              <ChatHeaderActions detailsAction={detailsAction} />
             </div>
           ) : null}
         </div>
@@ -864,6 +864,7 @@ function ChatThread({
         <ChatComposer
           placeholder={`Message ${title}…`}
           mentionCandidates={members}
+          action={videoAction}
           onSend={(content) => {
             useAppStore.getState().sendChatMessage({ conversationId, content })
           }}
@@ -1778,9 +1779,6 @@ export function WorkspaceChatsScreen() {
         actions={
           activeChat ? (
             <ChatHeaderActions
-              videoAction={
-                <CallInviteLauncher conversationId={activeChat.id} />
-              }
               detailsAction={
                 <DetailsSidebarToggle
                   sidebarOpen={sidebarOpen}
@@ -1898,6 +1896,7 @@ export function WorkspaceChatsScreen() {
               <ChatThread
                 conversationId={activeChat.id}
                 title={activeChat.title}
+                videoAction={<CallInviteLauncher conversationId={activeChat.id} />}
                 description=""
                 members={members}
                 welcomeParticipant={welcomeParticipant}
@@ -2111,11 +2110,6 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         subtitle="Chat"
         actions={
           <ChatHeaderActions
-            videoAction={
-              conversation && editable ? (
-                <CallInviteLauncher conversationId={conversation.id} />
-              ) : null
-            }
             detailsAction={
               <DetailsSidebarToggle
                 sidebarOpen={sidebarOpen}
@@ -2143,6 +2137,11 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               conversationId={conversation.id}
               title="Team chat"
               description=""
+              videoAction={
+                editable ? (
+                  <CallInviteLauncher conversationId={conversation.id} />
+                ) : null
+              }
               members={members}
               showHeader={false}
             />
