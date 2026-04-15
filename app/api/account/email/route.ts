@@ -1,65 +1,69 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   mapWorkOSAccountError,
   updateWorkOSUserEmail,
 } from "@/lib/server/workos"
+import {
+  getWorkOSErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const emailChangeSchema = z.object({
   email: z.string().trim().email(),
 })
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = emailChangeSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    emailChangeSchema,
+    "Invalid email"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid email" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
-  if (parsed.data.email.toLowerCase() === session.user.email.toLowerCase()) {
-    return NextResponse.json(
-      { error: "Enter a different email address" },
-      { status: 400 }
-    )
+  if (parsed.email.toLowerCase() === session.user.email.toLowerCase()) {
+    return jsonError("Enter a different email address", 400)
   }
 
   try {
-    const { authenticatedUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await updateWorkOSUserEmail({
-      workosUserId: authenticatedUser.workosUserId,
-      email: parsed.data.email,
+      workosUserId: appContext.authenticatedUser.workosUserId,
+      email: parsed.email,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       logoutRequired: true,
       notice:
         "Email updated. Verify the new address from WorkOS and then sign back in.",
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: mapWorkOSAccountError(
-          error,
-          "Failed to update your email address."
-        ),
-      },
-      { status: 500 }
+    logProviderError("Failed to update account email", error)
+    return jsonError(
+      mapWorkOSAccountError(
+        error,
+        getWorkOSErrorMessage(error, "Failed to update your email address.")
+      ),
+      500
     )
   }
 }

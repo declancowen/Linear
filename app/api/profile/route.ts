@@ -1,52 +1,59 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 
 import { profileSchema } from "@/lib/domain/types"
 import { updateCurrentUserProfileServer } from "@/lib/server/convex"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
 import { syncUserProfileToWorkOS } from "@/lib/server/workos"
 
 export async function PATCH(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = profileSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    profileSchema,
+    "Invalid profile payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid profile payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { authenticatedUser, ensuredUser } =
-      await ensureAuthenticatedAppContext(session.user, session.organizationId)
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await updateCurrentUserProfileServer({
-      currentUserId: ensuredUser.userId,
-      userId: ensuredUser.userId,
-      ...parsed.data,
+      currentUserId: appContext.ensuredUser.userId,
+      userId: appContext.ensuredUser.userId,
+      ...parsed,
     })
     await syncUserProfileToWorkOS({
-      workosUserId: authenticatedUser.workosUserId,
-      name: parsed.data.name,
+      workosUserId: appContext.authenticatedUser.workosUserId,
+      name: parsed.name,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
-      userId: ensuredUser.userId,
+      userId: appContext.ensuredUser.userId,
     })
   } catch (error) {
-    console.error(error)
+    logProviderError("Failed to update profile", error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to update profile",
+        error: getConvexErrorMessage(error, "Failed to update profile"),
       },
       { status: 500 }
     )

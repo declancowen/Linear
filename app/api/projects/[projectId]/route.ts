@@ -1,9 +1,14 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { updateProjectServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const projectPatchSchema = z
   .object({
@@ -21,46 +26,44 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   const { projectId } = await params
-  const body = await request.json()
-  const parsed = projectPatchSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    projectPatchSchema,
+    "Invalid project update payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid project update payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await updateProjectServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       projectId,
-      patch: parsed.data,
+      patch: parsed,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to update project",
-      },
-      { status: 500 }
+    logProviderError("Failed to update project", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update project"),
+      500
     )
   }
 }

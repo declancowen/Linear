@@ -1,41 +1,44 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { deleteChannelPostServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     const { postId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await deleteChannelPostServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       postId,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to delete post",
-      },
-      { status: 500 }
+    logProviderError("Failed to delete post", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete post"),
+      500
     )
   }
 }

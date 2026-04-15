@@ -1,43 +1,63 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { chatMessageSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   markNotificationsEmailedServer,
   sendChatMessageServer,
 } from "@/lib/server/convex"
 import { sendMentionEmails } from "@/lib/server/email"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+
+const chatMessageBodySchema = z.object({
+  content: chatMessageSchema.shape.content,
+})
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ chatId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
+  const parsedBody = await parseJsonBody(
+    request,
+    chatMessageBodySchema,
+    "Invalid message payload"
+  )
+
+  if (isRouteResponse(parsedBody)) {
+    return parsedBody
+  }
+
   const { chatId } = await params
   const parsed = chatMessageSchema.safeParse({
     conversationId: chatId,
-    content: body.content,
+    content: parsedBody.content,
   })
 
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid message payload" }, { status: 400 })
+    return jsonError("Invalid message payload", 400)
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     const result = await sendChatMessageServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
     })
 
@@ -51,18 +71,18 @@ export async function POST(
         await markNotificationsEmailedServer(emailedNotificationIds)
       }
     } catch (emailError) {
-      console.error("Failed to send mention emails", emailError)
+      logProviderError("Failed to send mention emails", emailError)
     }
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       messageId: result?.messageId ?? null,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to send message" },
-      { status: 500 }
+    logProviderError("Failed to send message", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to send message"),
+      500
     )
   }
 }

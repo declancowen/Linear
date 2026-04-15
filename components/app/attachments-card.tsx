@@ -9,8 +9,9 @@ import {
   Trash,
 } from "@phosphor-icons/react"
 import { format } from "date-fns"
+import { useShallow } from "zustand/react/shallow"
 
-import { getAttachmentsForTarget, getUser } from "@/lib/domain/selectors"
+import { getAttachmentsForTarget } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,10 +44,12 @@ export function AttachmentsCard({
   targetId: string
   editable: boolean
 }) {
-  const data = useAppStore()
+  const attachments = useAppStore(
+    useShallow((state) => getAttachmentsForTarget(state, targetType, targetId))
+  )
+  const users = useAppStore(useShallow((state) => state.users))
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [uploading, setUploading] = useState(false)
-  const attachments = getAttachmentsForTarget(data, targetType, targetId)
 
   async function handleFiles(fileList: FileList | null) {
     const file = fileList?.[0]
@@ -71,7 +74,8 @@ export function AttachmentsCard({
           <div className="flex flex-col gap-1">
             <CardTitle>Attachments</CardTitle>
             <CardDescription>
-              Stored in Convex and available from both the web app and Electron wrapper.
+              Stored in Convex and available from both the web app and Electron
+              wrapper.
             </CardDescription>
           </div>
           {editable ? (
@@ -102,7 +106,8 @@ export function AttachmentsCard({
           </div>
         ) : (
           attachments.map((attachment) => {
-            const uploader = getUser(data, attachment.uploadedBy)
+            const uploader =
+              users.find((user) => user.id === attachment.uploadedBy) ?? null
             const isImage = attachment.contentType.startsWith("image/")
 
             return (
@@ -120,11 +125,15 @@ export function AttachmentsCard({
                         {attachment.fileName}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {formatFileSize(attachment.size)} · {attachment.contentType}
+                        {formatFileSize(attachment.size)} ·{" "}
+                        {attachment.contentType}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         Uploaded by {uploader?.name ?? "Unknown"} ·{" "}
-                        {format(new Date(attachment.createdAt), "MMM d, h:mm a")}
+                        {format(
+                          new Date(attachment.createdAt),
+                          "MMM d, h:mm a"
+                        )}
                       </div>
                     </div>
                   </div>
@@ -146,7 +155,9 @@ export function AttachmentsCard({
                         size="icon-sm"
                         variant="ghost"
                         onClick={() =>
-                          void useAppStore.getState().deleteAttachment(attachment.id)
+                          void useAppStore
+                            .getState()
+                            .deleteAttachment(attachment.id)
                         }
                       >
                         <Trash />

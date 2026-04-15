@@ -50,6 +50,7 @@ The app expects the following variables.
 - `CONVEX_URL`: server-side Convex deployment URL
 - `NEXT_PUBLIC_CONVEX_URL`: browser-visible Convex deployment URL
 - `CONVEX_SERVER_TOKEN`: shared server token used by Next.js routes, Convex functions, and scripts
+- `CONVEX_SERVER_TOKEN_DEVELOPMENT` / `CONVEX_SERVER_TOKEN_PRODUCTION`: optional script-only tokens for dual-environment wipe workflows
 - `CONVEX_DEPLOY_KEY`: Convex deploy key used for deployment/codegen workflows
 
 ### WorkOS
@@ -63,12 +64,15 @@ The app expects the following variables.
 ### App URLs
 
 - `APP_URL`: base app URL used by the app and email links
+- `NEXT_PUBLIC_APP_URL`: public app origin fallback used by email and script helpers
 - `TEAMS_URL`: app/team entry URL used in auth routing
+- `NEXT_DEV_SERVER_URL`: optional Electron dev-server override
 
 ### Email
 
 - `RESEND_API_KEY`: Resend API key
 - `RESEND_FROM_EMAIL`: sender address for outbound email
+- `DRY_RUN`: optional script flag for previewing notification digests without sending them
 
 ### Video / calls
 

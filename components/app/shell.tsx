@@ -2,19 +2,15 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import {
-  ArrowsClockwise,
   Bell,
   CaretDown,
   CaretRight,
   ChatCircleDots,
-  Check,
   CheckCircle,
   CodesandboxLogo,
-  CopySimple,
   DotsThree,
-  EnvelopeSimple,
   Gear,
   HashStraight,
   Kanban,
@@ -26,10 +22,9 @@ import {
   SignIn,
   SquaresFour,
   UserCircle,
-  UsersThree,
   X,
 } from "@phosphor-icons/react"
-import { toast } from "sonner"
+import { useShallow } from "zustand/react/shallow"
 
 import {
   canAdminWorkspace,
@@ -37,42 +32,23 @@ import {
   getCurrentUser,
   getCurrentWorkspace,
   getTeamFeatureSettings,
-  getTeamRole,
-  getTeamSurfaceDisableReasons,
 } from "@/lib/domain/selectors"
 import {
-  createDefaultTeamFeatureSettings,
-  getDefaultWorkItemTypesForTeamExperience,
-  getDisplayLabelForWorkItemType,
-  getDefaultTeamIconForExperience,
   getWorkSurfaceCopy,
-  normalizeTeamIconToken,
   resolveUserStatus,
-  type Role,
-  type TeamFeatureSettings,
-  type TeamExperienceType,
   type UserStatus,
-  teamExperienceMeta,
-  teamIconMeta,
-  teamIconTokens,
-  teamExperienceTypes,
-  userStatusMessageMaxLength,
   userStatusMeta,
   userStatuses,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import { InviteDialog } from "@/components/app/shell/invite-dialog"
+import { SidebarLink } from "@/components/app/shell/sidebar-link"
+import { StatusDialog } from "@/components/app/shell/status-dialog"
 import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,23 +64,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -113,7 +72,6 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -123,43 +81,57 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { Switch } from "@/components/ui/switch"
-
-const workspaceAccentOptions = [
-  "emerald",
-  "blue",
-  "amber",
-  "rose",
-  "slate",
-] as const
-type TeamSurfaceDisableReasons = {
-  docs: string | null
-  chat: string | null
-  channels: string | null
-}
-
-const defaultTeamSurfaceDisableReasons: TeamSurfaceDisableReasons = {
-  docs: null,
-  chat: null,
-  channels: null,
-}
 
 type AppShellProps = {
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const data = useAppStore()
-  const unread = data.notifications.filter(
-    (notification) =>
-      notification.userId === data.currentUserId &&
-      notification.readAt === null &&
-      notification.archivedAt == null
-  ).length
-  const workspace = getCurrentWorkspace(data)
-  const currentUser = getCurrentUser(data)
+  const unread = useAppStore(
+    (state) =>
+      state.notifications.filter(
+        (notification) =>
+          notification.userId === state.currentUserId &&
+          notification.readAt === null &&
+          notification.archivedAt == null
+      ).length
+  )
+  const workspace = useAppStore(getCurrentWorkspace)
+  const currentUser = useAppStore(getCurrentUser)
+  const pendingInviteCount = useAppStore((state) => {
+    const user = getCurrentUser(state)
+
+    if (!user) {
+      return 0
+    }
+
+    return state.invites.filter((invite) => {
+      if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
+        return false
+      }
+
+      if (invite.acceptedAt || invite.declinedAt) {
+        return false
+      }
+
+      return true
+    }).length
+  })
+  const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
+  const currentMemberships = useAppStore(
+    useShallow((state) =>
+      state.teamMemberships.filter(
+        (membership) => membership.userId === state.currentUserId
+      )
+    )
+  )
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const canCreateTeam = useAppStore((state) =>
+    canAdminWorkspace(state, state.currentWorkspaceId)
+  )
   const workspaceLogoImageSrc = resolveImageAssetSource(
     workspace?.logoImageUrl,
     workspace?.logoUrl
@@ -169,20 +141,6 @@ export function AppShell({ children }: AppShellProps) {
     currentUser?.avatarUrl
   )
   const currentUserStatus = resolveUserStatus(currentUser?.status)
-  const pendingInviteCount = currentUser
-    ? data.invites.filter((invite) => {
-        if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
-          return false
-        }
-
-        if (invite.acceptedAt || invite.declinedAt) {
-          return false
-        }
-
-        return true
-      }).length
-    : 0
-  const teams = getAccessibleTeams(data)
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteMode, setInviteMode] = useState<"workspace" | "team">(
@@ -196,21 +154,22 @@ export function AppShell({ children }: AppShellProps) {
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
-  const canCreateTeam = canAdminWorkspace(data, data.currentWorkspaceId)
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
-        event.preventDefault()
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") {
+        return
+      }
+
+      event.preventDefault()
+
+      if (event.shiftKey) {
         setSearchOpen(false)
         router.push("/workspace/search")
         return
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault()
-        setSearchOpen((current) => !current)
-      }
+      setSearchOpen((current) => !current)
     }
 
     window.addEventListener("keydown", handleKeyDown)
@@ -458,7 +417,10 @@ export function AppShell({ children }: AppShellProps) {
                 <SidebarMenu>
                   {teams.map((team) => {
                     const isExpanded = expandedTeams.has(team.id)
-                    const teamRole = getTeamRole(data, team.id)
+                    const teamRole =
+                      currentMemberships.find(
+                        (membership) => membership.teamId === team.id
+                      )?.role ?? null
                     const canInvite =
                       teamRole === "admin" || teamRole === "member"
                     const canManage = teamRole === "admin"
@@ -659,8 +621,8 @@ export function AppShell({ children }: AppShellProps) {
                   <UserHoverCard
                     user={currentUser}
                     userId={currentUser.id}
-                    currentUserId={data.currentUserId}
-                    workspaceId={data.currentWorkspaceId}
+                    currentUserId={currentUserId}
+                    workspaceId={currentWorkspaceId}
                     side="right"
                   >
                     <DropdownMenuLabel className="space-y-1.5">
@@ -761,1472 +723,9 @@ export function AppShell({ children }: AppShellProps) {
   )
 }
 
-function StatusDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const data = useAppStore()
-  const currentUser = getCurrentUser(data)
-  const [status, setStatus] = useState<UserStatus>(
-    resolveUserStatus(currentUser?.status)
-  )
-  const [statusMessage, setStatusMessage] = useState(
-    currentUser?.statusMessage ?? ""
-  )
-
-  useEffect(() => {
-    if (!open || !currentUser) {
-      return
-    }
-
-    setStatus(resolveUserStatus(currentUser.status))
-    setStatusMessage(currentUser.statusMessage)
-  }, [currentUser?.id, currentUser?.status, currentUser?.statusMessage, open])
-
-  if (!currentUser) {
-    return null
-  }
-
-  const normalizedStatusMessage = statusMessage.trim()
-  const currentUserStatus = resolveUserStatus(currentUser.status)
-  const hasChanges =
-    status !== currentUserStatus ||
-    normalizedStatusMessage !== currentUser.statusMessage
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
-        <div className="px-5 pt-5 pb-2">
-          <DialogHeader className="items-start gap-1.5 p-0">
-            <div className="space-y-1.5">
-              <DialogTitle className="text-base">Set your status</DialogTitle>
-              <DialogDescription className="text-sm">
-                Set how you appear to your team.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-        </div>
-
-        <div className="space-y-5 px-5 py-4">
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="user-status">Status</FieldLabel>
-              <FieldContent>
-                <Select
-                  value={status}
-                  onValueChange={(value) => setStatus(value as UserStatus)}
-                >
-                  <SelectTrigger id="user-status" className="w-full">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <UserStatusDot status={status} />
-                      <span className="truncate">
-                        {userStatusMeta[status].label}
-                      </span>
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent position="popper" className="z-[60]">
-                    <SelectGroup>
-                      {userStatuses.map((value) => (
-                        <SelectItem
-                          key={value}
-                          value={value}
-                          className="items-start py-2"
-                        >
-                          <div className="flex items-start gap-2">
-                            <UserStatusDot status={value} className="mt-1" />
-                            <div className="flex flex-col gap-0.5">
-                              <span>{userStatusMeta[value].label}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {userStatusMeta[value].description}
-                              </span>
-                            </div>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </FieldContent>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="status-message">Status message</FieldLabel>
-              <FieldContent>
-                <Textarea
-                  id="status-message"
-                  value={statusMessage}
-                  onChange={(event) => setStatusMessage(event.target.value)}
-                  placeholder="Heads down on planning, back this afternoon"
-                  maxLength={userStatusMessageMaxLength}
-                />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 border-t px-5 py-3">
-          <div>
-            {currentUser.hasExplicitStatus || currentUser.statusMessage ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  useAppStore.getState().clearCurrentUserStatus()
-                  onOpenChange(false)
-                }}
-              >
-                Clear status
-              </Button>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={!hasChanges}
-              onClick={() => {
-                useAppStore.getState().updateCurrentUserStatus({
-                  status,
-                  statusMessage: normalizedStatusMessage,
-                })
-                onOpenChange(false)
-              }}
-            >
-              Save status
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function SidebarLink({
-  href,
-  icon,
-  label,
-  active,
-  badge,
-}: {
-  href: string
-  icon: React.ReactNode
-  label: string
-  active: boolean
-  badge?: string
-}) {
-  return (
-    <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={active}>
-        <Link href={href}>
-          {icon}
-          <span>{label}</span>
-        </Link>
-      </SidebarMenuButton>
-      {badge ? <SidebarMenuBadge>{badge}</SidebarMenuBadge> : null}
-    </SidebarMenuItem>
-  )
-}
-
-function WorkspaceDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
-  const [name, setName] = useState(workspace?.name ?? "")
-  const [logoUrl, setLogoUrl] = useState(workspace?.logoUrl ?? "")
-  const [accent, setAccent] = useState(workspace?.settings.accent ?? "emerald")
-  const [description, setDescription] = useState(
-    workspace?.settings.description ?? ""
-  )
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        key={`${workspace?.id ?? "workspace"}-${open}`}
-        className="max-w-lg gap-0 overflow-hidden p-0"
-      >
-        <div className="px-5 pt-5 pb-1">
-          <DialogHeader className="mb-1 p-0">
-            <DialogTitle className="text-base">Workspace</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Identity and branding for {workspace?.name ?? "workspace"}.
-            </DialogDescription>
-          </DialogHeader>
-        </div>
-
-        <div className="flex flex-col border-t px-5 py-2">
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Name</span>
-            <Input
-              id="workspace-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">
-              Logo / initials
-            </span>
-            <Input
-              id="workspace-logo"
-              value={logoUrl}
-              onChange={(event) => setLogoUrl(event.target.value)}
-              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Accent</span>
-            <Select value={accent} onValueChange={setAccent}>
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs capitalize shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {workspaceAccentOptions.map((option) => (
-                    <SelectItem
-                      key={option}
-                      value={option}
-                      className="capitalize"
-                    >
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Description</span>
-            <Input
-              id="workspace-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              useAppStore.getState().updateWorkspaceBranding({
-                name,
-                logoUrl,
-                accent,
-                description,
-              })
-              onOpenChange(false)
-            }}
-          >
-            Save workspace
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function getTeamLandingHref(teamSlug: string, features: TeamFeatureSettings) {
-  if (features.issues) {
-    return `/team/${teamSlug}/work`
-  }
-
-  if (features.chat) {
-    return `/team/${teamSlug}/chat`
-  }
-
-  if (features.channels) {
-    return `/team/${teamSlug}/channel`
-  }
-
-  if (features.docs) {
-    return `/team/${teamSlug}/docs`
-  }
-
-  return `/team/${teamSlug}/work`
-}
-
-function TeamEditorFields({
-  name,
-  icon,
-  summary,
-  joinCode,
-  experience,
-  features,
-  setName,
-  setIcon,
-  setSummary,
-  setFeatures,
-  savedFeatures,
-  surfaceDisableReasons,
-  disabled = false,
-  canChangeExperience = false,
-  showJoinCode = true,
-  onExperienceChange,
-  onRegenerateJoinCode,
-  joinCodeReadonlyLabel = "Generated automatically after the team is created.",
-}: {
-  name: string
-  icon: string
-  summary: string
-  joinCode: string
-  experience: TeamExperienceType
-  features: TeamFeatureSettings
-  setName: (value: string) => void
-  setIcon: (value: string) => void
-  setSummary: (value: string) => void
-  setFeatures: (
-    value:
-      | TeamFeatureSettings
-      | ((current: TeamFeatureSettings) => TeamFeatureSettings)
-  ) => void
-  savedFeatures: TeamFeatureSettings
-  surfaceDisableReasons: TeamSurfaceDisableReasons
-  disabled?: boolean
-  canChangeExperience?: boolean
-  showJoinCode?: boolean
-  onExperienceChange?: (experience: TeamExperienceType) => void
-  onRegenerateJoinCode?: (() => Promise<void>) | null
-  joinCodeReadonlyLabel?: string
-}) {
-  const selectedIcon = normalizeTeamIconToken(icon, experience)
-  const workCopy = getWorkSurfaceCopy(experience)
-  const coreSurfaceItems = [
-    { key: "issues", label: workCopy.surfaceLabel },
-    { key: "projects", label: "Projects" },
-    { key: "views", label: "Views" },
-  ]
-  const coreWorkModel = getDefaultWorkItemTypesForTeamExperience(experience)
-    .map((itemType) => getDisplayLabelForWorkItemType(itemType, experience))
-    .join(" · ")
-  const [copiedJoinCode, setCopiedJoinCode] = useState<string | null>(null)
-  const optionalFeatures = [
-    {
-      key: "docs" as const,
-      label: "Docs",
-      description: "Long-form team documents and collaborative writing.",
-    },
-    {
-      key: "chat" as const,
-      label: "Chat",
-      description: "Real-time team conversation and quick coordination.",
-    },
-    {
-      key: "channels" as const,
-      label: "Channel",
-      description: "Shared forum-style posts with replies for the full team.",
-    },
-  ]
-
-  async function handleCopyJoinCode() {
-    if (!joinCode) {
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(joinCode)
-      setCopiedJoinCode(joinCode)
-      window.setTimeout(() => {
-        setCopiedJoinCode(null)
-      }, 1500)
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to copy join code"
-      )
-    }
-  }
-
-  return (
-    <div className="grid gap-8 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
-      <div className="flex flex-col gap-8">
-        <section>
-          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-            Identity
-          </h3>
-          <FieldGroup className="gap-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="team-name">Name</FieldLabel>
-                <FieldContent>
-                  <Input
-                    id="team-name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </FieldContent>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="team-icon">Icon</FieldLabel>
-                <FieldContent>
-                  <Select value={selectedIcon} onValueChange={setIcon}>
-                    <SelectTrigger id="team-icon" className="justify-between">
-                      <div className="flex items-center gap-2 text-sm">
-                        <TeamIconGlyph icon={selectedIcon} className="size-4" />
-                        <span>{teamIconMeta[selectedIcon].label}</span>
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {teamIconTokens.map((token) => (
-                          <SelectItem key={token} value={token}>
-                            <div className="flex items-center gap-2">
-                              <TeamIconGlyph icon={token} className="size-4" />
-                              <div className="flex min-w-0 flex-col">
-                                <span className="text-sm">
-                                  {teamIconMeta[token].label}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {teamIconMeta[token].description}
-                                </span>
-                              </div>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </FieldContent>
-                <FieldDescription>
-                  Defaults to{" "}
-                  {
-                    teamIconMeta[getDefaultTeamIconForExperience(experience)]
-                      .label
-                  }{" "}
-                  for {teamExperienceMeta[experience].label.toLowerCase()}{" "}
-                  teams.
-                </FieldDescription>
-              </Field>
-            </div>
-            <Field>
-              <FieldLabel htmlFor="team-summary">Summary</FieldLabel>
-              <FieldContent>
-                <Textarea
-                  id="team-summary"
-                  value={summary}
-                  onChange={(event) => setSummary(event.target.value)}
-                  className="min-h-24 resize-none"
-                />
-              </FieldContent>
-              <FieldDescription>
-                Used in team discovery and sidebars.
-              </FieldDescription>
-            </Field>
-            {showJoinCode ? (
-              <Field>
-                <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
-                <FieldContent>
-                  <div className="flex gap-2">
-                    <Input
-                      id="team-join-code"
-                      value={joinCode || "Generated on create"}
-                      readOnly
-                    />
-                    {joinCode ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleCopyJoinCode()}
-                      >
-                        {copiedJoinCode === joinCode ? (
-                          <Check />
-                        ) : (
-                          <CopySimple />
-                        )}
-                        {copiedJoinCode === joinCode ? "Copied" : "Copy"}
-                      </Button>
-                    ) : null}
-                    {onRegenerateJoinCode ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void onRegenerateJoinCode()}
-                      >
-                        <ArrowsClockwise />
-                        Regenerate
-                      </Button>
-                    ) : null}
-                  </div>
-                </FieldContent>
-                <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
-              </Field>
-            ) : null}
-          </FieldGroup>
-        </section>
-
-        <section>
-          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-            Surfaces
-          </h3>
-          {experience === "community" ? (
-            <div className="divide-y">
-              {optionalFeatures.map((feature) => (
-                <div
-                  key={feature.key}
-                  className="flex items-center justify-between gap-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm">{feature.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {feature.description}
-                    </div>
-                    {savedFeatures[feature.key] &&
-                    surfaceDisableReasons[feature.key] ? (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {surfaceDisableReasons[feature.key]}
-                      </div>
-                    ) : null}
-                  </div>
-                  <Switch
-                    checked={features[feature.key]}
-                    disabled={
-                      disabled ||
-                      (savedFeatures[feature.key] &&
-                        Boolean(surfaceDisableReasons[feature.key]))
-                    }
-                    onCheckedChange={(checked) =>
-                      setFeatures((current) => ({
-                        ...current,
-                        issues: false,
-                        projects: false,
-                        views: false,
-                        [feature.key]: checked,
-                      }))
-                    }
-                  />
-                </div>
-              ))}
-              {!(features.docs || features.chat || features.channels) ? (
-                <div className="pt-3 text-xs text-muted-foreground">
-                  Enable at least one surface for community teams.
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {coreSurfaceItems.map((feature) => (
-                  <div
-                    key={feature.key}
-                    className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5"
-                  >
-                    <span className="text-sm">{feature.label}</span>
-                    <Switch checked disabled className="scale-75" />
-                  </div>
-                ))}
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Core model: {coreWorkModel}
-              </p>
-
-              <div className="divide-y">
-                {optionalFeatures.map((feature) => (
-                  <div
-                    key={feature.key}
-                    className="flex items-center justify-between gap-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm">{feature.label}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {feature.description}
-                      </div>
-                      {savedFeatures[feature.key] &&
-                      surfaceDisableReasons[feature.key] ? (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {surfaceDisableReasons[feature.key]}
-                        </div>
-                      ) : null}
-                    </div>
-                    <Switch
-                      checked={features[feature.key]}
-                      disabled={
-                        disabled ||
-                        (savedFeatures[feature.key] &&
-                          Boolean(surfaceDisableReasons[feature.key]))
-                      }
-                      onCheckedChange={(checked) =>
-                        setFeatures((current) => ({
-                          ...current,
-                          issues: true,
-                          projects: true,
-                          views: true,
-                          [feature.key]: checked,
-                        }))
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
-
-      <div className="flex flex-col gap-8">
-        <section>
-          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-            Team type
-          </h3>
-          {canChangeExperience ? (
-            <div className="space-y-3">
-              {teamExperienceTypes.map((type) => {
-                const selected = type === experience
-
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    className={cn(
-                      "w-full rounded-lg border px-4 py-3 text-left transition-colors",
-                      selected
-                        ? "border-primary/40 bg-primary/5"
-                        : "hover:bg-accent/40"
-                    )}
-                    onClick={() => onExperienceChange?.(type)}
-                  >
-                    <div className="text-sm font-medium">
-                      {teamExperienceMeta[type].label}
-                    </div>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {teamExperienceMeta[type].description}
-                    </p>
-                  </button>
-                )
-              })}
-              <span className="inline-block text-[10px] tracking-wider text-muted-foreground/70 uppercase">
-                Locked after creation
-              </span>
-            </div>
-          ) : (
-            <div className="rounded-lg bg-muted/30 px-4 py-3">
-              <div className="text-sm font-medium">
-                {teamExperienceMeta[experience].label}
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {teamExperienceMeta[experience].description}
-              </p>
-              <span className="mt-3 inline-block text-[10px] tracking-wider text-muted-foreground/70 uppercase">
-                Locked after creation
-              </span>
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h3 className="mb-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-            Notes
-          </h3>
-          <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
-            <p>
-              {workCopy.surfaceLabel}, projects, and views stay on for this team
-              type.
-            </p>
-            <p>
-              Community spaces can enable docs, chat, channel, or any
-              combination.
-            </p>
-            <p>Docs remain optional for non-community teams.</p>
-          </div>
-        </section>
-      </div>
-    </div>
-  )
-}
-
-function CreateTeamDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const data = useAppStore()
-  const router = useRouter()
-  const workspace = getCurrentWorkspace(data)
-  const [name, setName] = useState("")
-  const [icon, setIcon] = useState(() =>
-    getDefaultTeamIconForExperience("software-development")
-  )
-  const [summary, setSummary] = useState("")
-  const [experience, setExperience] = useState<TeamExperienceType>(
-    "software-development"
-  )
-  const [features, setFeatures] = useState<TeamFeatureSettings>(
-    createDefaultTeamFeatureSettings("software-development")
-  )
-  const [saving, setSaving] = useState(false)
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        key={`${workspace?.id ?? "workspace"}-${open}`}
-        className="flex max-h-[88svh] flex-col overflow-hidden p-0 sm:max-w-5xl"
-      >
-        <DialogHeader className="border-b px-6 py-4">
-          <DialogTitle className="text-base">Create team</DialogTitle>
-          <DialogDescription>
-            Add a new team to {workspace?.name ?? "the current workspace"}.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <TeamEditorFields
-            name={name}
-            icon={icon}
-            summary={summary}
-            joinCode=""
-            experience={experience}
-            features={features}
-            setName={setName}
-            setIcon={(value) =>
-              setIcon(normalizeTeamIconToken(value, experience))
-            }
-            setSummary={setSummary}
-            setFeatures={setFeatures}
-            savedFeatures={features}
-            surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
-            canChangeExperience
-            showJoinCode={false}
-            onExperienceChange={(nextExperience) => {
-              setExperience(nextExperience)
-              setIcon(getDefaultTeamIconForExperience(nextExperience))
-              setFeatures(createDefaultTeamFeatureSettings(nextExperience))
-            }}
-            joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={saving}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={saving}
-            onClick={async () => {
-              setSaving(true)
-              const created = await useAppStore.getState().createTeam({
-                name,
-                icon,
-                summary,
-                experience,
-                features,
-              })
-              setSaving(false)
-
-              if (created) {
-                onOpenChange(false)
-                router.push(
-                  getTeamLandingHref(created.teamSlug, created.features)
-                )
-              }
-            }}
-          >
-            {saving ? "Creating..." : "Create team"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function TeamDetailsDialog({
-  open,
-  onOpenChange,
-  teamId,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  teamId: string
-}) {
-  const data = useAppStore()
-  const team = data.teams.find((entry) => entry.id === teamId) ?? null
-  const [name, setName] = useState(team?.name ?? "")
-  const experience: TeamExperienceType =
-    team?.settings.experience ?? "software-development"
-  const [icon, setIcon] = useState(() =>
-    normalizeTeamIconToken(team?.icon, experience)
-  )
-  const [summary, setSummary] = useState(team?.settings.summary ?? "")
-  const [features, setFeatures] = useState(
-    team?.settings.features ?? getTeamFeatureSettings(team)
-  )
-  const [saving, setSaving] = useState(false)
-
-  if (!team) {
-    return null
-  }
-
-  const savedFeatures = getTeamFeatureSettings(team)
-  const surfaceDisableReasons = getTeamSurfaceDisableReasons(data, team.id)
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        key={`${team.id}-${open}`}
-        className="flex max-h-[88svh] flex-col overflow-hidden p-0 sm:max-w-5xl"
-      >
-        <DialogHeader className="border-b px-6 py-4">
-          <DialogTitle className="text-base">Team settings</DialogTitle>
-          <DialogDescription>
-            {team.name} · {teamExperienceMeta[experience].label}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <TeamEditorFields
-            name={name}
-            icon={icon}
-            summary={summary}
-            joinCode={team.settings.joinCode}
-            experience={experience}
-            features={features}
-            setName={setName}
-            setIcon={(value) =>
-              setIcon(normalizeTeamIconToken(value, experience))
-            }
-            setSummary={setSummary}
-            setFeatures={setFeatures}
-            savedFeatures={savedFeatures}
-            surfaceDisableReasons={surfaceDisableReasons}
-            onRegenerateJoinCode={async () => {
-              await useAppStore.getState().regenerateTeamJoinCode(team.id)
-            }}
-            joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={saving}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={saving}
-            onClick={async () => {
-              setSaving(true)
-              const updated = await useAppStore
-                .getState()
-                .updateTeamDetails(team.id, {
-                  name,
-                  icon,
-                  summary,
-                  experience,
-                  features,
-                })
-              setSaving(false)
-
-              if (updated) {
-                onOpenChange(false)
-              }
-            }}
-          >
-            {saving ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function InviteDialog({
-  open,
-  onOpenChange,
-  mode,
-  presetTeamIds,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  mode: "workspace" | "team"
-  presetTeamIds: string[]
-}) {
-  const data = useAppStore()
-  const teams = getAccessibleTeams(data)
-  const [teamIds, setTeamIds] = useState<string[]>([])
-  const [email, setEmail] = useState("")
-  const [role, setRole] = useState<Role>("viewer")
-  const [submitting, setSubmitting] = useState(false)
-  const inviteRoleOptions: Array<{
-    value: Role
-    label: string
-    description: string
-  }> = [
-    {
-      value: "member",
-      label: "Member",
-      description: "Can create and edit work items and projects.",
-    },
-    {
-      value: "viewer",
-      label: "Viewer",
-      description: "Can view work across the assigned teams.",
-    },
-    {
-      value: "guest",
-      label: "Guest",
-      description: "Limited access for external collaborators.",
-    },
-  ]
-  const inviteableTeams = teams.filter((team) => {
-    const teamRole = getTeamRole(data, team.id)
-    return teamRole === "admin" || teamRole === "member"
-  })
-  const workspaceInviteMode = mode === "workspace"
-  const lockedToTeam = mode === "team" && presetTeamIds.length > 0
-  const lockedTeam = teams.find((team) => team.id === presetTeamIds[0])
-  const lockedTeamIcon = lockedTeam
-    ? normalizeTeamIconToken(lockedTeam.icon, lockedTeam.settings.experience)
-    : null
-  const selectedRoleDescription =
-    inviteRoleOptions.find((option) => option.value === role)?.description ??
-    inviteRoleOptions[1].description
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    setTeamIds(lockedToTeam ? presetTeamIds : [])
-    setEmail("")
-    setRole("viewer")
-  }, [lockedToTeam, open, presetTeamIds])
-
-  const canInvite =
-    email.trim().length > 0 &&
-    teamIds.length > 0 &&
-    teamIds.every((teamId) =>
-      inviteableTeams.some((team) => team.id === teamId)
-    )
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        key={`${data.ui.activeTeamId}-${mode}-${open}`}
-        className="max-w-lg gap-0 overflow-hidden p-0"
-      >
-        <div className="px-6 pt-6 pb-2">
-          <DialogHeader className="items-start gap-4 p-0">
-            <div className="flex size-12 items-center justify-center rounded-full bg-primary/8 ring-1 ring-border/60">
-              <EnvelopeSimple
-                className="size-6 text-primary"
-                weight="duotone"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <DialogTitle className="text-lg">Invite people</DialogTitle>
-              <DialogDescription className="max-w-md text-sm leading-relaxed">
-                {workspaceInviteMode
-                  ? "Invite someone to your workspace. Select which teams they should join."
-                  : "They'll receive an email with a link to get started."}
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-        </div>
-
-        <div className="space-y-5 px-6 py-4">
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="invite-email">Email address</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="invite-email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="colleague@company.com"
-                  autoFocus
-                />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
-
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium">
-                {lockedToTeam ? "Team" : "Teams"}
-              </div>
-              {workspaceInviteMode ? (
-                <div className="rounded-full border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  {teamIds.length} selected
-                </div>
-              ) : null}
-            </div>
-            {lockedToTeam ? (
-              <div className="flex items-center gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-                <div className="flex size-9 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
-                  {lockedTeamIcon ? (
-                    <TeamIconGlyph
-                      icon={lockedTeamIcon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  ) : (
-                    <UsersThree className="size-4 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {lockedTeam?.name ?? "Selected team"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    This invite is locked to a single team.
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                className={cn(
-                  "flex flex-wrap gap-2",
-                  workspaceInviteMode
-                    ? "rounded-xl border bg-muted/15 p-3"
-                    : undefined
-                )}
-              >
-                {inviteableTeams.map((team) => {
-                  const selected = teamIds.includes(team.id)
-                  const teamIcon = normalizeTeamIconToken(
-                    team.icon,
-                    team.settings.experience
-                  )
-
-                  return (
-                    <button
-                      key={team.id}
-                      type="button"
-                      className={cn(
-                        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
-                        selected
-                          ? "border-primary/30 bg-primary/10 font-medium text-foreground"
-                          : "border-border/60 text-muted-foreground hover:border-border hover:bg-muted/30 hover:text-foreground"
-                      )}
-                      onClick={() =>
-                        setTeamIds((current) =>
-                          current.includes(team.id)
-                            ? current.filter((value) => value !== team.id)
-                            : [...current, team.id]
-                        )
-                      }
-                    >
-                      <TeamIconGlyph
-                        icon={teamIcon}
-                        className="size-3.5 shrink-0"
-                      />
-                      <span>{team.name}</span>
-                      {selected ? (
-                        <Check className="size-3.5 shrink-0" />
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="invite-role">Role</FieldLabel>
-              <FieldContent>
-                <Select
-                  value={role}
-                  onValueChange={(value) => setRole(value as Role)}
-                >
-                  <SelectTrigger id="invite-role" className="w-full">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {inviteRoleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </FieldContent>
-              <FieldDescription>{selectedRoleDescription}</FieldDescription>
-            </Field>
-          </FieldGroup>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={!canInvite || submitting}
-            onClick={async () => {
-              setSubmitting(true)
-
-              try {
-                const response = await fetch("/api/invites", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({ teamIds, email, role }),
-                })
-
-                const payload = (await response.json()) as { error?: string }
-
-                if (!response.ok) {
-                  throw new Error(payload.error ?? "Failed to create invite")
-                }
-
-                toast.success(
-                  teamIds.length === 1
-                    ? "Invite email sent"
-                    : `Invite emails sent for ${teamIds.length} teams`
-                )
-                onOpenChange(false)
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to create invite"
-                )
-              } finally {
-                setSubmitting(false)
-              }
-            }}
-          >
-            {submitting ? (
-              <>
-                <ArrowsClockwise className="animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <PaperPlaneTilt />
-                Send invite
-              </>
-            )}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function ProfileDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const data = useAppStore()
-  const currentUser = getCurrentUser(data)
-  const [name, setName] = useState(currentUser?.name ?? "")
-  const [title, setTitle] = useState(currentUser?.title ?? "")
-  const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? "")
-  const [email, setEmail] = useState(currentUser?.email ?? "")
-  const [emailMentions, setEmailMentions] = useState(
-    currentUser?.preferences.emailMentions ?? false
-  )
-  const [emailAssignments, setEmailAssignments] = useState(
-    currentUser?.preferences.emailAssignments ?? false
-  )
-  const [emailDigest, setEmailDigest] = useState(
-    currentUser?.preferences.emailDigest ?? false
-  )
-  const [changingEmail, setChangingEmail] = useState(false)
-  const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
-
-  useEffect(() => {
-    if (!currentUser) {
-      return
-    }
-
-    setName(currentUser.name)
-    setTitle(currentUser.title)
-    setAvatarUrl(currentUser.avatarUrl)
-    setEmail(currentUser.email)
-    setEmailMentions(currentUser.preferences.emailMentions)
-    setEmailAssignments(currentUser.preferences.emailAssignments)
-    setEmailDigest(currentUser.preferences.emailDigest)
-  }, [currentUser?.id])
-
-  async function handleEmailChange() {
-    if (!currentUser) {
-      return
-    }
-
-    if (email.trim().toLowerCase() === currentUser.email.toLowerCase()) {
-      toast.error("Enter a different email address")
-      return
-    }
-
-    try {
-      setChangingEmail(true)
-      const response = await fetch("/api/account/email", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-        }),
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-        notice?: string
-        logoutRequired?: boolean
-      } | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to update your email address")
-      }
-
-      const notice =
-        payload?.notice ??
-        "Email updated. Verify the new address and then sign back in."
-
-      onOpenChange(false)
-      toast.success(notice)
-
-      if (payload?.logoutRequired && typeof document !== "undefined") {
-        const form = document.createElement("form")
-        form.method = "POST"
-        form.action = `/auth/logout?returnTo=${encodeURIComponent(
-          `/login?notice=${encodeURIComponent(notice)}`
-        )}`
-        document.body.appendChild(form)
-        form.submit()
-      }
-    } catch (error) {
-      console.error(error)
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update your email"
-      )
-    } finally {
-      setChangingEmail(false)
-    }
-  }
-
-  async function handlePasswordReset() {
-    try {
-      setSendingPasswordReset(true)
-      const response = await fetch("/api/account/password-reset", {
-        method: "POST",
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-      } | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to start password reset")
-      }
-
-      toast.success("Password reset email sent")
-    } catch (error) {
-      console.error(error)
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to start password reset"
-      )
-    } finally {
-      setSendingPasswordReset(false)
-    }
-  }
-
-  if (!currentUser) {
-    return null
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        key={`${currentUser.id}-${open}`}
-        className="max-w-lg gap-0 overflow-hidden p-0"
-      >
-        <div className="px-5 pt-5 pb-1">
-          <DialogHeader className="mb-1 p-0">
-            <DialogTitle className="text-base">Profile</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              {currentUser.name} · {currentUser.email}
-            </DialogDescription>
-          </DialogHeader>
-        </div>
-
-        <div className="flex flex-col border-t px-5 py-2">
-          <div className="py-1.5">
-            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-              Identity
-            </span>
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Name</span>
-            <Input
-              id="profile-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Title</span>
-            <Input
-              id="profile-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">
-              Avatar initials
-            </span>
-            <Input
-              id="profile-avatar"
-              value={avatarUrl}
-              onChange={(event) => setAvatarUrl(event.target.value)}
-              className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col border-t px-5 py-2">
-          <div className="py-1.5">
-            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-              Notifications
-            </span>
-          </div>
-          <div className="flex items-center justify-between py-2">
-            <div className="min-w-0">
-              <div className="text-xs">Email mentions</div>
-              <div className="text-[11px] text-muted-foreground">
-                Notified when someone mentions you.
-              </div>
-            </div>
-            <Switch
-              checked={emailMentions}
-              onCheckedChange={setEmailMentions}
-              className="scale-90"
-            />
-          </div>
-          <div className="flex items-center justify-between py-2">
-            <div className="min-w-0">
-              <div className="text-xs">Email assignments</div>
-              <div className="text-[11px] text-muted-foreground">
-                Notified when work is assigned to you.
-              </div>
-            </div>
-            <Switch
-              checked={emailAssignments}
-              onCheckedChange={setEmailAssignments}
-              className="scale-90"
-            />
-          </div>
-          <div className="flex items-center justify-between py-2">
-            <div className="min-w-0">
-              <div className="text-xs">Email digest</div>
-              <div className="text-[11px] text-muted-foreground">
-                Unread notifications in a daily digest.
-              </div>
-            </div>
-            <Switch
-              checked={emailDigest}
-              onCheckedChange={setEmailDigest}
-              className="scale-90"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col border-t px-5 py-2">
-          <div className="py-1.5">
-            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-              Account
-            </span>
-          </div>
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Email</span>
-            <Input
-              id="profile-email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              className="h-7 w-56 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2 py-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={changingEmail}
-              onClick={() => {
-                void handleEmailChange()
-              }}
-            >
-              {changingEmail ? "Updating..." : "Change email"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={sendingPasswordReset}
-              onClick={() => {
-                void handlePasswordReset()
-              }}
-            >
-              {sendingPasswordReset ? "Sending..." : "Password reset"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              useAppStore.getState().updateCurrentUserProfile({
-                name,
-                title,
-                avatarUrl,
-                preferences: {
-                  emailMentions,
-                  emailAssignments,
-                  emailDigest,
-                  theme: currentUser.preferences.theme,
-                },
-              })
-              onOpenChange(false)
-            }}
-          >
-            Save profile
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
+export { WorkspaceDialog } from "@/components/app/shell/workspace-dialog"
+export {
+  CreateTeamDialog,
+  TeamDetailsDialog,
+} from "@/components/app/shell/team-dialogs"
+export { ProfileDialog } from "@/components/app/shell/profile-dialog"

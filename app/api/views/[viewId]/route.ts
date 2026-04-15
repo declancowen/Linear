@@ -1,5 +1,4 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import {
@@ -7,7 +6,6 @@ import {
   groupFields,
   orderingFields,
 } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   clearViewFiltersServer,
   toggleViewDisplayPropertyServer,
@@ -15,6 +13,13 @@ import {
   toggleViewHiddenValueServer,
   updateViewConfigServer,
 } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const viewMutationSchema = z.discriminatedUnion("action", [
   z.object({
@@ -57,73 +62,75 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ viewId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = viewMutationSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    viewMutationSchema,
+    "Invalid view request"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid view request" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
     const { viewId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
 
-    switch (parsed.data.action) {
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    switch (parsed.action) {
       case "updateConfig":
         await updateViewConfigServer({
-          currentUserId: ensuredUser.userId,
+          currentUserId: appContext.ensuredUser.userId,
           viewId,
-          ...parsed.data.patch,
+          ...parsed.patch,
         })
         break
       case "toggleDisplayProperty":
         await toggleViewDisplayPropertyServer({
-          currentUserId: ensuredUser.userId,
+          currentUserId: appContext.ensuredUser.userId,
           viewId,
-          property: parsed.data.property,
+          property: parsed.property,
         })
         break
       case "toggleHiddenValue":
         await toggleViewHiddenValueServer({
-          currentUserId: ensuredUser.userId,
+          currentUserId: appContext.ensuredUser.userId,
           viewId,
-          key: parsed.data.key,
-          value: parsed.data.value,
+          key: parsed.key,
+          value: parsed.value,
         })
         break
       case "toggleFilterValue":
         await toggleViewFilterValueServer({
-          currentUserId: ensuredUser.userId,
+          currentUserId: appContext.ensuredUser.userId,
           viewId,
-          key: parsed.data.key,
-          value: parsed.data.value,
+          key: parsed.key,
+          value: parsed.value,
         })
         break
       case "clearFilters":
         await clearViewFiltersServer({
-          currentUserId: ensuredUser.userId,
+          currentUserId: appContext.ensuredUser.userId,
           viewId,
         })
         break
     }
 
-    return NextResponse.json({ ok: true })
+    return jsonOk({ ok: true })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to update view",
-      },
-      { status: 500 }
+    logProviderError("Failed to update view", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update view"),
+      500
     )
   }
 }

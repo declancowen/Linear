@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
+import { syncCreateTeam } from "@/lib/convex/client"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -84,9 +85,7 @@ type OnboardingTeamFormProps = {
   workspaceName: string
 }
 
-export function OnboardingTeamForm({
-  workspaceName,
-}: OnboardingTeamFormProps) {
+export function OnboardingTeamForm({ workspaceName }: OnboardingTeamFormProps) {
   const router = useRouter()
   const [name, setName] = useState("")
   const [summary, setSummary] = useState("")
@@ -100,30 +99,13 @@ export function OnboardingTeamForm({
     setSubmitting(true)
 
     try {
-      const response = await fetch("/api/teams", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          icon: getDefaultTeamIconForExperience(preset.experience),
-          summary,
-          experience: preset.experience,
-          features: createDefaultTeamFeatureSettings(preset.experience),
-        }),
+      const payload = await syncCreateTeam({
+        name,
+        icon: getDefaultTeamIconForExperience(preset.experience),
+        summary,
+        experience: preset.experience,
+        features: createDefaultTeamFeatureSettings(preset.experience),
       })
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            error?: string
-            teamSlug?: string | null
-            features?: TeamFeatureSettings
-          }
-        | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to create team")
-      }
 
       toast.success("Team created")
       router.push(
@@ -133,7 +115,9 @@ export function OnboardingTeamForm({
       )
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create team")
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create team"
+      )
     } finally {
       setSubmitting(false)
     }
@@ -200,8 +184,8 @@ export function OnboardingTeamForm({
               </div>
             </FieldContent>
             <FieldDescription>
-              The team join code is generated automatically and can be regenerated
-              later in team settings.
+              The team join code is generated automatically and can be
+              regenerated later in team settings.
             </FieldDescription>
           </Field>
         </FieldGroup>

@@ -1,9 +1,14 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { deleteDocumentServer, updateDocumentServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const documentUpdateSchema = z
   .object({
@@ -18,47 +23,45 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   const { documentId } = await params
-  const body = await request.json()
-  const parsed = documentUpdateSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    documentUpdateSchema,
+    "Invalid document update payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid document update payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await updateDocumentServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       documentId,
-      title: parsed.data.title,
-      content: parsed.data.content,
+      title: parsed.title,
+      content: parsed.content,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to update document",
-      },
-      { status: 500 }
+    logProviderError("Failed to update document", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update document"),
+      500
     )
   }
 }
@@ -67,36 +70,34 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   const { documentId } = await params
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await deleteDocumentServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       documentId,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to delete document",
-      },
-      { status: 500 }
+    logProviderError("Failed to delete document", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete document"),
+      500
     )
   }
 }

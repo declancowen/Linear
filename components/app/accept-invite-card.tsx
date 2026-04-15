@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useEffectEvent, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { syncAcceptInvite, syncDeclineInvite } from "@/lib/convex/client"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
@@ -50,31 +51,20 @@ export function AcceptInviteCard({
     setLoading(true)
 
     try {
-      const response = await fetch("/api/invites/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token }),
-      })
-
-      const payload = (await response.json()) as {
-        error?: string
-        teamSlug?: string | null
-      }
-
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to accept invite")
-      }
+      const payload = await syncAcceptInvite(token)
 
       toast.success("Invite accepted")
       router.push(
-        payload.teamSlug ? `/team/${payload.teamSlug}/work` : "/workspace/projects"
+        payload.teamSlug
+          ? `/team/${payload.teamSlug}/work`
+          : "/workspace/projects"
       )
       router.refresh()
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to accept invite")
+      toast.error(
+        error instanceof Error ? error.message : "Failed to accept invite"
+      )
       return false
     } finally {
       setLoading(false)
@@ -85,25 +75,14 @@ export function AcceptInviteCard({
     setDeclining(true)
 
     try {
-      const response = await fetch("/api/invites/decline", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token }),
-      })
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to decline invite")
-      }
+      await syncDeclineInvite(token)
 
       toast.success("Invite declined")
       router.refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to decline invite")
+      toast.error(
+        error instanceof Error ? error.message : "Failed to decline invite"
+      )
     } finally {
       setDeclining(false)
     }
@@ -129,7 +108,8 @@ export function AcceptInviteCard({
   }, [accepted, authenticated, autoAccept, expired])
 
   const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
-  const workspaceBadgeFallback = workspaceName.trim().charAt(0).toUpperCase() || "?"
+  const workspaceBadgeFallback =
+    workspaceName.trim().charAt(0).toUpperCase() || "?"
 
   return (
     <Card className={cn("w-full shadow-none", className)}>
@@ -148,9 +128,7 @@ export function AcceptInviteCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <div className="truncate text-sm font-medium">
-              {teamName}
-            </div>
+            <div className="truncate text-sm font-medium">{teamName}</div>
             <span className="shrink-0 text-xs text-muted-foreground">·</span>
             {expired ? (
               <span className="shrink-0 text-xs text-destructive">Expired</span>

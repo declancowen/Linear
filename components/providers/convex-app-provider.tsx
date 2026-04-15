@@ -9,6 +9,11 @@ import {
   RouteMutationError,
 } from "@/lib/convex/client"
 import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
+import {
+  reportSnapshotApplyDiagnostic,
+  reportSnapshotFetchDiagnostic,
+  reportSnapshotStreamReconnectDiagnostic,
+} from "@/lib/browser/snapshot-diagnostics"
 import type { AppSnapshot } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
@@ -124,16 +129,26 @@ function ConvexStateSync({
       syncInFlight = true
 
       try {
+        const fetchStartedAt = window.performance.now()
         const snapshotState = await fetchSnapshotState()
+        const fetchDurationMs = window.performance.now() - fetchStartedAt
 
-        if (!snapshotState || cancelled) {
-          if (!cancelled) {
-            scheduleInitialSnapshotRetry()
-          }
+        if (cancelled) {
           return
         }
 
+        reportSnapshotFetchDiagnostic({
+          durationMs: fetchDurationMs,
+          version: snapshotState.version,
+          snapshot: snapshotState.snapshot,
+        })
+
+        const applyStartedAt = window.performance.now()
         applySnapshot(snapshotState.snapshot)
+        reportSnapshotApplyDiagnostic({
+          durationMs: window.performance.now() - applyStartedAt,
+          version: snapshotState.version,
+        })
         appliedSnapshotVersion = snapshotState.version
         hasLoadedInitialSnapshot = true
         initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
@@ -183,6 +198,7 @@ function ConvexStateSync({
           openStream()
         }
       }, streamReconnectDelay)
+      reportSnapshotStreamReconnectDiagnostic(streamReconnectDelay)
 
       streamReconnectDelay = Math.min(
         streamReconnectDelay * 2,

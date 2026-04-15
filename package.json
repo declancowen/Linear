@@ -18,6 +18,9 @@
     "desktop:dev": "concurrently -k \"pnpm web:dev\" \"cross-env NEXT_DEV_SERVER_URL=http://127.0.0.1:3000 electron electron/main.mjs\"",
     "desktop:start": "cross-env NODE_ENV=production electron electron/main.mjs",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit"
   },
@@ -67,6 +70,9 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.2.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -75,10 +81,13 @@
     "electron": "^41.2.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.1.7",
+    "jsdom": "^29.0.2",
+    "msw": "^2.13.3",
     "postcss": "^8",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "tailwindcss": "^4.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
   }
 }

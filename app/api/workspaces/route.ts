@@ -1,12 +1,15 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { workspaceSetupSchema } from "@/lib/domain/types"
-import {
-  ensureAuthenticatedAppContext,
-  reconcileAuthenticatedAppContext,
-} from "@/lib/server/authenticated-app"
+import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { createWorkspaceServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 function getWorkspaceLogo(name: string) {
   return (
@@ -22,67 +25,64 @@ function getWorkspaceLogo(name: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = workspaceSetupSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    workspaceSetupSchema,
+    "Invalid workspace payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid workspace payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser, authContext } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
 
-    if (authContext?.currentWorkspace || authContext?.pendingWorkspace) {
-      return NextResponse.json(
-        { error: "You already have an active workspace" },
-        { status: 400 }
-      )
+    if (isRouteResponse(appContext)) {
+      return appContext
     }
 
-    const name = parsed.data.name.trim()
+    if (
+      appContext.authContext?.currentWorkspace ||
+      appContext.authContext?.pendingWorkspace
+    ) {
+      return jsonError("You already have an active workspace", 400)
+    }
+
+    const name = parsed.name.trim()
     const result = await createWorkspaceServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       name,
       logoUrl: getWorkspaceLogo(name),
       accent: "emerald",
-      description:
-        parsed.data.description?.trim() || `${name} workspace`,
+      description: parsed.description?.trim() || `${name} workspace`,
     })
 
     try {
       await reconcileAuthenticatedAppContext(session.user, session.organizationId)
     } catch (error) {
-      console.error(
+      logProviderError(
         "Failed to reconcile app context after workspace creation",
         error
       )
     }
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       workspaceId: result.workspaceId,
       workspaceSlug: result.workspaceSlug,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to create workspace",
-      },
-      { status: 500 }
+    logProviderError("Failed to create workspace", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to create workspace"),
+      500
     )
   }
 }

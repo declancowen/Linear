@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Check } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
+import { syncUpdateWorkspaceBranding } from "@/lib/convex/client"
 import {
   canAdminWorkspace,
   getCurrentWorkspace,
@@ -29,11 +30,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
-import {
-  ImageUploadControl,
-  SettingsScaffold,
-  SettingsSection,
-} from "./shared"
+import { ImageUploadControl, SettingsScaffold, SettingsSection } from "./shared"
 import { getUserInitials, uploadSettingsImage } from "./utils"
 
 const workspaceAccentOptions = [
@@ -65,11 +62,37 @@ const workspaceAccentOptions = [
 
 export function WorkspaceSettingsScreen() {
   const router = useRouter()
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
-  const canManageWorkspace = workspace
-    ? canAdminWorkspace(data, workspace.id)
-    : false
+  const workspace = useAppStore(getCurrentWorkspace)
+  const workspaceId = workspace?.id ?? null
+  const workspaceName = workspace?.name ?? ""
+  const workspaceLogoUrl = workspace?.logoUrl ?? ""
+  const workspaceResolvedLogoSrc =
+    resolveImageAssetSource(workspace?.logoImageUrl, workspace?.logoUrl) ?? null
+  const workspaceAccent = workspace?.settings.accent ?? "emerald"
+  const workspaceDescription = workspace?.settings.description ?? ""
+  const canManageWorkspace = useAppStore((state) => {
+    const currentWorkspace = getCurrentWorkspace(state)
+
+    return currentWorkspace
+      ? canAdminWorkspace(state, currentWorkspace.id)
+      : false
+  })
+  const workspaceUsersCount = useAppStore((state) => {
+    const currentWorkspace = getCurrentWorkspace(state)
+
+    return currentWorkspace
+      ? getWorkspaceUsers(state, currentWorkspace.id).length
+      : 0
+  })
+  const workspaceTeamsCount = useAppStore((state) => {
+    if (!state.currentWorkspaceId) {
+      return 0
+    }
+
+    return state.teams.filter(
+      (team) => team.workspaceId === state.currentWorkspaceId
+    ).length
+  })
   const currentLogoImageSrc = resolveImageAssetSource(
     workspace?.logoImageUrl,
     workspace?.logoUrl
@@ -89,11 +112,8 @@ export function WorkspaceSettingsScreen() {
   )
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
-  const fallbackBadge = logoUrl.trim() || getUserInitials(name || workspace?.name)
-  const workspaceUsers = workspace ? getWorkspaceUsers(data, workspace.id) : []
-  const workspaceTeams = workspace
-    ? data.teams.filter((team) => team.workspaceId === workspace.id)
-    : []
+  const fallbackBadge =
+    logoUrl.trim() || getUserInitials(name || workspace?.name)
   const savedAccent = workspace?.settings.accent ?? "emerald"
   const savedAccentLabel =
     savedAccent.charAt(0).toUpperCase() + savedAccent.slice(1)
@@ -109,17 +129,21 @@ export function WorkspaceSettingsScreen() {
   }, [logoPreviewUrl])
 
   useEffect(() => {
-    setName(workspace?.name ?? "")
-    setLogoUrl(workspace?.logoUrl ?? "")
-    setLogoPreviewUrl(
-      resolveImageAssetSource(workspace?.logoImageUrl, workspace?.logoUrl) ??
-        null
-    )
+    setName(workspaceName)
+    setLogoUrl(workspaceLogoUrl)
+    setLogoPreviewUrl(workspaceResolvedLogoSrc)
     setLogoImageStorageId(undefined)
     setClearLogoImage(false)
-    setAccent(workspace?.settings.accent ?? "emerald")
-    setDescription(workspace?.settings.description ?? "")
-  }, [workspace?.id])
+    setAccent(workspaceAccent)
+    setDescription(workspaceDescription)
+  }, [
+    workspaceAccent,
+    workspaceDescription,
+    workspaceId,
+    workspaceLogoUrl,
+    workspaceName,
+    workspaceResolvedLogoSrc,
+  ])
 
   if (!workspace) {
     return (
@@ -138,6 +162,8 @@ export function WorkspaceSettingsScreen() {
       </SettingsScaffold>
     )
   }
+
+  const currentWorkspace = workspace
 
   async function handleLogoUpload(file: File) {
     try {
@@ -158,27 +184,17 @@ export function WorkspaceSettingsScreen() {
   async function handleSave() {
     try {
       setSaving(true)
-      const response = await fetch("/api/workspace/current", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          logoUrl,
+      await syncUpdateWorkspaceBranding(
+        currentWorkspace.id,
+        name,
+        logoUrl,
+        accent,
+        description,
+        {
           ...(logoImageStorageId ? { logoImageStorageId } : {}),
           ...(clearLogoImage ? { clearLogoImage: true } : {}),
-          accent,
-          description,
-        }),
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-      } | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to update workspace")
-      }
+        }
+      )
 
       toast.success("Workspace updated")
       router.refresh()
@@ -222,13 +238,14 @@ export function WorkspaceSettingsScreen() {
             {currentLogoImageSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                alt={workspace.name}
+                alt={currentWorkspace.name}
                 className="size-full object-cover"
                 src={currentLogoImageSrc}
               />
             ) : (
               <span className="text-sm font-semibold text-muted-foreground">
-                {workspace.logoUrl || getUserInitials(workspace.name)}
+                {currentWorkspace.logoUrl ||
+                  getUserInitials(currentWorkspace.name)}
               </span>
             )}
           </div>
@@ -238,9 +255,9 @@ export function WorkspaceSettingsScreen() {
               {workspace.settings.description || "No description set."}
             </p>
             <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>{workspaceUsers.length} members</span>
+              <span>{workspaceUsersCount} members</span>
               <span>·</span>
-              <span>{workspaceTeams.length} teams</span>
+              <span>{workspaceTeamsCount} teams</span>
               <span>·</span>
               <span>{savedAccentLabel}</span>
             </div>
@@ -298,7 +315,9 @@ export function WorkspaceSettingsScreen() {
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel htmlFor="workspace-description">Description</FieldLabel>
+              <FieldLabel htmlFor="workspace-description">
+                Description
+              </FieldLabel>
               <FieldContent>
                 <Textarea
                   id="workspace-description"
@@ -327,13 +346,17 @@ export function WorkspaceSettingsScreen() {
                         className={cn(
                           "flex size-7 items-center justify-center rounded-full transition-transform hover:scale-105 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
                           option.swatchClassName,
-                          selected && "ring-2 ring-offset-2 ring-offset-background"
+                          selected &&
+                            "ring-2 ring-offset-2 ring-offset-background"
                         )}
                         disabled={!canManageWorkspace}
                         onClick={() => setAccent(option.value)}
                       >
                         {selected ? (
-                          <Check className="size-3.5 text-white" weight="bold" />
+                          <Check
+                            className="size-3.5 text-white"
+                            weight="bold"
+                          />
                         ) : null}
                       </button>
                     )

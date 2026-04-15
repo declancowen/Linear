@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useShallow } from "zustand/react/shallow"
 
 import {
   canAdminTeam,
@@ -24,11 +25,27 @@ import {
 } from "@/components/ui/card"
 
 import { SettingsScaffold } from "./shared"
-import { TeamEditorFields } from "./team-editor-fields"
+import {
+  defaultTeamSurfaceDisableReasons,
+  TeamEditorFields,
+} from "./team-editor-fields"
 
 export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
-  const data = useAppStore()
-  const team = getTeamBySlug(data, teamSlug)
+  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const canManageTeam = useAppStore((state) => {
+    const currentTeam = getTeamBySlug(state, teamSlug)
+
+    return currentTeam ? canAdminTeam(state, currentTeam.id) : false
+  })
+  const surfaceDisableReasons = useAppStore(
+    useShallow((state) => {
+      const currentTeam = getTeamBySlug(state, teamSlug)
+
+      return currentTeam
+        ? getTeamSurfaceDisableReasons(state, currentTeam.id)
+        : defaultTeamSurfaceDisableReasons
+    })
+  )
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const experience: TeamExperienceType =
@@ -43,16 +60,22 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   )
 
   useEffect(() => {
-    setName(team?.name ?? "")
-    setIcon(
-      normalizeTeamIconToken(
-        team?.icon,
-        team?.settings.experience ?? "software-development"
+    const frame = window.requestAnimationFrame(() => {
+      setName(team?.name ?? "")
+      setIcon(
+        normalizeTeamIconToken(
+          team?.icon,
+          team?.settings.experience ?? "software-development"
+        )
       )
-    )
-    setSummary(team?.settings.summary ?? "")
-    setFeatures(team?.settings.features ?? getTeamFeatureSettings(team))
-  }, [team?.id])
+      setSummary(team?.settings.summary ?? "")
+      setFeatures(team?.settings.features ?? getTeamFeatureSettings(team))
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [team])
 
   if (!team) {
     return (
@@ -72,9 +95,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     )
   }
 
-  const canManageTeam = canAdminTeam(data, team.id)
   const savedFeatures = getTeamFeatureSettings(team)
-  const surfaceDisableReasons = getTeamSurfaceDisableReasons(data, team.id)
 
   return (
     <SettingsScaffold

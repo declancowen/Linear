@@ -1,5 +1,6 @@
 "use client"
 
+import { syncGenerateSettingsImageUploadUrl } from "@/lib/convex/client"
 import { type TeamFeatureSettings } from "@/lib/domain/types"
 
 const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
@@ -56,24 +57,10 @@ export async function uploadSettingsImage(
     throw new Error("Images must be 10 MB or smaller")
   }
 
-  const uploadUrlResponse = await fetch("/api/settings-images/upload-url", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ kind }),
-  })
-  const uploadUrlPayload = (await uploadUrlResponse
-    .json()
-    .catch(() => null)) as {
-    error?: string
-    uploadUrl?: string
-  } | null
+  const uploadUrlPayload = await syncGenerateSettingsImageUploadUrl(kind)
 
-  if (!uploadUrlResponse.ok || !uploadUrlPayload?.uploadUrl) {
-    throw new Error(
-      uploadUrlPayload?.error ?? "Failed to prepare the image upload"
-    )
+  if (!uploadUrlPayload?.uploadUrl) {
+    throw new Error("Failed to prepare the image upload")
   }
 
   const storageResponse = await fetch(uploadUrlPayload.uploadUrl, {

@@ -1,8 +1,10 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
 import { buildAuthHref } from "@/lib/auth-routing"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  getHmsErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
 import {
   createConversationJoinUrl,
   ensureConversationRoom,
@@ -13,15 +15,19 @@ import {
   setCallRoomServer,
   setConversationRoomServer,
 } from "@/lib/server/convex"
+import {
+  type RequiredAppContext,
+  requireAppContext,
+  requireSession,
+} from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError } from "@/lib/server/route-response"
 
 function toMeetingRole(role: "admin" | "member" | "viewer" | "guest") {
   return role === "admin" || role === "member" ? "host" : "guest"
 }
 
 function getWorkspaceMeetingRole(
-  authContext: NonNullable<
-    Awaited<ReturnType<typeof ensureAuthenticatedAppContext>>["authContext"]
-  >,
+  authContext: NonNullable<RequiredAppContext["authContext"]>,
   snapshot: NonNullable<Awaited<ReturnType<typeof getSnapshotServer>>>,
   workspaceId: string
 ) {
@@ -97,16 +103,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const callId = url.searchParams.get("callId")?.trim()
   const conversationId = url.searchParams.get("conversationId")?.trim()
-  const session = await withAuth()
 
   if (!callId && !conversationId) {
-    return NextResponse.json(
-      { error: "callId or conversationId is required" },
-      { status: 400 }
-    )
+    return jsonError("callId or conversationId is required", 400)
   }
 
-  if (!session.user) {
+  const session = await requireSession()
+
+  if (isRouteResponse(session)) {
     return NextResponse.redirect(
       buildAuthHref("login", `${url.pathname}${url.search}`),
       { status: 307 }
@@ -114,16 +118,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { authContext } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    const authContext = appContext.authContext
 
     if (!authContext) {
-      return NextResponse.json(
-        { error: "User context not found" },
-        { status: 404 }
-      )
+      return jsonError("User context not found", 404)
     }
 
     const snapshot = await getSnapshotServer({
@@ -132,10 +136,7 @@ export async function GET(request: Request) {
     })
 
     if (!snapshot) {
-      return NextResponse.json(
-        { error: "Snapshot not available" },
-        { status: 404 }
-      )
+      return jsonError("Snapshot not available", 404)
     }
 
     if (callId) {
@@ -146,15 +147,12 @@ export async function GET(request: Request) {
         ) ?? null
 
       if (!call || !conversation || conversation.kind !== "chat") {
-        return NextResponse.json({ error: "Call not found" }, { status: 404 })
+        return jsonError("Call not found", 404)
       }
 
       if (conversation.scopeType === "workspace") {
         if (!conversation.participantIds.includes(authContext.currentUser.id)) {
-          return NextResponse.json(
-            { error: "You do not have access to this chat" },
-            { status: 403 }
-          )
+          return jsonError("You do not have access to this chat", 403)
         }
 
         const room =
@@ -203,10 +201,7 @@ export async function GET(request: Request) {
       )
 
       if (!membership) {
-        return NextResponse.json(
-          { error: "You do not have access to this chat" },
-          { status: 403 }
-        )
+        return jsonError("You do not have access to this chat", 403)
       }
 
       const room =
@@ -247,21 +242,16 @@ export async function GET(request: Request) {
     }
 
     const conversation =
-      snapshot.conversations.find((entry) => entry.id === conversationId) ?? null
+      snapshot.conversations.find((entry) => entry.id === conversationId) ??
+      null
 
     if (!conversation || conversation.kind !== "chat") {
-      return NextResponse.json(
-        { error: "Conversation not found" },
-        { status: 404 }
-      )
+      return jsonError("Conversation not found", 404)
     }
 
     if (conversation.scopeType === "workspace") {
       if (!conversation.participantIds.includes(authContext.currentUser.id)) {
-        return NextResponse.json(
-          { error: "You do not have access to this chat" },
-          { status: 403 }
-        )
+        return jsonError("You do not have access to this chat", 403)
       }
 
       const roomKey = `chat-${conversation.id}`
@@ -307,10 +297,7 @@ export async function GET(request: Request) {
     )
 
     if (!membership) {
-      return NextResponse.json(
-        { error: "You do not have access to this chat" },
-        { status: 403 }
-      )
+      return jsonError("You do not have access to this chat", 403)
     }
 
     const roomKey = `chat-${conversation.id}`
@@ -346,9 +333,9 @@ export async function GET(request: Request) {
 
     return NextResponse.redirect(joinUrl, { status: 307 })
   } catch (error) {
-    console.error(error)
+    logProviderError("Failed to join call", error)
     return renderJoinErrorPage(
-      error instanceof Error ? error.message : "Failed to join the call"
+      getHmsErrorMessage(error, "Failed to join the call")
     )
   }
 }

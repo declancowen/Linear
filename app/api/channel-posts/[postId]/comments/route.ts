@@ -1,46 +1,63 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { channelPostCommentSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   addChannelPostCommentServer,
   markNotificationsEmailedServer,
 } from "@/lib/server/convex"
 import { sendMentionEmails } from "@/lib/server/email"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+
+const channelPostCommentBodySchema = z.object({
+  content: channelPostCommentSchema.shape.content,
+})
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
+  const parsedBody = await parseJsonBody(
+    request,
+    channelPostCommentBodySchema,
+    "Invalid comment payload"
+  )
+
+  if (isRouteResponse(parsedBody)) {
+    return parsedBody
+  }
+
   const { postId } = await params
   const parsed = channelPostCommentSchema.safeParse({
     postId,
-    content: body.content,
+    content: parsedBody.content,
   })
 
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid comment payload" },
-      { status: 400 }
-    )
+    return jsonError("Invalid comment payload", 400)
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     const result = await addChannelPostCommentServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
     })
 
@@ -54,21 +71,18 @@ export async function POST(
         await markNotificationsEmailedServer(emailedNotificationIds)
       }
     } catch (emailError) {
-      console.error("Failed to send mention emails", emailError)
+      logProviderError("Failed to send mention emails", emailError)
     }
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       commentId: result?.commentId ?? null,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to create comment",
-      },
-      { status: 500 }
+    logProviderError("Failed to create comment", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to create comment"),
+      500
     )
   }
 }

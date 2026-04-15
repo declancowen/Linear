@@ -1,46 +1,53 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { labelCreateSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { createLabelServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = labelCreateSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    labelCreateSchema,
+    "Invalid label payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid label payload" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     const label = await createLabelServer({
-      currentUserId: ensuredUser.userId,
-      ...parsed.data,
+      currentUserId: appContext.ensuredUser.userId,
+      ...parsed,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       label,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to create label",
-      },
-      { status: 500 }
+    logProviderError("Failed to create label", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to create label"),
+      500
     )
   }
 }

@@ -1,12 +1,17 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import {
   clearDocumentPresenceServer,
-  ensureConvexUserReadyServer,
   heartbeatDocumentPresenceServer,
 } from "@/lib/server/convex"
+import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
 const documentPresenceSchema = z.object({
@@ -18,21 +23,21 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   const { documentId } = await params
-  const body = await request.json().catch(() => null)
-  const parsed = documentPresenceSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    documentPresenceSchema,
+    "Invalid document presence payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid document presence payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
@@ -40,24 +45,21 @@ export async function POST(
       session.user,
       session.organizationId
     )
-    const authContext = await ensureConvexUserReadyServer(authenticatedUser)
+    const authContext = await requireConvexUser(session)
 
-    if (!authContext?.currentUser) {
-      return NextResponse.json(
-        { error: "User context not found" },
-        { status: 404 }
-      )
+    if (isRouteResponse(authContext)) {
+      return authContext
     }
 
-    if (parsed.data.action === "leave") {
+    if (parsed.action === "leave") {
       await clearDocumentPresenceServer({
         currentUserId: authContext.currentUser.id,
         documentId,
         workosUserId: authenticatedUser.workosUserId,
-        sessionId: parsed.data.sessionId,
+        sessionId: parsed.sessionId,
       })
 
-      return NextResponse.json({
+      return jsonOk({
         ok: true,
       })
     }
@@ -69,20 +71,20 @@ export async function POST(
       email: authenticatedUser.email,
       name: authenticatedUser.name,
       avatarUrl: authenticatedUser.avatarUrl,
-      sessionId: parsed.data.sessionId,
+      sessionId: parsed.sessionId,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       viewers,
     })
   } catch (error) {
-    console.error(error)
+    logProviderError("Failed to update document presence", error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to update document presence",
+        error: getConvexErrorMessage(
+          error,
+          "Failed to update document presence"
+        ),
       },
       { status: 500 }
     )

@@ -1,12 +1,13 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextResponse } from "next/server"
-
 import {
-  ensureConvexUserReadyServer,
-  getErrorDiagnostics,
   getSnapshotServer,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -19,7 +20,7 @@ async function loadSnapshotVersion(authenticatedUser: AuthenticatedAppUser) {
 
     return snapshotVersion.version
   } catch (error) {
-    console.error("Falling back to snapshot version 0", getErrorDiagnostics(error))
+    logProviderError("Falling back to snapshot version 0", error)
 
     return 0
   }
@@ -41,27 +42,32 @@ async function loadSnapshotWithVersion(
 }
 
 export async function GET() {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
-    const authenticatedUser = toAuthenticatedAppUser(
-      session.user,
-      session.organizationId
-    )
-    await ensureConvexUserReadyServer(authenticatedUser)
-    return NextResponse.json(await loadSnapshotWithVersion(authenticatedUser))
+    const authContext = await requireConvexUser(session)
+
+    if (isRouteResponse(authContext)) {
+      return authContext
+    }
+
+    const authenticatedUser = toAuthenticatedAppUser(session.user, session.organizationId)
+    const payload = await loadSnapshotWithVersion(authenticatedUser)
+
+    if (!authContext.currentUser) {
+      return jsonError("User context not found", 404)
+    }
+
+    return jsonOk(payload)
   } catch (error) {
-    console.error("Failed to load snapshot", getErrorDiagnostics(error))
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to load snapshot",
-      },
-      { status: 500 }
+    logProviderError("Failed to load snapshot", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to load snapshot"),
+      500
     )
   }
 }

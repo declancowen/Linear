@@ -1,9 +1,14 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { toggleChannelPostReactionServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const reactionSchema = z.object({
   emoji: z.string().trim().min(1).max(16),
@@ -13,46 +18,44 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = reactionSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    reactionSchema,
+    "Invalid reaction payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid reaction payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
     const { postId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await toggleChannelPostReactionServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       postId,
-      emoji: parsed.data.emoji,
+      emoji: parsed.emoji,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to update reaction",
-      },
-      { status: 500 }
+    logProviderError("Failed to update reaction", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update reaction"),
+      500
     )
   }
 }

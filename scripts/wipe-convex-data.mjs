@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process"
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -15,6 +16,7 @@ const convexCliPath = join(convexPackageRoot, "bin/main.js")
 
 function parseArgs(argv) {
   return {
+    dryRun: argv.includes("--dry-run"),
     execute: argv.includes("--execute"),
   }
 }
@@ -39,7 +41,8 @@ function loadEnvFile(pathname) {
 }
 
 function getEnv() {
-  const fileValues = loadEnvFile(resolve(process.cwd(), ".env.local"))
+  const envFilePath = resolve(process.cwd(), ".env.local")
+  const fileValues = existsSync(envFilePath) ? loadEnvFile(envFilePath) : {}
   return {
     ...fileValues,
     ...process.env,
@@ -53,7 +56,63 @@ function getProdDeploymentName(env) {
     throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is required")
   }
 
-  return new URL(deploymentUrl).hostname.split(".")[0]
+  const hostname = new URL(deploymentUrl).hostname
+
+  if (
+    !hostname.endsWith(".convex.cloud") &&
+    !hostname.endsWith(".convex.site")
+  ) {
+    throw new Error(
+      "CONVEX_URL or NEXT_PUBLIC_CONVEX_URL must point to a hosted Convex deployment"
+    )
+  }
+
+  return hostname.split(".")[0]
+}
+
+function buildDryRunSummary(env) {
+  const missing = []
+
+  if (!(env.CONVEX_URL ?? env.NEXT_PUBLIC_CONVEX_URL)) {
+    missing.push("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL")
+  }
+
+  if (!env.CONVEX_SERVER_TOKEN_DEVELOPMENT) {
+    missing.push("CONVEX_SERVER_TOKEN_DEVELOPMENT")
+  }
+
+  if (!env.CONVEX_SERVER_TOKEN_PRODUCTION) {
+    missing.push("CONVEX_SERVER_TOKEN_PRODUCTION")
+  }
+
+  let productionDeployment = null
+
+  try {
+    productionDeployment = `prod:${getProdDeploymentName(env)}`
+  } catch {
+    productionDeployment = null
+  }
+
+  return {
+    mode: "dry-run",
+    mutation: "app:wipeAllAppData",
+    ready: missing.length === 0,
+    missing,
+    targets: [
+      {
+        environment: "development",
+        deployment: "dev",
+        hasServerToken: Boolean(env.CONVEX_SERVER_TOKEN_DEVELOPMENT),
+      },
+      {
+        environment: "production",
+        deployment: productionDeployment,
+        hasServerToken: Boolean(env.CONVEX_SERVER_TOKEN_PRODUCTION),
+      },
+    ],
+    note:
+      "Run again with --execute to perform the wipe after confirming the targets and tokens.",
+  }
 }
 
 function extractJsonResult(stdout) {
@@ -107,11 +166,22 @@ async function runConvex(args, env) {
 async function main() {
   const args = parseArgs(process.argv.slice(2))
 
-  if (!args.execute) {
-    throw new Error("Pass --execute to run the Convex data wipe")
+  if (args.execute && args.dryRun) {
+    throw new Error("Choose either --execute or --dry-run, not both")
   }
 
   const env = getEnv()
+
+  if (args.dryRun) {
+    console.log(JSON.stringify(buildDryRunSummary(env), null, 2))
+    return
+  }
+
+  if (!args.execute) {
+    throw new Error(
+      "Pass --execute to run the Convex data wipe or --dry-run to preview it"
+    )
+  }
   const devServerToken = env.CONVEX_SERVER_TOKEN_DEVELOPMENT
   const prodServerToken = env.CONVEX_SERVER_TOKEN_PRODUCTION
 

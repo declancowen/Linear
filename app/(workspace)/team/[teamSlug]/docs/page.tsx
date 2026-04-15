@@ -8,8 +8,7 @@ import { useAppStore } from "@/lib/store/app-store"
 
 export default function TeamDocsPage() {
   const params = useParams<{ teamSlug: string }>()
-  const data = useAppStore()
-  const team = getTeamBySlug(data, params.teamSlug)
+  const team = useAppStore((state) => getTeamBySlug(state, params.teamSlug))
 
   if (!team) {
     return null

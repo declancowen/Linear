@@ -10,8 +10,7 @@ import { useAppStore } from "@/lib/store/app-store"
 export default function ProjectPage() {
   const params = useParams<{ projectId: string }>()
   const router = useRouter()
-  const data = useAppStore()
-  const href = getProjectHref(data, params.projectId)
+  const href = useAppStore((state) => getProjectHref(state, params.projectId))
 
   useEffect(() => {
     if (!href || href === `/projects/${params.projectId}`) {
