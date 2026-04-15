@@ -1,13 +1,6 @@
 import { spawn } from "node:child_process"
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
 const require = createRequire(import.meta.url)
@@ -49,11 +42,19 @@ function getEnv() {
   }
 }
 
-function getProdDeploymentName(env) {
-  const deploymentUrl = env.CONVEX_URL ?? env.NEXT_PUBLIC_CONVEX_URL
+function getDeploymentUrl(env, environment) {
+  if (environment === "development") {
+    return (
+      env.CONVEX_URL_DEVELOPMENT ?? env.NEXT_PUBLIC_CONVEX_URL_DEVELOPMENT
+    )
+  }
 
+  return env.CONVEX_URL_PRODUCTION ?? env.NEXT_PUBLIC_CONVEX_URL_PRODUCTION
+}
+
+function getDeploymentName(deploymentUrl, label) {
   if (!deploymentUrl) {
-    throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is required")
+    throw new Error(`${label} is required`)
   }
 
   const hostname = new URL(deploymentUrl).hostname
@@ -63,18 +64,35 @@ function getProdDeploymentName(env) {
     !hostname.endsWith(".convex.site")
   ) {
     throw new Error(
-      "CONVEX_URL or NEXT_PUBLIC_CONVEX_URL must point to a hosted Convex deployment"
+      `${label} must point to a hosted Convex deployment`
     )
   }
 
   return hostname.split(".")[0]
 }
 
+function getDeploymentTarget(env, environment) {
+  const isDevelopment = environment === "development"
+  const label = isDevelopment
+    ? "CONVEX_URL_DEVELOPMENT or NEXT_PUBLIC_CONVEX_URL_DEVELOPMENT"
+    : "CONVEX_URL_PRODUCTION or NEXT_PUBLIC_CONVEX_URL_PRODUCTION"
+  const deploymentUrl = getDeploymentUrl(env, environment)
+
+  return {
+    deployment: getDeploymentName(deploymentUrl, label),
+    deploymentUrl,
+  }
+}
+
 function buildDryRunSummary(env) {
   const missing = []
 
-  if (!(env.CONVEX_URL ?? env.NEXT_PUBLIC_CONVEX_URL)) {
-    missing.push("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL")
+  if (!(env.CONVEX_URL_DEVELOPMENT ?? env.NEXT_PUBLIC_CONVEX_URL_DEVELOPMENT)) {
+    missing.push("CONVEX_URL_DEVELOPMENT or NEXT_PUBLIC_CONVEX_URL_DEVELOPMENT")
+  }
+
+  if (!(env.CONVEX_URL_PRODUCTION ?? env.NEXT_PUBLIC_CONVEX_URL_PRODUCTION)) {
+    missing.push("CONVEX_URL_PRODUCTION or NEXT_PUBLIC_CONVEX_URL_PRODUCTION")
   }
 
   if (!env.CONVEX_SERVER_TOKEN_DEVELOPMENT) {
@@ -85,10 +103,17 @@ function buildDryRunSummary(env) {
     missing.push("CONVEX_SERVER_TOKEN_PRODUCTION")
   }
 
+  let developmentDeployment = null
   let productionDeployment = null
 
   try {
-    productionDeployment = `prod:${getProdDeploymentName(env)}`
+    developmentDeployment = getDeploymentTarget(env, "development").deployment
+  } catch {
+    developmentDeployment = null
+  }
+
+  try {
+    productionDeployment = getDeploymentTarget(env, "production").deployment
   } catch {
     productionDeployment = null
   }
@@ -101,7 +126,7 @@ function buildDryRunSummary(env) {
     targets: [
       {
         environment: "development",
-        deployment: "dev",
+        deployment: developmentDeployment,
         hasServerToken: Boolean(env.CONVEX_SERVER_TOKEN_DEVELOPMENT),
       },
       {
@@ -111,7 +136,7 @@ function buildDryRunSummary(env) {
       },
     ],
     note:
-      "Run again with --execute to perform the wipe after confirming the targets and tokens.",
+      "Run again with --execute after confirming the explicit development and production deployments and tokens.",
   }
 }
 
@@ -184,6 +209,8 @@ async function main() {
   }
   const devServerToken = env.CONVEX_SERVER_TOKEN_DEVELOPMENT
   const prodServerToken = env.CONVEX_SERVER_TOKEN_PRODUCTION
+  const developmentTarget = getDeploymentTarget(env, "development")
+  const productionTarget = getDeploymentTarget(env, "production")
 
   if (!devServerToken || !prodServerToken) {
     throw new Error(
@@ -191,57 +218,46 @@ async function main() {
     )
   }
 
-  const tempDir = mkdtempSync(join(tmpdir(), "convex-wipe-"))
-  const envFilePath = join(tempDir, "convex.env")
+  const sharedRunArgs = [
+    "run",
+    "app:wipeAllAppData",
+  ]
+  const sharedFlags = ["--typecheck", "disable", "--codegen", "disable"]
 
-  try {
-    writeFileSync(
-      envFilePath,
-      `CONVEX_DEPLOYMENT=prod:${getProdDeploymentName(env)}\n`,
-      "utf8"
-    )
+  const development = await runConvex(
+    [
+      ...sharedRunArgs,
+      JSON.stringify({ serverToken: devServerToken }),
+      "--deployment",
+      developmentTarget.deployment,
+      ...sharedFlags,
+    ],
+    env
+  )
+  const production = await runConvex(
+    [
+      ...sharedRunArgs,
+      JSON.stringify({ serverToken: prodServerToken }),
+      "--deployment",
+      productionTarget.deployment,
+      ...sharedFlags,
+    ],
+    env
+  )
 
-    const sharedRunArgs = [
-      "run",
-      "app:wipeAllAppData",
-    ]
-    const sharedFlags = ["--typecheck", "disable", "--codegen", "disable"]
-
-    const development = await runConvex(
-      [
-        ...sharedRunArgs,
-        JSON.stringify({ serverToken: devServerToken }),
-        "--deployment",
-        "dev",
-        "--env-file",
-        envFilePath,
-        ...sharedFlags,
-      ],
-      env
-    )
-    const production = await runConvex(
-      [
-        ...sharedRunArgs,
-        JSON.stringify({ serverToken: prodServerToken }),
-        ...sharedFlags,
-      ],
-      env
-    )
-
-    for (const target of [
-      {
-        environment: "development",
-        result: extractJsonResult(development.stdout),
-      },
-      {
-        environment: "production",
-        result: extractJsonResult(production.stdout),
-      },
-    ]) {
-      console.log(JSON.stringify(target, null, 2))
-    }
-  } finally {
-    rmSync(tempDir, { force: true, recursive: true })
+  for (const target of [
+    {
+      environment: "development",
+      deployment: developmentTarget.deployment,
+      result: extractJsonResult(development.stdout),
+    },
+    {
+      environment: "production",
+      deployment: productionTarget.deployment,
+      result: extractJsonResult(production.stdout),
+    },
+  ]) {
+    console.log(JSON.stringify(target, null, 2))
   }
 }
 

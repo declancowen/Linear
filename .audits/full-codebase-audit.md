@@ -2146,3 +2146,196 @@
   - run the 100ms call creation/join flows against staging
   - run the Resend email/invite/digest flows against staging
 - Before staging or production rollout, deploy/sync the `convex/` changes because this branch contains backend Convex updates, not just client-side refactors.
+
+## Turn 49
+
+### Implemented in this pass
+
+- Ran a branch-wide diff review of `origin/main...HEAD` at commit `f00e6fb`.
+- Recorded the diff-review findings in this audit file per user request instead of opening a separate `.reviews/` document.
+- Folded in the user-reported runtime error from the refactored work surface controls.
+
+### Diff Review Findings
+
+#### F49-01 High: `FilterPopover` now violates Zustand snapshot stability and can trigger an infinite render loop
+
+- Files:
+  - `components/app/screens/work-surface-controls.tsx:132`
+  - `lib/domain/selectors-internal/work-items.ts:494`
+- Impact:
+  - The team/work surface can spam the console with `The result of getSnapshot should be cached to avoid an infinite loop` and can become unstable or unusable in the affected screen tree.
+- Root cause:
+  - `FilterPopover` subscribes with `useAppStore(useShallow((state) => ({ ... })))`, but the returned object includes freshly allocated arrays on every selector run:
+    - `getItemAssignees(state, items)` returns a new array each time
+    - `state.projects.filter(...)` returns a new array each time
+    - `state.labels.filter(...)` returns a new array each time
+  - `useShallow` can stabilize a returned array, or an object of stable references, but it does not make nested freshly allocated arrays inside an object stable. That causes the selector snapshot to change on every render even when the underlying store has not changed.
+- Evidence:
+  - Reproduced by the user in `TeamWorkScreen -> WorkSurface -> FilterPopover`.
+  - `getItemAssignees` explicitly returns `[...]` from a `Map`, so it is always referentially new.
+- Recommended fix:
+  - Split the selector into stable primitive/raw-slice subscriptions and derive the filtered arrays with `useMemo`, or subscribe to each derived array separately instead of wrapping them in one object selector.
+
+#### F49-02 High: the new dual-environment wipe flow is still deployment-ambiguous and can target the wrong Convex environment
+
+- Files:
+  - `scripts/wipe-convex-data.mjs:52`
+  - `scripts/wipe-convex-data.mjs:73`
+  - `scripts/wipe-convex-data.mjs:185`
+  - `.env.example:1`
+  - `README.md:50`
+- Impact:
+  - In mixed environment files where the unsuffixed Convex URL points to production but `CONVEX_SERVER_TOKEN_DEVELOPMENT` / `CONVEX_SERVER_TOKEN_PRODUCTION` are both present, the wipe script can still derive deployment metadata from the production URL. That is a destructive-operation targeting risk.
+- Root cause:
+  - The branch added split server-token docs and dry-run output for the wipe flow, but the script still resolves deployment identity from only `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`.
+  - There is no matching `CONVEX_URL_DEVELOPMENT` / `CONVEX_URL_PRODUCTION` or deploy-key split in the script’s targeting logic, so the “development” and “production” token split is not enough to safely disambiguate the actual deployment target.
+- Evidence:
+  - During rollout we had to build a manual override env file to safely point local commands at the dev cloud deployment.
+  - The current dry-run summary reports separate development/production token readiness, but only one hosted deployment is derived from the shared base URL.
+- Recommended fix:
+  - Require explicit development and production deployment identifiers or URLs for this script, or refuse execution when env-specific tokens are present but deployment identity is still sourced from a single unsuffixed base URL.
+
+### Review Conclusion
+
+- The current branch-level diff review found `2` high-severity issues worth tracking.
+- `F49-01` is an active application bug and is already user-visible.
+- `F49-02` is an operational safety issue in destructive tooling and should be fixed before anyone relies on the new dual-environment wipe workflow.
+- No additional branch-vs-`main` findings were confirmed in this pass beyond these two issues.
+
+## Turn 50
+
+### Implemented in this pass
+
+- Fixed the user-reported `getSnapshot should be cached to avoid an infinite loop` regression in the refactored work-surface controls.
+- Fixed the dual-environment Convex wipe script so it now requires explicit development and production deployment URLs instead of inferring a target from the unsuffixed base URL.
+- Updated `.env.example` and `README.md` so the wipe-script env contract matches the implemented behavior.
+
+### Fix details
+
+#### F49-01 Resolved: `FilterPopover` selector now uses stable store subscriptions
+
+- Files:
+  - `components/app/screens/work-surface-controls.tsx`
+- Fix:
+  - Removed the `useShallow` object selector that returned newly allocated `assignees`, `projects`, and `labels` arrays on every store read.
+  - Replaced it with stable slice subscriptions for `users`, `projects`, `labels`, and `singleTeam`, then derived the filtered arrays with `useMemo`.
+  - Preserved the assignee ordering behavior by reconstructing the assignee list in work-item encounter order rather than switching to a generic user-list filter.
+- Outcome:
+  - The `FilterPopover` subscription no longer violates Zustand snapshot stability, so the console error reported in `TeamWorkScreen -> WorkSurface -> FilterPopover` is closed.
+
+#### F49-02 Resolved: wipe script now targets explicit dev/prod deployments
+
+- Files:
+  - `scripts/wipe-convex-data.mjs`
+  - `.env.example`
+  - `README.md`
+- Fix:
+  - Added explicit dual-environment URL resolution via `CONVEX_URL_DEVELOPMENT` / `CONVEX_URL_PRODUCTION` with `NEXT_PUBLIC_...` fallbacks for script use.
+  - Removed the shared unsuffixed deployment inference path from the destructive wipe flow.
+  - Changed the script to pass explicit Convex deployment names for both development and production runs, instead of mixing split tokens with one inferred deployment target.
+  - Updated the docs so `CONVEX_SERVER_TOKEN` is described as the active app-environment token, while the wipe script is documented as using the suffixed dev/prod URL and token vars.
+- Outcome:
+  - The wipe dry-run now reports separate explicit targets for development and production, eliminating the mixed-env targeting ambiguity from Turn 49.
+
+### Verification
+
+- `pnpm exec eslint components/app/screens/work-surface-controls.tsx scripts/wipe-convex-data.mjs`: passes
+- `pnpm exec tsc --noEmit --pretty false`: passes
+- `node scripts/wipe-convex-data.mjs --dry-run` with explicit dev/prod Convex URL and token envs: passes and reports separate `flexible-cheetah-243` and `content-frog-200` targets
+- `pnpm check`: passes end to end
+
+### Review Status
+
+- `F49-01`: fixed in this turn
+- `F49-02`: fixed in this turn
+- No new issues were introduced by these fixes in the verification pass above
+
+## Turn 51
+
+### Implemented in this pass
+
+- Re-ran the diff review after Turn 50 using the new user-reported console errors from the collaboration surfaces.
+- Confirmed two more active Zustand snapshot-stability regressions of the same class as `F49-01`.
+- Fixed those active regressions and proactively removed three more same-pattern object selectors that were still returning freshly allocated arrays inside `useShallow` object selectors.
+
+### Diff Review Findings
+
+#### F51-01 High: `CreateWorkspaceChatDialog` still returned a fresh `allUsers` array inside an object selector
+
+- Files:
+  - `components/app/collaboration-screens/workspace-chat-ui.tsx`
+- Impact:
+  - `WorkspaceChatsScreen -> CreateWorkspaceChatDialog` could still trigger `The result of getSnapshot should be cached to avoid an infinite loop`.
+- Root cause:
+  - The selector returned `{ workspace, allUsers }`, where `allUsers` came from `getWorkspaceUsers(...).filter(...)`, producing a new array on every store read.
+- Fix:
+  - Replaced the object selector with stable raw-slice subscriptions for workspace, teams, memberships, and users, then derived `allUsers` with `useMemo`.
+
+#### F51-02 High: `NewPostComposer` still returned a fresh `mentionCandidates` array inside an object selector
+
+- Files:
+  - `components/app/collaboration-screens/channel-ui.tsx`
+- Impact:
+  - `WorkspaceChannelsScreen -> NewPostComposer` could still trigger `The result of getSnapshot should be cached to avoid an infinite loop`.
+- Root cause:
+  - The selector returned `{ currentUser, mentionCandidates }`, where `mentionCandidates` came from `getConversationParticipants(...)`, producing a new array on every store read.
+- Fix:
+  - Split the selector into stable slice subscriptions and derived `currentUser` / `mentionCandidates` with `useMemo`.
+
+### Additional same-pattern fixes
+
+- `components/app/screens/create-work-item-dialog.tsx`
+  - Removed the object selector that returned fresh `teamMembers`, `teamProjects`, and sorted `availableLabels` arrays.
+- `components/app/screens/project-creation.tsx`
+  - Removed the object selector that returned fresh `teamMembers` and sorted `availableLabels` arrays.
+- `components/app/screens/work-item-ui.tsx`
+  - Removed the object selector that returned fresh `teamMembers` and `teamProjects` arrays for the inline child-item composer.
+
+### Verification
+
+- `pnpm exec eslint components/app/collaboration-screens/workspace-chat-ui.tsx components/app/collaboration-screens/channel-ui.tsx components/app/screens/create-work-item-dialog.tsx components/app/screens/project-creation.tsx components/app/screens/work-item-ui.tsx`: passes
+- `pnpm exec tsc --noEmit --pretty false`: passes
+- `pnpm check`: passes end to end
+- Focused selector sweep:
+  - the remaining `useShallow((state) => { ... })` callsites in this repo now resolve to direct-array selectors or primitive/object selectors without freshly allocated array properties in the returned object
+
+### Review Status
+
+- `F51-01`: fixed in this turn
+- `F51-02`: fixed in this turn
+- No new Convex deployment is required for this turn because no files under `convex/` changed
+- Local validation should use the existing repo dev server on `http://127.0.0.1:3000`; if the browser still shows the old console errors, do a hard refresh or restart that dev server so Turbopack serves the updated client bundle
+
+## Turn 52
+
+### Implemented in this pass
+
+- Removed the desktop sidebar rail from the main shell so the sidebar no longer exposes the slide/resize edge interaction there.
+- Changed the global-search footer action so `Open full search` is visually filled with a light muted background instead of reading as a hollow outline-only control.
+- Re-ran the diff review after these UI changes.
+
+### UI changes
+
+- Files:
+  - `components/app/shell.tsx`
+  - `components/app/global-search-dialog.tsx`
+- Changes:
+  - Removed `<SidebarRail />` from the app shell desktop sidebar.
+  - Updated the `Open full search` button styling to use a muted filled surface while preserving its existing action and shortcut hint.
+
+### Diff Review Findings
+
+- No new bugs, security issues, or regression risks were identified from this pass.
+- The sidebar change is a straightforward removal of an interaction affordance from the shell only; it does not alter route behavior, mobile sidebar behavior, or shared sidebar internals.
+- The search-button change is styling-only and does not alter search dialog behavior.
+
+### Verification
+
+- `pnpm exec eslint components/app/shell.tsx components/app/global-search-dialog.tsx`: passes
+- `pnpm exec tsc --noEmit --pretty false`: passes
+- `pnpm check`: passes end to end
+
+### Review Status
+
+- No new findings in this turn
+- No Convex deploy is needed for this turn because no backend files changed

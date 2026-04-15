@@ -49,8 +49,9 @@ The app expects the following variables.
 
 - `CONVEX_URL`: server-side Convex deployment URL
 - `NEXT_PUBLIC_CONVEX_URL`: browser-visible Convex deployment URL
-- `CONVEX_SERVER_TOKEN`: shared server token used by Next.js routes, Convex functions, and scripts
-- `CONVEX_SERVER_TOKEN_DEVELOPMENT` / `CONVEX_SERVER_TOKEN_PRODUCTION`: optional script-only tokens for dual-environment wipe workflows
+- `CONVEX_SERVER_TOKEN`: shared server token used by Next.js routes and Convex functions for the active app environment
+- `CONVEX_URL_DEVELOPMENT` / `CONVEX_URL_PRODUCTION`: script-only deployment URLs for dual-environment wipe workflows
+- `CONVEX_SERVER_TOKEN_DEVELOPMENT` / `CONVEX_SERVER_TOKEN_PRODUCTION`: script-only server tokens for dual-environment wipe workflows
 - `CONVEX_DEPLOY_KEY`: Convex deploy key used for deployment/codegen workflows
 
 ### WorkOS

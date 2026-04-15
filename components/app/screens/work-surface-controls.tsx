@@ -1,6 +1,6 @@
 "use client"
 
-import { useShallow } from "zustand/react/shallow"
+import { useMemo } from "react"
 import {
   CalendarDots,
   FadersHorizontal,
@@ -10,7 +10,6 @@ import {
 } from "@phosphor-icons/react"
 
 import {
-  getItemAssignees,
   getStatusOrderForTeam,
   getTeam,
 } from "@/lib/domain/selectors"
@@ -129,18 +128,67 @@ export function FilterPopover({
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
   onClearFilters?: () => void
 }) {
-  const teamIds = [...new Set(items.map((item) => item.teamId))]
-  const { assignees, labels, projects, singleTeam } = useAppStore(
-    useShallow((state) => ({
-      singleTeam: teamIds.length === 1 ? getTeam(state, teamIds[0]) : null,
-      assignees: getItemAssignees(state, items),
-      projects: state.projects.filter((project) =>
-        items.some((item) => item.primaryProjectId === project.id)
-      ),
-      labels: state.labels.filter((label) =>
-        items.some((item) => item.labelIds.includes(label.id))
-      ),
-    }))
+  const teamIds = useMemo(
+    () => [...new Set(items.map((item) => item.teamId))],
+    [items]
+  )
+  const singleTeamId = teamIds.length === 1 ? teamIds[0] : null
+  const singleTeam = useAppStore((state) =>
+    singleTeamId ? getTeam(state, singleTeamId) : null
+  )
+  const users = useAppStore((state) => state.users)
+  const projects = useAppStore((state) => state.projects)
+  const labels = useAppStore((state) => state.labels)
+  const userById = useMemo(
+    () => new Map(users.map((user) => [user.id, user])),
+    [users]
+  )
+  const projectIds = useMemo(() => {
+    const next = new Set<string>()
+
+    for (const item of items) {
+      if (item.primaryProjectId) {
+        next.add(item.primaryProjectId)
+      }
+    }
+
+    return next
+  }, [items])
+  const labelIds = useMemo(() => {
+    const next = new Set<string>()
+
+    for (const item of items) {
+      for (const labelId of item.labelIds) {
+        next.add(labelId)
+      }
+    }
+
+    return next
+  }, [items])
+  const assignees = useMemo(() => {
+    const next = new Map<string, (typeof users)[number]>()
+
+    for (const item of items) {
+      if (!item.assigneeId) {
+        continue
+      }
+
+      const assignee = userById.get(item.assigneeId)
+
+      if (assignee) {
+        next.set(assignee.id, assignee)
+      }
+    }
+
+    return [...next.values()]
+  }, [items, userById])
+  const filteredProjects = useMemo(
+    () => projects.filter((project) => projectIds.has(project.id)),
+    [projectIds, projects]
+  )
+  const filteredLabels = useMemo(
+    () => labels.filter((label) => labelIds.has(label.id)),
+    [labelIds, labels]
   )
   const itemTypes = workItemTypes.filter((itemType) =>
     items.some((item) => item.type === itemType)
@@ -275,13 +323,13 @@ export function FilterPopover({
               </div>
             </div>
           ) : null}
-          {projects.length > 0 ? (
+          {filteredProjects.length > 0 ? (
             <div className="px-3 py-2.5">
               <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
                 Project
               </div>
               <div className="flex flex-wrap gap-1">
-                {projects.map((project) => (
+                {filteredProjects.map((project) => (
                   <FilterChip
                     key={project.id}
                     label={project.name}
@@ -294,13 +342,13 @@ export function FilterPopover({
               </div>
             </div>
           ) : null}
-          {labels.length > 0 ? (
+          {filteredLabels.length > 0 ? (
             <div className="px-3 py-2.5">
               <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
                 Labels
               </div>
               <div className="flex flex-wrap gap-1">
-                {labels.map((label) => (
+                {filteredLabels.map((label) => (
                   <FilterChip
                     key={label.id}
                     label={label.name}

@@ -1,11 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import { Circle } from "@phosphor-icons/react"
 
-import { getCommentsForTarget, getTeam, getTeamMembers, getUser } from "@/lib/domain/selectors"
+import { getCommentsForTarget, getTeam, getUser } from "@/lib/domain/selectors"
 import {
   getAllowedChildWorkItemTypesForItem,
   getAllowedWorkItemTypesForTemplate,
@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-import { formatInlineDescriptionContent, getTeamProjectOptions } from "./helpers"
+import { formatInlineDescriptionContent } from "./helpers"
 import { cn } from "@/lib/utils"
 
 export function WorkItemTypeBadge({
@@ -298,21 +298,45 @@ export function InlineChildIssueComposer({
   onCancel: () => void
   onCreated: () => void
 }) {
-  const { team, teamMembers, teamProjects } = useAppStore(
-    useShallow((state) => {
-      const team = getTeam(state, teamId)
-
-      return {
-        team,
-        teamMembers: team ? getTeamMembers(state, teamId) : [],
-        teamProjects: getTeamProjectOptions(
-          state,
-          teamId,
-          parentItem.primaryProjectId
-        ),
-      }
-    })
+  const teams = useAppStore((state) => state.teams)
+  const teamMemberships = useAppStore((state) => state.teamMemberships)
+  const users = useAppStore((state) => state.users)
+  const projects = useAppStore((state) => state.projects)
+  const team = useMemo(
+    () => teams.find((entry) => entry.id === teamId) ?? null,
+    [teamId, teams]
   )
+  const teamMembers = useMemo(() => {
+    const memberIds = new Set(
+      teamMemberships
+        .filter((membership) => membership.teamId === teamId)
+        .map((membership) => membership.userId)
+    )
+
+    return users.filter((user) => memberIds.has(user.id))
+  }, [teamId, teamMemberships, users])
+  const teamProjects = useMemo(() => {
+    const scopedProjects = projects.filter(
+      (project) => project.scopeType === "team" && project.scopeId === teamId
+    )
+
+    if (!parentItem.primaryProjectId) {
+      return scopedProjects
+    }
+
+    const selectedProject =
+      projects.find((project) => project.id === parentItem.primaryProjectId) ??
+      null
+
+    if (
+      !selectedProject ||
+      scopedProjects.some((project) => project.id === selectedProject.id)
+    ) {
+      return scopedProjects
+    }
+
+    return [selectedProject, ...scopedProjects]
+  }, [parentItem.primaryProjectId, projects, teamId])
   const childCopy = getChildWorkItemCopy(
     parentItem.type,
     team?.settings.experience

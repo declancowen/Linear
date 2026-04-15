@@ -1,13 +1,7 @@
 "use client"
 
-import { useRef, useState, type ReactNode } from "react"
+import { useMemo, useRef, useState, type ReactNode } from "react"
 import { X } from "@phosphor-icons/react"
-import { useShallow } from "zustand/react/shallow"
-
-import {
-  getCurrentWorkspace,
-  getWorkspaceUsers,
-} from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -116,20 +110,41 @@ export function CreateWorkspaceChatDialog({
   onOpenChange: (open: boolean) => void
   onCreated: (conversationId: string) => void
 }) {
-  const { allUsers, workspace } = useAppStore(
-    useShallow((state) => {
-      const workspace = getCurrentWorkspace(state)
-
-      return {
-        workspace,
-        allUsers: workspace
-          ? getWorkspaceUsers(state, workspace.id).filter(
-              (user) => user.id !== state.currentUserId
-            )
-          : [],
-      }
-    })
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const workspaces = useAppStore((state) => state.workspaces)
+  const teams = useAppStore((state) => state.teams)
+  const teamMemberships = useAppStore((state) => state.teamMemberships)
+  const users = useAppStore((state) => state.users)
+  const workspace = useMemo(
+    () =>
+      workspaces.find((entry) => entry.id === currentWorkspaceId) ?? null,
+    [currentWorkspaceId, workspaces]
   )
+  const allUsers = useMemo(() => {
+    if (!workspace) {
+      return []
+    }
+
+    const teamIds = new Set(
+      teams
+        .filter((team) => team.workspaceId === workspace.id)
+        .map((team) => team.id)
+    )
+    const userIds = new Set(
+      teamMemberships
+        .filter((membership) => teamIds.has(membership.teamId))
+        .map((membership) => membership.userId)
+    )
+
+    if (workspace.createdBy) {
+      userIds.add(workspace.createdBy)
+    }
+
+    return users.filter(
+      (user) => user.id !== currentUserId && userIds.has(user.id)
+    )
+  }, [currentUserId, teamMemberships, teams, users, workspace])
 
   const [participantIds, setParticipantIds] = useState<string[]>([])
   const [search, setSearch] = useState("")

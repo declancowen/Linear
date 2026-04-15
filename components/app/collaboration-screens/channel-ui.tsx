@@ -13,7 +13,6 @@ import { useShallow } from "zustand/react/shallow"
 import {
   getChannelPostComments,
   getConversationParticipants,
-  getUser,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
@@ -415,20 +414,45 @@ export function ForumPostCard({ postId }: { postId: string }) {
 }
 
 export function NewPostComposer({ channelId }: { channelId: string }) {
-  const { currentUser, mentionCandidates } = useAppStore(
-    useShallow((state) => {
-      const conversation =
-        state.conversations.find((entry) => entry.id === channelId) ?? null
-
-      return {
-        currentUser: getUser(state, state.currentUserId),
-        mentionCandidates:
-          conversation && conversation.kind === "channel"
-            ? getConversationParticipants(state, conversation)
-            : [],
-      }
-    })
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const conversations = useAppStore((state) => state.conversations)
+  const workspaces = useAppStore((state) => state.workspaces)
+  const teams = useAppStore((state) => state.teams)
+  const teamMemberships = useAppStore((state) => state.teamMemberships)
+  const users = useAppStore((state) => state.users)
+  const conversation = useMemo(
+    () => conversations.find((entry) => entry.id === channelId) ?? null,
+    [channelId, conversations]
   )
+  const currentUser = useMemo(
+    () => users.find((entry) => entry.id === currentUserId) ?? null,
+    [currentUserId, users]
+  )
+  const mentionCandidates = useMemo(() => {
+    if (!conversation || conversation.kind !== "channel") {
+      return []
+    }
+
+    const workspace = workspaces.find(
+      (entry) => entry.id === conversation.scopeId
+    )
+    const teamIds = new Set(
+      teams
+        .filter((team) => team.workspaceId === conversation.scopeId)
+        .map((team) => team.id)
+    )
+    const userIds = new Set(
+      teamMemberships
+        .filter((membership) => teamIds.has(membership.teamId))
+        .map((membership) => membership.userId)
+    )
+
+    if (workspace?.createdBy) {
+      userIds.add(workspace.createdBy)
+    }
+
+    return users.filter((user) => userIds.has(user.id))
+  }, [conversation, teamMemberships, teams, users, workspaces])
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")

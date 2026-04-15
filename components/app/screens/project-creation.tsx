@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import {
   CalendarDots,
   CaretDown,
@@ -9,12 +9,9 @@ import {
   Kanban,
   Rows,
 } from "@phosphor-icons/react"
-import { useShallow } from "zustand/react/shallow"
 
 import {
   getStatusOrderForTeam,
-  getTeam,
-  getTeamMembers,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
 import {
@@ -233,7 +230,7 @@ function ProjectFiltersPopover({
 }: {
   templateType: Project["templateType"]
   filters: ViewDefinition["filters"]
-  teamMembers: ReturnType<typeof getTeamMembers>
+  teamMembers: AppData["users"]
   teamStatuses: WorkStatus[]
   availableLabels: AppData["labels"]
   triggerClassName: string
@@ -406,18 +403,27 @@ export function CreateProjectDialog({
   teamId: string
   disabled: boolean
 }) {
-  const { availableLabels, settingsTeam, teamMembers } = useAppStore(
-    useShallow((state) => {
-      const settingsTeam = getTeam(state, teamId)
+  const teams = useAppStore((state) => state.teams)
+  const teamMemberships = useAppStore((state) => state.teamMemberships)
+  const users = useAppStore((state) => state.users)
+  const labels = useAppStore((state) => state.labels)
+  const settingsTeam = useMemo(
+    () => teams.find((entry) => entry.id === teamId) ?? null,
+    [teamId, teams]
+  )
+  const teamMembers = useMemo(() => {
+    const memberIds = new Set(
+      teamMemberships
+        .filter((membership) => membership.teamId === teamId)
+        .map((membership) => membership.userId)
+    )
 
-      return {
-        settingsTeam,
-        teamMembers: settingsTeam ? getTeamMembers(state, teamId) : [],
-        availableLabels: [...state.labels].sort((left, right) =>
-          left.name.localeCompare(right.name)
-        ),
-      }
-    })
+    return users.filter((user) => memberIds.has(user.id))
+  }, [teamId, teamMemberships, users])
+  const availableLabels = useMemo(
+    () =>
+      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    [labels]
   )
   const templateType = getDefaultTemplateTypeForTeamExperience(
     settingsTeam?.settings.experience

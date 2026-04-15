@@ -221,7 +221,7 @@ export function GlobalSearchDialog({
             size="sm"
             variant="outline"
             onClick={handleOpenFullSearch}
-            className="justify-between gap-3 sm:min-w-40"
+            className="justify-between gap-3 border-border/60 bg-muted hover:bg-muted/80 sm:min-w-40"
           >
             <span>Open full search</span>
             <ShortcutKeys keys={["Cmd", "Shift", "K"]} />

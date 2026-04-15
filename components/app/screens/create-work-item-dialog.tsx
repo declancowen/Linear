@@ -1,13 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { CaretDown } from "@phosphor-icons/react"
-import { useShallow } from "zustand/react/shallow"
 
 import {
   getStatusOrderForTeam,
-  getTeam,
-  getTeamMembers,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
 import {
@@ -49,7 +46,6 @@ import {
   formatInlineDescriptionContent,
   getCreateDialogItemTypes,
   getPreferredCreateDialogType,
-  getTeamProjectOptions,
 } from "@/components/app/screens/helpers"
 import { cn } from "@/lib/utils"
 
@@ -64,19 +60,35 @@ export function CreateWorkItemDialog({
   teamId: string
   disabled: boolean
 }) {
-  const { availableLabels, team, teamMembers, teamProjects } = useAppStore(
-    useShallow((state) => {
-      const team = getTeam(state, teamId)
+  const teams = useAppStore((state) => state.teams)
+  const teamMemberships = useAppStore((state) => state.teamMemberships)
+  const users = useAppStore((state) => state.users)
+  const projects = useAppStore((state) => state.projects)
+  const labels = useAppStore((state) => state.labels)
+  const team = useMemo(
+    () => teams.find((entry) => entry.id === teamId) ?? null,
+    [teamId, teams]
+  )
+  const teamMembers = useMemo(() => {
+    const memberIds = new Set(
+      teamMemberships
+        .filter((membership) => membership.teamId === teamId)
+        .map((membership) => membership.userId)
+    )
 
-      return {
-        team,
-        teamMembers: team ? getTeamMembers(state, teamId) : [],
-        teamProjects: getTeamProjectOptions(state, teamId),
-        availableLabels: [...state.labels].sort((left, right) =>
-          left.name.localeCompare(right.name)
-        ),
-      }
-    })
+    return users.filter((user) => memberIds.has(user.id))
+  }, [teamId, teamMemberships, users])
+  const teamProjects = useMemo(
+    () =>
+      projects.filter(
+        (project) => project.scopeType === "team" && project.scopeId === teamId
+      ),
+    [projects, teamId]
+  )
+  const availableLabels = useMemo(
+    () =>
+      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    [labels]
   )
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const teamStatuses = getStatusOrderForTeam(team)
