@@ -154,7 +154,7 @@ export function ImageUploadControl({
   onClear,
 }: {
   title: string
-  description: string
+  description?: string
   imageSrc: string | null
   preview: ReactNode
   shape: "circle" | "square"
@@ -181,7 +181,9 @@ export function ImageUploadControl({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-xs text-muted-foreground">{description}</div>
+        {description ? (
+          <div className="text-xs text-muted-foreground">{description}</div>
+        ) : null}
       </div>
       <div className="flex shrink-0 gap-1.5">
         <Button

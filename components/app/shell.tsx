@@ -14,6 +14,7 @@ import {
   CodesandboxLogo,
   CopySimple,
   DotsThree,
+  EnvelopeSimple,
   Gear,
   HashStraight,
   Kanban,
@@ -25,6 +26,7 @@ import {
   SignIn,
   SquaresFour,
   UserCircle,
+  UsersThree,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
@@ -61,7 +63,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -1047,8 +1048,8 @@ function TeamEditorFields({
                       )}
                       disabled={
                         disabled ||
-                        savedFeatures.channels &&
-                        Boolean(surfaceDisableReasons.channels)
+                        (savedFeatures.channels &&
+                          Boolean(surfaceDisableReasons.channels))
                       }
                       onClick={() =>
                         setFeatures({
@@ -1076,8 +1077,8 @@ function TeamEditorFields({
                       )}
                       disabled={
                         disabled ||
-                        savedFeatures.chat &&
-                        Boolean(surfaceDisableReasons.chat)
+                        (savedFeatures.chat &&
+                          Boolean(surfaceDisableReasons.chat))
                       }
                       onClick={() =>
                         setFeatures({
@@ -1174,8 +1175,8 @@ function TeamEditorFields({
                       checked={features[feature.key]}
                       disabled={
                         disabled ||
-                        savedFeatures[feature.key] &&
-                        Boolean(surfaceDisableReasons[feature.key])
+                        (savedFeatures[feature.key] &&
+                          Boolean(surfaceDisableReasons[feature.key]))
                       }
                       onCheckedChange={(checked) =>
                         setFeatures((current) => ({
@@ -1251,12 +1252,10 @@ function TeamEditorFields({
           </h3>
           <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
             <p>
-              {workCopy.surfaceLabel}, projects, and views stay on for this
-              team type.
+              {workCopy.surfaceLabel}, projects, and views stay on for this team
+              type.
             </p>
-            <p>
-              Community spaces can enable chat, channel, or both.
-            </p>
+            <p>Community spaces can enable chat, channel, or both.</p>
             <p>Docs remain optional for non-community teams.</p>
           </div>
         </section>
@@ -1484,14 +1483,43 @@ function InviteDialog({
   const data = useAppStore()
   const teams = getAccessibleTeams(data)
   const [teamIds, setTeamIds] = useState<string[]>([])
-  const [email, setEmail] = useState("new.person@example.com")
+  const [email, setEmail] = useState("")
   const [role, setRole] = useState<Role>("viewer")
   const [submitting, setSubmitting] = useState(false)
+  const inviteRoleOptions: Array<{
+    value: Role
+    label: string
+    description: string
+  }> = [
+    {
+      value: "member",
+      label: "Member",
+      description: "Can create and edit work items and projects.",
+    },
+    {
+      value: "viewer",
+      label: "Viewer",
+      description: "Can view work across the assigned teams.",
+    },
+    {
+      value: "guest",
+      label: "Guest",
+      description: "Limited access for external collaborators.",
+    },
+  ]
   const inviteableTeams = teams.filter((team) => {
     const teamRole = getTeamRole(data, team.id)
     return teamRole === "admin" || teamRole === "member"
   })
+  const workspaceInviteMode = mode === "workspace"
   const lockedToTeam = mode === "team" && presetTeamIds.length > 0
+  const lockedTeam = teams.find((team) => team.id === presetTeamIds[0])
+  const lockedTeamIcon = lockedTeam
+    ? normalizeTeamIconToken(lockedTeam.icon, lockedTeam.settings.experience)
+    : null
+  const selectedRoleDescription =
+    inviteRoleOptions.find((option) => option.value === role)?.description ??
+    inviteRoleOptions[1].description
 
   useEffect(() => {
     if (!open) {
@@ -1499,9 +1527,12 @@ function InviteDialog({
     }
 
     setTeamIds(lockedToTeam ? presetTeamIds : [])
+    setEmail("")
+    setRole("viewer")
   }, [lockedToTeam, open, presetTeamIds])
 
   const canInvite =
+    email.trim().length > 0 &&
     teamIds.length > 0 &&
     teamIds.every((teamId) =>
       inviteableTeams.some((team) => team.id === teamId)
@@ -1513,53 +1544,98 @@ function InviteDialog({
         key={`${data.ui.activeTeamId}-${mode}-${open}`}
         className="max-w-lg gap-0 overflow-hidden p-0"
       >
-        <div className="px-5 pt-5 pb-1">
-          <DialogHeader className="mb-1 p-0">
-            <DialogTitle className="text-base">Invite people</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              {mode === "team"
-                ? "Invite someone to this team."
-                : "Invite someone and grant access through one or more teams."}
-            </DialogDescription>
+        <div className="px-6 pt-6 pb-2">
+          <DialogHeader className="items-start gap-4 p-0">
+            <div className="flex size-12 items-center justify-center rounded-full bg-primary/8 ring-1 ring-border/60">
+              <EnvelopeSimple
+                className="size-6 text-primary"
+                weight="duotone"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <DialogTitle className="text-lg">Invite people</DialogTitle>
+              <DialogDescription className="max-w-md text-sm leading-relaxed">
+                {workspaceInviteMode
+                  ? "Invite someone to your workspace. Select which teams they should join."
+                  : "They'll receive an email with a link to get started."}
+              </DialogDescription>
+            </div>
           </DialogHeader>
         </div>
 
-        <div className="px-5 py-3">
-          <Input
-            id="invite-email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Email address"
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
-            autoFocus
-          />
-        </div>
+        <div className="space-y-5 px-6 py-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="invite-email">Email address</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="invite-email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="colleague@company.com"
+                  autoFocus
+                />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
 
-        <div className="flex flex-col border-t px-5 py-2">
-          {/* Team selection */}
-          <div className="py-2">
-            <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-              {lockedToTeam ? "Team" : "Teams"}
-            </span>
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium">
+                {lockedToTeam ? "Team" : "Teams"}
+              </div>
+              {workspaceInviteMode ? (
+                <div className="rounded-full border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  {teamIds.length} selected
+                </div>
+              ) : null}
+            </div>
             {lockedToTeam ? (
-              <div className="mt-1.5 text-sm">
-                {teams.find((team) => team.id === presetTeamIds[0])?.name ??
-                  "Selected team"}
+              <div className="flex items-center gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
+                  {lockedTeamIcon ? (
+                    <TeamIconGlyph
+                      icon={lockedTeamIcon}
+                      className="size-4 text-muted-foreground"
+                    />
+                  ) : (
+                    <UsersThree className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {lockedTeam?.name ?? "Selected team"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    This invite is locked to a single team.
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <div
+                className={cn(
+                  "flex flex-wrap gap-2",
+                  workspaceInviteMode
+                    ? "rounded-xl border bg-muted/15 p-3"
+                    : undefined
+                )}
+              >
                 {inviteableTeams.map((team) => {
                   const selected = teamIds.includes(team.id)
+                  const teamIcon = normalizeTeamIconToken(
+                    team.icon,
+                    team.settings.experience
+                  )
 
                   return (
                     <button
                       key={team.id}
                       type="button"
                       className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
                         selected
                           ? "border-primary/30 bg-primary/10 font-medium text-foreground"
-                          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                          : "border-border/60 text-muted-foreground hover:border-border hover:bg-muted/30 hover:text-foreground"
                       )}
                       onClick={() =>
                         setTeamIds((current) =>
@@ -1569,7 +1645,14 @@ function InviteDialog({
                         )
                       }
                     >
-                      {team.name}
+                      <TeamIconGlyph
+                        icon={teamIcon}
+                        className="size-3.5 shrink-0"
+                      />
+                      <span>{team.name}</span>
+                      {selected ? (
+                        <Check className="size-3.5 shrink-0" />
+                      ) : null}
                     </button>
                   )
                 })}
@@ -1577,28 +1660,34 @@ function InviteDialog({
             )}
           </div>
 
-          {/* Role */}
-          <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs text-muted-foreground">Role</span>
-            <Select
-              value={role}
-              onValueChange={(value) => setRole(value as Role)}
-            >
-              <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-xs shadow-none">
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="member">Member</SelectItem>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                  <SelectItem value="guest">Guest</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+              <FieldContent>
+                <Select
+                  value={role}
+                  onValueChange={(value) => setRole(value as Role)}
+                >
+                  <SelectTrigger id="invite-role" className="w-full">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {inviteRoleOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+              <FieldDescription>{selectedRoleDescription}</FieldDescription>
+            </Field>
+          </FieldGroup>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -1640,7 +1729,17 @@ function InviteDialog({
               }
             }}
           >
-            {submitting ? "Sending..." : "Send invite"}
+            {submitting ? (
+              <>
+                <ArrowsClockwise className="animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <PaperPlaneTilt />
+                Send invite
+              </>
+            )}
           </Button>
         </div>
       </DialogContent>

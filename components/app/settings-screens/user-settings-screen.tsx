@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -9,15 +9,7 @@ import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import {
   Field,
   FieldContent,
@@ -36,7 +28,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 
-import { ImageUploadControl, SettingsScaffold, SummaryCard } from "./shared"
+import { ImageUploadControl, SettingsScaffold } from "./shared"
 import { getUserInitials, uploadSettingsImage } from "./utils"
 
 const themePreferenceOptions: Array<{
@@ -60,6 +52,60 @@ const themePreferenceOptions: Array<{
     description: "Follow your device appearance setting.",
   },
 ]
+
+function UserSettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
+          {title}
+        </h2>
+        {description ? (
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  )
+}
+
+function UserSettingsToggleRow({
+  title,
+  description,
+  checked,
+  onCheckedChange,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-1">
+      <div className="min-w-0 space-y-1">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-sm leading-relaxed text-muted-foreground">
+          {description}
+        </div>
+      </div>
+      <Switch
+        checked={checked}
+        className="mt-0.5 shrink-0"
+        onCheckedChange={onCheckedChange}
+      />
+    </div>
+  )
+}
 
 export function UserSettingsScreen() {
   const router = useRouter()
@@ -294,33 +340,34 @@ export function UserSettingsScreen() {
         </Button>
       }
     >
-      <ImageUploadControl
-        description="This image appears anywhere your profile is shown in the workspace."
-        imageSrc={avatarPreviewUrl}
-        onClear={() => {
-          setAvatarPreviewUrl(null)
-          setAvatarImageStorageId(undefined)
-          setClearAvatarImage(true)
-        }}
-        onSelect={handleAvatarUpload}
-        preview={
-          <span className="text-base font-semibold text-muted-foreground">
-            {getUserInitials(name)}
-          </span>
-        }
-        shape="circle"
-        title="Profile photo"
-        uploading={uploadingAvatar}
-      />
+      <div className="max-w-2xl space-y-10">
+        <UserSettingsSection
+          title="Profile photo"
+          description="This image appears anywhere your profile is shown in the workspace."
+        >
+          <ImageUploadControl
+            imageSrc={avatarPreviewUrl}
+            onClear={() => {
+              setAvatarPreviewUrl(null)
+              setAvatarImageStorageId(undefined)
+              setClearAvatarImage(true)
+            }}
+            onSelect={handleAvatarUpload}
+            preview={
+              <span className="text-base font-semibold text-muted-foreground">
+                {getUserInitials(name)}
+              </span>
+            }
+            shape="circle"
+            title="Profile photo"
+            uploading={uploadingAvatar}
+          />
+        </UserSettingsSection>
 
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Identity</CardTitle>
-          <CardDescription>
-            Update how your name and role appear across the app.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <UserSettingsSection
+          title="Identity"
+          description="Update how your name and role appear across the app."
+        >
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="profile-name">Name</FieldLabel>
@@ -356,61 +403,38 @@ export function UserSettingsScreen() {
               </FieldDescription>
             </Field>
           </FieldGroup>
-        </CardContent>
-      </Card>
+        </UserSettingsSection>
 
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Notifications</CardTitle>
-          <CardDescription>
-            Control which email events reach you outside the app.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-            <div>
-              <div className="text-sm font-medium">Email mentions</div>
-              <div className="text-xs text-muted-foreground">
-                Send an email when someone mentions you.
-              </div>
-            </div>
-            <Switch
+        <UserSettingsSection
+          title="Notifications"
+          description="Control which email events reach you outside the app."
+        >
+          <div className="space-y-4">
+            <UserSettingsToggleRow
               checked={emailMentions}
+              description="Send an email when someone mentions you."
+              title="Email mentions"
               onCheckedChange={setEmailMentions}
             />
-          </div>
-          <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-            <div>
-              <div className="text-sm font-medium">Email assignments</div>
-              <div className="text-xs text-muted-foreground">
-                Send an email when work is assigned to you.
-              </div>
-            </div>
-            <Switch
+            <UserSettingsToggleRow
               checked={emailAssignments}
+              description="Send an email when work is assigned to you."
+              title="Email assignments"
               onCheckedChange={setEmailAssignments}
             />
+            <UserSettingsToggleRow
+              checked={emailDigest}
+              description="Include unread notifications in a digest email."
+              title="Email digest"
+              onCheckedChange={setEmailDigest}
+            />
           </div>
-          <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-            <div>
-              <div className="text-sm font-medium">Email digest</div>
-              <div className="text-xs text-muted-foreground">
-                Include unread notifications in a digest email.
-              </div>
-            </div>
-            <Switch checked={emailDigest} onCheckedChange={setEmailDigest} />
-          </div>
-        </CardContent>
-      </Card>
+        </UserSettingsSection>
 
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Appearance</CardTitle>
-          <CardDescription>
-            Choose how the interface theme should behave.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <UserSettingsSection
+          title="Appearance"
+          description="Choose how the interface theme should behave."
+        >
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="profile-theme">Theme</FieldLabel>
@@ -444,18 +468,12 @@ export function UserSettingsScreen() {
               </FieldDescription>
             </Field>
           </FieldGroup>
-        </CardContent>
-      </Card>
+        </UserSettingsSection>
 
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>Account email</CardTitle>
-          <CardDescription>
-            Changing your email starts a WorkOS verification flow and signs
-            you out when it completes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <UserSettingsSection
+          title="Account email"
+          description="Changing your email starts a WorkOS verification flow and signs you out when it completes."
+        >
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="profile-email">Email</FieldLabel>
@@ -487,8 +505,8 @@ export function UserSettingsScreen() {
               {sendingPasswordReset ? "Sending..." : "Send password reset"}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </UserSettingsSection>
+      </div>
     </SettingsScaffold>
   )
 }
