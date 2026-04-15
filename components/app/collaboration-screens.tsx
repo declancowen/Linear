@@ -595,11 +595,7 @@ function ChatThread({
   showHeader?: boolean
   videoAction?: ReactNode
   detailsAction?: ReactNode
-  welcomeParticipant?: {
-    name?: string | null
-    avatarUrl?: string | null
-    avatarImageUrl?: string | null
-  } | null
+  welcomeParticipant?: NonNullable<ReturnType<typeof getUser>> | null
 }) {
   const data = useAppStore()
   const messages = getChatMessages(data, conversationId)

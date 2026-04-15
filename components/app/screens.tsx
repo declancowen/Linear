@@ -1583,8 +1583,7 @@ function DocumentActionMenuContent({
       {canDeleteDocument ? (
         <ContextMenuItem
           variant="destructive"
-          onSelect={(event) => {
-            event.preventDefault()
+          onSelect={() => {
             onRequestDelete()
           }}
         >
@@ -1605,7 +1604,6 @@ function DocumentContextMenu({
   document: Document
   children: React.ReactNode
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
   const canDeleteDocument = canEditDocumentInUi(data, document)
@@ -1623,14 +1621,13 @@ function DocumentContextMenu({
 
   return (
     <>
-      <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent className="w-56">
           <DocumentActionMenuContent
             document={document}
             canDeleteDocument={canDeleteDocument}
             onRequestDelete={() => {
-              setMenuOpen(false)
               setDeleteDialogOpen(true)
             }}
           />

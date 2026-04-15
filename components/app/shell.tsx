@@ -406,12 +406,6 @@ export function AppShell({ children }: AppShellProps) {
                     label="Views"
                     active={pathname.startsWith("/workspace/views")}
                   />
-                  <SidebarLink
-                    href="/workspace/search"
-                    icon={<MagnifyingGlass />}
-                    label="Search"
-                    active={pathname.startsWith("/workspace/search")}
-                  />
                 </SidebarMenu>
               </SidebarGroupContent>
             ) : null}
