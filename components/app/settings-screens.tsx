@@ -546,37 +546,12 @@ function TeamEditorFields({
           </div>
           <span className="shrink-0 text-sm text-muted-foreground">Icon</span>
           <div className="min-w-0 flex-[3]">
-            <Select
-              disabled={disabled}
-              value={selectedIcon}
-              onValueChange={setIcon}
-            >
-              <SelectTrigger id="team-icon" className="h-8 w-full text-xs">
-                <div className="flex items-center gap-2">
-                  <TeamIconGlyph icon={selectedIcon} className="size-3.5" />
-                  <span>{teamIconMeta[selectedIcon].label}</span>
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {teamIconTokens.map((token) => (
-                    <SelectItem key={token} value={token}>
-                      <div className="flex items-center gap-2">
-                        <TeamIconGlyph icon={token} className="size-4" />
-                        <div className="flex min-w-0 flex-col">
-                          <span className="text-sm">
-                            {teamIconMeta[token].label}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {teamIconMeta[token].description}
-                          </span>
-                        </div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <div className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 text-xs">
+              <div className="flex items-center gap-2">
+                <TeamIconGlyph icon={selectedIcon} className="size-3.5" />
+                <span>{teamIconMeta[selectedIcon].label}</span>
+              </div>
+            </div>
           </div>
         </div>
         <SettingsRow label="Summary">
