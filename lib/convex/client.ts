@@ -200,6 +200,38 @@ export function syncUnarchiveNotification(notificationId: string) {
   })
 }
 
+export function syncArchiveNotifications(notificationIds: string[]) {
+  return runRouteMutation("/api/notifications", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "archive",
+      notificationIds,
+    }),
+  })
+}
+
+export function syncUnarchiveNotifications(notificationIds: string[]) {
+  return runRouteMutation("/api/notifications", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "unarchive",
+      notificationIds,
+    }),
+  })
+}
+
+export function syncDeleteNotification(notificationId: string) {
+  return runRouteMutation(`/api/notifications/${notificationId}`, {
+    method: "DELETE",
+  })
+}
+
 export function syncUpdateWorkspaceBranding(
   _workspaceId: string,
   name: string,

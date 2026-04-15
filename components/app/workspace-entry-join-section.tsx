@@ -2,6 +2,7 @@ import { AcceptInviteCard } from "@/components/app/accept-invite-card"
 import { JoinWorkspacePanel } from "@/components/app/join-workspace-panel"
 
 type WorkspaceEntryJoinSectionProps = {
+  autoAcceptToken?: string
   joinCode?: string
   joinedTeamIds: string[]
   loginHref?: string
@@ -25,6 +26,7 @@ type WorkspaceEntryJoinSectionProps = {
 }
 
 export function WorkspaceEntryJoinSection({
+  autoAcceptToken,
   joinCode,
   joinedTeamIds,
   loginHref = "/login",
@@ -60,6 +62,7 @@ export function WorkspaceEntryJoinSection({
                   role={entry.invite.role}
                   expired={false}
                   accepted={Boolean(entry.invite.acceptedAt)}
+                  autoAccept={entry.invite.token === autoAcceptToken}
                   showDecline
                 />
               ) : null

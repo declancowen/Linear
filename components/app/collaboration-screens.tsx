@@ -15,7 +15,6 @@ import {
   ChatCircle,
   DotsThree,
   Hash,
-  MagnifyingGlass,
   PaperPlaneTilt,
   Plus,
   Smiley,
@@ -57,6 +56,7 @@ import {
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   Dialog,
   DialogContent,
@@ -147,15 +147,24 @@ function EmptyState({
   title,
   description,
   action,
+  icon,
+  className,
 }: {
   title: string
   description: string
   action?: ReactNode
+  icon?: ReactNode
+  className?: string
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center",
+        className
+      )}
+    >
       <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-        <Hash className="size-5 text-muted-foreground" />
+        {icon ?? <Hash className="size-5 text-muted-foreground" />}
       </div>
       <div>
         <p className="text-sm font-medium">{title}</p>
@@ -200,16 +209,18 @@ function UserAvatar({
   avatarUrl,
   avatarImageUrl,
   size = "sm",
+  className,
 }: {
   name?: string | null
   avatarUrl?: string | null
   avatarImageUrl?: string | null
-  size?: "sm" | "default"
+  size?: "sm" | "default" | "lg"
+  className?: string
 }) {
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
 
   return (
-    <Avatar size={size}>
+    <Avatar size={size} className={className}>
       {imageSrc ? <AvatarImage src={imageSrc} alt={name ?? "User"} /> : null}
       <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
     </Avatar>
@@ -252,8 +263,9 @@ function CallInviteLauncher({ conversationId }: { conversationId: string }) {
     setLoading(true)
 
     try {
-      const joinHref =
-        await useAppStore.getState().startConversationCall(conversationId)
+      const joinHref = await useAppStore
+        .getState()
+        .startConversationCall(conversationId)
 
       if (!joinHref) {
         return
@@ -294,6 +306,7 @@ function ConversationList({
   onSelect,
   renderLeading,
   renderPreview,
+  className,
 }: {
   conversations: Array<{
     id: string
@@ -304,39 +317,45 @@ function ConversationList({
   onSelect: (id: string) => void
   renderLeading?: (id: string) => ReactNode
   renderPreview: (id: string) => string
+  className?: string
 }) {
   return (
-    <div className="flex h-full flex-col border-r">
+    <div className={cn("flex h-full flex-col border-r", className)}>
       <ScrollArea className="flex-1">
         <div className="flex flex-col px-1 py-1">
           {conversations.map((conversation) => (
             <button
               key={conversation.id}
               className={cn(
-                "block max-w-full overflow-hidden rounded-md px-3 py-2 text-left transition-colors",
+                "block max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
                 selectedId === conversation.id
                   ? "bg-accent"
                   : "hover:bg-accent/50"
               )}
               onClick={() => onSelect(conversation.id)}
             >
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 overflow-hidden">
-                  {renderLeading ? (
-                    <div className="shrink-0 pt-0.5">
-                      {renderLeading(conversation.id)}
-                    </div>
-                  ) : null}
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium">
-                      {conversation.title}
-                    </div>
-                    <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
-                      {renderPreview(conversation.id)}
-                    </div>
+              <div className="flex items-center gap-3">
+                {renderLeading ? (
+                  <div className="shrink-0">
+                    {renderLeading(conversation.id)}
+                  </div>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={cn(
+                      "truncate text-sm",
+                      selectedId === conversation.id
+                        ? "font-semibold"
+                        : "font-medium"
+                    )}
+                  >
+                    {conversation.title}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {renderPreview(conversation.id)}
                   </div>
                 </div>
-                <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">
+                <span className="shrink-0 text-[10px] text-muted-foreground">
                   {formatShortDate(conversation.updatedAt)}
                 </span>
               </div>
@@ -352,26 +371,32 @@ function ConversationList({
 /*  Members sidebar (right)                                            */
 /* ------------------------------------------------------------------ */
 
-function MembersSidebarContent({
+function SurfaceSidebarContent({
+  label,
   title,
   description,
   members,
 }: {
+  label?: string
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
 }) {
   return (
-    <div className="flex flex-col gap-5 p-4">
-      <div>
-        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-          About
-        </h3>
-        <p className="mt-2 text-sm font-medium">{title}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+    <div className="flex flex-col gap-4 p-4">
+      <div className={cn(!label && "border-b pb-4")}>
+        {label ? (
+          <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+            {label}
+          </h3>
+        ) : null}
+        <p className={cn("text-sm font-medium", label && "mt-2")}>{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {description}
+        </p>
       </div>
 
-      <div>
+      <div className={cn(!label && "pt-0.5")}>
         <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
           Members · {members.length}
         </h3>
@@ -388,7 +413,7 @@ function MembersSidebarContent({
               />
               <div className="min-w-0">
                 <div className="truncate text-sm">{member.name}</div>
-                {member.title ? (
+                {member.title && member.title !== "Member" ? (
                   <div className="truncate text-[11px] text-muted-foreground">
                     {member.title}
                   </div>
@@ -420,69 +445,13 @@ function MembersSidebar({
       containerClassName="hidden xl:block"
     >
       <ScrollArea className="flex-1">
-        <MembersSidebarContent
+        <SurfaceSidebarContent
           title={title}
           description={description}
           members={members}
         />
       </ScrollArea>
     </CollapsibleRightSidebar>
-  )
-}
-
-function TeamSurfaceSidebarContent({
-  label,
-  title,
-  description,
-  members,
-}: {
-  label: string
-  title: string
-  description: string
-  members: ReturnType<typeof getConversationParticipants>
-}) {
-  return (
-    <div className="flex flex-col gap-6 p-4">
-      {/* About */}
-      <div>
-        <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-          {label}
-        </h3>
-        <p className="mt-2.5 text-sm font-medium">{title}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
-
-      {/* Members */}
-      <div>
-        <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-          Members · {members.length}
-        </h3>
-        <div className="mt-3 flex flex-col gap-0.5">
-          {members.map((member) => (
-            <div
-              key={member.id}
-              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
-            >
-              <UserAvatar
-                name={member.name}
-                avatarImageUrl={member.avatarImageUrl}
-                avatarUrl={member.avatarUrl}
-              />
-              <div className="min-w-0">
-                <p className="truncate text-sm">{member.name}</p>
-                {member.title ? (
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {member.title}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
   )
 }
 
@@ -506,7 +475,7 @@ function TeamSurfaceSidebar({
       containerClassName="hidden xl:block"
     >
       <ScrollArea className="flex-1">
-        <TeamSurfaceSidebarContent
+        <SurfaceSidebarContent
           label={label}
           title={title}
           description={description}
@@ -550,7 +519,7 @@ function ChatComposer({
 
   return (
     <div className="px-4 py-3">
-      <div className="flex items-end gap-2 rounded-lg border bg-card px-3 py-2.5 shadow-sm focus-within:ring-1 focus-within:ring-ring/40">
+      <div className="flex min-h-[2.75rem] items-end gap-2 rounded-lg border bg-background px-3 py-2.5 shadow-sm focus-within:ring-1 focus-within:ring-ring/40">
         <textarea
           ref={textareaRef}
           value={content}
@@ -577,7 +546,7 @@ function ChatComposer({
             onClick={handleSend}
             disabled={!content.trim()}
             className={cn(
-              "flex size-6 items-center justify-center rounded-md transition-colors",
+              "flex size-7 items-center justify-center rounded-full transition-colors",
               content.trim()
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground/50"
@@ -588,6 +557,54 @@ function ChatComposer({
         </div>
       </div>
     </div>
+  )
+}
+
+function DetailsSidebarToggle({
+  sidebarOpen,
+  onDesktopToggle,
+  onMobileOpen,
+}: {
+  sidebarOpen: boolean
+  onDesktopToggle: () => void
+  onMobileOpen: () => void
+}) {
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 gap-1.5 text-xs xl:hidden"
+        onClick={onMobileOpen}
+      >
+        <UsersThree className="size-3.5" />
+        Details
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
+        onClick={onDesktopToggle}
+      >
+        <UsersThree className="size-3.5" />
+        {sidebarOpen ? "Hide details" : "Show details"}
+      </Button>
+    </>
+  )
+}
+
+function ChatHeaderActions({
+  videoAction,
+  detailsAction,
+}: {
+  videoAction?: ReactNode
+  detailsAction?: ReactNode
+}) {
+  return (
+    <>
+      {videoAction ?? null}
+      {detailsAction ?? null}
+    </>
   )
 }
 
@@ -602,6 +619,8 @@ function ChatThread({
   members,
   showHeader = true,
   videoAction,
+  detailsAction,
+  welcomeParticipant,
 }: {
   conversationId: string
   title: string
@@ -609,10 +628,19 @@ function ChatThread({
   members: ReturnType<typeof getConversationParticipants>
   showHeader?: boolean
   videoAction?: ReactNode
+  detailsAction?: ReactNode
+  welcomeParticipant?: {
+    name?: string | null
+    avatarUrl?: string | null
+    avatarImageUrl?: string | null
+  } | null
 }) {
   const data = useAppStore()
   const messages = getChatMessages(data, conversationId)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const hasHeaderActions = videoAction != null || detailsAction != null
+  const showWelcomeIntro =
+    welcomeParticipant && messages.length > 0 && messages.length < 5
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -635,15 +663,14 @@ function ChatThread({
               {members.length} members
             </span>
           </div>
-          <div className="flex items-center gap-1">
-            {videoAction ?? null}
-            <Button size="icon-xs" variant="ghost" className="size-7">
-              <MagnifyingGlass className="size-3.5" />
-            </Button>
-            <Button size="icon-xs" variant="ghost" className="size-7">
-              <DotsThree className="size-3.5" />
-            </Button>
-          </div>
+          {hasHeaderActions ? (
+            <div className="flex items-center gap-1.5">
+              <ChatHeaderActions
+                videoAction={videoAction}
+                detailsAction={detailsAction}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -652,156 +679,181 @@ function ChatThread({
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       >
-        <div className="mt-auto" />
-        <div className="flex flex-col gap-0.5 px-4 py-3">
-          {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                <PaperPlaneTilt className="size-5 text-muted-foreground" />
+        {messages.length === 0 ? (
+          <div className="mt-auto px-4 py-3">
+            <EmptyState
+              title="No messages yet"
+              description="Start the conversation below."
+              icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
+              className="flex-none px-0 py-6"
+            />
+          </div>
+        ) : (
+          <>
+            {showWelcomeIntro ? (
+              <div className="px-4 pt-6">
+                <div className="mx-auto flex max-w-sm flex-col items-center text-center">
+                  <UserAvatar
+                    name={welcomeParticipant.name}
+                    avatarImageUrl={welcomeParticipant.avatarImageUrl}
+                    avatarUrl={welcomeParticipant.avatarUrl}
+                    size="lg"
+                    className="size-12"
+                  />
+                  <p className="mt-3 text-sm font-medium">
+                    {welcomeParticipant.name ?? title}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    This is the beginning of your conversation with{" "}
+                    {welcomeParticipant.name ?? title}.
+                  </p>
+                </div>
               </div>
-              <p className="mt-3 text-sm font-medium">No messages yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Start the conversation below.
-              </p>
-            </div>
-          ) : (
-            messages.map((message, idx) => {
-              const author = getUser(data, message.createdBy)
-              const prevMessage = messages[idx - 1]
-              const nextMessage = messages[idx + 1]
-              const isCurrentUser = message.createdBy === data.currentUserId
-              const legacyCallInvite =
-                message.callId || message.kind === "call"
-                  ? null
-                  : parseCallInviteMessage(message.content)
-              const callJoinHref = message.callId
-                ? buildCallJoinHref(message.callId)
-                : (legacyCallInvite?.href ?? null)
-              const isCallMessage =
-                message.kind === "call" ||
-                Boolean(message.callId) ||
-                Boolean(legacyCallInvite)
-              const prevIsCall = Boolean(
-                prevMessage &&
-                (prevMessage.kind === "call" ||
-                  prevMessage.callId ||
-                  parseCallInviteMessage(prevMessage.content))
-              )
-              const nextIsCall = Boolean(
-                nextMessage &&
-                (nextMessage.kind === "call" ||
-                  nextMessage.callId ||
-                  parseCallInviteMessage(nextMessage.content))
-              )
-              const groupedWithPrev =
-                !isCallMessage &&
-                !prevIsCall &&
-                prevMessage?.createdBy === message.createdBy &&
-                new Date(message.createdAt).getTime() -
-                  new Date(prevMessage.createdAt).getTime() <
-                  5 * 60_000
-              const groupedWithNext =
-                !isCallMessage &&
-                !nextIsCall &&
-                nextMessage?.createdBy === message.createdBy &&
-                new Date(nextMessage.createdAt).getTime() -
-                  new Date(message.createdAt).getTime() <
-                  5 * 60_000
+            ) : null}
+            <div className="mt-auto" />
+            <div className="flex flex-col gap-0.5 px-4 py-3">
+              {messages.map((message, idx) => {
+                const author = getUser(data, message.createdBy)
+                const prevMessage = messages[idx - 1]
+                const nextMessage = messages[idx + 1]
+                const isCurrentUser = message.createdBy === data.currentUserId
+                const legacyCallInvite =
+                  message.callId || message.kind === "call"
+                    ? null
+                    : parseCallInviteMessage(message.content)
+                const callJoinHref = message.callId
+                  ? buildCallJoinHref(message.callId)
+                  : (legacyCallInvite?.href ?? null)
+                const isCallMessage =
+                  message.kind === "call" ||
+                  Boolean(message.callId) ||
+                  Boolean(legacyCallInvite)
+                const prevIsCall = Boolean(
+                  prevMessage &&
+                  (prevMessage.kind === "call" ||
+                    prevMessage.callId ||
+                    parseCallInviteMessage(prevMessage.content))
+                )
+                const nextIsCall = Boolean(
+                  nextMessage &&
+                  (nextMessage.kind === "call" ||
+                    nextMessage.callId ||
+                    parseCallInviteMessage(nextMessage.content))
+                )
+                const groupedWithPrev =
+                  !isCallMessage &&
+                  !prevIsCall &&
+                  prevMessage?.createdBy === message.createdBy &&
+                  new Date(message.createdAt).getTime() -
+                    new Date(prevMessage.createdAt).getTime() <
+                    5 * 60_000
+                const groupedWithNext =
+                  !isCallMessage &&
+                  !nextIsCall &&
+                  nextMessage?.createdBy === message.createdBy &&
+                  new Date(nextMessage.createdAt).getTime() -
+                    new Date(message.createdAt).getTime() <
+                    5 * 60_000
 
-              return (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex px-4 py-0.5",
-                    isCurrentUser ? "justify-end" : "justify-start",
-                    idx > 0 && !groupedWithPrev && "mt-3"
-                  )}
-                >
+                return (
                   <div
+                    key={message.id}
                     className={cn(
-                      "flex max-w-[min(78%,42rem)] items-end gap-2",
-                      isCurrentUser && "flex-row-reverse"
+                      "flex px-4 py-0.5",
+                      isCurrentUser ? "justify-end" : "justify-start",
+                      idx > 0 && !groupedWithPrev && "mt-3"
                     )}
                   >
-                    {!isCurrentUser ? (
-                      groupedWithPrev ? (
-                        <div className="size-8 shrink-0" />
-                      ) : (
-                        <UserAvatar
-                          name={author?.name}
-                          avatarImageUrl={author?.avatarImageUrl}
-                          avatarUrl={author?.avatarUrl}
-                          size="default"
-                        />
-                      )
-                    ) : null}
                     <div
                       className={cn(
-                        "flex min-w-0 flex-col",
-                        isCurrentUser ? "items-end" : "items-start"
+                        "flex max-w-[min(78%,42rem)] items-end gap-2",
+                        isCurrentUser && "flex-row-reverse"
                       )}
                     >
-                      {!groupedWithPrev ? (
-                        <div
-                          className={cn(
-                            "mb-1 flex items-center gap-2 px-1",
-                            isCurrentUser ? "justify-end" : "justify-start"
-                          )}
-                        >
-                          {!isCurrentUser ? (
-                            <span className="text-[11px] font-medium">
-                              {author?.name ?? "Unknown"}
-                            </span>
-                          ) : null}
-                          <span className="text-[10px] text-muted-foreground">
-                            {formatTimestamp(message.createdAt)}
-                          </span>
-                        </div>
+                      {!isCurrentUser ? (
+                        groupedWithPrev ? (
+                          <div className="size-8 shrink-0" />
+                        ) : (
+                          <UserAvatar
+                            name={author?.name}
+                            avatarImageUrl={author?.avatarImageUrl}
+                            avatarUrl={author?.avatarUrl}
+                            size="default"
+                          />
+                        )
                       ) : null}
                       <div
                         className={cn(
-                          "rounded-2xl px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap shadow-sm",
-                          isCurrentUser
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-foreground",
-                          isCurrentUser
-                            ? groupedWithPrev && "rounded-tr-md"
-                            : groupedWithPrev && "rounded-tl-md",
-                          isCurrentUser
-                            ? groupedWithNext && "rounded-br-md"
-                            : groupedWithNext && "rounded-bl-md"
+                          "flex min-w-0 flex-col",
+                          isCurrentUser ? "items-end" : "items-start"
                         )}
                       >
-                        {callJoinHref ? (
-                          <div className="space-y-2 whitespace-normal">
-                            <p className="text-sm leading-5">Started a call</p>
-                            <Button
-                              asChild
-                              size="sm"
-                              variant={isCurrentUser ? "secondary" : "outline"}
-                              className="h-7 text-xs"
-                            >
-                              <a
-                                href={callJoinHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <ArrowSquareOut className="size-3.5" />
-                                Join call
-                              </a>
-                            </Button>
+                        {!groupedWithPrev ? (
+                          <div
+                            className={cn(
+                              "mb-1 flex items-center gap-2 px-1",
+                              isCurrentUser ? "justify-end" : "justify-start"
+                            )}
+                          >
+                            {!isCurrentUser ? (
+                              <span className="text-[11px] font-medium">
+                                {author?.name ?? "Unknown"}
+                              </span>
+                            ) : null}
+                            <span className="text-[10px] text-muted-foreground">
+                              {formatTimestamp(message.createdAt)}
+                            </span>
                           </div>
-                        ) : (
-                          message.content
-                        )}
+                        ) : null}
+                        <div
+                          className={cn(
+                            "rounded-2xl px-3 py-2.5 text-sm leading-normal whitespace-pre-wrap shadow-sm",
+                            isCurrentUser
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-foreground",
+                            isCurrentUser
+                              ? groupedWithPrev && "rounded-tr-md"
+                              : groupedWithPrev && "rounded-tl-md",
+                            isCurrentUser
+                              ? groupedWithNext && "rounded-br-md"
+                              : groupedWithNext && "rounded-bl-md"
+                          )}
+                        >
+                          {callJoinHref ? (
+                            <div className="space-y-2 whitespace-normal">
+                              <p className="text-sm leading-5">
+                                Started a call
+                              </p>
+                              <Button
+                                asChild
+                                size="sm"
+                                variant={
+                                  isCurrentUser ? "secondary" : "outline"
+                                }
+                                className="h-7 text-xs"
+                              >
+                                <a
+                                  href={callJoinHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ArrowSquareOut className="size-3.5" />
+                                  Join call
+                                </a>
+                              </Button>
+                            </div>
+                          ) : (
+                            message.content
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )
-            })
-          )}
-        </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Composer */}
@@ -829,6 +881,7 @@ function ForumPostCard({ postId }: { postId: string }) {
   const [reply, setReply] = useState("")
   const [showReplies, setShowReplies] = useState(false)
   const [replyOpen, setReplyOpen] = useState(false)
+  const [deletePostOpen, setDeletePostOpen] = useState(false)
 
   if (!post) return null
 
@@ -854,6 +907,11 @@ function ForumPostCard({ postId }: { postId: string }) {
     setReplyOpen(false)
   }
 
+  const handleDeletePost = () => {
+    useAppStore.getState().deleteChannelPost(post.id)
+    setDeletePostOpen(false)
+  }
+
   const previewComments = comments.slice(-3)
   const hiddenCount = comments.length - previewComments.length
 
@@ -862,58 +920,55 @@ function ForumPostCard({ postId }: { postId: string }) {
       id={post.id}
       className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md"
     >
-      <div className="absolute -top-3 right-3 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 opacity-0 shadow-sm transition-opacity group-hover/post:opacity-100">
-        <button
-          type="button"
-          onClick={() => {
-            setShowReplies(true)
-            setReplyOpen(true)
-          }}
-          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ChatCircle className="size-4" />
-        </button>
-        {canDeletePost ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <DotsThree className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onSelect={() => {
-                  if (window.confirm("Delete this post and its comments?")) {
-                    useAppStore.getState().deleteChannelPost(post.id)
-                  }
-                }}
-              >
-                <Trash className="size-4" />
-                Delete post
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>
-
-      <div className="border-l-[3px] border-transparent px-4 py-4 transition-colors hover:border-primary/40">
-        <div className="flex items-center gap-2.5">
-          <UserAvatar
-            name={author?.name}
-            avatarImageUrl={author?.avatarImageUrl}
-            avatarUrl={author?.avatarUrl}
-            size="default"
-          />
-          <span className="text-sm font-semibold">
-            {author?.name ?? "Unknown"}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {formatTimestamp(post.createdAt)}
-          </span>
+      <div className="px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <UserAvatar
+              name={author?.name}
+              avatarImageUrl={author?.avatarImageUrl}
+              avatarUrl={author?.avatarUrl}
+              size="default"
+            />
+            <span className="truncate text-sm font-semibold">
+              {author?.name ?? "Unknown"}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {formatTimestamp(post.createdAt)}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md border bg-background p-0.5 opacity-0 shadow-sm transition-opacity group-hover/post:opacity-100">
+            <button
+              type="button"
+              onClick={() => {
+                setShowReplies(true)
+                setReplyOpen(true)
+              }}
+              className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <ChatCircle className="size-4" />
+            </button>
+            {canDeletePost ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <DotsThree className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setDeletePostOpen(true)}
+                  >
+                    <Trash className="size-4" />
+                    Delete post
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
         </div>
 
         {post.title ? (
@@ -1140,6 +1195,15 @@ function ForumPostCard({ postId }: { postId: string }) {
           </button>
         )}
       </div>
+      <ConfirmDialog
+        open={deletePostOpen}
+        onOpenChange={setDeletePostOpen}
+        title="Delete post"
+        description="This post and all its comments will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDeletePost}
+      />
     </div>
   )
 }
@@ -1595,6 +1659,7 @@ export function WorkspaceChatsScreen() {
       <EmptyState
         title="Workspace not found"
         description="Select a workspace first."
+        icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
       />
     )
   }
@@ -1607,6 +1672,15 @@ export function WorkspaceChatsScreen() {
   const activeChat =
     chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null
   const members = getConversationParticipants(data, activeChat)
+  const otherParticipantIds = activeChat
+    ? activeChat.participantIds.filter(
+        (userId) => userId !== data.currentUserId
+      )
+    : []
+  const welcomeParticipant =
+    otherParticipantIds.length === 1
+      ? getUser(data, otherParticipantIds[0])
+      : null
 
   function renderConversationAvatar(conversationId: string) {
     const conversation = chats.find((entry) => entry.id === conversationId)
@@ -1619,9 +1693,7 @@ export function WorkspaceChatsScreen() {
       .filter((userId) => userId !== data.currentUserId)
       .map((userId) => getUser(data, userId))
       .filter(
-        (
-          participant
-        ): participant is NonNullable<ReturnType<typeof getUser>> =>
+        (participant): participant is NonNullable<ReturnType<typeof getUser>> =>
           Boolean(participant)
       )
 
@@ -1667,35 +1739,20 @@ export function WorkspaceChatsScreen() {
         title="Chats"
         subtitle="Direct and group conversations"
         actions={
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1.5 text-xs xl:hidden"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <UsersThree className="size-3.5" />
-              Details
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
-              onClick={() => setSidebarOpen((current) => !current)}
-            >
-              <UsersThree className="size-3.5" />
-              {sidebarOpen ? "Hide details" : "Show details"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1.5 text-xs"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Plus className="size-3.5" />
-              New chat
-            </Button>
-          </>
+          activeChat ? (
+            <ChatHeaderActions
+              videoAction={
+                <CallInviteLauncher conversationId={activeChat.id} />
+              }
+              detailsAction={
+                <DetailsSidebarToggle
+                  sidebarOpen={sidebarOpen}
+                  onDesktopToggle={() => setSidebarOpen((current) => !current)}
+                  onMobileOpen={() => setMobileSidebarOpen(true)}
+                />
+              }
+            />
+          ) : null
         }
       />
       <CreateWorkspaceChatDialog
@@ -1709,6 +1766,7 @@ export function WorkspaceChatsScreen() {
         <EmptyState
           title="No chats yet"
           description="Create a direct or group chat with people in the workspace."
+          icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
           action={
             <Button
               size="sm"
@@ -1723,13 +1781,28 @@ export function WorkspaceChatsScreen() {
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
-            className="relative shrink-0"
+            className="relative flex shrink-0 flex-col border-r"
             style={{
               width: `${conversationListWidth}px`,
               flexBasis: `${conversationListWidth}px`,
             }}
           >
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
+              <span className="truncate text-sm font-medium">
+                Conversations
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setDialogOpen(true)}
+              >
+                <Plus className="size-3.5" />
+                New chat
+              </Button>
+            </div>
             <ConversationList
+              className="h-auto min-h-0 flex-1 border-r-0"
               conversations={chats}
               selectedId={activeChat?.id ?? null}
               onSelect={(id) =>
@@ -1779,11 +1852,9 @@ export function WorkspaceChatsScreen() {
               <ChatThread
                 conversationId={activeChat.id}
                 title={activeChat.title}
-                description={activeChat.description || "Workspace chat"}
+                description=""
                 members={members}
-                videoAction={
-                  <CallInviteLauncher conversationId={activeChat.id} />
-                }
+                welcomeParticipant={welcomeParticipant}
               />
             ) : null}
           </div>
@@ -1803,7 +1874,7 @@ export function WorkspaceChatsScreen() {
             <SheetDescription>Conversation details</SheetDescription>
           </SheetHeader>
           <ScrollArea className="flex-1">
-            <MembersSidebarContent
+            <SurfaceSidebarContent
               title={activeChat?.title ?? "Chat"}
               description={activeChat?.description || "Workspace conversation"}
               members={members}
@@ -1867,26 +1938,11 @@ export function WorkspaceChannelsScreen() {
         title="Channel"
         subtitle="Workspace-wide updates"
         actions={
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1.5 text-xs xl:hidden"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <UsersThree className="size-3.5" />
-              Details
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
-              onClick={() => setSidebarOpen((current) => !current)}
-            >
-              <UsersThree className="size-3.5" />
-              {sidebarOpen ? "Hide details" : "Show details"}
-            </Button>
-          </>
+          <DetailsSidebarToggle
+            sidebarOpen={sidebarOpen}
+            onDesktopToggle={() => setSidebarOpen((current) => !current)}
+            onMobileOpen={() => setMobileSidebarOpen(true)}
+          />
         }
       />
       {!activeChannel ? (
@@ -1934,7 +1990,7 @@ export function WorkspaceChannelsScreen() {
             <SheetDescription>Channel details</SheetDescription>
           </SheetHeader>
           <ScrollArea className="flex-1">
-            <TeamSurfaceSidebarContent
+            <SurfaceSidebarContent
               label="Workspace channel"
               title={workspace.name}
               description={workspaceDescription}
@@ -1980,6 +2036,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       <EmptyState
         title="Team not found"
         description="The requested team does not exist."
+        icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
       />
     )
   }
@@ -1989,6 +2046,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       <EmptyState
         title="Chat is disabled"
         description={`${team.name} is currently configured without team chat.`}
+        icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
       />
     )
   }
@@ -1999,26 +2057,20 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         title={team.name}
         subtitle="Chat"
         actions={
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1.5 text-xs xl:hidden"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <UsersThree className="size-3.5" />
-              Details
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
-              onClick={() => setSidebarOpen((current) => !current)}
-            >
-              <UsersThree className="size-3.5" />
-              {sidebarOpen ? "Hide details" : "Show details"}
-            </Button>
-          </>
+          <ChatHeaderActions
+            videoAction={
+              conversation && editable ? (
+                <CallInviteLauncher conversationId={conversation.id} />
+              ) : null
+            }
+            detailsAction={
+              <DetailsSidebarToggle
+                sidebarOpen={sidebarOpen}
+                onDesktopToggle={() => setSidebarOpen((current) => !current)}
+                onMobileOpen={() => setMobileSidebarOpen(true)}
+              />
+            }
+          />
         }
       />
       {!conversation ? (
@@ -2029,6 +2081,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               ? "The shared team chat is created automatically for this team space."
               : "An admin needs to finish setting up the shared team chat."
           }
+          icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -2038,12 +2091,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               title="Team chat"
               description=""
               members={members}
-              showHeader
-              videoAction={
-                editable ? (
-                  <CallInviteLauncher conversationId={conversation.id} />
-                ) : null
-              }
+              showHeader={false}
             />
           </div>
           <TeamSurfaceSidebar
@@ -2063,7 +2111,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
             <SheetDescription>Team chat details</SheetDescription>
           </SheetHeader>
           <ScrollArea className="flex-1">
-            <TeamSurfaceSidebarContent
+            <SurfaceSidebarContent
               label="Team chat"
               title={team.name}
               description={teamDescription}
@@ -2139,26 +2187,11 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
         title={team.name}
         subtitle="Channel"
         actions={
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1.5 text-xs xl:hidden"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <UsersThree className="size-3.5" />
-              Details
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
-              onClick={() => setSidebarOpen((current) => !current)}
-            >
-              <UsersThree className="size-3.5" />
-              {sidebarOpen ? "Hide details" : "Show details"}
-            </Button>
-          </>
+          <DetailsSidebarToggle
+            sidebarOpen={sidebarOpen}
+            onDesktopToggle={() => setSidebarOpen((current) => !current)}
+            onMobileOpen={() => setMobileSidebarOpen(true)}
+          />
         }
       />
       {!activeChannel ? (
@@ -2214,7 +2247,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
             <SheetDescription>Channel details</SheetDescription>
           </SheetHeader>
           <ScrollArea className="flex-1">
-            <TeamSurfaceSidebarContent
+            <SurfaceSidebarContent
               label="Team channel"
               title={team.name}
               description={teamDescription}

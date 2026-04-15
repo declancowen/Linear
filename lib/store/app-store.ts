@@ -11,6 +11,7 @@ import { toast } from "sonner"
 
 import {
   syncArchiveNotification,
+  syncArchiveNotifications,
   fetchSnapshot,
   syncAddComment,
   syncAddChannelPostComment,
@@ -28,6 +29,7 @@ import {
   syncDeleteCurrentWorkspace,
   syncDeleteAttachment,
   syncDeleteChannelPost,
+  syncDeleteNotification,
   syncDeleteTeam,
   syncDeleteWorkItem,
   syncEnsureTeamChat,
@@ -42,6 +44,7 @@ import {
   syncToggleCommentReaction,
   syncToggleNotificationRead,
   syncUnarchiveNotification,
+  syncUnarchiveNotifications,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,
@@ -261,7 +264,10 @@ export type AppStore = AppData & {
   markNotificationRead: (notificationId: string) => void
   toggleNotificationRead: (notificationId: string) => void
   archiveNotification: (notificationId: string) => void
+  archiveNotifications: (notificationIds: string[]) => void
   unarchiveNotification: (notificationId: string) => void
+  unarchiveNotifications: (notificationIds: string[]) => void
+  deleteNotification: (notificationId: string) => Promise<void>
   updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
   deleteCurrentWorkspace: () => Promise<boolean>
   createTeam: (input: CreateTeamInput) => Promise<{
@@ -363,6 +369,26 @@ function extractDocumentTitleFromContent(content: string) {
 
   const plainTitle = match[1].replace(/<[^>]*>/g, "").trim()
   return plainTitle.length > 0 ? plainTitle : null
+}
+
+function escapeDocumentHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function replaceDocumentHeading(content: string, title: string) {
+  const escapedTitle = escapeDocumentHtml(title)
+  const headingPattern = /(<h1[^>]*>).*?(<\/h1>)/is
+
+  if (headingPattern.test(content)) {
+    return content.replace(headingPattern, `$1${escapedTitle}$2`)
+  }
+
+  return `<h1>${escapedTitle}</h1>${content}`
 }
 
 const RICH_TEXT_SYNC_DELAY_MS = 350
@@ -1136,10 +1162,11 @@ export const useAppStore = create<AppStore>()(
           ),
           ui: {
             ...state.ui,
-            activeTeamId:
-              data.teams.some((team) => team.id === state.ui.activeTeamId)
-                ? state.ui.activeTeamId
-                : data.teams[0]?.id ?? "",
+            activeTeamId: data.teams.some(
+              (team) => team.id === state.ui.activeTeamId
+            )
+              ? state.ui.activeTeamId
+              : (data.teams[0]?.id ?? ""),
           },
         }))
       },
@@ -1218,6 +1245,38 @@ export const useAppStore = create<AppStore>()(
           "Failed to archive notification"
         )
       },
+      archiveNotifications(notificationIds) {
+        if (notificationIds.length === 0) {
+          return
+        }
+
+        const notificationIdSet = new Set(notificationIds)
+        const archivedAt = getNow()
+
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notificationIdSet.has(notification.id)
+              ? {
+                  ...notification,
+                  archivedAt: notification.archivedAt ?? archivedAt,
+                }
+              : notification
+          ),
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId: state.ui.activeInboxNotificationId
+              ? notificationIdSet.has(state.ui.activeInboxNotificationId)
+                ? null
+                : state.ui.activeInboxNotificationId
+              : null,
+          },
+        }))
+
+        syncInBackground(
+          syncArchiveNotifications(notificationIds),
+          "Failed to archive notifications"
+        )
+      },
       unarchiveNotification(notificationId) {
         set((state) => ({
           notifications: state.notifications.map((notification) =>
@@ -1234,6 +1293,57 @@ export const useAppStore = create<AppStore>()(
           syncUnarchiveNotification(notificationId),
           "Failed to unarchive notification"
         )
+      },
+      unarchiveNotifications(notificationIds) {
+        if (notificationIds.length === 0) {
+          return
+        }
+
+        const notificationIdSet = new Set(notificationIds)
+
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notificationIdSet.has(notification.id)
+              ? {
+                  ...notification,
+                  archivedAt: null,
+                }
+              : notification
+          ),
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId: state.ui.activeInboxNotificationId
+              ? notificationIdSet.has(state.ui.activeInboxNotificationId)
+                ? null
+                : state.ui.activeInboxNotificationId
+              : null,
+          },
+        }))
+
+        syncInBackground(
+          syncUnarchiveNotifications(notificationIds),
+          "Failed to unarchive notifications"
+        )
+      },
+      async deleteNotification(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.filter(
+            (notification) => notification.id !== notificationId
+          ),
+          ui: {
+            ...state.ui,
+            activeInboxNotificationId:
+              state.ui.activeInboxNotificationId === notificationId
+                ? null
+                : state.ui.activeInboxNotificationId,
+          },
+        }))
+
+        try {
+          await syncDeleteNotification(notificationId)
+        } catch (error) {
+          await handleSyncFailure(error, "Failed to delete notification")
+        }
       },
       updateWorkspaceBranding(input) {
         const parsed = workspaceBrandingSchema.safeParse(input)
@@ -1297,7 +1407,9 @@ export const useAppStore = create<AppStore>()(
         } catch (error) {
           console.error(error)
           toast.error(
-            error instanceof Error ? error.message : "Failed to delete workspace"
+            error instanceof Error
+              ? error.message
+              : "Failed to delete workspace"
           )
           return false
         }
@@ -1351,7 +1463,9 @@ export const useAppStore = create<AppStore>()(
           return true
         } catch (error) {
           console.error(error)
-          toast.error(error instanceof Error ? error.message : "Failed to delete team")
+          toast.error(
+            error instanceof Error ? error.message : "Failed to delete team"
+          )
           return false
         }
       },
@@ -2011,13 +2125,18 @@ export const useAppStore = create<AppStore>()(
       },
       renameDocument(documentId, title) {
         const updatedAt = getNow()
+        const normalizedTitle = title.trim() || "Untitled document"
 
         set((state) => ({
           documents: state.documents.map((document) =>
             document.id === documentId
               ? {
                   ...document,
-                  title,
+                  title: normalizedTitle,
+                  content: replaceDocumentHeading(
+                    document.content,
+                    normalizedTitle
+                  ),
                   updatedAt,
                   updatedBy: state.currentUserId,
                 }

@@ -333,10 +333,22 @@ async function getProjectDoc(ctx: AppCtx, id: string) {
 }
 
 async function getUserByEmail(ctx: AppCtx, email: string) {
-  return ctx.db
+  const exactMatch = await ctx.db
     .query("users")
     .withIndex("by_email", (q) => q.eq("email", email))
     .unique()
+
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  const normalizedEmail = email.trim().toLowerCase()
+  const users = await ctx.db.query("users").collect()
+
+  return (
+    users.find((user) => user.email.trim().toLowerCase() === normalizedEmail) ??
+    null
+  )
 }
 
 async function getUserByWorkOSUserId(ctx: AppCtx, workosUserId: string) {
@@ -496,11 +508,20 @@ async function getActiveInvitesForTeamAndEmail(
 }
 
 async function getAppConfig(ctx: AppCtx) {
-  const config = await ctx.db
+  const configs = await ctx.db
     .query("appConfig")
     .withIndex("by_key", (q) => q.eq("key", "singleton"))
-    .unique()
-  return config
+    .collect()
+
+  if (configs.length === 0) {
+    return null
+  }
+
+  return configs.reduce((selected, config) =>
+    (config.snapshotVersion ?? 0) > (selected.snapshotVersion ?? 0)
+      ? config
+      : selected
+  )
 }
 
 async function getOrCreateAppConfig(ctx: MutationCtx) {
@@ -1130,7 +1151,7 @@ async function requireViewMutationAccess(
   return view
 }
 
-async function requireNotificationOwnership(
+async function getOwnedNotificationOrNull(
   ctx: AppCtx,
   notificationId: string,
   userId: string
@@ -1138,7 +1159,7 @@ async function requireNotificationOwnership(
   const notification = await getNotificationDoc(ctx, notificationId)
 
   if (!notification) {
-    throw new Error("Notification not found")
+    return null
   }
 
   if (notification.userId !== userId) {
@@ -1146,6 +1167,39 @@ async function requireNotificationOwnership(
   }
 
   return notification
+}
+
+async function archiveInviteNotifications(
+  ctx: MutationCtx,
+  input: {
+    userId: string
+    inviteIds: string[]
+  }
+) {
+  if (input.inviteIds.length === 0) {
+    return
+  }
+
+  const now = getNow()
+  const inviteIds = new Set(input.inviteIds)
+  const notifications = await ctx.db
+    .query("notifications")
+    .withIndex("by_user", (q) => q.eq("userId", input.userId))
+    .collect()
+
+  for (const notification of notifications) {
+    if (
+      notification.entityType !== "invite" ||
+      !inviteIds.has(notification.entityId)
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(notification._id, {
+      readAt: notification.readAt ?? now,
+      archivedAt: now,
+    })
+  }
 }
 
 async function resolveAttachmentTarget(
@@ -3763,11 +3817,15 @@ export const markNotificationRead = mutation({
   },
   handler: async (ctx, args) => {
     assertServerToken(args.serverToken)
-    const notification = await requireNotificationOwnership(
+    const notification = await getOwnedNotificationOrNull(
       ctx,
       args.notificationId,
       args.currentUserId
     )
+
+    if (!notification) {
+      return
+    }
 
     await ctx.db.patch(notification._id, {
       readAt: notification.readAt ?? getNow(),
@@ -3806,11 +3864,15 @@ export const toggleNotificationRead = mutation({
   },
   handler: async (ctx, args) => {
     assertServerToken(args.serverToken)
-    const notification = await requireNotificationOwnership(
+    const notification = await getOwnedNotificationOrNull(
       ctx,
       args.notificationId,
       args.currentUserId
     )
+
+    if (!notification) {
+      return
+    }
 
     await ctx.db.patch(notification._id, {
       readAt: notification.readAt ? null : getNow(),
@@ -3826,11 +3888,15 @@ export const archiveNotification = mutation({
   },
   handler: async (ctx, args) => {
     assertServerToken(args.serverToken)
-    const notification = await requireNotificationOwnership(
+    const notification = await getOwnedNotificationOrNull(
       ctx,
       args.notificationId,
       args.currentUserId
     )
+
+    if (!notification) {
+      return
+    }
 
     await ctx.db.patch(notification._id, {
       archivedAt: notification.archivedAt ?? getNow(),
@@ -3846,15 +3912,41 @@ export const unarchiveNotification = mutation({
   },
   handler: async (ctx, args) => {
     assertServerToken(args.serverToken)
-    const notification = await requireNotificationOwnership(
+    const notification = await getOwnedNotificationOrNull(
       ctx,
       args.notificationId,
       args.currentUserId
     )
 
+    if (!notification) {
+      return
+    }
+
     await ctx.db.patch(notification._id, {
       archivedAt: null,
     })
+  },
+})
+
+export const deleteNotification = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    notificationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const notification = await getOwnedNotificationOrNull(
+      ctx,
+      args.notificationId,
+      args.currentUserId
+    )
+
+    if (!notification) {
+      return
+    }
+
+    await ctx.db.delete(notification._id)
   },
 })
 
@@ -5698,6 +5790,22 @@ export const createInvite = mutation({
 
     await ctx.db.insert("invites", invite)
 
+    const invitedUser = await getUserByEmail(ctx, args.email)
+
+    if (invitedUser) {
+      await ctx.db.insert(
+        "notifications",
+        createNotification(
+          invitedUser.id,
+          args.currentUserId,
+          `You've been invited to join ${team.name} as ${args.role}`,
+          "invite",
+          invite.id,
+          "invite"
+        )
+      )
+    }
+
     const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
 
     return {
@@ -5776,19 +5884,10 @@ export const acceptInvite = mutation({
       invite.workspaceId
     )
 
-    if (!existingMembership || existingMembership.role !== resolvedRole) {
-      await ctx.db.insert(
-        "notifications",
-        createNotification(
-          args.currentUserId,
-          args.currentUserId,
-          `You joined ${team?.name ?? "the team"} as ${resolvedRole}`,
-          "invite",
-          invite.teamId,
-          "invite"
-        )
-      )
-    }
+    await archiveInviteNotifications(ctx, {
+      userId: args.currentUserId,
+      inviteIds: [invite.id],
+    })
 
     return {
       teamSlug: team?.slug ?? null,
@@ -5822,6 +5921,11 @@ export const declineInvite = mutation({
         declinedAt: getNow(),
       })
     }
+
+    await archiveInviteNotifications(ctx, {
+      userId: args.currentUserId,
+      inviteIds: [invite.id],
+    })
 
     return {
       inviteId: invite.id,
@@ -5904,18 +6008,11 @@ export const joinTeamByCode = mutation({
 
     await setCurrentWorkspaceForUser(ctx, args.currentUserId, team.workspaceId)
 
-    if (!existingMembership || existingMembership.role !== resolvedRole) {
-      await ctx.db.insert(
-        "notifications",
-        createNotification(
-          args.currentUserId,
-          args.currentUserId,
-          `You joined ${team.name} as ${resolvedRole}`,
-          "invite",
-          team.id,
-          "invite"
-        )
-      )
+    if (matchingInvites.length > 0) {
+      await archiveInviteNotifications(ctx, {
+        userId: args.currentUserId,
+        inviteIds: matchingInvites.map((invite) => invite.id),
+      })
     }
 
     const workspace = await getWorkspaceDoc(ctx, team.workspaceId)

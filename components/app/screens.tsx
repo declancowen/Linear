@@ -9,6 +9,7 @@ import {
   type ElementType,
   type SyntheticEvent,
 } from "react"
+import { toast } from "sonner"
 import {
   closestCorners,
   DndContext,
@@ -32,22 +33,27 @@ import {
 import {
   Archive,
   ArrowSquareOut,
+  Bell,
   CalendarDots,
   CaretDown,
   CaretRight,
+  ChatCircle,
   Circle,
   CheckCircle,
   CodesandboxLogo,
   DotsSixVertical,
   DotsThree,
+  EnvelopeSimple,
   FadersHorizontal,
-  GearSix,
-  Kanban,
   FileText,
+  GearSix,
+  Hash,
+  Kanban,
   NotePencil,
   Plus,
   Rows,
   SidebarSimple,
+  Target,
   Trash,
   XCircle,
   ArrowCounterClockwise,
@@ -112,6 +118,7 @@ import {
   type Document,
   type DisplayProperty,
   type GroupField,
+  type NotificationEntityType,
   type OrderingField,
   type Priority,
   type Project,
@@ -130,6 +137,8 @@ import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-setti
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -187,7 +196,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { getViewHref } from "@/lib/domain/default-views"
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 const displayPropertyOptions: DisplayProperty[] = [
   "id",
@@ -214,6 +223,27 @@ const groupOptions: GroupField[] = [
   "epic",
   "feature",
 ]
+
+function getNotificationEntityIcon(
+  entityType: NotificationEntityType
+): ElementType {
+  switch (entityType) {
+    case "workItem":
+      return Target
+    case "document":
+      return FileText
+    case "channelPost":
+      return Hash
+    case "chat":
+      return ChatCircle
+    case "invite":
+      return EnvelopeSimple
+    case "project":
+      return Kanban
+    default:
+      return Circle
+  }
+}
 
 const orderingOptions: OrderingField[] = [
   "priority",
@@ -397,8 +427,12 @@ export function AssignedScreen() {
 }
 
 export function InboxScreen() {
+  const router = useRouter()
   const data = useAppStore()
   const [inboxTab, setInboxTab] = useState<"inbox" | "archived">("inbox")
+  const [acceptingInvite, setAcceptingInvite] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingNotification, setDeletingNotification] = useState(false)
   const notifications = [...data.notifications]
     .filter((notification) => notification.userId === data.currentUserId)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
@@ -407,20 +441,66 @@ export function InboxScreen() {
       ? notification.archivedAt == null
       : notification.archivedAt != null
   )
-  const activeId = visibleNotifications.some(
-    (notification) => notification.id === data.ui.activeInboxNotificationId
-  )
-    ? data.ui.activeInboxNotificationId
-    : (visibleNotifications[0]?.id ?? null)
+  const selectedNotification =
+    visibleNotifications.find(
+      (notification) => notification.id === data.ui.activeInboxNotificationId
+    ) ?? null
   const activeNotification =
-    visibleNotifications.find((notification) => notification.id === activeId) ??
-    null
+    selectedNotification ??
+    (data.ui.activeInboxNotificationId
+      ? (visibleNotifications[0] ?? null)
+      : null)
+  const activeId = activeNotification?.id ?? null
   const activeChannelPostHref = activeNotification
     ? getChannelPostHref(data, activeNotification.entityId)
     : null
   const activeChatHref = activeNotification
     ? getConversationHref(data, activeNotification.entityId)
     : null
+  const activeInvite =
+    activeNotification?.entityType === "invite"
+      ? (data.invites.find(
+          (invite) => invite.id === activeNotification.entityId
+        ) ?? null)
+      : null
+  const hasPendingActiveInvite = activeInvite
+    ? !activeInvite.acceptedAt &&
+      !activeInvite.declinedAt &&
+      new Date(activeInvite.expiresAt).getTime() >= Date.now()
+    : false
+  const activeProject =
+    activeNotification?.entityType === "project"
+      ? getProject(data, activeNotification.entityId)
+      : null
+  const activeProjectHref = activeProject
+    ? (getProjectHref(data, activeProject) ?? "/workspace/projects")
+    : null
+  const shouldShowPrimaryAction =
+    activeNotification?.entityType === "workItem" ||
+    activeNotification?.entityType === "document" ||
+    activeNotification?.entityType === "project" ||
+    (activeNotification?.entityType === "channelPost" &&
+      activeChannelPostHref != null) ||
+    (activeNotification?.entityType === "chat" && activeChatHref != null) ||
+    hasPendingActiveInvite
+
+  useEffect(() => {
+    if (
+      visibleNotifications.length === 0 ||
+      selectedNotification ||
+      data.ui.activeInboxNotificationId !== null
+    ) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .setActiveInboxNotification(visibleNotifications[0].id)
+  }, [
+    data.ui.activeInboxNotificationId,
+    selectedNotification,
+    visibleNotifications,
+  ])
 
   const updateActiveNotificationAfterMove = (notificationId: string) => {
     if (activeId !== notificationId) {
@@ -447,231 +527,348 @@ export function InboxScreen() {
     useAppStore.getState().unarchiveNotification(notificationId)
   }
 
+  const deleteNotification = async (notificationId: string) => {
+    updateActiveNotificationAfterMove(notificationId)
+    await useAppStore.getState().deleteNotification(notificationId)
+  }
+
+  const moveAllVisibleNotifications = () => {
+    const notificationIds = visibleNotifications.map(
+      (notification) => notification.id
+    )
+
+    if (notificationIds.length === 0) {
+      return
+    }
+
+    if (inboxTab === "inbox") {
+      useAppStore.getState().archiveNotifications(notificationIds)
+      return
+    }
+
+    useAppStore.getState().unarchiveNotifications(notificationIds)
+  }
+
+  async function handleAcceptInvite() {
+    if (!activeInvite || !hasPendingActiveInvite) {
+      return
+    }
+
+    setAcceptingInvite(true)
+
+    try {
+      const response = await fetch("/api/invites/accept", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: activeInvite.token }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        teamSlug?: string | null
+      } | null
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to accept invite")
+      }
+
+      toast.success("Invite accepted")
+      router.push(
+        payload?.teamSlug
+          ? `/team/${payload.teamSlug}/work`
+          : "/workspace/projects"
+      )
+      router.refresh()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to accept invite"
+      )
+    } finally {
+      setAcceptingInvite(false)
+    }
+  }
+
+  async function handleDeleteNotification() {
+    if (!activeNotification) {
+      return
+    }
+
+    setDeletingNotification(true)
+
+    try {
+      await deleteNotification(activeNotification.id)
+      setDeleteDialogOpen(false)
+    } finally {
+      setDeletingNotification(false)
+    }
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ScreenHeader title="Inbox" />
-      <div className="flex min-h-0 flex-1">
-        {/* Notification list */}
-        <div className="flex min-h-0 w-[22rem] shrink-0 flex-col border-r">
-          <div className="flex items-center gap-1 border-b px-4 py-2">
-            {(["inbox", "archived"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className={cn(
-                  "h-6 rounded-sm px-2 text-xs transition-colors",
-                  tab === inboxTab
-                    ? "bg-accent font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setInboxTab(tab)}
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ScreenHeader title="Inbox" />
+        <div className="flex min-h-0 flex-1">
+          {/* Notification list */}
+          <div className="flex min-h-0 w-[18rem] shrink-0 flex-col border-r">
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
+              <div className="flex items-center gap-1">
+                {(["inbox", "archived"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={cn(
+                      "h-6 rounded-sm px-2 text-xs transition-colors",
+                      tab === inboxTab
+                        ? "bg-accent font-medium text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => setInboxTab(tab)}
+                  >
+                    {tab === "inbox" ? "Inbox" : "Archived"}
+                  </button>
+                ))}
+              </div>
+              <Button
+                size="xs"
+                variant="ghost"
+                className="h-6 px-2 text-muted-foreground hover:text-foreground"
+                onClick={moveAllVisibleNotifications}
+                disabled={visibleNotifications.length === 0}
               >
-                {tab === "inbox" ? "Inbox" : "Archived"}
-              </button>
-            ))}
+                {inboxTab === "inbox" ? "Archive all" : "Unarchive all"}
+              </Button>
+            </div>
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="flex flex-col">
+                {visibleNotifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={cn(
+                      "flex items-start border-b transition-colors",
+                      notification.id === activeId
+                        ? "bg-accent"
+                        : "hover:bg-accent/50"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left"
+                      onClick={() => {
+                        useAppStore
+                          .getState()
+                          .setActiveInboxNotification(notification.id)
+                        useAppStore
+                          .getState()
+                          .markNotificationRead(notification.id)
+                      }}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {(() => {
+                          const NotificationIcon = getNotificationEntityIcon(
+                            notification.entityType
+                          )
+
+                          return (
+                            <NotificationIcon className="size-4 text-muted-foreground" />
+                          )
+                        })()}
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          className={cn(
+                            "truncate text-sm text-foreground",
+                            !notification.readAt && "font-medium"
+                          )}
+                        >
+                          {notification.message}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(
+                            new Date(notification.createdAt),
+                            "MMM d, h:mm a"
+                          )}
+                        </span>
+                      </div>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1 px-2 py-3">
+                      {notification.readAt ? null : (
+                        <div className="size-2 rounded-full bg-primary" />
+                      )}
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        className="size-7 rounded-md text-muted-foreground/40 transition-colors hover:bg-background hover:text-muted-foreground"
+                        onClick={() => {
+                          if (notification.archivedAt) {
+                            unarchiveNotification(notification.id)
+                            return
+                          }
+
+                          archiveNotification(notification.id)
+                        }}
+                        aria-label={
+                          notification.archivedAt
+                            ? "Unarchive notification"
+                            : "Archive notification"
+                        }
+                      >
+                        {notification.archivedAt ? (
+                          <ArrowCounterClockwise className="size-4" />
+                        ) : (
+                          <Archive className="size-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {visibleNotifications.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-20 text-sm text-muted-foreground">
+                    {inboxTab === "inbox"
+                      ? "No inbox notifications"
+                      : "No archived notifications"}
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
           </div>
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col">
-              {visibleNotifications.map((notification) => (
+          {/* Detail pane */}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            {activeNotification ? (
+              <div className="p-6">
+                <p className="max-w-2xl text-sm leading-relaxed">
+                  {activeNotification.message}
+                </p>
+                {shouldShowPrimaryAction ? (
+                  <div className="mt-4">
+                    {activeNotification.entityType === "workItem" ? (
+                      <Button size="sm" asChild>
+                        <Link href={`/items/${activeNotification.entityId}`}>
+                          Open work item
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "document" ? (
+                      <Button size="sm" asChild>
+                        <Link href={`/docs/${activeNotification.entityId}`}>
+                          Open document
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "project" &&
+                    activeProjectHref ? (
+                      <Button size="sm" asChild>
+                        <Link href={activeProjectHref}>Open project</Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "channelPost" &&
+                    activeChannelPostHref ? (
+                      <Button size="sm" asChild>
+                        <Link href={activeChannelPostHref}>
+                          Open channel post
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {activeNotification.entityType === "chat" &&
+                    activeChatHref ? (
+                      <Button size="sm" asChild>
+                        <Link href={activeChatHref}>Open chat</Link>
+                      </Button>
+                    ) : null}
+                    {hasPendingActiveInvite ? (
+                      <Button
+                        size="sm"
+                        disabled={acceptingInvite}
+                        onClick={() => void handleAcceptInvite()}
+                      >
+                        {acceptingInvite ? "..." : "Accept invite"}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div
-                  key={notification.id}
                   className={cn(
-                    "group flex items-start border-b transition-colors",
-                    notification.id === activeId
-                      ? "bg-accent"
-                      : "hover:bg-accent/50"
+                    "flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground",
+                    shouldShowPrimaryAction ? "mt-6" : "mt-4"
                   )}
                 >
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 px-4 py-3 text-left"
-                    onClick={() => {
-                      useAppStore
-                        .getState()
-                        .setActiveInboxNotification(notification.id)
-                      useAppStore
-                        .getState()
-                        .markNotificationRead(notification.id)
-                    }}
-                  >
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span
-                        className={cn(
-                          "truncate text-sm",
-                          !notification.readAt && "font-medium"
-                        )}
-                      >
-                        {notification.message}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {format(
-                          new Date(notification.createdAt),
-                          "MMM d, h:mm a"
-                        )}
-                      </span>
-                    </div>
-                  </button>
-                  <div className="flex shrink-0 items-start gap-1 px-2 py-3">
-                    {notification.readAt ? null : (
-                      <div className="mt-1.5 size-2 rounded-full bg-primary" />
-                    )}
+                  <span>
+                    Received{" "}
+                    {format(
+                      new Date(activeNotification.createdAt),
+                      "MMM d, h:mm a"
+                    )}{" "}
+                    · {activeNotification.readAt ? "Read" : "Unread"}
+                  </span>
+                  <div className="flex items-center gap-1">
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      className={cn(
-                        "text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100",
-                        notification.id === activeId && "opacity-100"
-                      )}
-                      onClick={() => {
-                        if (notification.archivedAt) {
-                          unarchiveNotification(notification.id)
-                          return
-                        }
-
-                        archiveNotification(notification.id)
-                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        activeNotification.archivedAt
+                          ? unarchiveNotification(activeNotification.id)
+                          : archiveNotification(activeNotification.id)
+                      }
                       aria-label={
-                        notification.archivedAt
+                        activeNotification.archivedAt
                           ? "Unarchive notification"
                           : "Archive notification"
                       }
                     >
-                      {notification.archivedAt ? (
-                        <ArrowCounterClockwise className="size-3.5" />
+                      {activeNotification.archivedAt ? (
+                        <ArrowCounterClockwise className="size-4" />
                       ) : (
-                        <Archive className="size-3.5" />
+                        <Archive className="size-4" />
                       )}
+                    </Button>
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      aria-label="Delete notification"
+                    >
+                      <Trash className="size-3.5" />
                     </Button>
                   </div>
                 </div>
-              ))}
-              {visibleNotifications.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 text-sm text-muted-foreground">
-                  {inboxTab === "inbox"
-                    ? "No inbox notifications"
-                    : "No archived notifications"}
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </div>
-        {/* Detail pane */}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {activeNotification ? (
-            <div className="p-6">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{activeNotification.type}</Badge>
-                  <Badge variant="secondary">
-                    {activeNotification.entityType}
-                  </Badge>
-                  {activeNotification.archivedAt ? (
-                    <Badge variant="secondary">Archived</Badge>
-                  ) : null}
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    activeNotification.archivedAt
-                      ? unarchiveNotification(activeNotification.id)
-                      : archiveNotification(activeNotification.id)
-                  }
-                >
-                  {activeNotification.archivedAt ? (
-                    <ArrowCounterClockwise className="size-3.5" />
-                  ) : (
-                    <Archive className="size-3.5" />
-                  )}
-                  {activeNotification.archivedAt ? "Unarchive" : "Archive"}
-                </Button>
               </div>
-              <p className="mb-4 max-w-2xl text-sm leading-7">
-                {activeNotification.message}
-              </p>
-              <div className="mb-6 flex flex-wrap gap-2">
-                {activeNotification.entityType === "workItem" ? (
-                  <Button size="sm" asChild>
-                    <Link href={`/items/${activeNotification.entityId}`}>
-                      Open work item
-                    </Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "document" ? (
-                  <Button size="sm" asChild>
-                    <Link href={`/docs/${activeNotification.entityId}`}>
-                      Open document
-                    </Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "channelPost" &&
-                activeChannelPostHref ? (
-                  <Button size="sm" asChild>
-                    <Link href={activeChannelPostHref}>Open channel post</Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "chat" && activeChatHref ? (
-                  <Button size="sm" asChild>
-                    <Link href={activeChatHref}>Open chat</Link>
-                  </Button>
-                ) : null}
-                {activeNotification.entityType === "invite" ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      useAppStore
-                        .getState()
-                        .joinTeamByCode(
-                          data.teams.find(
-                            (team) => team.id === activeNotification.entityId
-                          )?.settings.joinCode ?? ""
-                        )
-                    }
-                  >
-                    Accept join code
-                  </Button>
-                ) : null}
+            ) : (
+              <div className="flex h-full items-center justify-center px-6">
+                {visibleNotifications.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <Bell className="size-5 text-muted-foreground" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        All caught up
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        No new notifications
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Select a notification to view details.
+                  </p>
+                )}
               </div>
-              <Separator />
-              <div className="mt-4 flex gap-6 text-xs text-muted-foreground">
-                <span>
-                  Read:{" "}
-                  {activeNotification.readAt
-                    ? format(
-                        new Date(activeNotification.readAt),
-                        "MMM d, h:mm a"
-                      )
-                    : "Unread"}
-                </span>
-                <span>
-                  Archived:{" "}
-                  {activeNotification.archivedAt
-                    ? format(
-                        new Date(activeNotification.archivedAt),
-                        "MMM d, h:mm a"
-                      )
-                    : "In inbox"}
-                </span>
-                <span>
-                  Email:{" "}
-                  {activeNotification.emailedAt
-                    ? format(
-                        new Date(activeNotification.emailedAt),
-                        "MMM d, h:mm a"
-                      )
-                    : "In-app only"}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              No notifications
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete notification"
+        description="This notification will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deletingNotification}
+        onConfirm={() => void handleDeleteNotification()}
+      />
+    </>
   )
 }
 
@@ -1086,13 +1283,13 @@ export function DocsScreen({
       />
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {documents.length === 0 ? (
-          <MissingState title={emptyTitle} />
+          <MissingState icon={FileText} title={emptyTitle} />
         ) : layout === "board" ? (
           <DocumentBoard data={data} documents={documents} />
         ) : (
-          <div className="flex flex-col divide-y px-6">
+          <div className="flex flex-col divide-y">
             {documents.map((document) => {
-              const preview = extractTextContent(document.content)
+              const preview = getDocumentPreview(document)
               const author = getUser(
                 data,
                 document.updatedBy ?? document.createdBy
@@ -1100,12 +1297,9 @@ export function DocsScreen({
               return (
                 <Link
                   key={document.id}
-                  className="group flex items-start gap-3 rounded-md px-3 py-3.5 transition-colors hover:bg-accent/40"
+                  className="flex items-start px-6 py-3.5 transition-colors hover:bg-accent/40"
                   href={`/docs/${document.id}`}
                 >
-                  <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-                    <FileText className="size-4" />
-                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium">
@@ -1117,9 +1311,7 @@ export function DocsScreen({
                         {preview}
                       </p>
                     ) : null}
-                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span>{getDocumentContextLabel(data, document)}</span>
-                      <span>·</span>
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <span>{author?.name ?? "Unknown"}</span>
                       <span>·</span>
                       <span>
@@ -1127,7 +1319,6 @@ export function DocsScreen({
                       </span>
                     </div>
                   </div>
-                  <ArrowSquareOut className="mt-1 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                 </Link>
               )
             })}
@@ -1282,45 +1473,35 @@ function DocumentBoard({
   return (
     <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       {documents.map((document) => {
-        const preview = extractTextContent(document.content)
+        const preview = getDocumentPreview(document)
         const author = getUser(data, document.updatedBy ?? document.createdBy)
 
         return (
           <Link
             key={document.id}
-            className="group flex h-full flex-col rounded-lg border bg-card p-0 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+            className="flex flex-col self-start rounded-lg border bg-card p-0 transition-colors hover:border-foreground/15 hover:bg-accent/30"
             href={`/docs/${document.id}`}
           >
             {/* Card body */}
-            <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-              <div className="flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-                  <FileText className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm leading-snug font-medium">
-                    {document.title}
-                  </h3>
-                  <span className="mt-0.5 text-[11px] text-muted-foreground">
-                    {getDocumentContextLabel(data, document)}
-                  </span>
-                </div>
-                <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-              </div>
+            <div className="px-4 pt-4 pb-3">
+              <h3 className="text-sm leading-snug font-medium">
+                {document.title}
+              </h3>
               {preview ? (
                 <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
                   {preview}
                 </p>
-              ) : (
-                <p className="mt-3 text-xs text-muted-foreground/50 italic">
-                  Empty document
-                </p>
-              )}
+              ) : null}
             </div>
 
             {/* Card footer */}
             <div className="flex items-center gap-2 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
-              {author ? <span className="truncate">{author.name}</span> : null}
+              <DocumentAuthorAvatar
+                avatarImageUrl={author?.avatarImageUrl}
+                avatarUrl={author?.avatarUrl}
+                name={author?.name ?? "Unknown"}
+              />
+              <span className="truncate">{author?.name ?? "Unknown"}</span>
               <span className="ml-auto shrink-0">
                 {format(new Date(document.updatedAt), "MMM d")}
               </span>
@@ -1329,6 +1510,44 @@ function DocumentBoard({
         )
       })}
     </div>
+  )
+}
+
+function getUserInitials(name: string | null | undefined) {
+  const parts = (name ?? "")
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return "?"
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+}
+
+function DocumentAuthorAvatar({
+  avatarImageUrl,
+  avatarUrl,
+  name,
+}: {
+  avatarImageUrl?: string | null
+  avatarUrl?: string | null
+  name: string
+}) {
+  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
+
+  return (
+    <Avatar size="sm" className="size-5">
+      {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
+      <AvatarFallback className="text-[9px]">
+        {getUserInitials(name)}
+      </AvatarFallback>
+    </Avatar>
   )
 }
 
@@ -1452,6 +1671,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const data = useAppStore()
   const item = data.workItems.find((entry) => entry.id === itemId)
   const [deletingItem, setDeletingItem] = useState(false)
+  const [projectConfirmOpen, setProjectConfirmOpen] = useState(false)
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [childComposerOpen, setChildComposerOpen] = useState(false)
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
@@ -1501,6 +1723,16 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const canCreateChildItem = editable && allowedChildTypes.length > 0
   const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
   const hierarchySize = getWorkItemHierarchyIds(data, currentItem.id).size
+  const itemLabel = getDisplayLabelForWorkItemType(
+    currentItem.type,
+    team?.settings.experience
+  ).toLowerCase()
+  const cascadeMessage =
+    descendantCount > 0
+      ? `Delete this ${itemLabel} and ${descendantCount} nested item${
+          descendantCount === 1 ? "" : "s"
+        }?`
+      : `Delete this ${itemLabel}?`
   const completedChildItems = childItems.filter(
     (child) => child.status === "done"
   ).length
@@ -1545,12 +1777,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       return
     }
 
-    if (
-      hierarchySize > 1 &&
-      !window.confirm(
-        "Changing the project for this item will also update all parent and child items in this hierarchy to the new project. Do you want to confirm?"
-      )
-    ) {
+    if (hierarchySize > 1) {
+      setPendingProjectId(nextProjectId)
+      setProjectConfirmOpen(true)
       return
     }
 
@@ -1579,24 +1808,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }
 
   async function handleDeleteItem() {
-    const itemLabel = getDisplayLabelForWorkItemType(
-      currentItem.type,
-      team?.settings.experience
-    ).toLowerCase()
-    const cascadeMessage =
-      descendantCount > 0
-        ? `Delete this ${itemLabel} and ${descendantCount} nested item${
-            descendantCount === 1 ? "" : "s"
-          }?`
-        : `Delete this ${itemLabel}?`
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`${cascadeMessage} This can't be undone.`)
-    ) {
-      return
-    }
-
     setDeletingItem(true)
 
     const deleted = await useAppStore.getState().deleteWorkItem(currentItem.id)
@@ -1606,342 +1817,390 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       return
     }
 
+    setDeleteDialogOpen(false)
     router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
   }
 
+  function handleProjectConfirmOpenChange(open: boolean) {
+    setProjectConfirmOpen(open)
+
+    if (!open) {
+      setPendingProjectId(null)
+    }
+  }
+
+  function handleConfirmProjectChange() {
+    useAppStore.getState().updateWorkItem(currentItem.id, {
+      primaryProjectId: pendingProjectId,
+    })
+    setProjectConfirmOpen(false)
+    setPendingProjectId(null)
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Breadcrumb header */}
-      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex items-center gap-2 text-sm">
-          <SidebarTrigger className="size-5 shrink-0" />
-          <Link
-            href={`/team/${team?.slug}/work`}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            {team?.name}
-          </Link>
-          <CaretRight className="size-3 text-muted-foreground" />
-          <span>
-            {currentItem.key} {currentItem.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {editable ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon-sm" variant="ghost" disabled={deletingItem}>
-                  <DotsThree className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44 min-w-44">
-                <DropdownMenuItem
-                  variant="destructive"
-                  disabled={deletingItem}
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    void handleDeleteItem()
-                  }}
-                >
-                  <Trash className="size-4" />
-                  Delete{" "}
-                  {getDisplayLabelForWorkItemType(
-                    currentItem.type,
-                    team?.settings.experience
-                  )}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className={cn(!propertiesOpen && "text-muted-foreground")}
-            onClick={() => setPropertiesOpen((current) => !current)}
-          >
-            <SidebarSimple className="size-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Main content — scrollable */}
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-8 py-8">
-            {/* Title */}
-            {parentItem ? (
-              <Link
-                href={`/items/${parentItem.id}`}
-                className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <span>{workCopy.parentLabel}</span>
-                <Badge variant="outline">{parentItem.key}</Badge>
-                <span className="truncate">{parentItem.title}</span>
-              </Link>
-            ) : null}
-            <h1 className="mb-1 text-2xl font-semibold">{currentItem.title}</h1>
-            <div className="mb-4">
-              <WorkItemTypeBadge data={data} item={currentItem} />
-            </div>
-
-            {/* Description — seamless inline editor */}
-            <div className="mt-4">
-              <RichTextEditor
-                content={description?.content ?? "<p>Add a description…</p>"}
-                editable={editable}
-                placeholder="Add a description…"
-                mentionCandidates={
-                  team ? getTeamMembers(data, team.id) : data.users
-                }
-                onChange={(content) =>
-                  useAppStore
-                    .getState()
-                    .updateItemDescription(currentItem.id, content)
-                }
-                onUploadAttachment={(file) =>
-                  useAppStore
-                    .getState()
-                    .uploadAttachment("workItem", currentItem.id, file)
-                }
-              />
-            </div>
-
-            {showSubIssuesSection ? (
-              <div className="mt-8">
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                    onClick={() => setSubIssuesOpen((current) => !current)}
+    <>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Breadcrumb header */}
+        <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex items-center gap-2 text-sm">
+            <SidebarTrigger className="size-5 shrink-0" />
+            <Link
+              href={`/team/${team?.slug}/work`}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {team?.name}
+            </Link>
+            <CaretRight className="size-3 text-muted-foreground" />
+            <span>
+              {currentItem.key} {currentItem.title}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            {editable ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    disabled={deletingItem}
                   >
-                    {subIssuesOpen ? (
-                      <CaretDown className="size-3" />
-                    ) : (
-                      <CaretRight className="size-3" />
+                    <DotsThree className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44 min-w-44">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={deletingItem}
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      setDeleteDialogOpen(true)
+                    }}
+                  >
+                    <Trash className="size-4" />
+                    Delete{" "}
+                    {getDisplayLabelForWorkItemType(
+                      currentItem.type,
+                      team?.settings.experience
                     )}
-                    <span>{childCopy.childPluralLabel}</span>
-                    <span className="text-xs font-normal tabular-nums">
-                      {completedChildItems}/{childItems.length}
-                    </span>
-                  </button>
-                  {canCreateChildItem ? (
-                    <Button
-                      size="icon-sm"
-                      variant={childComposerOpen ? "outline" : "ghost"}
-                      disabled={!canCreateChildItem}
-                      onClick={() => {
-                        setSubIssuesOpen(true)
-                        setChildComposerOpen((current) => !current)
-                      }}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className={cn(!propertiesOpen && "text-muted-foreground")}
+              onClick={() => setPropertiesOpen((current) => !current)}
+            >
+              <SidebarSimple className="size-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          {/* Main content — scrollable */}
+          <div className="min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl px-8 py-8">
+              {/* Title */}
+              {parentItem ? (
+                <Link
+                  href={`/items/${parentItem.id}`}
+                  className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <span>{workCopy.parentLabel}</span>
+                  <Badge variant="outline">{parentItem.key}</Badge>
+                  <span className="truncate">{parentItem.title}</span>
+                </Link>
+              ) : null}
+              <h1 className="mb-1 text-2xl font-semibold">
+                {currentItem.title}
+              </h1>
+              <div className="mb-4">
+                <WorkItemTypeBadge data={data} item={currentItem} />
+              </div>
+
+              {/* Description — seamless inline editor */}
+              <div className="mt-4">
+                <RichTextEditor
+                  content={description?.content ?? "<p>Add a description…</p>"}
+                  editable={editable}
+                  placeholder="Add a description…"
+                  mentionCandidates={
+                    team ? getTeamMembers(data, team.id) : data.users
+                  }
+                  onChange={(content) =>
+                    useAppStore
+                      .getState()
+                      .updateItemDescription(currentItem.id, content)
+                  }
+                  onUploadAttachment={(file) =>
+                    useAppStore
+                      .getState()
+                      .uploadAttachment("workItem", currentItem.id, file)
+                  }
+                />
+              </div>
+
+              {showSubIssuesSection ? (
+                <div className="mt-8">
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setSubIssuesOpen((current) => !current)}
                     >
-                      <Plus className="size-3.5" />
-                    </Button>
-                  ) : null}
-                </div>
-
-                {/* Progress bar */}
-                {childItems.length > 0 ? (
-                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-green-500 transition-all"
-                      style={{
-                        width: `${childItems.length > 0 ? (completedChildItems / childItems.length) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                ) : null}
-
-                {subIssuesOpen ? (
-                  <div className="mt-3 flex flex-col rounded-lg border">
-                    {childItems.map((child, index) => (
-                      <Link
-                        key={child.id}
-                        href={`/items/${child.id}`}
-                        className={cn(
-                          "group/sub flex items-center gap-3 px-3 py-2 transition-colors hover:bg-accent/40",
-                          index !== childItems.length - 1 && "border-b"
-                        )}
+                      {subIssuesOpen ? (
+                        <CaretDown className="size-3" />
+                      ) : (
+                        <CaretRight className="size-3" />
+                      )}
+                      <span>{childCopy.childPluralLabel}</span>
+                      <span className="text-xs font-normal tabular-nums">
+                        {completedChildItems}/{childItems.length}
+                      </span>
+                    </button>
+                    {canCreateChildItem ? (
+                      <Button
+                        size="icon-sm"
+                        variant={childComposerOpen ? "outline" : "ghost"}
+                        disabled={!canCreateChildItem}
+                        onClick={() => {
+                          setSubIssuesOpen(true)
+                          setChildComposerOpen((current) => !current)
+                        }}
                       >
-                        <StatusIcon status={child.status} />
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {child.title}
-                        </span>
-                        <WorkItemTypeBadge data={data} item={child} />
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {child.key}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {priorityMeta[child.priority].label}
-                        </span>
-                        {child.assigneeId ? (
-                          <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-                            {getUser(data, child.assigneeId)?.avatarUrl ?? "?"}
-                          </div>
-                        ) : null}
-                      </Link>
-                    ))}
-
-                    {childComposerOpen ? (
-                      <div className="border-t">
-                        <InlineChildIssueComposer
-                          teamId={currentItem.teamId}
-                          parentItem={currentItem}
-                          disabled={!editable}
-                          onCancel={() => setChildComposerOpen(false)}
-                          onCreated={() => setChildComposerOpen(false)}
-                        />
-                      </div>
-                    ) : canCreateChildItem ? (
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
-                          childItems.length > 0 && "border-t"
-                        )}
-                        onClick={() => setChildComposerOpen(true)}
-                      >
-                        <Plus className="size-3" />
-                        <span>{childCopy.addChildLabel}</span>
-                      </button>
+                        <Plus className="size-3.5" />
+                      </Button>
                     ) : null}
                   </div>
-                ) : null}
-              </div>
-            ) : null}
 
-            <Separator className="my-6" />
+                  {/* Progress bar */}
+                  {childItems.length > 0 ? (
+                    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-green-500 transition-all"
+                        style={{
+                          width: `${childItems.length > 0 ? (completedChildItems / childItems.length) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
 
-            {/* Activity */}
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Activity</h3>
+                  {subIssuesOpen ? (
+                    <div className="mt-3 flex flex-col rounded-lg border">
+                      {childItems.map((child, index) => (
+                        <Link
+                          key={child.id}
+                          href={`/items/${child.id}`}
+                          className={cn(
+                            "group/sub flex items-center gap-3 px-3 py-2 transition-colors hover:bg-accent/40",
+                            index !== childItems.length - 1 && "border-b"
+                          )}
+                        >
+                          <StatusIcon status={child.status} />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {child.title}
+                          </span>
+                          <WorkItemTypeBadge data={data} item={child} />
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {child.key}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {priorityMeta[child.priority].label}
+                          </span>
+                          {child.assigneeId ? (
+                            <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
+                              {getUser(data, child.assigneeId)?.avatarUrl ??
+                                "?"}
+                            </div>
+                          ) : null}
+                        </Link>
+                      ))}
+
+                      {childComposerOpen ? (
+                        <div className="border-t">
+                          <InlineChildIssueComposer
+                            teamId={currentItem.teamId}
+                            parentItem={currentItem}
+                            disabled={!editable}
+                            onCancel={() => setChildComposerOpen(false)}
+                            onCreated={() => setChildComposerOpen(false)}
+                          />
+                        </div>
+                      ) : canCreateChildItem ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
+                            childItems.length > 0 && "border-t"
+                          )}
+                          onClick={() => setChildComposerOpen(true)}
+                        >
+                          <Plus className="size-3" />
+                          <span>{childCopy.addChildLabel}</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <Separator className="my-6" />
+
+              {/* Activity */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Activity</h3>
+                </div>
+                <CommentsInline
+                  targetType="workItem"
+                  targetId={currentItem.id}
+                  editable={editable}
+                />
               </div>
-              <CommentsInline
-                targetType="workItem"
-                targetId={currentItem.id}
-                editable={editable}
-              />
             </div>
           </div>
+
+          {/* Right sidebar */}
+          <CollapsibleRightSidebar open={propertiesOpen} width="18rem">
+            <div className="flex-1 overflow-y-auto">
+              <div className="flex flex-col p-4">
+                <CollapsibleSection title="Properties" defaultOpen>
+                  <PropertyRow
+                    label="Type"
+                    value={getDisplayLabelForWorkItemType(
+                      currentItem.type,
+                      team?.settings.experience
+                    )}
+                  />
+                  <PropertySelect
+                    label="Status"
+                    value={currentItem.status}
+                    disabled={!editable}
+                    options={statusOptions}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        status: value as WorkItem["status"],
+                      })
+                    }
+                  />
+                  <PropertySelect
+                    label="Priority"
+                    value={currentItem.priority}
+                    disabled={!editable}
+                    options={Object.entries(priorityMeta).map(
+                      ([value, meta]) => ({
+                        value,
+                        label: meta.label,
+                      })
+                    )}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        priority: value as Priority,
+                      })
+                    }
+                  />
+                  <PropertySelect
+                    label="Assignee"
+                    value={currentItem.assigneeId ?? "unassigned"}
+                    disabled={!editable}
+                    options={[
+                      { value: "unassigned", label: "Assign" },
+                      ...teamMembers.map((user) => ({
+                        value: user.id,
+                        label: user.name,
+                      })),
+                    ]}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        assigneeId: value === "unassigned" ? null : value,
+                      })
+                    }
+                  />
+                  <PropertySelect
+                    label="Parent"
+                    value={currentItem.parentId ?? "none"}
+                    disabled={
+                      !editable ||
+                      (parentOptions.length === 1 && !currentItem.parentId)
+                    }
+                    options={parentOptions}
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        parentId: value === "none" ? null : value,
+                      })
+                    }
+                  />
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Schedule" defaultOpen>
+                  <PropertyDateField
+                    label="Start date"
+                    value={currentItem.startDate}
+                    disabled={!editable}
+                    onValueChange={handleStartDateChange}
+                  />
+                  <PropertyDateField
+                    label="End date"
+                    value={displayedEndDate}
+                    disabled={!editable}
+                    onValueChange={handleEndDateChange}
+                  />
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Labels" defaultOpen>
+                  <WorkItemLabelsEditor
+                    item={currentItem}
+                    editable={editable}
+                  />
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Project" defaultOpen>
+                  <PropertySelect
+                    label=""
+                    value={currentItem.primaryProjectId ?? "none"}
+                    disabled={!editable}
+                    options={[
+                      { value: "none", label: "No project" },
+                      ...teamProjects.map((project) => ({
+                        value: project.id,
+                        label: project.name,
+                      })),
+                    ]}
+                    onValueChange={handleProjectChange}
+                  />
+                </CollapsibleSection>
+              </div>
+            </div>
+          </CollapsibleRightSidebar>
         </div>
-
-        {/* Right sidebar */}
-        <CollapsibleRightSidebar open={propertiesOpen} width="18rem">
-          <div className="flex-1 overflow-y-auto">
-            <div className="flex flex-col p-4">
-              <CollapsibleSection title="Properties" defaultOpen>
-                <PropertyRow
-                  label="Type"
-                  value={getDisplayLabelForWorkItemType(
-                    currentItem.type,
-                    team?.settings.experience
-                  )}
-                />
-                <PropertySelect
-                  label="Status"
-                  value={currentItem.status}
-                  disabled={!editable}
-                  options={statusOptions}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      status: value as WorkItem["status"],
-                    })
-                  }
-                />
-                <PropertySelect
-                  label="Priority"
-                  value={currentItem.priority}
-                  disabled={!editable}
-                  options={Object.entries(priorityMeta).map(
-                    ([value, meta]) => ({
-                      value,
-                      label: meta.label,
-                    })
-                  )}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      priority: value as Priority,
-                    })
-                  }
-                />
-                <PropertySelect
-                  label="Assignee"
-                  value={currentItem.assigneeId ?? "unassigned"}
-                  disabled={!editable}
-                  options={[
-                    { value: "unassigned", label: "Assign" },
-                    ...teamMembers.map((user) => ({
-                      value: user.id,
-                      label: user.name,
-                    })),
-                  ]}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      assigneeId: value === "unassigned" ? null : value,
-                    })
-                  }
-                />
-                <PropertySelect
-                  label="Parent"
-                  value={currentItem.parentId ?? "none"}
-                  disabled={
-                    !editable ||
-                    (parentOptions.length === 1 && !currentItem.parentId)
-                  }
-                  options={parentOptions}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      parentId: value === "none" ? null : value,
-                    })
-                  }
-                />
-              </CollapsibleSection>
-
-              <Separator className="my-3" />
-
-              <CollapsibleSection title="Schedule" defaultOpen>
-                <PropertyDateField
-                  label="Start date"
-                  value={currentItem.startDate}
-                  disabled={!editable}
-                  onValueChange={handleStartDateChange}
-                />
-                <PropertyDateField
-                  label="End date"
-                  value={displayedEndDate}
-                  disabled={!editable}
-                  onValueChange={handleEndDateChange}
-                />
-              </CollapsibleSection>
-
-              <Separator className="my-3" />
-
-              <CollapsibleSection title="Labels" defaultOpen>
-                <WorkItemLabelsEditor item={currentItem} editable={editable} />
-              </CollapsibleSection>
-
-              <Separator className="my-3" />
-
-              <CollapsibleSection title="Project" defaultOpen>
-                <PropertySelect
-                  label=""
-                  value={currentItem.primaryProjectId ?? "none"}
-                  disabled={!editable}
-                  options={[
-                    { value: "none", label: "No project" },
-                    ...teamProjects.map((project) => ({
-                      value: project.id,
-                      label: project.name,
-                    })),
-                  ]}
-                  onValueChange={handleProjectChange}
-                />
-              </CollapsibleSection>
-            </div>
-          </div>
-        </CollapsibleRightSidebar>
       </div>
-    </div>
+      <ConfirmDialog
+        open={projectConfirmOpen}
+        onOpenChange={handleProjectConfirmOpenChange}
+        title="Update project for hierarchy"
+        description="Changing the project for this item will also update all parent and child items in this hierarchy."
+        confirmLabel="Update"
+        variant="default"
+        onConfirm={handleConfirmProjectChange}
+      />
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete item"
+        description={`${cascadeMessage} This can't be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deletingItem}
+        onConfirm={() => void handleDeleteItem()}
+      />
+    </>
   )
 }
 
@@ -2431,6 +2690,30 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const data = useAppStore()
   const document = data.documents.find((entry) => entry.id === documentId)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [draftTitle, setDraftTitle] = useState("")
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setIsEditingTitle(false)
+  }, [document?.id])
+
+  useEffect(() => {
+    if (!document || document.kind === "item-description" || isEditingTitle) {
+      return
+    }
+
+    setDraftTitle(document.title)
+  }, [document?.id, document?.kind, document?.title, isEditingTitle])
+
+  useEffect(() => {
+    if (!isEditingTitle) {
+      return
+    }
+
+    titleInputRef.current?.focus()
+    titleInputRef.current?.select()
+  }, [isEditingTitle])
 
   if (!document || document.kind === "item-description") {
     return <MissingState title="Document not found" />
@@ -2443,23 +2726,62 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       : true
   const updater = getUser(data, document.updatedBy ?? document.createdBy)
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
+  const saveTitle = () => {
+    const normalizedTitle = draftTitle.trim() || "Untitled document"
+    setIsEditingTitle(false)
+    setDraftTitle(normalizedTitle)
+
+    if (normalizedTitle !== document.title) {
+      useAppStore.getState().renameDocument(document.id, normalizedTitle)
+    }
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Breadcrumb header */}
       <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex min-w-0 items-center gap-2 text-sm">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <SidebarTrigger className="size-5 shrink-0" />
           <Link
             href={backHref}
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
           >
-            {getDocumentContextLabel(data, document)}
+            Docs
           </Link>
-          <CaretRight className="size-3 text-muted-foreground" />
-          <span className="truncate font-medium">{document.title}</span>
+          <span className="text-muted-foreground/50">/</span>
+          {editable ? (
+            isEditingTitle ? (
+              <Input
+                ref={titleInputRef}
+                value={draftTitle}
+                onBlur={saveTitle}
+                onChange={(event) => setDraftTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                  }
+                }}
+                className="h-7 w-full max-w-sm border-none bg-transparent px-1 py-0 text-sm font-medium shadow-none focus-visible:bg-background focus-visible:ring-1"
+                placeholder="Untitled document"
+              />
+            ) : (
+              <button
+                type="button"
+                className="max-w-full min-w-0 truncate rounded-sm px-1 py-0.5 font-medium transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  setDraftTitle(document.title)
+                  setIsEditingTitle(true)
+                }}
+              >
+                {document.title}
+              </button>
+            )
+          ) : (
+            <span className="truncate font-medium">{document.title}</span>
+          )}
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {updater ? (
             <span>
               Edited by {updater.name} ·{" "}
@@ -3905,16 +4227,11 @@ function IssueActionMenuContent({
     kind === "dropdown" ? DropdownMenuSubContent : ContextMenuSubContent
   const MenuItem: ElementType =
     kind === "dropdown" ? DropdownMenuItem : ContextMenuItem
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   async function handleDelete() {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete ${item.key}? This can't be undone.`)
-    ) {
-      return
-    }
-
     await useAppStore.getState().deleteWorkItem(item.id)
+    setDeleteDialogOpen(false)
   }
 
   return (
@@ -3996,7 +4313,7 @@ function IssueActionMenuContent({
             variant="destructive"
             onSelect={(event: Event) => {
               event.preventDefault()
-              void handleDelete()
+              setDeleteDialogOpen(true)
             }}
           >
             <Trash className="size-4" />
@@ -4004,6 +4321,15 @@ function IssueActionMenuContent({
           </MenuItem>
         </>
       ) : null}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title={`Delete ${item.key}`}
+        description="This work item will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={() => void handleDelete()}
+      />
     </>
   )
 }
@@ -5219,39 +5545,43 @@ function CreateDocumentDialog({
     | { kind: "workspace-document" | "private-document"; workspaceId: string }
   disabled: boolean
 }) {
-  const defaultTitle =
+  const data = useAppStore()
+  const team =
+    input.kind === "team-document" ? getTeam(data, input.teamId) : null
+  const contextLabel =
     input.kind === "private-document"
-      ? "New Private Document"
+      ? "Private document"
       : input.kind === "workspace-document"
-        ? "New Workspace Document"
-        : "New Team Document"
-  const [title, setTitle] = useState(defaultTitle)
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setTitle(defaultTitle)
+        ? "Workspace document"
+        : team
+          ? `Team document · ${team.name}`
+          : "Team document"
+  const [title, setTitle] = useState("")
+
+  useEffect(() => {
+    if (open) {
+      setTitle("")
     }
-    onOpenChange(nextOpen)
-  }
+  }, [input.kind, open])
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
         <div className="px-5 pt-5 pb-4">
-          <DialogHeader className="mb-3 p-0">
+          <DialogHeader className="items-start gap-1 p-0">
             <DialogTitle className="text-base">New document</DialogTitle>
+            <p className="text-xs text-muted-foreground">{contextLabel}</p>
           </DialogHeader>
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Document title"
-            className="h-auto border-none bg-transparent px-0 py-1 text-sm font-medium shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            placeholder="Untitled document"
+            className="mt-3"
             autoFocus
           />
         </div>
 
-        <Separator />
-
-        <div className="flex items-center justify-end gap-2 px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -5259,7 +5589,10 @@ function CreateDocumentDialog({
             size="sm"
             disabled={disabled}
             onClick={() => {
-              useAppStore.getState().createDocument({ ...input, title })
+              const normalizedTitle = title.trim() || "Untitled document"
+              useAppStore
+                .getState()
+                .createDocument({ ...input, title: normalizedTitle })
               onOpenChange(false)
             }}
           >
@@ -6387,10 +6720,32 @@ function FilterChip({
   )
 }
 
-function MissingState({ title }: { title: string }) {
+function MissingState({
+  icon: Icon,
+  title,
+  subtitle,
+}: {
+  icon?: ElementType
+  title: string
+  subtitle?: string
+}) {
+  if (!Icon && !subtitle) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+        {title}
+      </div>
+    )
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-      {title}
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <div className="flex max-w-sm flex-col items-center justify-center text-center">
+        {Icon ? <Icon className="size-8 text-muted-foreground/30" /> : null}
+        <div className="mt-3 text-sm font-medium">{title}</div>
+        {subtitle ? (
+          <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -6427,6 +6782,15 @@ function extractTextContent(content: string) {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function getDocumentPreview(document: Pick<Document, "content" | "title">) {
+  const rawPreview = extractTextContent(document.content)
+  const preview = rawPreview.startsWith(document.title)
+    ? rawPreview.slice(document.title.length).trim()
+    : rawPreview
+
+  return preview.length > 0 ? preview : ""
 }
 
 function getPatchForField(

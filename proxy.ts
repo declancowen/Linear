@@ -10,7 +10,7 @@ export const config = {
     "/verify-email",
     "/forgot-password",
     "/auth/session",
-    "/auth/logout",
+    // Leave logout outside AuthKit proxy so middleware cannot refresh the session.
     "/inbox",
     "/invites",
     "/assigned",
