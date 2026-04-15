@@ -150,6 +150,7 @@ type AppShellProps = {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const data = useAppStore()
   const unread = data.notifications.filter(
     (notification) =>
@@ -199,6 +200,13 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setSearchOpen(false)
+        router.push("/workspace/search")
+        return
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault()
         setSearchOpen((current) => !current)
@@ -210,7 +218,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [])
+  }, [router])
 
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {
