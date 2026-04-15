@@ -1429,147 +1429,102 @@ export function WorkspaceSettingsScreen() {
         </Button>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_24rem]">
-        <div className="space-y-6">
-          {!canManageWorkspace ? (
-            <Card className="border-dashed shadow-none">
-              <CardHeader>
-                <CardTitle>Read-only access</CardTitle>
-                <CardDescription>
-                  You need workspace admin access to change branding or create
-                  teams here.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          ) : null}
-
-          <ImageUploadControl
-            description="Replace the fallback badge anywhere the workspace mark appears."
-            disabled={!canManageWorkspace}
-            imageSrc={logoPreviewUrl}
-            onClear={() => {
-              setLogoPreviewUrl(null)
-              setLogoImageStorageId(undefined)
-              setClearLogoImage(true)
-            }}
-            onSelect={handleLogoUpload}
-            preview={
-              <span className="text-base font-semibold text-muted-foreground">
-                {logoUrl}
-              </span>
-            }
-            shape="square"
-            title="Workspace logo"
-            uploading={uploadingLogo}
-          />
-
-          <Card className="shadow-none">
+      <div className="space-y-6">
+        {!canManageWorkspace ? (
+          <Card className="border-dashed shadow-none">
             <CardHeader>
-              <CardTitle>Identity</CardTitle>
+              <CardTitle>Read-only access</CardTitle>
               <CardDescription>
-                Control the name, fallback badge, and tone of the workspace
-                shell.
+                You need workspace admin access to change these settings.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="workspace-name">Name</FieldLabel>
-                  <FieldContent>
-                    <Input
-                      id="workspace-name"
-                      disabled={!canManageWorkspace}
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                    />
-                  </FieldContent>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="workspace-logo">
-                    Fallback badge
-                  </FieldLabel>
-                  <FieldContent>
-                    <Input
-                      id="workspace-logo"
-                      disabled={!canManageWorkspace}
-                      value={logoUrl}
-                      onChange={(event) => setLogoUrl(event.target.value)}
-                    />
-                  </FieldContent>
-                  <FieldDescription>
-                    Used when no logo image is available.
-                  </FieldDescription>
-                </Field>
-                <Field>
-                  <FieldLabel>Accent</FieldLabel>
-                  <FieldContent>
-                    <Select
-                      disabled={!canManageWorkspace}
-                      value={accent}
-                      onValueChange={setAccent}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {workspaceAccentOptions.map((option) => (
-                            <SelectItem key={option} value={option}>
-                              {option}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FieldContent>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="workspace-description">
-                    Description
-                  </FieldLabel>
-                  <FieldContent>
-                    <Textarea
-                      id="workspace-description"
-                      className="min-h-24 resize-none"
-                      disabled={!canManageWorkspace}
-                      value={description}
-                      onChange={(event) => setDescription(event.target.value)}
-                    />
-                  </FieldContent>
-                </Field>
-              </FieldGroup>
-            </CardContent>
           </Card>
-        </div>
+        ) : null}
 
-        <div className="space-y-6">
-          <SummaryCard
-            description="Workspace settings now open in the main collection pane instead of covering the rest of the app."
-            eyebrow="Workspace"
-            notes={[
-              "Logo uploads replace the initials block in the sidebar and workspace menus.",
-              "Fallback badge text is still stored so the workspace always has a readable mark.",
-              "The create-team flow now uses this same content area instead of a modal.",
-            ]}
-            preview={
-              <div className="flex size-16 items-center justify-center overflow-hidden rounded-2xl border bg-muted/40">
-                {logoPreviewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    alt={workspace.name}
-                    className="size-full object-cover"
-                    src={logoPreviewUrl}
-                  />
-                ) : (
-                  <span className="text-base font-semibold text-muted-foreground">
-                    {logoUrl}
-                  </span>
-                )}
-              </div>
-            }
-            title={name}
-          />
-        </div>
+        <SummaryCard
+          description={description || "No description set."}
+          eyebrow="Workspace"
+          notes={[]}
+          preview={
+            <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-muted/40">
+              {logoPreviewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  alt={workspace.name}
+                  className="size-full object-cover"
+                  src={logoPreviewUrl}
+                />
+              ) : (
+                <span className="text-base font-semibold text-muted-foreground">
+                  {logoUrl}
+                </span>
+              )}
+            </div>
+          }
+          title={name}
+        />
+
+        <ImageUploadControl
+          description="Replace the fallback badge anywhere the workspace mark appears."
+          disabled={!canManageWorkspace}
+          imageSrc={logoPreviewUrl}
+          onClear={() => {
+            setLogoPreviewUrl(null)
+            setLogoImageStorageId(undefined)
+            setClearLogoImage(true)
+          }}
+          onSelect={handleLogoUpload}
+          preview={
+            <span className="text-base font-semibold text-muted-foreground">
+              {logoUrl}
+            </span>
+          }
+          shape="square"
+          title="Workspace logo"
+          uploading={uploadingLogo}
+        />
+
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="workspace-name">Name</FieldLabel>
+            <FieldContent>
+              <Input
+                id="workspace-name"
+                disabled={!canManageWorkspace}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </FieldContent>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="workspace-logo">Fallback badge</FieldLabel>
+            <FieldContent>
+              <Input
+                id="workspace-logo"
+                disabled={!canManageWorkspace}
+                value={logoUrl}
+                onChange={(event) => setLogoUrl(event.target.value)}
+              />
+            </FieldContent>
+            <FieldDescription>
+              Used when no logo image is available.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="workspace-description">
+              Description
+            </FieldLabel>
+            <FieldContent>
+              <Textarea
+                id="workspace-description"
+                className="min-h-24 resize-none"
+                disabled={!canManageWorkspace}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </FieldContent>
+          </Field>
+        </FieldGroup>
       </div>
     </SettingsScaffold>
   )
