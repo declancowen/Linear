@@ -292,14 +292,14 @@ function SettingsRow({
   children: ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <div className="min-w-0">
+    <div className="flex items-center gap-4 py-2">
+      <div className="w-24 shrink-0">
         <span className="text-sm">{label}</span>
         {description ? (
           <p className="text-xs text-muted-foreground">{description}</p>
         ) : null}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   )
 }
@@ -531,52 +531,59 @@ function TeamEditorFields({
   return (
     <>
       <SettingsSection title="Identity">
-        <SettingsRow label="Name">
-          <Input
-            id="team-name"
-            className="h-8 w-56 text-xs"
-            disabled={disabled}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </SettingsRow>
-        <SettingsRow label="Icon">
-          <Select
-            disabled={disabled}
-            value={selectedIcon}
-            onValueChange={setIcon}
-          >
-            <SelectTrigger id="team-icon" className="h-8 w-56 text-xs">
-              <div className="flex items-center gap-2">
-                <TeamIconGlyph icon={selectedIcon} className="size-3.5" />
-                <span>{teamIconMeta[selectedIcon].label}</span>
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {teamIconTokens.map((token) => (
-                  <SelectItem key={token} value={token}>
-                    <div className="flex items-center gap-2">
-                      <TeamIconGlyph icon={token} className="size-4" />
-                      <div className="flex min-w-0 flex-col">
-                        <span className="text-sm">
-                          {teamIconMeta[token].label}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {teamIconMeta[token].description}
-                        </span>
+        <div className="flex items-center gap-3 py-2">
+          <div className="w-24 shrink-0">
+            <span className="text-sm">Name</span>
+          </div>
+          <div className="min-w-0 flex-[7]">
+            <Input
+              id="team-name"
+              className="h-8 w-full text-xs"
+              disabled={disabled}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <span className="shrink-0 text-sm text-muted-foreground">Icon</span>
+          <div className="min-w-0 flex-[3]">
+            <Select
+              disabled={disabled}
+              value={selectedIcon}
+              onValueChange={setIcon}
+            >
+              <SelectTrigger id="team-icon" className="h-8 w-full text-xs">
+                <div className="flex items-center gap-2">
+                  <TeamIconGlyph icon={selectedIcon} className="size-3.5" />
+                  <span>{teamIconMeta[selectedIcon].label}</span>
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {teamIconTokens.map((token) => (
+                    <SelectItem key={token} value={token}>
+                      <div className="flex items-center gap-2">
+                        <TeamIconGlyph icon={token} className="size-4" />
+                        <div className="flex min-w-0 flex-col">
+                          <span className="text-sm">
+                            {teamIconMeta[token].label}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {teamIconMeta[token].description}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </SettingsRow>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            </div>
+          </div>
+        </div>
         <SettingsRow label="Summary">
           <Textarea
             id="team-summary"
-            className="h-20 w-56 resize-none text-xs"
+            className="h-20 w-full resize-none text-xs"
             disabled={disabled}
             value={summary}
             onChange={(event) => setSummary(event.target.value)}
@@ -1568,7 +1575,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   return (
     <SettingsScaffold
       title="Team settings"
-      subtitle={`${team.name} configuration and surface access`}
+      subtitle=""
       footer={
         <Button
           disabled={!canManageTeam || saving}
@@ -1594,49 +1601,56 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         </Button>
       }
     >
-      {!canManageTeam ? (
-        <Card className="border-dashed shadow-none">
-          <CardHeader>
-            <CardTitle>Read-only access</CardTitle>
-            <CardDescription>
-              Only team admins can change these settings.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
+      <div className="space-y-6">
+        {!canManageTeam ? (
+          <Card className="border-dashed shadow-none">
+            <CardHeader>
+              <CardTitle>Read-only access</CardTitle>
+              <CardDescription>
+                Only team admins can change these settings.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : null}
 
-      <Card className="shadow-none">
-        <CardHeader className="gap-2 border-b">
-          <CardTitle>{team.name}</CardTitle>
-          <CardDescription>
-            {teamExperienceMeta[experience].label}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <TeamEditorFields
-            canChangeExperience={false}
-            disabled={!canManageTeam}
-            experience={experience}
-            features={features}
-            icon={icon}
-            joinCode={team.settings.joinCode}
-            joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
-            name={name}
-            onRegenerateJoinCode={async () => {
-              await useAppStore.getState().regenerateTeamJoinCode(team.id)
-            }}
-            savedFeatures={savedFeatures}
-            setFeatures={setFeatures}
-            setIcon={(value) =>
-              setIcon(normalizeTeamIconToken(value, experience))
-            }
-            setName={setName}
-            setSummary={setSummary}
-            summary={summary}
-            surfaceDisableReasons={surfaceDisableReasons}
-          />
-        </CardContent>
-      </Card>
+        <SummaryCard
+          description={teamExperienceMeta[experience].label}
+          eyebrow="Team"
+          notes={[]}
+          preview={
+            <div className="flex size-16 shrink-0 items-center justify-center rounded-xl border bg-muted/40">
+              <TeamIconGlyph
+                icon={normalizeTeamIconToken(icon, experience)}
+                className="size-7 text-muted-foreground"
+              />
+            </div>
+          }
+          title={name}
+        />
+
+        <TeamEditorFields
+          canChangeExperience={false}
+          disabled={!canManageTeam}
+          experience={experience}
+          features={features}
+          icon={icon}
+          joinCode={team.settings.joinCode}
+          joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
+          name={name}
+          onRegenerateJoinCode={async () => {
+            await useAppStore.getState().regenerateTeamJoinCode(team.id)
+          }}
+          savedFeatures={savedFeatures}
+          setFeatures={setFeatures}
+          setIcon={(value) =>
+            setIcon(normalizeTeamIconToken(value, experience))
+          }
+          setName={setName}
+          setSummary={setSummary}
+          summary={summary}
+          surfaceDisableReasons={surfaceDisableReasons}
+        />
+      </div>
     </SettingsScaffold>
   )
 }
