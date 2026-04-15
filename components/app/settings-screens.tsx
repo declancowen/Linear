@@ -577,7 +577,6 @@ function TeamEditorFields({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            </div>
           </div>
         </div>
         <SettingsRow label="Summary">
@@ -1612,21 +1611,6 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
             </CardHeader>
           </Card>
         ) : null}
-
-        <SummaryCard
-          description={teamExperienceMeta[experience].label}
-          eyebrow="Team"
-          notes={[]}
-          preview={
-            <div className="flex size-16 shrink-0 items-center justify-center rounded-xl border bg-muted/40">
-              <TeamIconGlyph
-                icon={normalizeTeamIconToken(icon, experience)}
-                className="size-7 text-muted-foreground"
-              />
-            </div>
-          }
-          title={name}
-        />
 
         <TeamEditorFields
           canChangeExperience={false}
