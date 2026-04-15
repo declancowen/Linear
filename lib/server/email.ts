@@ -1,25 +1,106 @@
 import { Resend } from "resend"
 
-import { buildAppDestination } from "@/lib/auth-routing"
+const APP_NAME = "Recipe Room"
+const EMAIL_FONT_STACK =
+  "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const EMAIL_MONO_STACK =
+  "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+const EMAIL_COLORS = {
+  text: "#111111",
+  secondary: "#52525b",
+  muted: "#71717a",
+  bodyBackground: "#f5f5f5",
+  cardBackground: "#ffffff",
+  detailBackground: "#fafafa",
+  border: "#e4e4e7",
+  buttonBorder: "#d4d4d8",
+} as const
+const EMAIL_SETTINGS_PATH = "/settings/profile"
 
-function getResendClient() {
-  const apiKey = process.env.RESEND_API_KEY
-
-  if (!apiKey) {
-    throw new Error("Resend is not configured")
-  }
-
-  return new Resend(apiKey)
+type AssignmentEmail = {
+  notificationId: string
+  email: string
+  name: string
+  itemTitle: string
+  itemId: string
+  actorName: string
 }
 
-function getFromEmail() {
-  const fromEmail = process.env.RESEND_FROM_EMAIL
+type MentionEmail = {
+  notificationId: string
+  email: string
+  name: string
+  entityTitle: string
+  entityType: "workItem" | "document" | "chat" | "channelPost"
+  entityId: string
+  actorName: string
+  commentText: string
+  entityPath?: string
+  entityLabel?: string
+}
 
-  if (!fromEmail) {
-    throw new Error("Resend sender is not configured")
+type TeamInviteEmail = {
+  email: string
+  workspaceName: string
+  teamName: string
+  role: string
+  inviteToken: string
+  joinCode: string
+}
+
+type EmailMessage = {
+  subject: string
+  text: string
+  html: string
+}
+
+let resendClient: Resend | null | undefined
+let hasWarnedAboutMissingEmailConfig = false
+
+function getAppOrigin() {
+  return (
+    process.env.APP_URL?.trim() ??
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ??
+    "http://localhost:3000"
+  )
+}
+
+function getResendConfig() {
+  const apiKey = process.env.RESEND_API_KEY?.trim()
+  const from = process.env.RESEND_FROM_EMAIL?.trim()
+
+  if (!apiKey || !from) {
+    return null
   }
 
-  return fromEmail
+  return {
+    apiKey,
+    from,
+  }
+}
+
+function getResendClient() {
+  const config = getResendConfig()
+
+  if (!config) {
+    if (!hasWarnedAboutMissingEmailConfig) {
+      console.warn(
+        "Resend is not configured. Skipping outbound app email delivery."
+      )
+      hasWarnedAboutMissingEmailConfig = true
+    }
+
+    return null
+  }
+
+  if (!resendClient) {
+    resendClient = new Resend(config.apiKey)
+  }
+
+  return {
+    client: resendClient,
+    from: config.from,
+  }
 }
 
 function escapeHtml(input: string) {
@@ -29,6 +110,57 @@ function escapeHtml(input: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;")
+}
+
+function toHtmlWithLineBreaks(input: string) {
+  return escapeHtml(input).replaceAll("\n", "<br />")
+}
+
+function toTitleCase(input: string) {
+  return input
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ")
+}
+
+function buildAbsoluteUrl(origin: string, path: string) {
+  return new URL(path, origin).toString()
+}
+
+function getEntityPath(
+  entityType: MentionEmail["entityType"],
+  entityId: string
+) {
+  if (entityType === "document") {
+    return `/docs/${entityId}`
+  }
+
+  if (entityType === "workItem") {
+    return `/items/${entityId}`
+  }
+
+  return "/inbox"
+}
+
+function getEntityLabel(email: MentionEmail) {
+  if (email.entityLabel) {
+    return email.entityLabel
+  }
+
+  if (email.entityType === "workItem") {
+    return "work item"
+  }
+
+  if (email.entityType === "document") {
+    return "document"
+  }
+
+  if (email.entityType === "channelPost") {
+    return "channel post"
+  }
+
+  return "chat"
 }
 
 function renderEmailButton(input: {
@@ -42,79 +174,42 @@ function renderEmailButton(input: {
     '<table role="presentation" border="0" cellpadding="0" cellspacing="0">',
     "<tr>",
     `<td align="center" bgcolor="${input.background}" style="border: 1px solid ${input.borderColor ?? input.background}; border-radius: 12px;">`,
-    `<a href="${input.href}" style="display: inline-block; padding: 12px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600; line-height: 1; color: ${input.color}; text-decoration: none; border-radius: 12px;">${escapeHtml(input.label)}</a>`,
+    `<a href="${input.href}" style="display: inline-block; padding: 12px 18px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; font-weight: 600; line-height: 1; color: ${input.color}; text-decoration: none; border-radius: 12px;">${escapeHtml(input.label)}</a>`,
     "</td>",
     "</tr>",
     "</table>",
   ].join("")
 }
 
-function renderInviteEmailHtml(input: {
-  workspaceName: string
-  teamName: string
-  role: "admin" | "member" | "viewer" | "guest"
-  acceptUrl: string
-  joinCode: string
-  joinCodeUrl: string
+function renderEmailLayout(input: {
   logoUrl: string
+  eyebrow: string
+  content: string
+  footerText?: string
 }) {
-  const primaryButton = renderEmailButton({
-    href: input.acceptUrl,
-    label: "Accept Invite",
-    background: "#111111",
-    color: "#ffffff",
-  })
-  const secondaryButton = renderEmailButton({
-    href: input.joinCodeUrl,
-    label: "Join With Team Code",
-    background: "#ffffff",
-    color: "#111111",
-    borderColor: "#d4d4d8",
-  })
+  const footerText = input.footerText ?? APP_NAME
+  const settingsUrl = buildAbsoluteUrl(getAppOrigin(), EMAIL_SETTINGS_PATH)
 
   return [
-    '<!doctype html>',
+    "<!doctype html>",
     '<html lang="en">',
-    '<body style="margin: 0; padding: 24px; background-color: #f5f5f5;">',
+    `<body style="margin: 0; padding: 24px; background-color: ${EMAIL_COLORS.bodyBackground};">`,
     '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">',
     "<tr>",
     '<td align="center">',
-    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 20px; overflow: hidden;">',
+    `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: ${EMAIL_COLORS.cardBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 20px; overflow: hidden;">`,
     "<tr>",
     '<td style="padding: 28px 28px 12px;">',
-    `<img src="${input.logoUrl}" alt="Recipe Room" width="32" height="32" style="display: block; width: 32px; height: 32px; border-radius: 8px;" />`,
-    '<div style="margin-top: 12px; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #71717a;">Workspace Invite</div>',
-    `<h1 style="margin: 10px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; line-height: 1.15; font-weight: 700; color: #111111;">Join ${escapeHtml(input.teamName)} in ${escapeHtml(input.workspaceName)}</h1>`,
-    `<p style="margin: 12px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.6; color: #52525b;">You’ve been invited to access <strong style="color: #111111;">${escapeHtml(input.workspaceName)}</strong> through the <strong style="color: #111111;">${escapeHtml(input.teamName)}</strong> team.</p>`,
+    `<img src="${input.logoUrl}" alt="${APP_NAME}" width="32" height="32" style="display: block; width: 32px; height: 32px; border-radius: 8px;" />`,
+    `<div style="margin-top: 12px; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">${escapeHtml(input.eyebrow)}</div>`,
     "</td>",
     "</tr>",
     "<tr>",
-    '<td style="padding: 8px 28px 0;">',
-    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 16px;">',
-    "<tr>",
-    '<td style="padding: 16px 18px;">',
-    `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a;">Access Details</div>`,
-    `<p style="margin: 10px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; color: #27272a;">Role: <strong>${escapeHtml(input.role)}</strong><br />This invite grants access at the workspace team level.</p>`,
-    `<div style="margin-top: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 22px; line-height: 1; font-weight: 700; letter-spacing: 0.24em; color: #111111;">${escapeHtml(input.joinCode)}</div>`,
-    '<div style="margin-top: 8px; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; font-size: 13px; line-height: 1.5; color: #71717a;">If the invite button doesn’t suit your flow, you can join with this 12-character team code instead.</div>',
-    "</td>",
-    "</tr>",
-    "</table>",
-    "</td>",
+    `<td style="padding: 0 28px;">${input.content}</td>`,
     "</tr>",
     "<tr>",
-    '<td style="padding: 20px 28px 0;">',
-    primaryButton,
-    "</td>",
-    "</tr>",
-    "<tr>",
-    '<td style="padding: 12px 28px 0;">',
-    secondaryButton,
-    "</td>",
-    "</tr>",
-    "<tr>",
-    '<td style="padding: 20px 28px 28px;">',
-    `<p style="margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; line-height: 1.6; color: #71717a;">If the buttons above do not open, use these links directly:<br /><a href="${input.acceptUrl}" style="color: #111111;">Accept invite</a><br /><a href="${input.joinCodeUrl}" style="color: #111111;">Join with team code</a></p>`,
+    `<td style="padding: 20px 28px 28px; border-top: 1px solid ${EMAIL_COLORS.border};">`,
+    `<p style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">${escapeHtml(footerText)} · <a href="${settingsUrl}" style="color: ${EMAIL_COLORS.text}; text-decoration: underline;">Email settings</a></p>`,
     "</td>",
     "</tr>",
     "</table>",
@@ -126,255 +221,376 @@ function renderInviteEmailHtml(input: {
   ].join("")
 }
 
-function buildEntityPath(
-  entityType: "workItem" | "document" | "channelPost" | "chat",
+function renderFallbackLinks(input: {
+  links: Array<{
+    href: string
+    label: string
+  }>
+  intro?: string
+}) {
+  return [
+    `<p style="margin: 16px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">${escapeHtml(
+      input.intro ?? "If the button above does not open, use this link directly:"
+    )}<br />`,
+    input.links
+      .map(
+        (link) =>
+          `<a href="${link.href}" style="color: ${EMAIL_COLORS.text}; text-decoration: underline;">${escapeHtml(link.label)}</a>`
+      )
+      .join("<br />"),
+    "</p>",
+  ].join("")
+}
+
+function renderInviteEmailText(input: {
+  workspaceName: string
+  teamName: string
+  role: string
+  acceptUrl: string
+  joinCode: string
+  joinCodeUrl: string
+}) {
+  return [
+    `You've been invited to join ${input.teamName} in ${input.workspaceName}.`,
+    `Role: ${input.role}`,
+    "This access is issued at the workspace team level.",
+    `Accept the invite: ${input.acceptUrl}`,
+    `Join with team code: ${input.joinCode}`,
+    `Open code-based join: ${input.joinCodeUrl}`,
+  ].join("\n")
+}
+
+function renderInviteEmailHtml(input: {
+  workspaceName: string
+  teamName: string
+  role: string
+  acceptUrl: string
+  joinCode: string
+  joinCodeUrl: string
+  logoUrl: string
+}) {
+  const primaryButton = renderEmailButton({
+    href: input.acceptUrl,
+    label: "Accept Invite",
+    background: EMAIL_COLORS.text,
+    color: "#ffffff",
+  })
+  const secondaryButton = renderEmailButton({
+    href: input.joinCodeUrl,
+    label: "Join With Team Code",
+    background: "#ffffff",
+    color: EMAIL_COLORS.text,
+    borderColor: EMAIL_COLORS.buttonBorder,
+  })
+
+  const content = [
+    `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">Join ${escapeHtml(input.teamName)} in ${escapeHtml(input.workspaceName)}</h1>`,
+    `<p style="margin: 12px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">You’ve been invited to access <strong style="color: ${EMAIL_COLORS.text};">${escapeHtml(input.workspaceName)}</strong> through the <strong style="color: ${EMAIL_COLORS.text};">${escapeHtml(input.teamName)}</strong> team.</p>`,
+    '<div style="margin-top: 24px;">',
+    `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
+    "<tr>",
+    '<td style="padding: 16px 18px;">',
+    `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Access Details</div>`,
+    `<p style="margin: 10px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">Role: <strong>${escapeHtml(toTitleCase(input.role))}</strong><br />This invite grants access at the workspace team level.</p>`,
+    `<div style="margin-top: 14px; font-family: ${EMAIL_MONO_STACK}; font-size: 22px; line-height: 1; font-weight: 700; letter-spacing: 0.24em; color: ${EMAIL_COLORS.text};">${escapeHtml(input.joinCode)}</div>`,
+    `<div style="margin-top: 8px; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">If the invite button doesn’t suit your flow, you can join with this team code instead.</div>`,
+    "</td>",
+    "</tr>",
+    "</table>",
+    "</div>",
+    `<div style="margin-top: 20px;">${primaryButton}</div>`,
+    `<div style="margin-top: 12px;">${secondaryButton}</div>`,
+    renderFallbackLinks({
+      intro: "If the buttons above do not open, use these links directly:",
+      links: [
+        {
+          href: input.acceptUrl,
+          label: "Accept invite",
+        },
+        {
+          href: input.joinCodeUrl,
+          label: "Join with team code",
+        },
+      ],
+    }),
+  ].join("")
+
+  return renderEmailLayout({
+    logoUrl: input.logoUrl,
+    eyebrow: "WORKSPACE INVITE",
+    content,
+  })
+}
+
+function renderAssignmentEmail(input: {
+  origin: string
+  name: string
+  itemTitle: string
+  itemId: string
+  actorName: string
+}): EmailMessage {
+  const itemUrl = buildAbsoluteUrl(input.origin, `/items/${input.itemId}`)
+
+  return {
+    subject: `${input.actorName} assigned you ${input.itemTitle}`,
+    text: [
+      `Hi ${input.name},`,
+      "",
+      `${input.actorName} assigned you ${input.itemTitle}.`,
+      "",
+      `Work item: ${input.itemTitle}`,
+      `Open work item: ${itemUrl}`,
+    ].join("\n"),
+    html: renderEmailLayout({
+      logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
+      eyebrow: "ASSIGNMENT",
+      content: [
+        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(input.actorName)} assigned you a work item</h1>`,
+        '<div style="margin-top: 24px;">',
+        `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
+        "<tr>",
+        '<td style="padding: 16px 18px;">',
+        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Work Item</div>`,
+        `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; font-weight: 600; color: ${EMAIL_COLORS.text};">${escapeHtml(input.itemTitle)}</div>`,
+        "</td>",
+        "</tr>",
+        "</table>",
+        "</div>",
+        `<div style="margin-top: 20px;">${renderEmailButton({
+          href: itemUrl,
+          label: "Open Work Item",
+          background: EMAIL_COLORS.text,
+          color: "#ffffff",
+        })}</div>`,
+        renderFallbackLinks({
+          links: [
+            {
+              href: itemUrl,
+              label: "Open work item",
+            },
+          ],
+        }),
+      ].join(""),
+    }),
+  }
+}
+
+function renderMentionEmail(input: {
+  origin: string
+  name: string
+  entityTitle: string
+  entityType: MentionEmail["entityType"]
   entityId: string
-) {
-  if (entityType === "document") {
-    return `/docs/${entityId}`
+  entityPath?: string
+  entityLabel?: string
+  actorName: string
+  commentText: string
+}): EmailMessage {
+  const entityPath =
+    input.entityPath ?? getEntityPath(input.entityType, input.entityId)
+  const entityUrl = buildAbsoluteUrl(input.origin, entityPath)
+  const entityLabel =
+    input.entityLabel ??
+    getEntityLabel({
+      notificationId: "",
+      email: "",
+      name: "",
+      entityTitle: input.entityTitle,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      actorName: input.actorName,
+      commentText: input.commentText,
+    })
+  const openLabel = `Open ${toTitleCase(entityLabel)}`
+
+  return {
+    subject: `${input.actorName} mentioned you in ${input.entityTitle}`,
+    text: [
+      `Hi ${input.name},`,
+      "",
+      `${input.actorName} mentioned you in ${input.entityTitle}.`,
+      "",
+      "Comment:",
+      input.commentText,
+      "",
+      `${openLabel}: ${entityUrl}`,
+    ].join("\n"),
+    html: renderEmailLayout({
+      logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
+      eyebrow: "MENTION",
+      content: [
+        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(input.actorName)} mentioned you</h1>`,
+        `<p style="margin: 8px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">in ${escapeHtml(input.entityTitle)}</p>`,
+        '<div style="margin-top: 24px;">',
+        `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
+        "<tr>",
+        '<td style="padding: 16px 18px;">',
+        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Comment</div>`,
+        `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">${toHtmlWithLineBreaks(input.commentText)}</div>`,
+        "</td>",
+        "</tr>",
+        "</table>",
+        "</div>",
+        `<div style="margin-top: 20px;">${renderEmailButton({
+          href: entityUrl,
+          label: openLabel,
+          background: EMAIL_COLORS.text,
+          color: "#ffffff",
+        })}</div>`,
+        renderFallbackLinks({
+          links: [
+            {
+              href: entityUrl,
+              label: openLabel,
+            },
+          ],
+        }),
+      ].join(""),
+    }),
+  }
+}
+
+async function sendEmail(input: {
+  to: string
+  subject: string
+  text: string
+  html: string
+}) {
+  const resend = getResendClient()
+
+  if (!resend) {
+    return false
   }
 
-  if (entityType === "channelPost") {
-    return "/inbox"
-  }
+  await resend.client.emails.send({
+    from: resend.from,
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  })
 
-  if (entityType === "chat") {
-    return `/chats?chatId=${entityId}`
-  }
-
-  return `/items/${entityId}`
+  return true
 }
 
 export async function sendAssignmentEmails(input: {
   origin: string
-  emails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    itemTitle: string
-    itemId: string
-    actorName: string
-  }>
+  emails: AssignmentEmail[]
 }) {
-  if (input.emails.length === 0) {
-    return []
+  const emailedNotificationIds: string[] = []
+
+  for (const email of input.emails) {
+    try {
+      const message = renderAssignmentEmail({
+        origin: input.origin,
+        name: email.name,
+        itemTitle: email.itemTitle,
+        itemId: email.itemId,
+        actorName: email.actorName,
+      })
+      const sent = await sendEmail({
+        to: email.email,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+      })
+
+      if (sent) {
+        emailedNotificationIds.push(email.notificationId)
+      }
+    } catch (error) {
+      console.error("Failed to send assignment email", error)
+    }
   }
 
-  const resend = getResendClient()
-  const from = getFromEmail()
-
-  await Promise.all(
-    input.emails.map((entry) =>
-      resend.emails.send({
-        from,
-        to: entry.email,
-        subject: `${entry.actorName} assigned you ${entry.itemTitle}`,
-        text: [
-          `Hi ${entry.name},`,
-          "",
-          `${entry.actorName} assigned you ${entry.itemTitle}.`,
-          `${input.origin}${buildEntityPath("workItem", entry.itemId)}`,
-        ].join("\n"),
-        html: [
-          `<p>Hi ${escapeHtml(entry.name)},</p>`,
-          `<p><strong>${escapeHtml(entry.actorName)}</strong> assigned you <strong>${escapeHtml(entry.itemTitle)}</strong>.</p>`,
-          `<p><a href="${input.origin}${buildEntityPath("workItem", entry.itemId)}">Open work item</a></p>`,
-        ].join(""),
-      })
-    )
-  )
-
-  return input.emails.map((entry) => entry.notificationId)
+  return emailedNotificationIds
 }
 
 export async function sendMentionEmails(input: {
   origin: string
-  emails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    entityTitle: string
-    entityType: "workItem" | "document" | "channelPost" | "chat"
-    entityId: string
-    entityPath?: string
-    entityLabel?: string
-    actorName: string
-    commentText: string
-  }>
+  emails: MentionEmail[]
 }) {
-  if (input.emails.length === 0) {
-    return []
-  }
-
-  const resend = getResendClient()
-  const from = getFromEmail()
-
-  await Promise.all(
-    input.emails.map((entry) => {
-      const path =
-        entry.entityPath ?? buildEntityPath(entry.entityType, entry.entityId)
-      const entityLabel =
-        entry.entityLabel ??
-        (entry.entityType === "document"
-          ? "document"
-          : entry.entityType === "channelPost"
-            ? "channel post"
-            : entry.entityType === "chat"
-              ? "chat"
-              : "work item")
-
-      return resend.emails.send({
-        from,
-        to: entry.email,
-        subject: `${entry.actorName} mentioned you in ${entry.entityTitle}`,
-        text: [
-          `Hi ${entry.name},`,
-          "",
-          `${entry.actorName} mentioned you in ${entry.entityTitle}.`,
-          "",
-          entry.commentText,
-          "",
-          `${input.origin}${path}`,
-        ].join("\n"),
-        html: [
-          `<p>Hi ${escapeHtml(entry.name)},</p>`,
-          `<p><strong>${escapeHtml(entry.actorName)}</strong> mentioned you in <strong>${escapeHtml(entry.entityTitle)}</strong>.</p>`,
-          `<blockquote>${escapeHtml(entry.commentText).replaceAll("\n", "<br />")}</blockquote>`,
-          `<p><a href="${input.origin}${path}">Open ${entityLabel}</a></p>`,
-        ].join(""),
-      })
-    })
-  )
-
-  return input.emails.map((entry) => entry.notificationId)
-}
-
-export async function sendNotificationDigestEmails(input: {
-  origin: string
-  digests: Array<{
-    user: {
-      id: string
-      email: string
-      name: string
-    }
-    notifications: Array<{
-      id: string
-      message: string
-      entityId: string
-      entityType:
-        | "workItem"
-        | "document"
-        | "project"
-        | "invite"
-        | "channelPost"
-        | "chat"
-      type: string
-      createdAt: string
-    }>
-  }>
-}) {
-  if (input.digests.length === 0) {
-    return []
-  }
-
-  const resend = getResendClient()
-  const from = getFromEmail()
   const emailedNotificationIds: string[] = []
 
-  await Promise.all(
-    input.digests.map(async (digest) => {
-      const topNotifications = digest.notifications.slice(0, 8)
-      const listItems = topNotifications
-        .map((notification) => {
-          const path =
-            notification.entityType === "document"
-              ? buildEntityPath("document", notification.entityId)
-              : notification.entityType === "workItem"
-                ? buildEntityPath("workItem", notification.entityId)
-                : notification.entityType === "chat"
-                  ? "/inbox"
-                  : "/inbox"
-
-          return `<li><a href="${input.origin}${path}">${escapeHtml(notification.message)}</a></li>`
-        })
-        .join("")
-
-      await resend.emails.send({
-        from,
-        to: digest.user.email,
-        subject: `You have ${digest.notifications.length} unread notifications`,
-        text: [
-          `Hi ${digest.user.name},`,
-          "",
-          `You have ${digest.notifications.length} unread notifications waiting in your inbox.`,
-          `${input.origin}/inbox`,
-        ].join("\n"),
-        html: [
-          `<p>Hi ${escapeHtml(digest.user.name)},</p>`,
-          `<p>You have <strong>${digest.notifications.length}</strong> unread notifications waiting in your inbox.</p>`,
-          `<ul>${listItems}</ul>`,
-          `<p><a href="${input.origin}/inbox">Open inbox</a></p>`,
-        ].join(""),
+  for (const email of input.emails) {
+    try {
+      const message = renderMentionEmail({
+        origin: input.origin,
+        name: email.name,
+        entityTitle: email.entityTitle,
+        entityType: email.entityType,
+        entityId: email.entityId,
+        entityPath: email.entityPath,
+        entityLabel: email.entityLabel,
+        actorName: email.actorName,
+        commentText: email.commentText,
+      })
+      const sent = await sendEmail({
+        to: email.email,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
       })
 
-      emailedNotificationIds.push(
-        ...digest.notifications.map((notification) => notification.id)
-      )
-    })
-  )
+      if (sent) {
+        emailedNotificationIds.push(email.notificationId)
+      }
+    } catch (error) {
+      console.error("Failed to send mention email", error)
+    }
+  }
 
   return emailedNotificationIds
 }
 
 export async function sendTeamInviteEmails(input: {
-  invites: Array<{
-    email: string
-    workspaceName: string
-    teamName: string
-    role: "admin" | "member" | "viewer" | "guest"
-    inviteToken: string
-    joinCode: string
-  }>
+  invites: TeamInviteEmail[]
 }) {
-  if (input.invites.length === 0) {
-    return
-  }
-
-  const resend = getResendClient()
-  const from = getFromEmail()
+  const origin = getAppOrigin()
 
   await Promise.all(
-    input.invites.map((entry) => {
-      const acceptUrl = buildAppDestination(
-        `/onboarding?invite=${encodeURIComponent(entry.inviteToken)}`
+    input.invites.map(async (invite) => {
+      const acceptUrl = buildAbsoluteUrl(
+        origin,
+        `/join/${encodeURIComponent(invite.inviteToken)}`
       )
-      const joinCodeUrl = buildAppDestination(
-        `/onboarding?code=${encodeURIComponent(entry.joinCode)}`
+      const joinCodeUrl = buildAbsoluteUrl(
+        origin,
+        `/onboarding?code=${encodeURIComponent(invite.joinCode)}`
       )
-      const logoUrl = buildAppDestination("/app-icon.png")
+      const logoUrl = buildAbsoluteUrl(origin, "/app-icon.png")
 
-      return resend.emails.send({
-        from,
-        to: entry.email,
-        subject: `You're invited to join ${entry.teamName} in ${entry.workspaceName}`,
-        text: [
-          `You've been invited to join ${entry.teamName} in ${entry.workspaceName}.`,
-          `Role: ${entry.role}`,
-          "This access is issued at the workspace team level.",
-          `Accept the invite: ${acceptUrl}`,
-          `Join with team code: ${entry.joinCode}`,
-          `Open code-based join: ${joinCodeUrl}`,
-        ].join("\n"),
-        html: renderInviteEmailHtml({
-          workspaceName: entry.workspaceName,
-          teamName: entry.teamName,
-          role: entry.role,
-          acceptUrl,
-          joinCode: entry.joinCode,
-          joinCodeUrl,
-          logoUrl,
-        }),
-      })
+      try {
+        const message = {
+          subject: `Join ${invite.teamName} in ${invite.workspaceName}`,
+          text: renderInviteEmailText({
+            workspaceName: invite.workspaceName,
+            teamName: invite.teamName,
+            role: invite.role,
+            acceptUrl,
+            joinCode: invite.joinCode,
+            joinCodeUrl,
+          }),
+          html: renderInviteEmailHtml({
+            workspaceName: invite.workspaceName,
+            teamName: invite.teamName,
+            role: invite.role,
+            acceptUrl,
+            joinCode: invite.joinCode,
+            joinCodeUrl,
+            logoUrl,
+          }),
+        }
+
+        await sendEmail({
+          to: invite.email,
+          subject: message.subject,
+          text: message.text,
+          html: message.html,
+        })
+      } catch (error) {
+        console.error("Failed to send team invite email", error)
+      }
     })
   )
 }
