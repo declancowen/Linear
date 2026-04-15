@@ -23,6 +23,7 @@ import {
   getDisplayLabelForWorkItemType,
   normalizeTeamIconToken,
   normalizeTeamFeatureSettings,
+  priorities,
   priorityMeta,
   statusMeta,
   teamExperienceMeta,
@@ -960,6 +961,80 @@ export function getGroupValue(
   return item[field]
 }
 
+export function getAvailableGroupKeysForItems(
+  data: AppData,
+  items: WorkItem[],
+  field: GroupField | null
+) {
+  if (!field || items.length === 0) {
+    return []
+  }
+
+  const keys = new Set<string>()
+  const teamIds = new Set(items.map((item) => item.teamId))
+  const workspaceIds = new Set(
+    [...teamIds]
+      .map((teamId) => getTeam(data, teamId)?.workspaceId ?? null)
+      .filter((workspaceId): workspaceId is string => workspaceId !== null)
+  )
+
+  if (field === "status") {
+    getStatusOrderForItems(data, items).forEach((status) => keys.add(status))
+  }
+
+  if (field === "priority") {
+    priorities.forEach((priority) => keys.add(priority))
+  }
+
+  if (field === "assignee") {
+    keys.add("No assignee")
+
+    const memberIds = new Set(
+      data.teamMemberships
+        .filter((membership) => teamIds.has(membership.teamId))
+        .map((membership) => membership.userId)
+    )
+
+    data.users.forEach((user) => {
+      if (memberIds.has(user.id)) {
+        keys.add(user.name)
+      }
+    })
+  }
+
+  if (field === "project") {
+    keys.add("No project")
+
+    data.projects.forEach((project) => {
+      if (
+        (project.scopeType === "team" && teamIds.has(project.scopeId)) ||
+        (project.scopeType === "workspace" &&
+          workspaceIds.has(project.scopeId))
+      ) {
+        keys.add(project.name)
+      }
+    })
+  }
+
+  if (field === "team") {
+    data.teams.forEach((team) => {
+      if (workspaceIds.has(team.workspaceId) || teamIds.has(team.id)) {
+        keys.add(team.name)
+      }
+    })
+  }
+
+  if (field === "type") {
+    workItemTypes.forEach((type) => keys.add(type))
+  }
+
+  items.forEach((item) => {
+    keys.add(getGroupValue(data, item, field))
+  })
+
+  return [...keys]
+}
+
 export function buildItemGroups(
   data: AppData,
   items: WorkItem[],
@@ -1003,6 +1078,29 @@ export function buildItemGroups(
           )
         ),
       ])
+  )
+}
+
+export function buildItemGroupsWithEmptyGroups(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition
+) {
+  const groups = new Map(buildItemGroups(data, items, view))
+  const statusOrder = getStatusOrderForItems(data, items)
+
+  getAvailableGroupKeysForItems(data, items, view.grouping).forEach(
+    (groupKey) => {
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, new Map())
+      }
+    }
+  )
+
+  return new Map(
+    [...groups.entries()].sort((left, right) =>
+      compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
+    )
   )
 }
 

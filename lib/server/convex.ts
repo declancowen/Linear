@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type {
+  DocumentPresenceViewer,
   GroupField,
   OrderingField,
   Priority,
@@ -49,11 +50,7 @@ function getErrorProperty(error: unknown, property: string) {
 }
 
 function getErrorCause(error: unknown) {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "cause" in error
-  ) {
+  if (typeof error === "object" && error !== null && "cause" in error) {
     return error.cause
   }
 
@@ -143,7 +140,11 @@ async function runConvexRequestWithRetry<T>(
   label: string,
   request: () => Promise<T>
 ) {
-  for (let attempt = 0; attempt <= CONVEX_RETRY_DELAYS_MS.length; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt <= CONVEX_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
     try {
       return await request()
     } catch (error) {
@@ -454,6 +455,9 @@ export async function updateCurrentUserProfileServer(input: {
   avatarUrl: string
   avatarImageStorageId?: string
   clearAvatarImage?: boolean
+  clearStatus?: boolean
+  status?: "active" | "away" | "busy" | "out-of-office"
+  statusMessage?: string
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
@@ -695,6 +699,45 @@ export async function renameDocumentServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.renameDocument,
+    withServerToken(input)
+  )
+}
+
+export async function deleteDocumentServer(input: {
+  currentUserId: string
+  documentId: string
+}) {
+  return runConvexRequestWithRetry("deleteDocumentServer", () =>
+    getConvexServerClient().mutation(
+      api.app.deleteDocument,
+      withServerToken(input)
+    )
+  )
+}
+
+export async function heartbeatDocumentPresenceServer(input: {
+  currentUserId: string
+  documentId: string
+  workosUserId: string
+  email: string
+  name: string
+  avatarUrl: string
+  sessionId: string
+}): Promise<DocumentPresenceViewer[]> {
+  return getConvexServerClient().mutation(
+    api.app.heartbeatDocumentPresence,
+    withServerToken(input)
+  )
+}
+
+export async function clearDocumentPresenceServer(input: {
+  currentUserId: string
+  documentId: string
+  workosUserId: string
+  sessionId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.clearDocumentPresence,
     withServerToken(input)
   )
 }

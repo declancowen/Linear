@@ -27,6 +27,7 @@ import {
   SquaresFour,
   UserCircle,
   UsersThree,
+  X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
@@ -46,18 +47,24 @@ import {
   getDefaultTeamIconForExperience,
   getWorkSurfaceCopy,
   normalizeTeamIconToken,
+  resolveUserStatus,
   type Role,
   type TeamFeatureSettings,
   type TeamExperienceType,
+  type UserStatus,
   teamExperienceMeta,
   teamIconMeta,
   teamIconTokens,
   teamExperienceTypes,
+  userStatusMessageMaxLength,
+  userStatusMeta,
+  userStatuses,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -72,7 +79,12 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -155,6 +167,7 @@ export function AppShell({ children }: AppShellProps) {
     currentUser?.avatarImageUrl,
     currentUser?.avatarUrl
   )
+  const currentUserStatus = resolveUserStatus(currentUser?.status)
   const pendingInviteCount = currentUser
     ? data.invites.filter((invite) => {
         if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
@@ -175,6 +188,7 @@ export function AppShell({ children }: AppShellProps) {
     "workspace"
   )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
@@ -230,6 +244,10 @@ export function AppShell({ children }: AppShellProps) {
         }}
         mode={inviteMode}
         presetTeamIds={invitePresetTeamIds}
+      />
+      <StatusDialog
+        open={statusDialogOpen}
+        onOpenChange={setStatusDialogOpen}
       />
       {searchOpen ? (
         <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
@@ -614,7 +632,7 @@ export function AppShell({ children }: AppShellProps) {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton>
-                    <div className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                    <div className="relative flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                       {currentUserAvatarImageSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -625,6 +643,10 @@ export function AppShell({ children }: AppShellProps) {
                       ) : (
                         currentUser.avatarUrl
                       )}
+                      <UserStatusDot
+                        status={currentUserStatus}
+                        className="absolute -right-0.5 -bottom-0.5 size-2.5 ring-2 ring-background"
+                      />
                     </div>
                     <span className="truncate text-[12px]">
                       {currentUser.name}
@@ -632,8 +654,73 @@ export function AppShell({ children }: AppShellProps) {
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuLabel>Account</DropdownMenuLabel>
+                  <UserHoverCard
+                    user={currentUser}
+                    userId={currentUser.id}
+                    currentUserId={data.currentUserId}
+                    workspaceId={data.currentWorkspaceId}
+                    side="right"
+                  >
+                    <DropdownMenuLabel className="space-y-1.5">
+                      <div className="font-medium text-foreground">
+                        {currentUser.name}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <UserStatusDot status={currentUserStatus} />
+                        <span>{userStatusMeta[currentUserStatus].label}</span>
+                      </div>
+                    </DropdownMenuLabel>
+                  </UserHoverCard>
+                  <DropdownMenuSeparator />
                   <DropdownMenuGroup>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <UserStatusDot status={currentUserStatus} />
+                        Set status
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuRadioGroup
+                          value={currentUserStatus}
+                          onValueChange={(value) => {
+                            useAppStore.getState().updateCurrentUserStatus({
+                              status: value as UserStatus,
+                              statusMessage: currentUser.statusMessage,
+                            })
+                          }}
+                        >
+                          {userStatuses.map((status) => (
+                            <DropdownMenuRadioItem key={status} value={status}>
+                              <UserStatusDot status={status} />
+                              {userStatusMeta[status].label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setStatusDialogOpen(true)
+                      }}
+                    >
+                      <NotePencil />
+                      {currentUser.statusMessage
+                        ? "Edit status message"
+                        : "Set status message"}
+                    </DropdownMenuItem>
+                    {currentUser.statusMessage ? (
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          useAppStore.getState().updateCurrentUserStatus({
+                            status: currentUserStatus,
+                            statusMessage: "",
+                          })
+                        }}
+                      >
+                        <X />
+                        Clear status message
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
                       <Link href="/settings/profile">
                         <UserCircle />
@@ -669,6 +756,154 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function StatusDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const data = useAppStore()
+  const currentUser = getCurrentUser(data)
+  const [status, setStatus] = useState<UserStatus>(
+    resolveUserStatus(currentUser?.status)
+  )
+  const [statusMessage, setStatusMessage] = useState(
+    currentUser?.statusMessage ?? ""
+  )
+
+  useEffect(() => {
+    if (!open || !currentUser) {
+      return
+    }
+
+    setStatus(resolveUserStatus(currentUser.status))
+    setStatusMessage(currentUser.statusMessage)
+  }, [currentUser?.id, currentUser?.status, currentUser?.statusMessage, open])
+
+  if (!currentUser) {
+    return null
+  }
+
+  const normalizedStatusMessage = statusMessage.trim()
+  const currentUserStatus = resolveUserStatus(currentUser.status)
+  const hasChanges =
+    status !== currentUserStatus ||
+    normalizedStatusMessage !== currentUser.statusMessage
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <div className="px-5 pt-5 pb-2">
+          <DialogHeader className="items-start gap-1.5 p-0">
+            <div className="space-y-1.5">
+              <DialogTitle className="text-base">Set your status</DialogTitle>
+              <DialogDescription className="text-sm">
+                Set how you appear to your team.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+        </div>
+
+        <div className="space-y-5 px-5 py-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="user-status">Status</FieldLabel>
+              <FieldContent>
+                <Select
+                  value={status}
+                  onValueChange={(value) => setStatus(value as UserStatus)}
+                >
+                  <SelectTrigger id="user-status" className="w-full">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <UserStatusDot status={status} />
+                      <span className="truncate">
+                        {userStatusMeta[status].label}
+                      </span>
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent position="popper" className="z-[60]">
+                    <SelectGroup>
+                      {userStatuses.map((value) => (
+                        <SelectItem
+                          key={value}
+                          value={value}
+                          className="items-start py-2"
+                        >
+                          <div className="flex items-start gap-2">
+                            <UserStatusDot status={value} className="mt-1" />
+                            <div className="flex flex-col gap-0.5">
+                              <span>{userStatusMeta[value].label}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {userStatusMeta[value].description}
+                              </span>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="status-message">Status message</FieldLabel>
+              <FieldContent>
+                <Textarea
+                  id="status-message"
+                  value={statusMessage}
+                  onChange={(event) => setStatusMessage(event.target.value)}
+                  placeholder="Heads down on planning, back this afternoon"
+                  maxLength={userStatusMessageMaxLength}
+                />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-t px-5 py-3">
+          <div>
+            {currentUser.hasExplicitStatus || currentUser.statusMessage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  useAppStore.getState().clearCurrentUserStatus()
+                  onOpenChange(false)
+                }}
+              >
+                Clear status
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!hasChanges}
+              onClick={() => {
+                useAppStore.getState().updateCurrentUserStatus({
+                  status,
+                  statusMessage: normalizedStatusMessage,
+                })
+                onOpenChange(false)
+              }}
+            >
+              Save status
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

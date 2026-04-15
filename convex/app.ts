@@ -24,6 +24,7 @@ import {
   type StoredWorkItemType,
   type TeamExperienceType,
   type TeamWorkflowSettings,
+  type UserStatus,
   type ViewDefinition,
   type WorkItemType,
 } from "../lib/domain/types"
@@ -44,6 +45,7 @@ import {
   themePreferenceValidator,
   teamWorkflowSettingsValidator,
   templateTypeValidator,
+  userStatusValidator,
   viewFiltersValidator,
   viewLayoutValidator,
   workItemTypeValidator,
@@ -71,6 +73,8 @@ const defaultUserPreferences = {
   emailDigest: true,
   theme: "light" as const,
 }
+const defaultUserStatus = "active" as const
+const defaultUserStatusMessage = ""
 const labelColors = [
   "blue",
   "violet",
@@ -81,6 +85,7 @@ const labelColors = [
   "orange",
   "indigo",
 ] as const
+const DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS = 2 * 60 * 1000
 const serverAccessArgs = {
   serverToken: v.string(),
 }
@@ -1314,6 +1319,34 @@ async function findTeamChatConversation(ctx: AppCtx, teamId: string) {
   )
 }
 
+async function findWorkspaceDirectConversation(
+  ctx: AppCtx,
+  workspaceId: string,
+  participantIds: string[]
+) {
+  const conversations = await ctx.db
+    .query("conversations")
+    .withIndex("by_kind_scope", (q) =>
+      q
+        .eq("kind", "chat")
+        .eq("scopeType", "workspace")
+        .eq("scopeId", workspaceId)
+    )
+    .collect()
+
+  return (
+    conversations
+      .filter(
+        (conversation) =>
+          conversation.variant === "direct" &&
+          haveSameIds(conversation.participantIds, participantIds)
+      )
+      .sort((left, right) =>
+        right.lastActivityAt.localeCompare(left.lastActivityAt)
+      )[0] ?? null
+  )
+}
+
 async function findPrimaryChannelConversation(
   ctx: AppCtx,
   scopeType: "team" | "workspace",
@@ -1800,7 +1833,14 @@ function normalizeWorkspace<T extends { workosOrganizationId?: string | null }>(
   }
 }
 
-function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
+function normalizeUser<
+  T extends {
+    workosUserId?: string | null
+    status?: string | null
+    statusMessage?: string | null
+    hasExplicitStatus?: boolean | null
+  },
+>(user: T) {
   const preferences =
     "preferences" in user &&
     user.preferences &&
@@ -1811,6 +1851,12 @@ function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
   return {
     ...user,
     workosUserId: user.workosUserId ?? null,
+    hasExplicitStatus:
+      typeof user.hasExplicitStatus === "boolean"
+        ? user.hasExplicitStatus
+        : user.status != null,
+    status: resolveUserStatus(user.status),
+    statusMessage: user.statusMessage ?? defaultUserStatusMessage,
     ...(preferences
       ? {
           preferences: {
@@ -1820,6 +1866,15 @@ function normalizeUser<T extends { workosUserId?: string | null }>(user: T) {
         }
       : {}),
   }
+}
+
+function resolveUserStatus(status: string | null | undefined): UserStatus {
+  return status === "active" ||
+    status === "away" ||
+    status === "busy" ||
+    status === "out-of-office"
+    ? status
+    : defaultUserStatus
 }
 
 function filterRemovedIds(ids: string[], removedIds: Set<string>) {
@@ -2213,7 +2268,9 @@ async function cascadeDeleteTeamData(
     .query("teamMemberships")
     .withIndex("by_team", (q) => q.eq("teamId", team.id))
     .collect()
-  const membershipUserIds = teamMemberships.map((membership) => membership.userId)
+  const membershipUserIds = teamMemberships.map(
+    (membership) => membership.userId
+  )
   const projects = (await ctx.db.query("projects").collect()).filter(
     (project) => project.scopeType === "team" && project.scopeId === team.id
   )
@@ -2245,7 +2302,9 @@ async function cascadeDeleteTeamData(
   )
   const conversations = await ctx.db
     .query("conversations")
-    .withIndex("by_scope", (q) => q.eq("scopeType", "team").eq("scopeId", team.id))
+    .withIndex("by_scope", (q) =>
+      q.eq("scopeType", "team").eq("scopeId", team.id)
+    )
     .collect()
   const deletedConversationIds = new Set(
     conversations.map((conversation) => conversation.id)
@@ -2284,26 +2343,26 @@ async function cascadeDeleteTeamData(
     (invite) => invite.teamId === team.id
   )
   const deletedInviteIds = new Set(invites.map((invite) => invite.id))
-  const notifications = (
-    await ctx.db.query("notifications").collect()
-  ).filter((notification) => {
-    switch (notification.entityType) {
-      case "workItem":
-        return deletedWorkItemIds.has(notification.entityId)
-      case "document":
-        return deletedDocumentIds.has(notification.entityId)
-      case "project":
-        return deletedProjectIds.has(notification.entityId)
-      case "invite":
-        return deletedInviteIds.has(notification.entityId)
-      case "chat":
-        return deletedChatMessageIds.has(notification.entityId)
-      case "channelPost":
-        return deletedChannelPostIds.has(notification.entityId)
-      default:
-        return false
+  const notifications = (await ctx.db.query("notifications").collect()).filter(
+    (notification) => {
+      switch (notification.entityType) {
+        case "workItem":
+          return deletedWorkItemIds.has(notification.entityId)
+        case "document":
+          return deletedDocumentIds.has(notification.entityId)
+        case "project":
+          return deletedProjectIds.has(notification.entityId)
+        case "invite":
+          return deletedInviteIds.has(notification.entityId)
+        case "chat":
+          return deletedChatMessageIds.has(notification.entityId)
+        case "channelPost":
+          return deletedChannelPostIds.has(notification.entityId)
+        default:
+          return false
+      }
     }
-  })
+  )
 
   await cleanupRemainingLinksAfterDelete(ctx, {
     currentUserId: input.currentUserId,
@@ -2422,7 +2481,7 @@ async function resolveUserSnapshot<
     avatarImageStorageId?: string | null
     workosUserId?: string | null
   },
->(ctx: QueryCtx, user: T) {
+>(ctx: AppCtx, user: T) {
   const avatarImageUrl = user.avatarImageStorageId
     ? await ctx.storage.getUrl(user.avatarImageStorageId as never)
     : null
@@ -2431,6 +2490,66 @@ async function resolveUserSnapshot<
     ...normalizeUser(user),
     avatarImageUrl,
   }
+}
+
+function isActiveDocumentPresence(lastSeenAt: string) {
+  const parsedLastSeenAt = Date.parse(lastSeenAt)
+
+  if (!Number.isFinite(parsedLastSeenAt)) {
+    return false
+  }
+
+  return Date.now() - parsedLastSeenAt <= DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS
+}
+
+function getDocumentPresenceViewerKey(entry: {
+  userId: string
+  workosUserId?: string | null
+}) {
+  return entry.workosUserId ?? entry.userId
+}
+
+async function listDocumentPresenceViewers(
+  ctx: AppCtx,
+  documentId: string,
+  currentUserId: string,
+  currentWorkosUserId?: string
+) {
+  const entries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_document", (q) => q.eq("documentId", documentId))
+    .collect()
+
+  const currentViewerKey = currentWorkosUserId ?? currentUserId
+  const latestEntryByViewerKey = new Map<string, (typeof entries)[number]>()
+
+  for (const entry of entries
+    .filter((candidate) => isActiveDocumentPresence(candidate.lastSeenAt))
+    .sort(
+      (left, right) =>
+        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+    )) {
+    const viewerKey = getDocumentPresenceViewerKey(entry)
+
+    if (
+      viewerKey === currentViewerKey ||
+      latestEntryByViewerKey.has(viewerKey)
+    ) {
+      continue
+    }
+
+    latestEntryByViewerKey.set(viewerKey, entry)
+  }
+
+  const filteredViewers = [...latestEntryByViewerKey.values()].map((entry) => ({
+    userId: getDocumentPresenceViewerKey(entry),
+    name: entry.name ?? "User",
+    avatarUrl: entry.avatarUrl ?? "",
+    avatarImageUrl: null,
+    lastSeenAt: entry.lastSeenAt,
+  }))
+
+  return filteredViewers
 }
 
 function normalizeTeamWorkflowSettings(
@@ -3038,6 +3157,9 @@ export const bootstrapAppWorkspace = mutation({
         avatarUrl: args.avatarUrl,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
+        status: resolveUserStatus(resolvedUser.status),
+        statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
+        hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
         preferences: {
           ...defaultUserPreferences,
           ...resolvedUser.preferences,
@@ -3052,6 +3174,9 @@ export const bootstrapAppWorkspace = mutation({
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
         title: "Founder / Product",
+        status: defaultUserStatus,
+        statusMessage: defaultUserStatusMessage,
+        hasExplicitStatus: false,
         preferences: defaultUserPreferences,
       })
     }
@@ -3500,6 +3625,9 @@ export const ensureUserFromAuth = mutation({
         email: args.email,
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
+        status: resolveUserStatus(existing.status),
+        statusMessage: existing.statusMessage ?? defaultUserStatusMessage,
+        hasExplicitStatus: existing.hasExplicitStatus ?? false,
         preferences: {
           ...defaultUserPreferences,
           ...existing.preferences,
@@ -3522,6 +3650,9 @@ export const ensureUserFromAuth = mutation({
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
       title: "Member",
+      status: defaultUserStatus,
+      statusMessage: defaultUserStatusMessage,
+      hasExplicitStatus: false,
       preferences: defaultUserPreferences,
     })
 
@@ -3597,6 +3728,9 @@ export const bootstrapWorkspaceUser = mutation({
         email: args.email,
         name: args.name,
         workosUserId: args.workosUserId,
+        status: resolveUserStatus(resolvedUser.status),
+        statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
+        hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
         preferences: {
           ...defaultUserPreferences,
           ...resolvedUser.preferences,
@@ -3611,6 +3745,9 @@ export const bootstrapWorkspaceUser = mutation({
         workosUserId: args.workosUserId,
         handle: createHandle(args.email),
         title: "Founder / Product",
+        status: defaultUserStatus,
+        statusMessage: defaultUserStatusMessage,
+        hasExplicitStatus: false,
         preferences: defaultUserPreferences,
       })
     }
@@ -4192,10 +4329,7 @@ export const deleteWorkspace = mutation({
     await cleanupUserAppStatesForDeletedWorkspace(ctx, workspace.id)
 
     const deletedLabelIds = await cleanupUnusedLabels(ctx)
-    const deletedUserIds = await cleanupUnreferencedUsers(
-      ctx,
-      candidateUserIds
-    )
+    const deletedUserIds = await cleanupUnreferencedUsers(ctx, candidateUserIds)
 
     return {
       workspaceId: workspace.id,
@@ -4241,6 +4375,9 @@ export const updateCurrentUserProfile = mutation({
     avatarUrl: v.string(),
     avatarImageStorageId: v.optional(v.id("_storage")),
     clearAvatarImage: v.optional(v.boolean()),
+    clearStatus: v.optional(v.boolean()),
+    status: v.optional(userStatusValidator),
+    statusMessage: v.optional(v.string()),
     preferences: v.object({
       emailMentions: v.boolean(),
       emailAssignments: v.boolean(),
@@ -4283,6 +4420,15 @@ export const updateCurrentUserProfile = mutation({
       title: args.title,
       avatarUrl: args.avatarUrl,
       avatarImageStorageId: nextAvatarImageStorageId,
+      status: args.clearStatus
+        ? defaultUserStatus
+        : (args.status ?? resolveUserStatus(user.status)),
+      statusMessage: args.clearStatus
+        ? defaultUserStatusMessage
+        : (args.statusMessage ?? user.statusMessage ?? defaultUserStatusMessage),
+      hasExplicitStatus: args.clearStatus
+        ? false
+        : (args.status !== undefined ? true : (user.hasExplicitStatus ?? false)),
       preferences: {
         ...defaultUserPreferences,
         ...args.preferences,
@@ -5304,6 +5450,139 @@ export const updateDocument = mutation({
   },
 })
 
+export const heartbeatDocumentPresence = convexMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+    workosUserId: v.string(),
+    email: v.string(),
+    name: v.string(),
+    avatarUrl: v.string(),
+    sessionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+
+    const document = await getDocumentDoc(ctx, args.documentId)
+    await requireReadableDocumentAccess(ctx, document, args.currentUserId)
+
+    const existingPresenceEntries = await ctx.db
+      .query("documentPresence")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect()
+    const now = getNow()
+    const existingPresence = [...existingPresenceEntries]
+      .filter(
+        (entry) =>
+          entry.workosUserId === args.workosUserId ||
+          (!entry.workosUserId && entry.userId === args.currentUserId)
+      )
+      .sort(
+        (left, right) =>
+          Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+      )[0]
+
+    const conflictingPresenceEntries = existingPresenceEntries.filter(
+      (entry) =>
+        entry.workosUserId
+          ? entry.workosUserId !== args.workosUserId
+          : entry.userId !== args.currentUserId
+    )
+
+    if (conflictingPresenceEntries.length > 0) {
+      throw new Error("Document presence session is already in use")
+    }
+
+    if (existingPresence) {
+      await ctx.db.patch(existingPresence._id, {
+        avatarUrl: args.avatarUrl,
+        documentId: args.documentId,
+        email: args.email,
+        lastSeenAt: now,
+        name: args.name,
+        userId: args.currentUserId,
+        workosUserId: args.workosUserId,
+      })
+
+      for (const duplicateEntry of existingPresenceEntries) {
+        if (
+          duplicateEntry._id !== existingPresence._id &&
+          (duplicateEntry.workosUserId
+            ? duplicateEntry.workosUserId === args.workosUserId
+            : duplicateEntry.userId === args.currentUserId)
+        ) {
+          await ctx.db.delete(duplicateEntry._id)
+        }
+      }
+    } else {
+      await ctx.db.insert("documentPresence", {
+        avatarUrl: args.avatarUrl,
+        documentId: args.documentId,
+        userId: args.currentUserId,
+        email: args.email,
+        name: args.name,
+        sessionId: args.sessionId,
+        createdAt: now,
+        lastSeenAt: now,
+        workosUserId: args.workosUserId,
+      })
+    }
+
+    const viewers = await listDocumentPresenceViewers(
+      ctx,
+      args.documentId,
+      args.currentUserId,
+      args.workosUserId
+    )
+
+    return viewers
+  },
+})
+
+export const clearDocumentPresence = convexMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+    workosUserId: v.string(),
+    sessionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+
+    const existingPresenceEntries = await ctx.db
+      .query("documentPresence")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect()
+
+    if (existingPresenceEntries.length === 0) {
+      return { ok: true }
+    }
+
+    const conflictingPresenceEntries = existingPresenceEntries.filter(
+      (entry) =>
+        entry.workosUserId
+          ? entry.workosUserId !== args.workosUserId
+          : entry.userId !== args.currentUserId
+    )
+
+    if (conflictingPresenceEntries.length > 0) {
+      throw new Error("Document presence session is already in use")
+    }
+
+    for (const existingPresence of existingPresenceEntries) {
+      if (existingPresence.documentId !== args.documentId) {
+        continue
+      }
+
+      await ctx.db.delete(existingPresence._id)
+    }
+
+    return { ok: true }
+  },
+})
+
 export const renameDocument = mutation({
   args: {
     ...serverAccessArgs,
@@ -5326,6 +5605,62 @@ export const renameDocument = mutation({
       updatedAt: getNow(),
       updatedBy: args.currentUserId,
     })
+  },
+})
+
+export const deleteDocument = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertServerToken(args.serverToken)
+    const document = await getDocumentDoc(ctx, args.documentId)
+
+    if (!document) {
+      throw new Error("Document not found")
+    }
+
+    if (document.kind === "item-description") {
+      throw new Error(
+        "Work item description documents can't be deleted directly"
+      )
+    }
+
+    await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+
+    const deletedDocumentIds = new Set([document.id])
+    const comments = (await ctx.db.query("comments").collect()).filter(
+      (comment) =>
+        comment.targetType === "document" &&
+        deletedDocumentIds.has(comment.targetId)
+    )
+    const attachments = (await ctx.db.query("attachments").collect()).filter(
+      (attachment) =>
+        attachment.targetType === "document" &&
+        deletedDocumentIds.has(attachment.targetId)
+    )
+    const notifications = (
+      await ctx.db.query("notifications").collect()
+    ).filter(
+      (notification) =>
+        notification.entityType === "document" &&
+        deletedDocumentIds.has(notification.entityId)
+    )
+
+    await cleanupRemainingLinksAfterDelete(ctx, {
+      currentUserId: args.currentUserId,
+      deletedDocumentIds,
+    })
+    await deleteStorageObjects(
+      ctx,
+      attachments.map((attachment) => attachment.storageId as string)
+    )
+    await deleteDocs(ctx, comments)
+    await deleteDocs(ctx, attachments)
+    await deleteDocs(ctx, notifications)
+    await ctx.db.delete(document._id)
   },
 })
 
@@ -6451,6 +6786,21 @@ export const createWorkspaceChat = mutation({
 
     const users = await ctx.db.query("users").collect()
     const variant = participantIds.length === 2 ? "direct" : "group"
+
+    if (variant === "direct") {
+      const existingConversation = await findWorkspaceDirectConversation(
+        ctx,
+        args.workspaceId,
+        participantIds
+      )
+
+      if (existingConversation) {
+        return {
+          conversationId: existingConversation.id,
+        }
+      }
+    }
+
     const otherParticipantIds = participantIds.filter(
       (userId) => userId !== args.currentUserId
     )

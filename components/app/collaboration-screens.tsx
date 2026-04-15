@@ -45,16 +45,11 @@ import {
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn, getPlainTextContent, resolveImageAssetSource } from "@/lib/utils"
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarGroup,
-  AvatarGroupCount,
-  AvatarImage,
-} from "@/components/ui/avatar"
+import { cn, getPlainTextContent } from "@/lib/utils"
+import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -122,23 +117,6 @@ function clampWorkspaceChatListWidth(value: number) {
   )
 }
 
-function getUserInitials(name: string | null | undefined) {
-  const parts = (name ?? "")
-    .split(" ")
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  if (parts.length === 0) {
-    return "?"
-  }
-
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .toUpperCase()
-}
-
 /* ------------------------------------------------------------------ */
 /*  Shared primitives                                                  */
 /* ------------------------------------------------------------------ */
@@ -201,29 +179,6 @@ function PageHeader({
         <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
       ) : null}
     </div>
-  )
-}
-
-function UserAvatar({
-  name,
-  avatarUrl,
-  avatarImageUrl,
-  size = "sm",
-  className,
-}: {
-  name?: string | null
-  avatarUrl?: string | null
-  avatarImageUrl?: string | null
-  size?: "sm" | "default" | "lg"
-  className?: string
-}) {
-  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
-
-  return (
-    <Avatar size={size} className={className}>
-      {imageSrc ? <AvatarImage src={imageSrc} alt={name ?? "User"} /> : null}
-      <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
-    </Avatar>
   )
 }
 
@@ -382,6 +337,8 @@ function SurfaceSidebarContent({
   description: string
   members: ReturnType<typeof getConversationParticipants>
 }) {
+  const data = useAppStore()
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className={cn(!label && "border-b pb-4")}>
@@ -402,24 +359,33 @@ function SurfaceSidebarContent({
         </h3>
         <div className="mt-3 flex flex-col gap-0.5">
           {members.map((member) => (
-            <div
+            <UserHoverCard
               key={member.id}
-              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50"
+              user={member}
+              side="left"
+              userId={member.id}
+              currentUserId={data.currentUserId}
+              workspaceId={data.currentWorkspaceId}
             >
-              <UserAvatar
-                name={member.name}
-                avatarImageUrl={member.avatarImageUrl}
-                avatarUrl={member.avatarUrl}
-              />
-              <div className="min-w-0">
-                <div className="truncate text-sm">{member.name}</div>
-                {member.title && member.title !== "Member" ? (
-                  <div className="truncate text-[11px] text-muted-foreground">
-                    {member.title}
-                  </div>
-                ) : null}
+              <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50">
+                <div className="shrink-0">
+                  <UserAvatar
+                    name={member.name}
+                    avatarImageUrl={member.avatarImageUrl}
+                    avatarUrl={member.avatarUrl}
+                    status={member.status}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm">{member.name}</div>
+                  {member.title ? (
+                    <div className="truncate text-[11px] text-muted-foreground">
+                      {member.title}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
+            </UserHoverCard>
           ))}
         </div>
       </div>
@@ -697,12 +663,20 @@ function ChatThread({
                     name={welcomeParticipant.name}
                     avatarImageUrl={welcomeParticipant.avatarImageUrl}
                     avatarUrl={welcomeParticipant.avatarUrl}
+                    status={welcomeParticipant.status}
                     size="lg"
                     className="size-12"
                   />
-                  <p className="mt-3 text-sm font-medium">
-                    {welcomeParticipant.name ?? title}
-                  </p>
+                  <UserHoverCard
+                    user={welcomeParticipant}
+                    userId={welcomeParticipant.id}
+                    currentUserId={data.currentUserId}
+                    workspaceId={data.currentWorkspaceId}
+                  >
+                    <p className="mt-3 text-sm font-medium">
+                      {welcomeParticipant.name ?? title}
+                    </p>
+                  </UserHoverCard>
                   <p className="mt-1 text-xs text-muted-foreground">
                     This is the beginning of your conversation with{" "}
                     {welcomeParticipant.name ?? title}.
@@ -778,6 +752,7 @@ function ChatThread({
                             name={author?.name}
                             avatarImageUrl={author?.avatarImageUrl}
                             avatarUrl={author?.avatarUrl}
+                            status={author?.status}
                             size="default"
                           />
                         )
@@ -796,9 +771,16 @@ function ChatThread({
                             )}
                           >
                             {!isCurrentUser ? (
-                              <span className="text-[11px] font-medium">
-                                {author?.name ?? "Unknown"}
-                              </span>
+                              <UserHoverCard
+                                user={author}
+                                userId={author?.id}
+                                currentUserId={data.currentUserId}
+                                workspaceId={data.currentWorkspaceId}
+                              >
+                                <span className="text-[11px] font-medium">
+                                  {author?.name ?? "Unknown"}
+                                </span>
+                              </UserHoverCard>
                             ) : null}
                             <span className="text-[10px] text-muted-foreground">
                               {formatTimestamp(message.createdAt)}
@@ -927,11 +909,19 @@ function ForumPostCard({ postId }: { postId: string }) {
               name={author?.name}
               avatarImageUrl={author?.avatarImageUrl}
               avatarUrl={author?.avatarUrl}
+              status={author?.status}
               size="default"
             />
-            <span className="truncate text-sm font-semibold">
-              {author?.name ?? "Unknown"}
-            </span>
+            <UserHoverCard
+              user={author}
+              userId={author?.id}
+              currentUserId={data.currentUserId}
+              workspaceId={data.currentWorkspaceId}
+            >
+              <span className="truncate text-sm font-semibold">
+                {author?.name ?? "Unknown"}
+              </span>
+            </UserHoverCard>
             <span className="shrink-0 text-xs text-muted-foreground">
               {formatTimestamp(post.createdAt)}
             </span>
@@ -1079,12 +1069,20 @@ function ForumPostCard({ postId }: { postId: string }) {
                     name={commentAuthor?.name}
                     avatarImageUrl={commentAuthor?.avatarImageUrl}
                     avatarUrl={commentAuthor?.avatarUrl}
+                    status={commentAuthor?.status}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium">
-                        {commentAuthor?.name ?? "Unknown"}
-                      </span>
+                      <UserHoverCard
+                        user={commentAuthor}
+                        userId={commentAuthor?.id}
+                        currentUserId={data.currentUserId}
+                        workspaceId={data.currentWorkspaceId}
+                      >
+                        <span className="text-xs font-medium">
+                          {commentAuthor?.name ?? "Unknown"}
+                        </span>
+                      </UserHoverCard>
                       <span className="text-[10px] text-muted-foreground">
                         {formatTimestamp(comment.createdAt)}
                       </span>
@@ -1114,12 +1112,20 @@ function ForumPostCard({ postId }: { postId: string }) {
                     name={commentAuthor?.name}
                     avatarImageUrl={commentAuthor?.avatarImageUrl}
                     avatarUrl={commentAuthor?.avatarUrl}
+                    status={commentAuthor?.status}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium">
-                        {commentAuthor?.name ?? "Unknown"}
-                      </span>
+                      <UserHoverCard
+                        user={commentAuthor}
+                        userId={commentAuthor?.id}
+                        currentUserId={data.currentUserId}
+                        workspaceId={data.currentWorkspaceId}
+                      >
+                        <span className="text-xs font-medium">
+                          {commentAuthor?.name ?? "Unknown"}
+                        </span>
+                      </UserHoverCard>
                       <span className="text-[10px] text-muted-foreground">
                         {formatTimestamp(comment.createdAt)}
                       </span>
@@ -1319,6 +1325,7 @@ function CreateWorkspaceChatDialog({
                   name={user.name}
                   avatarImageUrl={user.avatarImageUrl}
                   avatarUrl={user.avatarUrl}
+                  showStatus={false}
                 />
                 <span className="font-medium">{user.name}</span>
                 <button
@@ -1395,6 +1402,7 @@ function CreateWorkspaceChatDialog({
                     name={user.name}
                     avatarImageUrl={user.avatarImageUrl}
                     avatarUrl={user.avatarUrl}
+                    status={user.status}
                     size="default"
                   />
                   <div className="min-w-0 flex-1">
@@ -1469,6 +1477,7 @@ function NewPostComposer({ channelId }: { channelId: string }) {
           name={currentUser?.name}
           avatarImageUrl={currentUser?.avatarImageUrl}
           avatarUrl={currentUser?.avatarUrl}
+          status={currentUser?.status}
           size="default"
         />
         <span className="text-sm text-muted-foreground">Post in channel</span>
@@ -1483,6 +1492,7 @@ function NewPostComposer({ channelId }: { channelId: string }) {
           name={currentUser?.name}
           avatarImageUrl={currentUser?.avatarImageUrl}
           avatarUrl={currentUser?.avatarUrl}
+          status={currentUser?.status}
           size="default"
         />
         <div className="min-w-0 flex-1 space-y-2">
@@ -1686,7 +1696,7 @@ export function WorkspaceChatsScreen() {
     const conversation = chats.find((entry) => entry.id === conversationId)
 
     if (!conversation) {
-      return <UserAvatar name="Chat" size="default" />
+      return <UserAvatar name="Chat" size="default" showStatus={false} />
     }
 
     const participants = conversation.participantIds
@@ -1705,6 +1715,8 @@ export function WorkspaceChatsScreen() {
           name={participant?.name ?? conversation.title}
           avatarImageUrl={participant?.avatarImageUrl}
           avatarUrl={participant?.avatarUrl}
+          status={participant?.status}
+          showStatus={Boolean(participant)}
           size="default"
         />
       )
@@ -1721,6 +1733,7 @@ export function WorkspaceChatsScreen() {
             name={participant.name}
             avatarImageUrl={participant.avatarImageUrl}
             avatarUrl={participant.avatarUrl}
+            status={participant.status}
             size="default"
           />
         ))}

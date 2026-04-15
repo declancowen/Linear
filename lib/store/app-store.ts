@@ -29,6 +29,7 @@ import {
   syncDeleteCurrentWorkspace,
   syncDeleteAttachment,
   syncDeleteChannelPost,
+  syncDeleteDocument,
   syncDeleteNotification,
   syncDeleteTeam,
   syncDeleteWorkItem,
@@ -101,6 +102,8 @@ import {
   type TeamFeatureSettings,
   teamDetailsSchema,
   type TeamWorkflowSettings,
+  type UserStatus,
+  userStatuses,
   type WorkItem,
   type WorkItemType,
   type WorkStatus,
@@ -196,12 +199,20 @@ type UpdateProfileInput = {
   avatarUrl: string
   avatarImageStorageId?: string
   clearAvatarImage?: boolean
+  clearStatus?: boolean
+  status?: UserStatus
+  statusMessage?: string
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
   }
+}
+
+type UpdateUserStatusInput = {
+  status: UserStatus
+  statusMessage: string
 }
 
 type AddCommentInput = {
@@ -282,6 +293,8 @@ export type AppStore = AppData & {
   ) => Promise<boolean>
   regenerateTeamJoinCode: (teamId: string) => Promise<boolean>
   updateCurrentUserProfile: (input: UpdateProfileInput) => void
+  updateCurrentUserStatus: (input: UpdateUserStatusInput) => void
+  clearCurrentUserStatus: () => void
   updateViewConfig: (
     viewId: string,
     patch: Partial<{
@@ -316,6 +329,7 @@ export type AppStore = AppData & {
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
   renameDocument: (documentId: string, title: string) => void
+  deleteDocument: (documentId: string) => Promise<void>
   updateItemDescription: (itemId: string, content: string) => void
   uploadAttachment: (
     targetType: AttachmentTargetType,
@@ -938,6 +952,41 @@ function getConversationAudienceUserIds(
   )
 }
 
+function normalizeUniqueIds(ids: string[]) {
+  return [...new Set(ids)].sort()
+}
+
+function haveSameIds(left: string[], right: string[]) {
+  const normalizedLeft = normalizeUniqueIds(left)
+  const normalizedRight = normalizeUniqueIds(right)
+
+  return (
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((value, index) => value === normalizedRight[index])
+  )
+}
+
+function findWorkspaceDirectConversation(
+  state: AppData,
+  workspaceId: string,
+  participantIds: string[]
+) {
+  return (
+    state.conversations
+      .filter(
+        (conversation) =>
+          conversation.kind === "chat" &&
+          conversation.scopeType === "workspace" &&
+          conversation.scopeId === workspaceId &&
+          conversation.variant === "direct" &&
+          haveSameIds(conversation.participantIds, participantIds)
+      )
+      .sort((left, right) =>
+        right.lastActivityAt.localeCompare(left.lastActivityAt)
+      )[0] ?? null
+  )
+}
+
 function buildWorkspaceChatTitle(
   state: AppData,
   currentUserId: string,
@@ -1092,6 +1141,29 @@ function normalizeChannelPostComments<T extends { mentionUserIds?: string[] }>(
   }))
 }
 
+function normalizeUsers<
+  T extends {
+    hasExplicitStatus?: boolean | null
+    status?: string | null
+    statusMessage?: string | null
+  },
+>(users: T[] | undefined) {
+  const entries = users ?? []
+
+  return entries.map((user) => ({
+    ...user,
+    hasExplicitStatus:
+      typeof user.hasExplicitStatus === "boolean"
+        ? user.hasExplicitStatus
+        : user.status != null,
+    status: userStatuses.includes(user.status as UserStatus)
+      ? (user.status as UserStatus)
+      : ("active" as const),
+    statusMessage:
+      typeof user.statusMessage === "string" ? user.statusMessage : "",
+  }))
+}
+
 function syncInBackground(
   task: Promise<unknown> | null,
   fallbackMessage: string
@@ -1147,6 +1219,7 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           ...state,
           ...data,
+          users: normalizeUsers(data.users ?? state.users),
           notifications: normalizeNotifications(
             data.notifications ?? state.notifications
           ),
@@ -1610,6 +1683,11 @@ export const useAppStore = create<AppStore>()(
               ? {
                   ...user,
                   ...parsed.data,
+                  hasExplicitStatus: parsed.data.clearStatus
+                    ? false
+                    : parsed.data.status === undefined
+                      ? user.hasExplicitStatus
+                      : true,
                   avatarImageUrl: parsed.data.clearAvatarImage
                     ? null
                     : user.avatarImageUrl,
@@ -1628,12 +1706,110 @@ export const useAppStore = create<AppStore>()(
             {
               avatarImageStorageId: parsed.data.avatarImageStorageId,
               clearAvatarImage: parsed.data.clearAvatarImage,
+              clearStatus: parsed.data.clearStatus,
+              status: parsed.data.status,
+              statusMessage: parsed.data.statusMessage,
             }
           ),
           "Failed to update profile"
         )
 
         toast.success("Profile updated")
+      },
+      updateCurrentUserStatus(input) {
+        const currentUserId = get().currentUserId
+        const currentUser = get().users.find(
+          (user) => user.id === currentUserId
+        )
+
+        if (!currentUser) {
+          toast.error("Profile not found")
+          return
+        }
+
+        const statusMessage = input.statusMessage.trim()
+
+        if (
+          currentUser.status === input.status &&
+          currentUser.statusMessage === statusMessage
+        ) {
+          return
+        }
+
+        set((state) => ({
+          users: state.users.map((user) =>
+            user.id === currentUserId
+              ? {
+                  ...user,
+                  hasExplicitStatus: true,
+                  status: input.status,
+                  statusMessage,
+                }
+              : user
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateCurrentUserProfile(
+            currentUser.id,
+            currentUser.name,
+            currentUser.title,
+            currentUser.avatarUrl,
+            currentUser.preferences,
+            {
+              status: input.status,
+              statusMessage,
+            }
+          ),
+          "Failed to update status"
+        )
+
+        toast.success("Status updated")
+      },
+      clearCurrentUserStatus() {
+        const currentUserId = get().currentUserId
+        const currentUser = get().users.find(
+          (user) => user.id === currentUserId
+        )
+
+        if (!currentUser) {
+          toast.error("Profile not found")
+          return
+        }
+
+        if (!currentUser.hasExplicitStatus && !currentUser.statusMessage) {
+          return
+        }
+
+        set((state) => ({
+          users: state.users.map((user) =>
+            user.id === currentUserId
+              ? {
+                  ...user,
+                  hasExplicitStatus: false,
+                  status: "active" as const,
+                  statusMessage: "",
+                }
+              : user
+          ),
+        }))
+
+        syncInBackground(
+          syncUpdateCurrentUserProfile(
+            currentUser.id,
+            currentUser.name,
+            currentUser.title,
+            currentUser.avatarUrl,
+            currentUser.preferences,
+            {
+              clearStatus: true,
+              statusMessage: "",
+            }
+          ),
+          "Failed to clear status"
+        )
+
+        toast.success("Status cleared")
       },
       updateViewConfig(viewId, patch) {
         set((state) => ({
@@ -2164,6 +2340,66 @@ export const useAppStore = create<AppStore>()(
           "Failed to update document"
         )
       },
+      async deleteDocument(documentId) {
+        set((state) => {
+          const deletedNotificationIds = new Set(
+            state.notifications
+              .filter(
+                (notification) =>
+                  notification.entityType === "document" &&
+                  notification.entityId === documentId
+              )
+              .map((notification) => notification.id)
+          )
+
+          return {
+            documents: state.documents.filter(
+              (document) => document.id !== documentId
+            ),
+            comments: state.comments.filter(
+              (comment) =>
+                !(
+                  comment.targetType === "document" &&
+                  comment.targetId === documentId
+                )
+            ),
+            attachments: state.attachments.filter(
+              (attachment) =>
+                !(
+                  attachment.targetType === "document" &&
+                  attachment.targetId === documentId
+                )
+            ),
+            notifications: state.notifications.filter(
+              (notification) =>
+                !(
+                  notification.entityType === "document" &&
+                  notification.entityId === documentId
+                )
+            ),
+            workItems: state.workItems.map((item) => ({
+              ...item,
+              linkedDocumentIds: item.linkedDocumentIds.filter(
+                (linkedDocumentId) => linkedDocumentId !== documentId
+              ),
+            })),
+            ui: {
+              ...state.ui,
+              activeInboxNotificationId:
+                state.ui.activeInboxNotificationId &&
+                deletedNotificationIds.has(state.ui.activeInboxNotificationId)
+                  ? null
+                  : state.ui.activeInboxNotificationId,
+            },
+          }
+        })
+
+        try {
+          await syncDeleteDocument(documentId)
+        } catch (error) {
+          await handleSyncFailure(error, "Failed to delete document")
+        }
+      },
       updateItemDescription(itemId, content) {
         const updatedAt = getNow()
 
@@ -2533,6 +2769,7 @@ export const useAppStore = create<AppStore>()(
 
         let conversationId: string | null = null
         let participantIdsForSync: string[] = []
+        let reusedConversation = false
 
         set((state) => {
           if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
@@ -2549,6 +2786,21 @@ export const useAppStore = create<AppStore>()(
 
           if (participantIds.length < 2) {
             toast.error("Select at least one other workspace member")
+            return state
+          }
+
+          const existingConversation =
+            participantIds.length === 2
+              ? findWorkspaceDirectConversation(
+                  state,
+                  parsed.data.workspaceId,
+                  participantIds
+                )
+              : null
+
+          if (existingConversation) {
+            conversationId = existingConversation.id
+            reusedConversation = true
             return state
           }
 
@@ -2589,6 +2841,11 @@ export const useAppStore = create<AppStore>()(
 
         if (!conversationId) {
           return null
+        }
+
+        if (reusedConversation) {
+          toast.success("Opened existing chat")
+          return conversationId
         }
 
         syncInBackground(

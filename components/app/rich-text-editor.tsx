@@ -74,6 +74,11 @@ type UploadedAttachment = {
   fileUrl: string | null
 }
 
+export type RichTextEditorStats = {
+  words: number
+  characters: number
+}
+
 type RichTextEditorProps = {
   content: string | JSONContent
   onChange: (content: string) => void
@@ -84,9 +89,11 @@ type RichTextEditorProps = {
   /** Full-page canvas mode — no borders, large content area */
   fullPage?: boolean
   showToolbar?: boolean
+  showStats?: boolean
   autoFocus?: boolean
   onUploadAttachment?: (file: File) => Promise<UploadedAttachment | null>
   onSubmitShortcut?: () => void
+  onStatsChange?: (stats: RichTextEditorStats) => void
   mentionCandidates?: Array<
     Pick<UserProfile, "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl">
   >
@@ -304,9 +311,11 @@ export function RichTextEditor({
   compact = false,
   fullPage = false,
   showToolbar = true,
+  showStats = true,
   autoFocus = false,
   onUploadAttachment,
   onSubmitShortcut,
+  onStatsChange,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -818,13 +827,21 @@ export function RichTextEditor({
     }
   }
 
+  const statsWords = editor?.storage.characterCount.words() ?? 0
+  const statsCharacters = editor?.storage.characterCount.characters() ?? 0
+
+  useEffect(() => {
+    onStatsChange?.({
+      words: statsWords,
+      characters: statsCharacters,
+    })
+  }, [onStatsChange, statsCharacters, statsWords])
+
   if (!editor) {
     return null
   }
 
   const currentEditor = editor
-  const statsWords = currentEditor.storage.characterCount.words()
-  const statsCharacters = currentEditor.storage.characterCount.characters()
   const tableActive = currentEditor.isActive("table")
   const highlightActive = currentEditor.isActive("highlight")
   const paragraphActive = currentEditor.isActive("paragraph")
@@ -900,9 +917,7 @@ export function RichTextEditor({
       <div
         className={cn(
           "flex shrink-0 items-center gap-0.5 overflow-x-auto",
-          fullPage
-            ? "mx-auto w-full px-6 py-2"
-            : "pb-1",
+          fullPage ? "mx-auto w-full px-6 py-2" : "pb-1",
           fullPage && FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
         )}
       >
@@ -1033,6 +1048,42 @@ export function RichTextEditor({
         >
           <TableIcon className="size-3.5" />
         </ToolbarButton>
+        {fullPage ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={!editable}
+                className={cn(
+                  "flex size-7 items-center justify-center text-muted-foreground transition-colors",
+                  editable
+                    ? "hover:text-foreground"
+                    : "cursor-default opacity-60"
+                )}
+                aria-label="Canvas width"
+                title="Canvas width"
+              >
+                <FrameCorners className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-40 min-w-40">
+              <DropdownMenuRadioGroup
+                value={fullPageCanvasWidth}
+                onValueChange={(value) =>
+                  setFullPageCanvasWidth(value as FullPageCanvasWidth)
+                }
+              >
+                <DropdownMenuRadioItem value="narrow">
+                  Narrow
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="medium">
+                  Normal
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         {onUploadAttachment ? (
           <ToolbarButton
             active={false}
@@ -1132,46 +1183,10 @@ export function RichTextEditor({
           <span className="ml-2 text-xs text-muted-foreground">Uploading…</span>
         ) : null}
         <div className="ml-auto flex items-center">
-          <span className="pl-3 text-xs whitespace-nowrap text-muted-foreground">
-            {statsWords} words · {statsCharacters} characters
-          </span>
-          {fullPage ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={!editable}
-                  className={cn(
-                    "ml-2 flex size-7 items-center justify-center text-muted-foreground transition-colors",
-                    editable
-                      ? "hover:text-foreground"
-                      : "cursor-default opacity-60"
-                  )}
-                  aria-label="Canvas width"
-                  title="Canvas width"
-                >
-                  <FrameCorners className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40 min-w-40">
-                <DropdownMenuRadioGroup
-                  value={fullPageCanvasWidth}
-                  onValueChange={(value) =>
-                    setFullPageCanvasWidth(value as FullPageCanvasWidth)
-                  }
-                >
-                  <DropdownMenuRadioItem value="narrow">
-                    Narrow
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="medium">
-                    Normal
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="wide">
-                    Wide
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {showStats ? (
+            <span className="pl-3 text-xs whitespace-nowrap text-muted-foreground">
+              {statsWords} words · {statsCharacters} characters
+            </span>
           ) : null}
         </div>
       </div>
@@ -1311,7 +1326,12 @@ export function RichTextEditor({
   // Full-page mode — used for standalone documents
   if (fullPage) {
     return (
-      <div className={cn("relative flex flex-1 flex-col overflow-hidden", className)}>
+      <div
+        className={cn(
+          "relative flex flex-1 flex-col overflow-hidden",
+          className
+        )}
+      >
         {toolbar}
         <div className="flex-1 overflow-y-auto">
           <div

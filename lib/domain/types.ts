@@ -144,6 +144,52 @@ export const orderingFields = [
 ] as const
 export type OrderingField = (typeof orderingFields)[number]
 
+export const userStatuses = [
+  "active",
+  "away",
+  "busy",
+  "out-of-office",
+] as const
+export type UserStatus = (typeof userStatuses)[number]
+export const userStatusMessageMaxLength = 80
+export const userStatusMeta: Record<
+  UserStatus,
+  {
+    label: string
+    description: string
+    colorClassName: string
+  }
+> = {
+  active: {
+    label: "Online",
+    description: "Available and following along.",
+    colorClassName: "bg-emerald-500",
+  },
+  away: {
+    label: "Away",
+    description: "Stepped away for a bit.",
+    colorClassName: "bg-amber-400",
+  },
+  busy: {
+    label: "Busy",
+    description: "Heads down and minimizing interruptions.",
+    colorClassName: "bg-rose-500",
+  },
+  "out-of-office": {
+    label: "Out of office",
+    description: "Offline for the day or longer.",
+    colorClassName: "bg-purple-500",
+  },
+}
+
+export function resolveUserStatus(
+  status: UserStatus | null | undefined
+): UserStatus {
+  return userStatuses.includes(status as UserStatus)
+    ? (status as UserStatus)
+    : "active"
+}
+
 export const themePreferences = ["light", "dark", "system"] as const
 export type ThemePreference = (typeof themePreferences)[number]
 
@@ -315,6 +361,9 @@ export interface UserProfile {
   avatarImageUrl?: string | null
   workosUserId: string | null
   title: string
+  status: UserStatus
+  statusMessage: string
+  hasExplicitStatus?: boolean
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
@@ -395,6 +444,14 @@ export interface Document {
   updatedBy: string
   createdAt: string
   updatedAt: string
+}
+
+export interface DocumentPresenceViewer {
+  userId: string
+  name: string
+  avatarUrl: string
+  avatarImageUrl?: string | null
+  lastSeenAt: string
 }
 
 export interface ViewDefinition {
@@ -1352,6 +1409,13 @@ export const profileSchema = z.object({
   avatarUrl: z.string().trim().min(1),
   avatarImageStorageId: z.string().trim().min(1).optional(),
   clearAvatarImage: z.boolean().optional(),
+  clearStatus: z.boolean().optional(),
+  status: z.enum(userStatuses).optional(),
+  statusMessage: z
+    .string()
+    .trim()
+    .max(userStatusMessageMaxLength)
+    .optional(),
   preferences: z.object({
     emailMentions: z.boolean(),
     emailAssignments: z.boolean(),

@@ -136,6 +136,13 @@ const themePreferenceLiterals = [
   v.literal("system"),
 ] as const
 
+const userStatusLiterals = [
+  v.literal("active"),
+  v.literal("away"),
+  v.literal("busy"),
+  v.literal("out-of-office"),
+] as const
+
 const commentTargetTypeLiterals = [
   v.literal("workItem"),
   v.literal("document"),
@@ -203,6 +210,7 @@ export const displayPropertyValidator = v.union(...displayPropertyLiterals)
 export const groupFieldValidator = v.union(...groupFieldLiterals)
 export const orderingFieldValidator = v.union(...orderingFieldLiterals)
 export const themePreferenceValidator = v.union(...themePreferenceLiterals)
+export const userStatusValidator = v.union(...userStatusLiterals)
 export const commentTargetTypeValidator = v.union(...commentTargetTypeLiterals)
 export const attachmentTargetTypeValidator = v.union(
   ...attachmentTargetTypeLiterals
@@ -298,6 +306,9 @@ export const userFields = {
   avatarImageStorageId: v.optional(nullableStorageId),
   workosUserId: v.optional(nullableString),
   title: v.string(),
+  status: v.optional(userStatusValidator),
+  statusMessage: v.optional(v.string()),
+  hasExplicitStatus: v.optional(v.boolean()),
   preferences: v.object({
     emailMentions: v.boolean(),
     emailAssignments: v.boolean(),
@@ -417,6 +428,18 @@ export const documentFields = {
   updatedBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
+}
+
+export const documentPresenceFields = {
+  documentId: v.string(),
+  userId: v.string(),
+  workosUserId: v.optional(v.string()),
+  email: v.optional(v.string()),
+  name: v.optional(v.string()),
+  avatarUrl: v.optional(v.string()),
+  sessionId: v.string(),
+  createdAt: v.string(),
+  lastSeenAt: v.string(),
 }
 
 export const viewDefinitionFields = {
