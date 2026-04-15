@@ -37,7 +37,7 @@ const teamPresets: Array<{
   {
     id: "software-development",
     label: "Software development",
-    description: "Epics, features, requirements, stories, and issues.",
+    description: "Epics, features, requirements, and stories.",
     experience: "software-development",
   },
   {

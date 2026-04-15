@@ -819,7 +819,7 @@ export const teamExperienceMeta: Record<
 > = {
   "software-development": {
     label: "Software Development",
-    description: "Epics, features, requirements, stories, and issues.",
+    description: "Epics, features, requirements, and stories.",
   },
   "issue-analysis": {
     label: "Issue Tracking",
@@ -960,10 +960,9 @@ export function createDefaultTeamWorkflowSettings(
           "feature",
           "requirement",
           "story",
-          "issue",
         ],
         summaryHint:
-          "Delivery plan spanning epics, features, requirements, stories, and issues.",
+          "Delivery plan spanning epics, features, requirements, and stories.",
       },
       "bug-tracking": {
         defaultPriority: "high",

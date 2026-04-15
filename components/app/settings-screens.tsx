@@ -1718,25 +1718,6 @@ export function CreateTeamScreen() {
       ) : null}
 
       <div className="space-y-6">
-        <SummaryCard
-          description="Team creation now uses the same container as projects, docs, and channels so setup never hides the rest of the workspace."
-          eyebrow="Workspace"
-          notes={[
-            "Team type controls the default work model, while collaboration surfaces stay configurable.",
-            "The join code is created automatically after the team is saved.",
-            "You land directly in the new team after creation.",
-          ]}
-          preview={
-            <div className="flex size-16 items-center justify-center rounded-2xl border bg-muted/40">
-              <TeamIconGlyph
-                icon={icon}
-                className="size-7 text-muted-foreground"
-              />
-            </div>
-          }
-          title={name || "New team"}
-        />
-
         <div>
           <TeamEditorFields
             canChangeExperience
