@@ -275,8 +275,13 @@ function ConversationList({
   className?: string
 }) {
   return (
-    <div className={cn("flex h-full flex-col border-r", className)}>
-      <ScrollArea className="flex-1">
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col overflow-hidden border-r",
+        className
+      )}
+    >
+      <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col px-1 py-1">
           {conversations.map((conversation) => (
             <button
@@ -410,7 +415,7 @@ function MembersSidebar({
       width="16rem"
       containerClassName="hidden xl:block"
     >
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <SurfaceSidebarContent
           title={title}
           description={description}
@@ -440,7 +445,7 @@ function TeamSurfaceSidebar({
       width="19rem"
       containerClassName="hidden xl:block"
     >
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <SurfaceSidebarContent
           label={label}
           title={title}
@@ -611,7 +616,7 @@ function ChatThread({
   }, [messages.length])
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {showHeader ? (
         <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
           <div className="flex min-w-0 items-center gap-2">
@@ -639,7 +644,7 @@ function ChatThread({
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
         {messages.length === 0 ? (
           <div className="mt-auto px-4 py-3">
@@ -835,12 +840,14 @@ function ChatThread({
       </div>
 
       {/* Composer */}
-      <ChatComposer
-        placeholder={`Message ${title}…`}
-        onSend={(content) => {
-          useAppStore.getState().sendChatMessage({ conversationId, content })
-        }}
-      />
+      <div className="shrink-0 border-t bg-background/95 backdrop-blur">
+        <ChatComposer
+          placeholder={`Message ${title}…`}
+          onSend={(content) => {
+            useAppStore.getState().sendChatMessage({ conversationId, content })
+          }}
+        />
+      </div>
     </div>
   )
 }
@@ -1790,7 +1797,7 @@ export function WorkspaceChatsScreen() {
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
-            className="relative flex shrink-0 flex-col border-r"
+            className="relative flex min-h-0 shrink-0 flex-col border-r"
             style={{
               width: `${conversationListWidth}px`,
               flexBasis: `${conversationListWidth}px`,
@@ -1856,7 +1863,7 @@ export function WorkspaceChatsScreen() {
               />
             </button>
           </div>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {activeChat ? (
               <ChatThread
                 conversationId={activeChat.id}
@@ -1961,25 +1968,32 @@ export function WorkspaceChannelsScreen() {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
-              <NewPostComposer channelId={activeChannel.id} />
-
-              {posts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                    <Hash className="size-5 text-muted-foreground" />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 border-b bg-background/95 backdrop-blur">
+              <div className="mx-auto max-w-3xl px-5 py-4">
+                <NewPostComposer channelId={activeChannel.id} />
+              </div>
+            </div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="mx-auto max-w-3xl px-5 py-5">
+                {posts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                      <Hash className="size-5 text-muted-foreground" />
+                    </div>
+                    <p className="mt-3 text-sm font-medium">No posts yet</p>
+                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                      Start a workspace discussion by creating the first post.
+                    </p>
                   </div>
-                  <p className="mt-3 text-sm font-medium">No posts yet</p>
-                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                    Start a workspace discussion by creating the first post.
-                  </p>
-                </div>
-              ) : (
-                posts.map((post) => (
-                  <ForumPostCard key={post.id} postId={post.id} />
-                ))
-              )}
+                ) : (
+                  <div className="space-y-4">
+                    {posts.map((post) => (
+                      <ForumPostCard key={post.id} postId={post.id} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <TeamSurfaceSidebar
@@ -2094,7 +2108,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <ChatThread
               conversationId={conversation.id}
               title="Team chat"
@@ -2214,29 +2228,34 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
-              {/* Composer at top */}
-              {editable ? (
-                <NewPostComposer channelId={activeChannel.id} />
-              ) : null}
-
-              {/* Posts feed */}
-              {posts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                    <Hash className="size-5 text-muted-foreground" />
-                  </div>
-                  <p className="mt-3 text-sm font-medium">No posts yet</p>
-                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                    Start a discussion by creating the first post.
-                  </p>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {editable ? (
+              <div className="shrink-0 border-b bg-background/95 backdrop-blur">
+                <div className="mx-auto max-w-3xl px-5 py-4">
+                  <NewPostComposer channelId={activeChannel.id} />
                 </div>
-              ) : (
-                posts.map((post) => (
-                  <ForumPostCard key={post.id} postId={post.id} />
-                ))
-              )}
+              </div>
+            ) : null}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="mx-auto max-w-3xl px-5 py-5">
+                {posts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                      <Hash className="size-5 text-muted-foreground" />
+                    </div>
+                    <p className="mt-3 text-sm font-medium">No posts yet</p>
+                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                      Start a discussion by creating the first post.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {posts.map((post) => (
+                      <ForumPostCard key={post.id} postId={post.id} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <TeamSurfaceSidebar
