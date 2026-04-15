@@ -754,7 +754,7 @@ function ChatThread({
                   >
                     <div
                       className={cn(
-                        "flex max-w-[min(78%,42rem)] items-end gap-2",
+                        "flex min-w-0 w-fit max-w-[min(100%,42rem)] items-end gap-2",
                         isCurrentUser && "flex-row-reverse"
                       )}
                     >
@@ -773,7 +773,7 @@ function ChatThread({
                       ) : null}
                       <div
                         className={cn(
-                          "flex min-w-0 flex-col",
+                          "flex min-w-0 max-w-full flex-col",
                           isCurrentUser ? "items-end" : "items-start"
                         )}
                       >
@@ -803,7 +803,7 @@ function ChatThread({
                         ) : null}
                         <div
                           className={cn(
-                            "rounded-2xl px-3 py-2.5 text-[13px] leading-5 shadow-sm",
+                            "max-w-full rounded-2xl px-3 py-2.5 text-[13px] leading-5 shadow-sm",
                             isCurrentUser
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted text-foreground",
@@ -816,7 +816,7 @@ function ChatThread({
                           )}
                         >
                           {callJoinHref ? (
-                            <div className="space-y-2 whitespace-normal">
+                            <div className="max-w-full space-y-2 whitespace-normal break-words [overflow-wrap:anywhere]">
                               <p className="text-[13px] leading-5">
                                 Started a call
                               </p>
@@ -842,7 +842,7 @@ function ChatThread({
                             <RichTextContent
                               content={getChatMessageMarkup(message.content)}
                               className={cn(
-                                "text-[13px] leading-5 [&_p]:leading-5 [&_p+p]:mt-1.5",
+                                "max-w-full break-words text-[13px] leading-5 [overflow-wrap:anywhere] [&_.editor-mention]:max-w-full [&_.editor-mention]:whitespace-normal [&_.editor-mention]:[overflow-wrap:anywhere] [&_a]:break-all [&_p]:leading-5 [&_p+p]:mt-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre_code]:whitespace-pre-wrap",
                                 isCurrentUser &&
                                   "[&_a]:text-primary-foreground hover:[&_a]:text-primary-foreground/90"
                               )}
