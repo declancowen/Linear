@@ -597,9 +597,9 @@ export const templateMeta: Record<
 > = {
   "software-delivery": {
     label: "Software Development",
-    description: "Epics, features, requirements, stories, and issues.",
+    description: "Epics, features, requirements, and stories.",
     icon: "code",
-    itemTypes: ["epic", "feature", "requirement", "story", "issue"],
+    itemTypes: ["epic", "feature", "requirement", "story"],
   },
   "bug-tracking": {
     label: "Issue Tracking",
