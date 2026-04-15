@@ -1484,7 +1484,7 @@ export function WorkspaceSettingsScreen() {
           uploading={uploadingLogo}
         />
 
-        <FieldGroup>
+        <div className="grid grid-cols-[4fr_1fr] gap-4">
           <Field>
             <FieldLabel htmlFor="workspace-name">Name</FieldLabel>
             <FieldContent>
@@ -1506,25 +1506,22 @@ export function WorkspaceSettingsScreen() {
                 onChange={(event) => setLogoUrl(event.target.value)}
               />
             </FieldContent>
-            <FieldDescription>
-              Used when no logo image is available.
-            </FieldDescription>
           </Field>
-          <Field>
-            <FieldLabel htmlFor="workspace-description">
-              Description
-            </FieldLabel>
-            <FieldContent>
-              <Textarea
-                id="workspace-description"
-                className="min-h-24 resize-none"
-                disabled={!canManageWorkspace}
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </FieldContent>
-          </Field>
-        </FieldGroup>
+        </div>
+        <Field>
+          <FieldLabel htmlFor="workspace-description">
+            Description
+          </FieldLabel>
+          <FieldContent>
+            <Textarea
+              id="workspace-description"
+              className="min-h-24 resize-none"
+              disabled={!canManageWorkspace}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </FieldContent>
+        </Field>
       </div>
     </SettingsScaffold>
   )
