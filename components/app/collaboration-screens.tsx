@@ -323,7 +323,7 @@ function ConversationList({
                 <div className="min-w-0 flex-1">
                   <div
                     className={cn(
-                      "truncate text-sm",
+                      "truncate text-[13px] leading-5",
                       selectedId === conversation.id
                         ? "font-semibold"
                         : "font-medium"
@@ -331,7 +331,7 @@ function ConversationList({
                   >
                     {conversation.title}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                     {renderPreview(conversation.id)}
                   </div>
                 </div>
@@ -516,7 +516,7 @@ function ChatComposer({
           mentionCandidates={mentionCandidates}
           onSubmitShortcut={handleSend}
           submitOnEnter
-          className="min-w-0 flex-1 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.5rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-sm [&_.ProseMirror]:outline-none"
+          className="min-w-0 flex-1 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.5rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-5 [&_.ProseMirror]:outline-none"
         />
         <div className="flex shrink-0 items-center gap-1.5">
           <button
@@ -803,7 +803,7 @@ function ChatThread({
                         ) : null}
                         <div
                           className={cn(
-                            "rounded-2xl px-3 py-2.5 text-sm leading-normal shadow-sm",
+                            "rounded-2xl px-3 py-2.5 text-[13px] leading-5 shadow-sm",
                             isCurrentUser
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted text-foreground",
@@ -817,7 +817,7 @@ function ChatThread({
                         >
                           {callJoinHref ? (
                             <div className="space-y-2 whitespace-normal">
-                              <p className="text-sm leading-5">
+                              <p className="text-[13px] leading-5">
                                 Started a call
                               </p>
                               <Button
@@ -842,7 +842,7 @@ function ChatThread({
                             <RichTextContent
                               content={getChatMessageMarkup(message.content)}
                               className={cn(
-                                "text-sm leading-6 [&_p]:leading-6 [&_p+p]:mt-1.5",
+                                "text-[13px] leading-5 [&_p]:leading-5 [&_p+p]:mt-1.5",
                                 isCurrentUser &&
                                   "[&_a]:text-primary-foreground hover:[&_a]:text-primary-foreground/90"
                               )}
@@ -1865,8 +1865,8 @@ export function WorkspaceChatsScreen() {
               type="button"
               aria-label="Resize chat list"
               className={cn(
-                "group absolute top-0 -right-1.5 z-10 hidden h-full w-3 cursor-col-resize touch-none md:block",
-                conversationListResizing && "bg-accent/20"
+                "group absolute top-0 -right-2 z-10 hidden h-full w-4 cursor-col-resize touch-none select-none md:block",
+                conversationListResizing && "bg-primary/6"
               )}
               onPointerDown={handleConversationListResizeStart}
               onDoubleClick={() =>
@@ -1876,10 +1876,19 @@ export function WorkspaceChatsScreen() {
               <span
                 aria-hidden="true"
                 className={cn(
-                  "pointer-events-none absolute inset-y-3 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors",
+                  "pointer-events-none absolute inset-y-2 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-colors",
                   conversationListResizing
-                    ? "bg-foreground/25"
-                    : "group-hover:bg-foreground/20"
+                    ? "bg-primary/10"
+                    : "group-hover:bg-accent"
+                )}
+              />
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-y-2 left-1/2 w-px -translate-x-1/2 rounded-full bg-border/80 transition-all",
+                  conversationListResizing
+                    ? "w-0.5 bg-primary/55"
+                    : "group-hover:w-0.5 group-hover:bg-primary/45"
                 )}
               />
             </button>

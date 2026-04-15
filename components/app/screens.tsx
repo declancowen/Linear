@@ -402,6 +402,15 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
 /*  Screen components                                                  */
 /* ------------------------------------------------------------------ */
 
+const INBOX_LIST_WIDTH_STORAGE_KEY = "inbox-list-width"
+const INBOX_LIST_DEFAULT_WIDTH = 288
+const INBOX_LIST_MIN_WIDTH = 240
+const INBOX_LIST_MAX_WIDTH = 420
+
+function clampInboxListWidth(value: number) {
+  return Math.min(INBOX_LIST_MAX_WIDTH, Math.max(INBOX_LIST_MIN_WIDTH, value))
+}
+
 export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   const data = useAppStore()
   const team = getTeamBySlug(data, teamSlug)
@@ -453,6 +462,28 @@ export function InboxScreen() {
   const [acceptingInvite, setAcceptingInvite] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingNotification, setDeletingNotification] = useState(false)
+  const [notificationListWidth, setNotificationListWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return INBOX_LIST_DEFAULT_WIDTH
+    }
+
+    const storedWidth = window.localStorage.getItem(
+      INBOX_LIST_WIDTH_STORAGE_KEY
+    )
+    const parsedWidth = Number(storedWidth)
+
+    if (!Number.isFinite(parsedWidth)) {
+      return INBOX_LIST_DEFAULT_WIDTH
+    }
+
+    return clampInboxListWidth(parsedWidth)
+  })
+  const [notificationListResizing, setNotificationListResizing] =
+    useState(false)
+  const notificationListDragRef = useRef<{
+    startX: number
+    startWidth: number
+  } | null>(null)
   const notifications = [...data.notifications]
     .filter((notification) => notification.userId === data.currentUserId)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
@@ -503,6 +534,59 @@ export function InboxScreen() {
       activeChannelPostHref != null) ||
     (activeNotification?.entityType === "chat" && activeChatHref != null) ||
     hasPendingActiveInvite
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    window.localStorage.setItem(
+      INBOX_LIST_WIDTH_STORAGE_KEY,
+      String(notificationListWidth)
+    )
+  }, [notificationListWidth])
+
+  useEffect(() => {
+    if (!notificationListResizing) {
+      return
+    }
+
+    const handleNotificationListResizeMove = (event: PointerEvent) => {
+      const dragState = notificationListDragRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      setNotificationListWidth(
+        clampInboxListWidth(
+          dragState.startWidth + event.clientX - dragState.startX
+        )
+      )
+    }
+
+    const stopNotificationListResize = () => {
+      notificationListDragRef.current = null
+      setNotificationListResizing(false)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+
+    window.addEventListener("pointermove", handleNotificationListResizeMove)
+    window.addEventListener("pointerup", stopNotificationListResize)
+    window.addEventListener("pointercancel", stopNotificationListResize)
+
+    return () => {
+      window.removeEventListener(
+        "pointermove",
+        handleNotificationListResizeMove
+      )
+      window.removeEventListener("pointerup", stopNotificationListResize)
+      window.removeEventListener("pointercancel", stopNotificationListResize)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+  }, [notificationListResizing])
 
   useEffect(() => {
     if (
@@ -624,13 +708,36 @@ export function InboxScreen() {
     }
   }
 
+  function handleNotificationListResizeStart(
+    event: React.PointerEvent<HTMLButtonElement>
+  ) {
+    if (event.button !== 0) {
+      return
+    }
+
+    event.preventDefault()
+    notificationListDragRef.current = {
+      startX: event.clientX,
+      startWidth: notificationListWidth,
+    }
+    setNotificationListResizing(true)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
+
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col">
         <ScreenHeader title="Inbox" />
         <div className="flex min-h-0 flex-1">
           {/* Notification list */}
-          <div className="flex min-h-0 w-[18rem] shrink-0 flex-col border-r">
+          <div
+            className="relative flex min-h-0 shrink-0 flex-col border-r"
+            style={{
+              width: `${notificationListWidth}px`,
+              flexBasis: `${notificationListWidth}px`,
+            }}
+          >
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
               <div className="flex items-center gap-1">
                 {(["inbox", "archived"] as const).map((tab) => (
@@ -697,13 +804,13 @@ export function InboxScreen() {
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <span
                           className={cn(
-                            "truncate text-sm text-foreground",
+                            "truncate text-[13px] leading-5 text-foreground",
                             !notification.readAt && "font-medium"
                           )}
                         >
                           {notification.message}
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-[11px] text-muted-foreground">
                           {format(
                             new Date(notification.createdAt),
                             "MMM d, h:mm a"
@@ -751,6 +858,37 @@ export function InboxScreen() {
                 )}
               </div>
             </ScrollArea>
+            <button
+              type="button"
+              aria-label="Resize inbox list"
+              className={cn(
+                "group absolute top-0 -right-2 z-10 hidden h-full w-4 cursor-col-resize touch-none select-none md:block",
+                notificationListResizing && "bg-primary/6"
+              )}
+              onPointerDown={handleNotificationListResizeStart}
+              onDoubleClick={() =>
+                setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)
+              }
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-y-2 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-colors",
+                  notificationListResizing
+                    ? "bg-primary/10"
+                    : "group-hover:bg-accent"
+                )}
+              />
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-y-2 left-1/2 w-px -translate-x-1/2 rounded-full bg-border/80 transition-all",
+                  notificationListResizing
+                    ? "w-0.5 bg-primary/55"
+                    : "group-hover:w-0.5 group-hover:bg-primary/45"
+                )}
+              />
+            </button>
           </div>
           {/* Detail pane */}
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">

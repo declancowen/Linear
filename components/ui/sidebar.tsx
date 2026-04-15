@@ -26,10 +26,17 @@ import { SidebarIcon } from "@phosphor-icons/react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
+const SIDEBAR_WIDTH = 256
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+const SIDEBAR_WIDTH_STORAGE_KEY = "sidebar_width"
+const SIDEBAR_WIDTH_MIN = 224
+const SIDEBAR_WIDTH_MAX = 384
+
+function clampSidebarWidth(value: number) {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, value))
+}
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -39,6 +46,8 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  desktopWidth: number
+  setDesktopWidth: React.Dispatch<React.SetStateAction<number>>
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -67,6 +76,20 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const [desktopWidth, setDesktopWidth] = React.useState(() => {
+    if (typeof window === "undefined") {
+      return SIDEBAR_WIDTH
+    }
+
+    const storedWidth = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    const parsedWidth = Number(storedWidth)
+
+    if (!Number.isFinite(parsedWidth)) {
+      return SIDEBAR_WIDTH
+    }
+
+    return clampSidebarWidth(parsedWidth)
+  })
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -108,6 +131,17 @@ function SidebarProvider({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [toggleSidebar])
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    window.localStorage.setItem(
+      SIDEBAR_WIDTH_STORAGE_KEY,
+      String(desktopWidth)
+    )
+  }, [desktopWidth])
+
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
@@ -121,8 +155,20 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      desktopWidth,
+      setDesktopWidth,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+      desktopWidth,
+      setDesktopWidth,
+    ]
   )
 
   return (
@@ -131,7 +177,7 @@ function SidebarProvider({
         data-slot="sidebar-wrapper"
         style={
           {
-            "--sidebar-width": SIDEBAR_WIDTH,
+            "--sidebar-width": `${desktopWidth}px`,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
             ...style,
           } as React.CSSProperties
@@ -276,21 +322,135 @@ function SidebarTrigger({
   )
 }
 
-function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar()
+function SidebarRail({
+  className,
+  onClick,
+  onPointerDown,
+  title,
+  ...props
+}: React.ComponentProps<"button">) {
+  const { desktopWidth, isMobile, setDesktopWidth, state, toggleSidebar } =
+    useSidebar()
+  const [isResizing, setIsResizing] = React.useState(false)
+  const dragStateRef = React.useRef<{
+    moved: boolean
+    side: "left" | "right"
+    startWidth: number
+    startX: number
+  } | null>(null)
+  const suppressClickRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!isResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = dragStateRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      const delta =
+        dragState.side === "left"
+          ? event.clientX - dragState.startX
+          : dragState.startX - event.clientX
+
+      if (Math.abs(delta) > 2) {
+        dragState.moved = true
+      }
+
+      setDesktopWidth(clampSidebarWidth(dragState.startWidth + delta))
+    }
+
+    const stopResize = () => {
+      suppressClickRef.current = Boolean(dragStateRef.current?.moved)
+      dragStateRef.current = null
+      setIsResizing(false)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", stopResize)
+    window.addEventListener("pointercancel", stopResize)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", stopResize)
+      window.removeEventListener("pointercancel", stopResize)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+  }, [isResizing, setDesktopWidth])
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    onPointerDown?.(event)
+
+    if (event.defaultPrevented || event.button !== 0 || isMobile) {
+      return
+    }
+
+    if (state === "collapsed") {
+      return
+    }
+
+    const sidebar = event.currentTarget.closest<HTMLElement>(
+      "[data-slot='sidebar']"
+    )
+    const side = sidebar?.dataset.side === "right" ? "right" : "left"
+
+    event.preventDefault()
+    dragStateRef.current = {
+      moved: false,
+      side,
+      startWidth: desktopWidth,
+      startX: event.clientX,
+    }
+    setIsResizing(true)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
 
   return (
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      data-resizing={isResizing ? "true" : undefined}
+      aria-label={
+        state === "collapsed" ? "Open sidebar" : "Resize or collapse sidebar"
+      }
       tabIndex={-1}
-      onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      onClick={(event) => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false
+          event.preventDefault()
+          return
+        }
+
+        onClick?.(event)
+
+        if (event.defaultPrevented) {
+          return
+        }
+
+        toggleSidebar()
+      }}
+      onPointerDown={handlePointerDown}
+      title={
+        title ??
+        (state === "collapsed"
+          ? "Click to open the sidebar."
+          : "Drag to resize. Click to collapse.")
+      }
       className={cn(
-        "absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
-        "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+        "absolute inset-y-0 z-20 hidden w-5 touch-none select-none transition-all ease-linear group-data-[side=left]:-right-2.5 group-data-[side=right]:left-0 sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
+        "before:pointer-events-none before:absolute before:inset-y-1.5 before:left-1/2 before:w-3 before:-translate-x-1/2 before:rounded-full before:bg-transparent before:transition-colors",
+        "after:pointer-events-none after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-sidebar-border/80 after:transition-all",
+        "hover:before:bg-sidebar-accent hover:after:w-0.5 hover:after:bg-sidebar-foreground/50 focus-visible:before:bg-sidebar-accent focus-visible:after:w-0.5 focus-visible:after:bg-sidebar-foreground/50",
+        "data-[resizing=true]:before:bg-sidebar-accent data-[resizing=true]:after:w-0.5 data-[resizing=true]:after:bg-sidebar-foreground/60",
+        "cursor-col-resize",
         "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
         "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
         "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
