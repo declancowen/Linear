@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner"
 
 import {
+  syncArchiveNotification,
   fetchSnapshot,
   syncAddComment,
   syncAddChannelPostComment,
@@ -24,8 +25,10 @@ import {
   syncCreateTeam,
   syncCreateWorkspaceChat,
   syncCreateWorkItem,
+  syncDeleteCurrentWorkspace,
   syncDeleteAttachment,
   syncDeleteChannelPost,
+  syncDeleteTeam,
   syncDeleteWorkItem,
   syncEnsureTeamChat,
   syncGenerateAttachmentUploadUrl,
@@ -38,6 +41,7 @@ import {
   syncToggleChannelPostReaction,
   syncToggleCommentReaction,
   syncToggleNotificationRead,
+  syncUnarchiveNotification,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,
@@ -256,12 +260,16 @@ export type AppStore = AppData & {
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
   toggleNotificationRead: (notificationId: string) => void
+  archiveNotification: (notificationId: string) => void
+  unarchiveNotification: (notificationId: string) => void
   updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
+  deleteCurrentWorkspace: () => Promise<boolean>
   createTeam: (input: CreateTeamInput) => Promise<{
     teamId: string
     teamSlug: string
     features: TeamFeatureSettings
   } | null>
+  deleteTeam: (teamId: string) => Promise<boolean>
   updateTeamDetails: (
     teamId: string,
     input: UpdateTeamDetailsInput
@@ -476,12 +484,14 @@ function createMentionIds(
     match[1]?.toLowerCase()
   )
 
-  return [...new Set(
-    users
-      .filter((user) => handles.includes(user.handle.toLowerCase()))
-      .filter((user) => (audience ? audience.has(user.id) : true))
-      .map((user) => user.id)
-  )]
+  return [
+    ...new Set(
+      users
+        .filter((user) => handles.includes(user.handle.toLowerCase()))
+        .filter((user) => (audience ? audience.has(user.id) : true))
+        .map((user) => user.id)
+    ),
+  ]
 }
 
 function toggleReactionUsers(
@@ -558,16 +568,18 @@ function getProjectCreationValidationMessage(
   const team = state.teams.find((entry) => entry.id === settingsTeamId)
 
   if (!team) {
-    return input.scopeType === "team" ? "Team not found" : "Settings team not found"
+    return input.scopeType === "team"
+      ? "Team not found"
+      : "Settings team not found"
   }
 
   if (!getTeamFeatureSettings(team).projects) {
     return "Projects are disabled for this team"
   }
 
-  return getAllowedTemplateTypesForTeamExperience(team.settings.experience).includes(
-    input.templateType
-  )
+  return getAllowedTemplateTypesForTeamExperience(
+    team.settings.experience
+  ).includes(input.templateType)
     ? null
     : "Project template is not allowed for this team"
 }
@@ -655,8 +667,8 @@ function getWorkItemValidationMessage(
   }
 
   const resolvedPrimaryProjectId = parent
-    ? parent.primaryProjectId ?? null
-    : input.primaryProjectId ?? null
+    ? (parent.primaryProjectId ?? null)
+    : (input.primaryProjectId ?? null)
 
   if (resolvedPrimaryProjectId) {
     const project = getProjectsForTeamScope(state, input.teamId).find(
@@ -693,12 +705,12 @@ function getResolvedProjectLinkForWorkItemUpdate(
     patch.primaryProjectId !== undefined
       ? patch.primaryProjectId
       : patch.parentId !== undefined
-        ? nextParent?.primaryProjectId ?? existing.primaryProjectId
+        ? (nextParent?.primaryProjectId ?? existing.primaryProjectId)
         : existing.primaryProjectId
   const parentIds = new Map<string, string | null>(
     state.workItems.map((item) => [
       item.id,
-      item.id === existing.id ? nextParentId ?? null : item.parentId,
+      item.id === existing.id ? (nextParentId ?? null) : item.parentId,
     ])
   )
   let rootItemId = existing.id
@@ -895,7 +907,9 @@ function getConversationAudienceUserIds(
     return [...workspaceUserIds]
   }
 
-  return conversation.participantIds.filter((userId) => workspaceUserIds.has(userId))
+  return conversation.participantIds.filter((userId) =>
+    workspaceUserIds.has(userId)
+  )
 }
 
 function buildWorkspaceChatTitle(
@@ -981,9 +995,21 @@ function createNotification(
     entityId,
     type,
     readAt: null,
+    archivedAt: null,
     emailedAt: null,
     createdAt: getNow(),
   }
+}
+
+function normalizeNotifications<T extends { archivedAt?: string | null }>(
+  notifications: T[] | undefined
+) {
+  const entries = notifications ?? []
+
+  return entries.map((notification) => ({
+    ...notification,
+    archivedAt: notification.archivedAt ?? null,
+  }))
 }
 
 function normalizeChannelPosts<
@@ -1095,6 +1121,9 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           ...state,
           ...data,
+          notifications: normalizeNotifications(
+            data.notifications ?? state.notifications
+          ),
           comments: normalizeComments(data.comments ?? state.comments),
           chatMessages: normalizeChatMessages(
             data.chatMessages ?? state.chatMessages
@@ -1108,9 +1137,9 @@ export const useAppStore = create<AppStore>()(
           ui: {
             ...state.ui,
             activeTeamId:
-              state.ui.activeTeamId ||
-              data.teams?.[0]?.id ||
-              state.ui.activeTeamId,
+              data.teams.some((team) => team.id === state.ui.activeTeamId)
+                ? state.ui.activeTeamId
+                : data.teams[0]?.id ?? "",
           },
         }))
       },
@@ -1172,6 +1201,40 @@ export const useAppStore = create<AppStore>()(
           "Failed to update notification"
         )
       },
+      archiveNotification(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notification.id === notificationId
+              ? {
+                  ...notification,
+                  archivedAt: notification.archivedAt ?? getNow(),
+                }
+              : notification
+          ),
+        }))
+
+        syncInBackground(
+          syncArchiveNotification(notificationId),
+          "Failed to archive notification"
+        )
+      },
+      unarchiveNotification(notificationId) {
+        set((state) => ({
+          notifications: state.notifications.map((notification) =>
+            notification.id === notificationId
+              ? {
+                  ...notification,
+                  archivedAt: null,
+                }
+              : notification
+          ),
+        }))
+
+        syncInBackground(
+          syncUnarchiveNotification(notificationId),
+          "Failed to unarchive notification"
+        )
+      },
       updateWorkspaceBranding(input) {
         const parsed = workspaceBrandingSchema.safeParse(input)
         if (!parsed.success) {
@@ -1216,6 +1279,29 @@ export const useAppStore = create<AppStore>()(
 
         toast.success("Workspace updated")
       },
+      async deleteCurrentWorkspace() {
+        const workspace = get().workspaces.find(
+          (entry) => entry.id === get().currentWorkspaceId
+        )
+
+        if (!workspace) {
+          toast.error("Workspace not found")
+          return false
+        }
+
+        try {
+          await syncDeleteCurrentWorkspace()
+          await refreshFromServer()
+          toast.success("Workspace deleted")
+          return true
+        } catch (error) {
+          console.error(error)
+          toast.error(
+            error instanceof Error ? error.message : "Failed to delete workspace"
+          )
+          return false
+        }
+      },
       async createTeam(input) {
         const parsed = teamDetailsSchema.safeParse({
           ...input,
@@ -1248,6 +1334,25 @@ export const useAppStore = create<AppStore>()(
             error instanceof Error ? error.message : "Failed to create team"
           )
           return null
+        }
+      },
+      async deleteTeam(teamId) {
+        const team = get().teams.find((entry) => entry.id === teamId)
+
+        if (!team) {
+          toast.error("Team not found")
+          return false
+        }
+
+        try {
+          await syncDeleteTeam(teamId)
+          await refreshFromServer()
+          toast.success("Team deleted")
+          return true
+        } catch (error) {
+          console.error(error)
+          toast.error(error instanceof Error ? error.message : "Failed to delete team")
+          return false
         }
       },
       async updateTeamDetails(teamId, input) {
@@ -1601,8 +1706,7 @@ export const useAppStore = create<AppStore>()(
           cascadeItemIds,
           resolvedPrimaryProjectId,
           shouldCascadeProjectLink,
-        } =
-          getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+        } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
 
         const validationMessage = getWorkItemValidationMessage(state, {
           teamId: existing.teamId,
@@ -1637,9 +1741,9 @@ export const useAppStore = create<AppStore>()(
               .filter((item) => cascadeItemIds.has(item.id))
               .some(
                 (item) =>
-                  !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-                    item.type
-                  )
+                  !getAllowedWorkItemTypesForTemplate(
+                    project.templateType
+                  ).includes(item.type)
               )
           ) {
             toast.error(
@@ -3435,8 +3539,7 @@ export const useAppStore = create<AppStore>()(
               ) ?? null)
             : null
           const team =
-            state.teams.find((entry) => entry.id === parsed.data.teamId) ??
-            null
+            state.teams.find((entry) => entry.id === parsed.data.teamId) ?? null
           const teamItems = state.workItems.filter(
             (item) => item.teamId === parsed.data.teamId
           )
@@ -3444,7 +3547,7 @@ export const useAppStore = create<AppStore>()(
           const nextNumber = 1 + teamItems.length + 100
           const descriptionDocId = createId("doc")
           const resolvedPrimaryProjectId = parent
-            ? parent.primaryProjectId ?? null
+            ? (parent.primaryProjectId ?? null)
             : parsed.data.primaryProjectId
 
           const descriptionDoc = {

@@ -4,8 +4,10 @@ import { z } from "zod"
 
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
+  archiveNotificationServer,
   markNotificationReadServer,
   toggleNotificationReadServer,
+  unarchiveNotificationServer,
 } from "@/lib/server/convex"
 
 const notificationMutationSchema = z.discriminatedUnion("action", [
@@ -14,6 +16,12 @@ const notificationMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("toggleRead"),
+  }),
+  z.object({
+    action: z.literal("archive"),
+  }),
+  z.object({
+    action: z.literal("unarchive"),
   }),
 ])
 
@@ -49,8 +57,18 @@ export async function PATCH(
         currentUserId: ensuredUser.userId,
         notificationId,
       })
-    } else {
+    } else if (parsed.data.action === "toggleRead") {
       await toggleNotificationReadServer({
+        currentUserId: ensuredUser.userId,
+        notificationId,
+      })
+    } else if (parsed.data.action === "archive") {
+      await archiveNotificationServer({
+        currentUserId: ensuredUser.userId,
+        notificationId,
+      })
+    } else {
+      await unarchiveNotificationServer({
         currentUserId: ensuredUser.userId,
         notificationId,
       })

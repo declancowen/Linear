@@ -7,12 +7,13 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 type AcceptInviteCardProps = {
   authenticated: boolean
   token: string
   teamName: string
+  workspaceLogo: string
   workspaceName: string
   inviteEmail: string
   loginHref: string
@@ -29,8 +30,8 @@ export function AcceptInviteCard({
   authenticated,
   token,
   teamName,
+  workspaceLogo,
   workspaceName,
-  inviteEmail,
   loginHref,
   signupHref,
   role,
@@ -127,24 +128,42 @@ export function AcceptInviteCard({
     handleAutoAccept()
   }, [accepted, authenticated, autoAccept, expired])
 
+  const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
+  const workspaceBadgeFallback = workspaceName.trim().charAt(0).toUpperCase() || "?"
+
   return (
     <Card className={cn("w-full shadow-none", className)}>
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="flex items-center gap-4 px-5 py-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+          {workspaceLogoImageSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt={workspaceName}
+              className="size-full rounded-lg object-cover"
+              src={workspaceLogoImageSrc}
+            />
+          ) : (
+            workspaceBadgeFallback
+          )}
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{teamName}</span>
-            <span className="text-[11px] text-muted-foreground">·</span>
-            <span className="text-[11px] text-muted-foreground">{workspaceName}</span>
-          </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{inviteEmail}</span>
-            <span className="capitalize">{role}</span>
+          <div className="flex min-w-0 items-baseline gap-1.5">
+            <div className="truncate text-sm font-medium">
+              {teamName}
+            </div>
+            <span className="shrink-0 text-xs text-muted-foreground">·</span>
             {expired ? (
-              <span className="text-red-500">Expired</span>
-            ) : null}
-            {accepted ? (
-              <span className="text-green-500">Accepted</span>
-            ) : null}
+              <span className="shrink-0 text-xs text-destructive">Expired</span>
+            ) : accepted ? (
+              <span className="shrink-0 text-xs text-green-600">Accepted</span>
+            ) : (
+              <span className="shrink-0 text-xs text-muted-foreground capitalize">
+                {role}
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {workspaceName}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

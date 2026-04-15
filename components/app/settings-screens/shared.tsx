@@ -6,6 +6,7 @@ import { Camera, SpinnerGap, Trash } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Switch } from "@/components/ui/switch"
 
 function CollectionPaneHeader({
   title,
@@ -72,72 +73,56 @@ export function SettingsSection({
   children: ReactNode
 }) {
   return (
-    <section className="border-b py-6 last:border-b-0">
-      <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-        {title}
-      </h3>
-      {description ? (
-        <p className="mt-1 text-xs text-muted-foreground/70">{description}</p>
-      ) : null}
-      <div className="mt-3 flex flex-col">{children}</div>
+    <section className="space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
+          {title}
+        </h2>
+        {description ? (
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className="space-y-4">{children}</div>
     </section>
   )
 }
 
-export function SettingsRow({
-  label,
-  description,
-  children,
-}: {
-  label: string
-  description?: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-4 py-2">
-      <div className="w-24 shrink-0">
-        <span className="text-sm">{label}</span>
-        {description ? (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  )
-}
-
-export function SummaryCard({
-  eyebrow,
+export function SettingsToggleRow({
   title,
   description,
-  preview,
-  notes,
+  note,
+  checked,
+  disabled,
+  onCheckedChange,
 }: {
-  eyebrow: string
   title: string
   description: string
-  preview: ReactNode
-  notes: string[]
+  note?: string | null
+  checked: boolean
+  disabled?: boolean
+  onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="rounded-lg border border-border/70 p-4">
-      <div className="text-[10px] font-medium tracking-wider text-muted-foreground/60 uppercase">
-        {eyebrow}
-      </div>
-      <div className="mt-3 flex items-center gap-3">
-        {preview}
-        <div className="min-w-0">
-          <div className="text-sm font-medium">{title}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {description}
-          </div>
+    <div className="flex items-start justify-between gap-4 py-1">
+      <div className="min-w-0 space-y-1">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-sm leading-relaxed text-muted-foreground">
+          {description}
         </div>
+        {note ? (
+          <div className="text-sm leading-relaxed text-muted-foreground">
+            {note}
+          </div>
+        ) : null}
       </div>
-      <div className="mt-3 space-y-1.5 text-[11px] leading-relaxed text-muted-foreground/70">
-        {notes.map((note) => (
-          <p key={note}>{note}</p>
-        ))}
-      </div>
+      <Switch
+        checked={checked}
+        className="mt-0.5 shrink-0"
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   )
 }

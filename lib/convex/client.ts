@@ -176,6 +176,30 @@ export function syncToggleNotificationRead(notificationId: string) {
   })
 }
 
+export function syncArchiveNotification(notificationId: string) {
+  return runRouteMutation(`/api/notifications/${notificationId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "archive",
+    }),
+  })
+}
+
+export function syncUnarchiveNotification(notificationId: string) {
+  return runRouteMutation(`/api/notifications/${notificationId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "unarchive",
+    }),
+  })
+}
+
 export function syncUpdateWorkspaceBranding(
   _workspaceId: string,
   name: string,
@@ -202,6 +226,16 @@ export function syncUpdateWorkspaceBranding(
       accent,
       description,
     }),
+  })
+}
+
+export function syncDeleteCurrentWorkspace() {
+  return runRouteMutation<{
+    workspaceId: string
+    deletedTeamIds: string[]
+    deletedUserIds: string[]
+  }>("/api/workspace/current", {
+    method: "DELETE",
   })
 }
 
@@ -618,6 +652,16 @@ export function syncUpdateTeamDetails(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
+  })
+}
+
+export function syncDeleteTeam(teamId: string) {
+  return runRouteMutation<{
+    teamId: string
+    workspaceId: string | null
+    deletedUserIds: string[]
+  }>(`/api/teams/${teamId}/details`, {
+    method: "DELETE",
   })
 }
 

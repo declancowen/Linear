@@ -146,6 +146,7 @@ export default async function OnboardingPage({
                       authenticated
                       token={inviteToken}
                       teamName={inviteData.team.name}
+                      workspaceLogo={inviteData.workspace.logoUrl}
                       workspaceName={inviteData.workspace.name}
                       inviteEmail={inviteData.invite.email}
                       loginHref={loginHref}

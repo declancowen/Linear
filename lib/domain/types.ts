@@ -452,6 +452,7 @@ export interface Notification {
   actorId: string
   message: string
   readAt: string | null
+  archivedAt: string | null
   emailedAt: string | null
   createdAt: string
 }
@@ -897,17 +898,12 @@ export function getTeamFeatureValidationMessage(
   features: TeamFeatureSettings
 ) {
   if (experience === "community") {
-    if (
-      features.issues ||
-      features.projects ||
-      features.views ||
-      features.docs
-    ) {
-      return "Community teams can only enable chat and channel surfaces."
+    if (features.issues || features.projects || features.views) {
+      return "Community teams can only enable docs, chat, and channel surfaces."
     }
 
-    if (!features.chat && !features.channels) {
-      return "Community teams must enable chat, channel, or both."
+    if (!features.docs && !features.chat && !features.channels) {
+      return "Community teams must enable docs, chat, channel, or a combination."
     }
 
     return null
@@ -955,12 +951,7 @@ export function createDefaultTeamWorkflowSettings(
         defaultPriority: "high",
         targetWindowDays: 28,
         defaultViewLayout: "board",
-        recommendedItemTypes: [
-          "epic",
-          "feature",
-          "requirement",
-          "story",
-        ],
+        recommendedItemTypes: ["epic", "feature", "requirement", "story"],
         summaryHint:
           "Delivery plan spanning epics, features, requirements, and stories.",
       },

@@ -33,9 +33,11 @@ import {
 } from "@/lib/domain/types"
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
 
-export function getCurrentUser(data: AppData) {
+export function getCurrentUser(data: AppData): UserProfile | null {
   return (
-    data.users.find((user) => user.id === data.currentUserId) ?? data.users[0]
+    data.users.find((user) => user.id === data.currentUserId) ??
+    data.users[0] ??
+    null
   )
 }
 
@@ -1050,7 +1052,9 @@ function compareGroupKeys(
 export function getUnreadNotifications(data: AppData) {
   return data.notifications.filter(
     (notification) =>
-      notification.userId === data.currentUserId && notification.readAt === null
+      notification.userId === data.currentUserId &&
+      notification.readAt === null &&
+      notification.archivedAt == null
   )
 }
 
@@ -1087,7 +1091,7 @@ export type GlobalSearchResult = {
   id: string
   kind: "navigation" | "team" | "project" | "item" | "document"
   title: string
-  subtitle: string
+  subtitle?: string | null
   href: string
   keywords: string[]
   teamId?: string | null
@@ -1219,14 +1223,6 @@ export function searchWorkspace(data: AppData, query: string) {
         "Expanded search with faceted results across the workspace graph",
       href: "/workspace/search",
       keywords: ["search", "discover", "workspace"],
-    },
-    {
-      id: "nav-reports",
-      kind: "navigation",
-      title: "Workspace Reports",
-      subtitle: "Delivery health, capacity, and execution signals",
-      href: "/workspace/reports",
-      keywords: ["reports", "analytics", "health", "capacity"],
     },
   ]
 
@@ -1365,7 +1361,7 @@ export function searchWorkspace(data: AppData, query: string) {
       return true
     }
 
-    const haystack = [result.title, result.subtitle, ...result.keywords]
+    const haystack = [result.title, result.subtitle ?? "", ...result.keywords]
       .join(" ")
       .toLowerCase()
 

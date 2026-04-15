@@ -30,6 +30,7 @@ import {
   subDays,
 } from "date-fns"
 import {
+  Archive,
   ArrowSquareOut,
   CalendarDots,
   CaretDown,
@@ -49,6 +50,7 @@ import {
   SidebarSimple,
   Trash,
   XCircle,
+  ArrowCounterClockwise,
 } from "@phosphor-icons/react"
 
 import {
@@ -396,13 +398,23 @@ export function AssignedScreen() {
 
 export function InboxScreen() {
   const data = useAppStore()
+  const [inboxTab, setInboxTab] = useState<"inbox" | "archived">("inbox")
   const notifications = [...data.notifications]
     .filter((notification) => notification.userId === data.currentUserId)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-  const activeId =
-    data.ui.activeInboxNotificationId ?? notifications[0]?.id ?? null
+  const visibleNotifications = notifications.filter((notification) =>
+    inboxTab === "inbox"
+      ? notification.archivedAt == null
+      : notification.archivedAt != null
+  )
+  const activeId = visibleNotifications.some(
+    (notification) => notification.id === data.ui.activeInboxNotificationId
+  )
+    ? data.ui.activeInboxNotificationId
+    : (visibleNotifications[0]?.id ?? null)
   const activeNotification =
-    notifications.find((notification) => notification.id === activeId) ?? null
+    visibleNotifications.find((notification) => notification.id === activeId) ??
+    null
   const activeChannelPostHref = activeNotification
     ? getChannelPostHref(data, activeNotification.entityId)
     : null
@@ -410,42 +422,78 @@ export function InboxScreen() {
     ? getConversationHref(data, activeNotification.entityId)
     : null
 
+  const updateActiveNotificationAfterMove = (notificationId: string) => {
+    if (activeId !== notificationId) {
+      return
+    }
+
+    const nextActiveNotification =
+      visibleNotifications.find(
+        (notification) => notification.id !== notificationId
+      ) ?? null
+
+    useAppStore
+      .getState()
+      .setActiveInboxNotification(nextActiveNotification?.id ?? null)
+  }
+
+  const archiveNotification = (notificationId: string) => {
+    updateActiveNotificationAfterMove(notificationId)
+    useAppStore.getState().archiveNotification(notificationId)
+  }
+
+  const unarchiveNotification = (notificationId: string) => {
+    updateActiveNotificationAfterMove(notificationId)
+    useAppStore.getState().unarchiveNotification(notificationId)
+  }
+
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ScreenHeader title="Inbox" />
       <div className="flex min-h-0 flex-1">
         {/* Notification list */}
-        <div className="w-[22rem] shrink-0 border-r">
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <span className="text-sm font-medium">Inbox</span>
-            <div className="flex items-center gap-1">
-              <Button size="icon-xs" variant="ghost">
-                <FadersHorizontal className="size-3.5" />
-              </Button>
-              <Button size="icon-xs" variant="ghost">
-                <GearSix className="size-3.5" />
-              </Button>
-            </div>
+        <div className="flex min-h-0 w-[22rem] shrink-0 flex-col border-r">
+          <div className="flex items-center gap-1 border-b px-4 py-2">
+            {(["inbox", "archived"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={cn(
+                  "h-6 rounded-sm px-2 text-xs transition-colors",
+                  tab === inboxTab
+                    ? "bg-accent font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setInboxTab(tab)}
+              >
+                {tab === "inbox" ? "Inbox" : "Archived"}
+              </button>
+            ))}
           </div>
-          <ScrollArea className="h-full">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col">
-              {notifications.map((notification) => (
-                <button
+              {visibleNotifications.map((notification) => (
+                <div
                   key={notification.id}
                   className={cn(
-                    "border-b px-4 py-3 text-left transition-colors",
+                    "group flex items-start border-b transition-colors",
                     notification.id === activeId
                       ? "bg-accent"
                       : "hover:bg-accent/50"
                   )}
-                  onClick={() => {
-                    useAppStore
-                      .getState()
-                      .setActiveInboxNotification(notification.id)
-                    useAppStore.getState().markNotificationRead(notification.id)
-                  }}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 px-4 py-3 text-left"
+                    onClick={() => {
+                      useAppStore
+                        .getState()
+                        .setActiveInboxNotification(notification.id)
+                      useAppStore
+                        .getState()
+                        .markNotificationRead(notification.id)
+                    }}
+                  >
                     <div className="flex min-w-0 flex-col gap-0.5">
                       <span
                         className={cn(
@@ -462,29 +510,81 @@ export function InboxScreen() {
                         )}
                       </span>
                     </div>
+                  </button>
+                  <div className="flex shrink-0 items-start gap-1 px-2 py-3">
                     {notification.readAt ? null : (
-                      <div className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
+                      <div className="mt-1.5 size-2 rounded-full bg-primary" />
                     )}
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className={cn(
+                        "text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100",
+                        notification.id === activeId && "opacity-100"
+                      )}
+                      onClick={() => {
+                        if (notification.archivedAt) {
+                          unarchiveNotification(notification.id)
+                          return
+                        }
+
+                        archiveNotification(notification.id)
+                      }}
+                      aria-label={
+                        notification.archivedAt
+                          ? "Unarchive notification"
+                          : "Archive notification"
+                      }
+                    >
+                      {notification.archivedAt ? (
+                        <ArrowCounterClockwise className="size-3.5" />
+                      ) : (
+                        <Archive className="size-3.5" />
+                      )}
+                    </Button>
                   </div>
-                </button>
+                </div>
               ))}
-              {notifications.length === 0 && (
+              {visibleNotifications.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 text-sm text-muted-foreground">
-                  No notifications
+                  {inboxTab === "inbox"
+                    ? "No inbox notifications"
+                    : "No archived notifications"}
                 </div>
               )}
             </div>
           </ScrollArea>
         </div>
         {/* Detail pane */}
-        <div className="min-w-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {activeNotification ? (
             <div className="p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <Badge variant="outline">{activeNotification.type}</Badge>
-                <Badge variant="secondary">
-                  {activeNotification.entityType}
-                </Badge>
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{activeNotification.type}</Badge>
+                  <Badge variant="secondary">
+                    {activeNotification.entityType}
+                  </Badge>
+                  {activeNotification.archivedAt ? (
+                    <Badge variant="secondary">Archived</Badge>
+                  ) : null}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    activeNotification.archivedAt
+                      ? unarchiveNotification(activeNotification.id)
+                      : archiveNotification(activeNotification.id)
+                  }
+                >
+                  {activeNotification.archivedAt ? (
+                    <ArrowCounterClockwise className="size-3.5" />
+                  ) : (
+                    <Archive className="size-3.5" />
+                  )}
+                  {activeNotification.archivedAt ? "Unarchive" : "Archive"}
+                </Button>
               </div>
               <p className="mb-4 max-w-2xl text-sm leading-7">
                 {activeNotification.message}
@@ -545,6 +645,15 @@ export function InboxScreen() {
                     : "Unread"}
                 </span>
                 <span>
+                  Archived:{" "}
+                  {activeNotification.archivedAt
+                    ? format(
+                        new Date(activeNotification.archivedAt),
+                        "MMM d, h:mm a"
+                      )
+                    : "In inbox"}
+                </span>
+                <span>
                   Email:{" "}
                   {activeNotification.emailedAt
                     ? format(
@@ -599,7 +708,7 @@ export function ProjectsScreen({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ScreenHeader
         title={title}
         actions={
@@ -647,73 +756,75 @@ export function ProjectsScreen({
           disabled={!editable}
         />
       ) : null}
-      {projects.length === 0 ? (
-        <MissingState title="No projects yet" />
-      ) : layout === "board" ? (
-        <ProjectBoard data={data} projects={projects} />
-      ) : (
-        <div className="flex flex-col">
-          {projects.map((project, index) => {
-            const progress = getProjectProgress(data, project.id)
-            return (
-              <Link
-                key={project.id}
-                className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
-                href={getProjectHref(data, project) ?? "/workspace/projects"}
-              >
-                {/* Health dot */}
-                <div
-                  className={cn(
-                    "size-2 shrink-0 rounded-full",
-                    project.health === "on-track"
-                      ? "bg-green-500"
-                      : project.health === "at-risk"
-                        ? "bg-yellow-500"
-                        : project.health === "off-track"
-                          ? "bg-red-500"
-                          : "bg-muted-foreground/30"
-                  )}
-                />
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {projects.length === 0 ? (
+          <MissingState title="No projects yet" />
+        ) : layout === "board" ? (
+          <ProjectBoard data={data} projects={projects} />
+        ) : (
+          <div className="flex flex-col">
+            {projects.map((project, index) => {
+              const progress = getProjectProgress(data, project.id)
+              return (
+                <Link
+                  key={project.id}
+                  className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
+                  href={getProjectHref(data, project) ?? "/workspace/projects"}
+                >
+                  {/* Health dot */}
+                  <div
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      project.health === "on-track"
+                        ? "bg-green-500"
+                        : project.health === "at-risk"
+                          ? "bg-yellow-500"
+                          : project.health === "off-track"
+                            ? "bg-red-500"
+                            : "bg-muted-foreground/30"
+                    )}
+                  />
 
-                {/* Name */}
-                <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:underline">
-                  {project.name}
-                </span>
-
-                {/* Progress bar */}
-                <div className="flex w-20 shrink-0 items-center gap-2">
-                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary/60 transition-all"
-                      style={{ width: `${progress.percent}%` }}
-                    />
-                  </div>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">
-                    {progress.percent}%
+                  {/* Name */}
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:underline">
+                    {project.name}
                   </span>
-                </div>
 
-                {/* Priority */}
-                <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                  {priorityMeta[project.priority].label}
-                </span>
+                  {/* Progress bar */}
+                  <div className="flex w-20 shrink-0 items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary/60 transition-all"
+                        style={{ width: `${progress.percent}%` }}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {progress.percent}%
+                    </span>
+                  </div>
 
-                {/* Lead */}
-                <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
-                  {getUser(data, project.leadId)?.name ?? "—"}
-                </span>
+                  {/* Priority */}
+                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                    {priorityMeta[project.priority].label}
+                  </span>
 
-                {/* Target date */}
-                <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                  {project.targetDate
-                    ? format(new Date(project.targetDate), "MMM d")
-                    : "—"}
-                </span>
-              </Link>
-            )
-          })}
-        </div>
-      )}
+                  {/* Lead */}
+                  <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
+                    {getUser(data, project.leadId)?.name ?? "—"}
+                  </span>
+
+                  {/* Target date */}
+                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                    {project.targetDate
+                      ? format(new Date(project.targetDate), "MMM d")
+                      : "—"}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -755,7 +866,7 @@ export function ViewsScreen({
   })
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ScreenHeader
         title={title}
         actions={
@@ -771,79 +882,81 @@ export function ViewsScreen({
           </div>
         }
       />
-      {views.length === 0 ? (
-        <MissingState title="No saved views yet" />
-      ) : layout === "board" ? (
-        <SavedViewsBoard
-          views={orderedViews}
-          showDescriptions={showDescriptions}
-        />
-      ) : (
-        <div className="px-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Name
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Entity
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Layout
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Grouping
-                </TableHead>
-                <TableHead className="text-xs font-normal text-muted-foreground">
-                  Sharing
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {orderedViews.map((view) => (
-                <TableRow key={view.id}>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <Link
-                        className="flex items-center gap-2 text-sm font-medium hover:underline"
-                        href={getViewHref(view)}
-                      >
-                        <span className="text-muted-foreground">
-                          {getEntityKindIcon(view.entityKind)}
-                        </span>
-                        {view.name}
-                      </Link>
-                      {showDescriptions ? (
-                        <span className="text-xs text-muted-foreground">
-                          {view.description}
-                        </span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatEntityKind(view.entityKind)}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {view.layout}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {view.grouping}
-                    {view.subGrouping ? ` / ${view.subGrouping}` : ""}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {view.isShared
-                      ? scopeType === "workspace"
-                        ? "Workspace"
-                        : "Team"
-                      : "Personal"}
-                  </TableCell>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {views.length === 0 ? (
+          <MissingState title="No saved views yet" />
+        ) : layout === "board" ? (
+          <SavedViewsBoard
+            views={orderedViews}
+            showDescriptions={showDescriptions}
+          />
+        ) : (
+          <div className="px-6">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Name
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Entity
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Layout
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Grouping
+                  </TableHead>
+                  <TableHead className="text-xs font-normal text-muted-foreground">
+                    Sharing
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+              </TableHeader>
+              <TableBody>
+                {orderedViews.map((view) => (
+                  <TableRow key={view.id}>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <Link
+                          className="flex items-center gap-2 text-sm font-medium hover:underline"
+                          href={getViewHref(view)}
+                        >
+                          <span className="text-muted-foreground">
+                            {getEntityKindIcon(view.entityKind)}
+                          </span>
+                          {view.name}
+                        </Link>
+                        {showDescriptions ? (
+                          <span className="text-xs text-muted-foreground">
+                            {view.description}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatEntityKind(view.entityKind)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {view.layout}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {view.grouping}
+                      {view.subGrouping ? ` / ${view.subGrouping}` : ""}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {view.isShared
+                        ? scopeType === "workspace"
+                          ? "Workspace"
+                          : "Team"
+                        : "Personal"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -909,7 +1022,7 @@ export function DocsScreen({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {isWorkspaceDocs ? (
         <div className={SCREEN_HEADER_CLASS_NAME}>
           <div className="flex min-w-0 items-center gap-2">
@@ -971,52 +1084,56 @@ export function DocsScreen({
         input={dialogInput}
         disabled={!editable}
       />
-      {documents.length === 0 ? (
-        <MissingState title={emptyTitle} />
-      ) : layout === "board" ? (
-        <DocumentBoard data={data} documents={documents} />
-      ) : (
-        <div className="flex flex-col divide-y px-6">
-          {documents.map((document) => {
-            const preview = extractTextContent(document.content)
-            const author = getUser(
-              data,
-              document.updatedBy ?? document.createdBy
-            )
-            return (
-              <Link
-                key={document.id}
-                className="group flex items-start gap-3 rounded-md px-3 py-3.5 transition-colors hover:bg-accent/40"
-                href={`/docs/${document.id}`}
-              >
-                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-                  <FileText className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {document.title}
-                    </span>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {documents.length === 0 ? (
+          <MissingState title={emptyTitle} />
+        ) : layout === "board" ? (
+          <DocumentBoard data={data} documents={documents} />
+        ) : (
+          <div className="flex flex-col divide-y px-6">
+            {documents.map((document) => {
+              const preview = extractTextContent(document.content)
+              const author = getUser(
+                data,
+                document.updatedBy ?? document.createdBy
+              )
+              return (
+                <Link
+                  key={document.id}
+                  className="group flex items-start gap-3 rounded-md px-3 py-3.5 transition-colors hover:bg-accent/40"
+                  href={`/docs/${document.id}`}
+                >
+                  <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
+                    <FileText className="size-4" />
                   </div>
-                  {preview ? (
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                      {preview}
-                    </p>
-                  ) : null}
-                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span>{getDocumentContextLabel(data, document)}</span>
-                    <span>·</span>
-                    <span>{author?.name ?? "Unknown"}</span>
-                    <span>·</span>
-                    <span>{format(new Date(document.updatedAt), "MMM d")}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {document.title}
+                      </span>
+                    </div>
+                    {preview ? (
+                      <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                        {preview}
+                      </p>
+                    ) : null}
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span>{getDocumentContextLabel(data, document)}</span>
+                      <span>·</span>
+                      <span>{author?.name ?? "Unknown"}</span>
+                      <span>·</span>
+                      <span>
+                        {format(new Date(document.updatedAt), "MMM d")}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <ArrowSquareOut className="mt-1 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-              </Link>
-            )
-          })}
-        </div>
-      )}
+                  <ArrowSquareOut className="mt-1 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1076,7 +1193,7 @@ function ProjectBoard({
                   style={{ width: `${progress.percent}%` }}
                 />
               </div>
-              <span className="text-[10px] tabular-nums text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground tabular-nums">
                 {progress.percent}%
               </span>
             </div>
@@ -1493,7 +1610,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Breadcrumb header */}
       <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex items-center gap-2 text-sm">
@@ -1832,35 +1949,37 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore()
   const projectModel = getProjectDetailModel(data, projectId)
   const defaultProjectPresentation = projectModel?.project
-    ? projectModel.project.presentation ??
-      createDefaultProjectPresentationConfig(projectModel.project.templateType, {
-        layout: getTemplateDefaultsForTeam(
-          projectModel.team,
-          projectModel.project.templateType
-        ).defaultViewLayout,
-      })
+    ? (projectModel.project.presentation ??
+      createDefaultProjectPresentationConfig(
+        projectModel.project.templateType,
+        {
+          layout: getTemplateDefaultsForTeam(
+            projectModel.team,
+            projectModel.project.templateType
+          ).defaultViewLayout,
+        }
+      ))
     : null
   const initialProjectPresentation =
     defaultProjectPresentation ??
     createDefaultProjectPresentationConfig("software-delivery")
   const [propertiesOpen, setPropertiesOpen] = useState(true)
-  const [projectTab, setProjectTab] = useState<"overview" | "activity" | "issues">(
-    "overview"
-  )
-  const [projectItemsLayout, setProjectItemsLayout] =
-    useState<ViewDefinition["layout"]>(() => initialProjectPresentation.layout)
+  const [projectTab, setProjectTab] = useState<
+    "overview" | "activity" | "issues"
+  >("overview")
+  const [projectItemsLayout, setProjectItemsLayout] = useState<
+    ViewDefinition["layout"]
+  >(() => initialProjectPresentation.layout)
   const [projectItemsGrouping, setProjectItemsGrouping] = useState<GroupField>(
     () => initialProjectPresentation.grouping
   )
   const [projectItemsSubGrouping, setProjectItemsSubGrouping] =
     useState<GroupField | null>(null)
-  const [projectItemsOrdering, setProjectItemsOrdering] = useState<
-    OrderingField
-  >(() => initialProjectPresentation.ordering)
-  const [projectItemsFilters, setProjectItemsFilters] =
-    useState<ViewDefinition["filters"]>(() =>
-      cloneViewFilters(initialProjectPresentation.filters)
-    )
+  const [projectItemsOrdering, setProjectItemsOrdering] =
+    useState<OrderingField>(() => initialProjectPresentation.ordering)
+  const [projectItemsFilters, setProjectItemsFilters] = useState<
+    ViewDefinition["filters"]
+  >(() => cloneViewFilters(initialProjectPresentation.filters))
   const [projectItemsDisplayProps, setProjectItemsDisplayProps] = useState<
     DisplayProperty[]
   >(() => [...initialProjectPresentation.displayProps])
@@ -1998,7 +2117,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <SidebarTrigger className="size-5 shrink-0" />
@@ -2047,19 +2166,19 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 >
                   <TabsTrigger
                     value="overview"
-                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
                   >
                     Overview
                   </TabsTrigger>
                   <TabsTrigger
                     value="activity"
-                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
                   >
                     Activity
                   </TabsTrigger>
                   <TabsTrigger
                     value="issues"
-                    className="flex-none rounded-none border-0 px-3 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
                   >
                     Items
                   </TabsTrigger>
@@ -2067,7 +2186,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 <div
                   className={cn(
                     "flex items-center gap-1 pb-1",
-                    projectTab !== "issues" && "invisible pointer-events-none"
+                    projectTab !== "issues" && "pointer-events-none invisible"
                   )}
                 >
                   <FilterPopover
@@ -2140,7 +2259,10 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 {milestone.targetDate
-                                  ? format(new Date(milestone.targetDate), "MMM d")
+                                  ? format(
+                                      new Date(milestone.targetDate),
+                                      "MMM d"
+                                    )
                                   : "No date"}
                               </span>
                             </div>
@@ -2323,7 +2445,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Breadcrumb header */}
       <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -2429,7 +2551,7 @@ function WorkSurface({
       : filteredItems
 
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Screen header with tabs */}
       <div className={SCREEN_HEADER_CLASS_NAME}>
         <div className="flex min-w-0 items-center gap-2">
@@ -2482,7 +2604,7 @@ function WorkSurface({
       ) : null}
 
       {/* View content */}
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {activeView ? (
           <>
             {activeView.layout === "board" ? (
@@ -2632,9 +2754,7 @@ function FilterPopover({
                   key={priority}
                   label={meta.label}
                   active={view.filters.priority.includes(priority as Priority)}
-                  onClick={() =>
-                    handleToggleFilterValue("priority", priority)
-                  }
+                  onClick={() => handleToggleFilterValue("priority", priority)}
                 />
               ))}
             </div>
@@ -3135,8 +3255,8 @@ function BoardView({
                 className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                 onClick={() =>
                   useAppStore
-                  .getState()
-                  .toggleViewHiddenValue(view.id, "groups", groupName)
+                    .getState()
+                    .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
                 {getGroupValueLabel(view.grouping, groupName)}
@@ -3232,15 +3352,17 @@ function ListView({
                             {getGroupValueLabel(view.subGrouping, subgroupName)}
                           </div>
                         ) : null}
-                        {buildNestedListRows(subItems).map(({ item, depth }) => (
-                          <ListRow
-                            key={item.id}
-                            data={data}
-                            item={item}
-                            displayProps={view.displayProps}
-                            depth={depth}
-                          />
-                        ))}
+                        {buildNestedListRows(subItems).map(
+                          ({ item, depth }) => (
+                            <ListRow
+                              key={item.id}
+                              data={data}
+                              item={item}
+                              displayProps={view.displayProps}
+                              depth={depth}
+                            />
+                          )
+                        )}
                       </div>
                     )
                   }
@@ -4594,7 +4716,10 @@ function CreateProjectDialog({
   const templateType = getDefaultTemplateTypeForTeamExperience(
     settingsTeam?.settings.experience
   )
-  const templateDefaults = getTemplateDefaultsForTeam(settingsTeam, templateType)
+  const templateDefaults = getTemplateDefaultsForTeam(
+    settingsTeam,
+    templateType
+  )
   const teamMembers = settingsTeam ? getTeamMembers(data, teamId) : []
   const teamStatuses = getStatusOrderForTeam(settingsTeam)
   const availableLabels = [...data.labels].sort((left, right) =>
@@ -4719,7 +4844,11 @@ function CreateProjectDialog({
           </div>
 
           <div className="mt-5 flex items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -4849,17 +4978,17 @@ function ProjectPresentationPopover({
           <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
             Configuration
           </div>
-            <ConfigSelect
-              label="Grouping"
-              value={presentation.grouping}
-              options={groupingOptions.map((option) => ({
-                value: option,
-                label: getGroupFieldOptionLabel(option as GroupField),
-              }))}
-              onValueChange={(value) =>
-                onUpdatePresentation({ grouping: value as GroupField })
-              }
-            />
+          <ConfigSelect
+            label="Grouping"
+            value={presentation.grouping}
+            options={groupingOptions.map((option) => ({
+              value: option,
+              label: getGroupFieldOptionLabel(option as GroupField),
+            }))}
+            onValueChange={(value) =>
+              onUpdatePresentation({ grouping: value as GroupField })
+            }
+          />
           <ConfigSelect
             label="Ordering"
             value={presentation.ordering}
@@ -5367,9 +5496,7 @@ function CreateWorkItemDialog({
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [status, setStatus] = useState<WorkStatus>(
-    teamStatuses.includes("todo")
-      ? "todo"
-      : (teamStatuses[0] ?? "backlog")
+    teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
   )
   const [priority, setPriority] = useState<Priority>(
     getTemplateDefaultsForTeam(
@@ -5386,7 +5513,8 @@ function CreateWorkItemDialog({
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
-  const activeTemplateType = selectedProject?.templateType ?? defaultTemplateType
+  const activeTemplateType =
+    selectedProject?.templateType ?? defaultTemplateType
   const availableItemTypes = getCreateDialogItemTypes(activeTemplateType)
   const fallbackType = getPreferredCreateDialogType(activeTemplateType)
   const selectedType =
@@ -5412,7 +5540,7 @@ function CreateWorkItemDialog({
     selectedLabels.length === 0
       ? "Labels"
       : selectedLabels.length === 1
-        ? selectedLabels[0]?.name ?? "Labels"
+        ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
 
   function toggleLabel(labelId: string) {
@@ -5717,7 +5845,11 @@ function CreateWorkItemDialog({
           ) : null}
 
           <div className="mt-5 flex items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
@@ -5899,7 +6031,7 @@ function CollectionDisplaySettingsPopover({
 }
 
 const SCREEN_HEADER_CLASS_NAME =
-  "flex min-h-10 items-center justify-between gap-2 border-b px-4 py-2"
+  "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2"
 
 function HeaderTitle({
   icon,
@@ -6257,7 +6389,7 @@ function FilterChip({
 
 function MissingState({ title }: { title: string }) {
   return (
-    <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
       {title}
     </div>
   )

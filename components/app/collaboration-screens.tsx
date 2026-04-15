@@ -57,7 +57,13 @@ import {
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import {
   DropdownMenu,
@@ -147,7 +153,7 @@ function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="flex h-full min-h-[20rem] flex-col items-center justify-center gap-3 p-6 text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
       <div className="flex size-10 items-center justify-center rounded-full bg-muted">
         <Hash className="size-5 text-muted-foreground" />
       </div>
@@ -1229,6 +1235,13 @@ function CreateWorkspaceChatDialog({
       }}
     >
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Create workspace chat</DialogTitle>
+          <DialogDescription>
+            Select people to start a direct message or create a group chat.
+          </DialogDescription>
+        </DialogHeader>
+
         {/* To field */}
         <div className="flex items-center gap-2 border-b px-4 py-3">
           <span className="shrink-0 text-sm text-muted-foreground">To:</span>

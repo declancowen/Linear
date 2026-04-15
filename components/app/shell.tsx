@@ -141,7 +141,9 @@ export function AppShell({ children }: AppShellProps) {
   const data = useAppStore()
   const unread = data.notifications.filter(
     (notification) =>
-      notification.userId === data.currentUserId && notification.readAt === null
+      notification.userId === data.currentUserId &&
+      notification.readAt === null &&
+      notification.archivedAt == null
   ).length
   const workspace = getCurrentWorkspace(data)
   const currentUser = getCurrentUser(data)
@@ -150,20 +152,22 @@ export function AppShell({ children }: AppShellProps) {
     workspace?.logoUrl
   )
   const currentUserAvatarImageSrc = resolveImageAssetSource(
-    currentUser.avatarImageUrl,
-    currentUser.avatarUrl
+    currentUser?.avatarImageUrl,
+    currentUser?.avatarUrl
   )
-  const pendingInviteCount = data.invites.filter((invite) => {
-    if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
-      return false
-    }
+  const pendingInviteCount = currentUser
+    ? data.invites.filter((invite) => {
+        if (invite.email.toLowerCase() !== currentUser.email.toLowerCase()) {
+          return false
+        }
 
-    if (invite.acceptedAt || invite.declinedAt) {
-      return false
-    }
+        if (invite.acceptedAt || invite.declinedAt) {
+          return false
+        }
 
-    return true
-  }).length
+        return true
+      }).length
+    : 0
   const teams = getAccessibleTeams(data)
 
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -204,6 +208,14 @@ export function AppShell({ children }: AppShellProps) {
       }
       return next
     })
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading workspace...
+      </div>
+    )
   }
 
   return (
@@ -376,30 +388,12 @@ export function AppShell({ children }: AppShellProps) {
                     label="Views"
                     active={pathname.startsWith("/workspace/views")}
                   />
-                  <SidebarMenuItem>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <SidebarMenuButton>
-                          <DotsThree />
-                          <span>More</span>
-                        </SidebarMenuButton>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-48">
-                        <DropdownMenuItem asChild>
-                          <Link href="/workspace/search">
-                            <MagnifyingGlass />
-                            Search
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/workspace/reports">
-                            <Kanban />
-                            Reports
-                          </Link>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </SidebarMenuItem>
+                  <SidebarLink
+                    href="/workspace/search"
+                    icon={<MagnifyingGlass />}
+                    label="Search"
+                    active={pathname.startsWith("/workspace/search")}
+                  />
                 </SidebarMenu>
               </SidebarGroupContent>
             ) : null}
@@ -670,7 +664,9 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {children}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )
@@ -845,6 +841,7 @@ function TeamEditorFields({
   surfaceDisableReasons,
   disabled = false,
   canChangeExperience = false,
+  showJoinCode = true,
   onExperienceChange,
   onRegenerateJoinCode,
   joinCodeReadonlyLabel = "Generated automatically after the team is created.",
@@ -867,6 +864,7 @@ function TeamEditorFields({
   surfaceDisableReasons: TeamSurfaceDisableReasons
   disabled?: boolean
   canChangeExperience?: boolean
+  showJoinCode?: boolean
   onExperienceChange?: (experience: TeamExperienceType) => void
   onRegenerateJoinCode?: (() => Promise<void>) | null
   joinCodeReadonlyLabel?: string
@@ -993,39 +991,45 @@ function TeamEditorFields({
                 Used in team discovery and sidebars.
               </FieldDescription>
             </Field>
-            <Field>
-              <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
-              <FieldContent>
-                <div className="flex gap-2">
-                  <Input
-                    id="team-join-code"
-                    value={joinCode || "Generated on create"}
-                    readOnly
-                  />
-                  {joinCode ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleCopyJoinCode()}
-                    >
-                      {copiedJoinCode === joinCode ? <Check /> : <CopySimple />}
-                      {copiedJoinCode === joinCode ? "Copied" : "Copy"}
-                    </Button>
-                  ) : null}
-                  {onRegenerateJoinCode ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void onRegenerateJoinCode()}
-                    >
-                      <ArrowsClockwise />
-                      Regenerate
-                    </Button>
-                  ) : null}
-                </div>
-              </FieldContent>
-              <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
-            </Field>
+            {showJoinCode ? (
+              <Field>
+                <FieldLabel htmlFor="team-join-code">Join code</FieldLabel>
+                <FieldContent>
+                  <div className="flex gap-2">
+                    <Input
+                      id="team-join-code"
+                      value={joinCode || "Generated on create"}
+                      readOnly
+                    />
+                    {joinCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleCopyJoinCode()}
+                      >
+                        {copiedJoinCode === joinCode ? (
+                          <Check />
+                        ) : (
+                          <CopySimple />
+                        )}
+                        {copiedJoinCode === joinCode ? "Copied" : "Copy"}
+                      </Button>
+                    ) : null}
+                    {onRegenerateJoinCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void onRegenerateJoinCode()}
+                      >
+                        <ArrowsClockwise />
+                        Regenerate
+                      </Button>
+                    ) : null}
+                  </div>
+                </FieldContent>
+                <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
+              </Field>
+            ) : null}
           </FieldGroup>
         </section>
 
@@ -1034,107 +1038,49 @@ function TeamEditorFields({
             Surfaces
           </h3>
           {experience === "community" ? (
-            <FieldGroup className="gap-4">
-              <Field>
-                <FieldContent>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        features.chat && !features.channels
-                          ? "border-primary/40 bg-primary/5"
-                          : "hover:bg-accent/40"
-                      )}
-                      disabled={
-                        disabled ||
-                        (savedFeatures.channels &&
-                          Boolean(surfaceDisableReasons.channels))
-                      }
-                      onClick={() =>
-                        setFeatures({
-                          issues: false,
-                          projects: false,
-                          views: false,
-                          docs: false,
-                          chat: true,
-                          channels: false,
-                        })
-                      }
-                    >
-                      <div className="text-sm font-medium">Chat only</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Real-time conversation.
+            <div className="divide-y">
+              {optionalFeatures.map((feature) => (
+                <div
+                  key={feature.key}
+                  className="flex items-center justify-between gap-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm">{feature.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {feature.description}
+                    </div>
+                    {savedFeatures[feature.key] &&
+                    surfaceDisableReasons[feature.key] ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {surfaceDisableReasons[feature.key]}
                       </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        !features.chat && features.channels
-                          ? "border-primary/40 bg-primary/5"
-                          : "hover:bg-accent/40"
-                      )}
-                      disabled={
-                        disabled ||
-                        (savedFeatures.chat &&
-                          Boolean(surfaceDisableReasons.chat))
-                      }
-                      onClick={() =>
-                        setFeatures({
-                          issues: false,
-                          projects: false,
-                          views: false,
-                          docs: false,
-                          chat: false,
-                          channels: true,
-                        })
-                      }
-                    >
-                      <div className="text-sm font-medium">Channel only</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Forum posts with threaded replies.
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        features.chat && features.channels
-                          ? "border-primary/40 bg-primary/5"
-                          : "hover:bg-accent/40"
-                      )}
-                      disabled={disabled}
-                      onClick={() =>
-                        setFeatures({
-                          issues: false,
-                          projects: false,
-                          views: false,
-                          docs: false,
-                          chat: true,
-                          channels: true,
-                        })
-                      }
-                    >
-                      <div className="text-sm font-medium">Chat + channel</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Enable both conversation modes.
-                      </div>
-                    </button>
+                    ) : null}
                   </div>
-                </FieldContent>
-                {savedFeatures.chat && surfaceDisableReasons.chat ? (
-                  <div className="text-xs text-muted-foreground">
-                    {surfaceDisableReasons.chat}
-                  </div>
-                ) : null}
-                {savedFeatures.channels && surfaceDisableReasons.channels ? (
-                  <div className="text-xs text-muted-foreground">
-                    {surfaceDisableReasons.channels}
-                  </div>
-                ) : null}
-              </Field>
-            </FieldGroup>
+                  <Switch
+                    checked={features[feature.key]}
+                    disabled={
+                      disabled ||
+                      (savedFeatures[feature.key] &&
+                        Boolean(surfaceDisableReasons[feature.key]))
+                    }
+                    onCheckedChange={(checked) =>
+                      setFeatures((current) => ({
+                        ...current,
+                        issues: false,
+                        projects: false,
+                        views: false,
+                        [feature.key]: checked,
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+              {!(features.docs || features.chat || features.channels) ? (
+                <div className="pt-3 text-xs text-muted-foreground">
+                  Enable at least one surface for community teams.
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -1255,7 +1201,10 @@ function TeamEditorFields({
               {workCopy.surfaceLabel}, projects, and views stay on for this team
               type.
             </p>
-            <p>Community spaces can enable chat, channel, or both.</p>
+            <p>
+              Community spaces can enable docs, chat, channel, or any
+              combination.
+            </p>
             <p>Docs remain optional for non-community teams.</p>
           </div>
         </section>
@@ -1317,6 +1266,7 @@ function CreateTeamDialog({
             savedFeatures={features}
             surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
             canChangeExperience
+            showJoinCode={false}
             onExperienceChange={(nextExperience) => {
               setExperience(nextExperience)
               setIcon(getDefaultTeamIconForExperience(nextExperience))
@@ -1756,23 +1706,41 @@ function ProfileDialog({
 }) {
   const data = useAppStore()
   const currentUser = getCurrentUser(data)
-  const [name, setName] = useState(currentUser.name)
-  const [title, setTitle] = useState(currentUser.title)
-  const [avatarUrl, setAvatarUrl] = useState(currentUser.avatarUrl)
-  const [email, setEmail] = useState(currentUser.email)
+  const [name, setName] = useState(currentUser?.name ?? "")
+  const [title, setTitle] = useState(currentUser?.title ?? "")
+  const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? "")
+  const [email, setEmail] = useState(currentUser?.email ?? "")
   const [emailMentions, setEmailMentions] = useState(
-    currentUser.preferences.emailMentions
+    currentUser?.preferences.emailMentions ?? false
   )
   const [emailAssignments, setEmailAssignments] = useState(
-    currentUser.preferences.emailAssignments
+    currentUser?.preferences.emailAssignments ?? false
   )
   const [emailDigest, setEmailDigest] = useState(
-    currentUser.preferences.emailDigest
+    currentUser?.preferences.emailDigest ?? false
   )
   const [changingEmail, setChangingEmail] = useState(false)
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
 
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
+    setName(currentUser.name)
+    setTitle(currentUser.title)
+    setAvatarUrl(currentUser.avatarUrl)
+    setEmail(currentUser.email)
+    setEmailMentions(currentUser.preferences.emailMentions)
+    setEmailAssignments(currentUser.preferences.emailAssignments)
+    setEmailDigest(currentUser.preferences.emailDigest)
+  }, [currentUser?.id])
+
   async function handleEmailChange() {
+    if (!currentUser) {
+      return
+    }
+
     if (email.trim().toLowerCase() === currentUser.email.toLowerCase()) {
       toast.error("Enter a different email address")
       return
@@ -1850,6 +1818,10 @@ function ProfileDialog({
     } finally {
       setSendingPasswordReset(false)
     }
+  }
+
+  if (!currentUser) {
+    return null
   }
 
   return (

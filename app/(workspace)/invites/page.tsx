@@ -1,5 +1,4 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
-import { LinkSimple } from "@phosphor-icons/react/dist/ssr"
 
 import { WorkspaceEntryJoinSection } from "@/components/app/workspace-entry-join-section"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
@@ -28,17 +27,11 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
     authContext?.memberships.map((entry) => entry.teamId) ?? []
 
   return (
-    <main className="flex w-full flex-col gap-6 px-6 py-8">
+    <main className="flex min-h-0 w-full flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">
       <header className="mx-auto w-full max-w-lg text-center">
-        <div className="flex items-center justify-center gap-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-          <LinkSimple className="size-3" />
-          Join workspace
-        </div>
-        <h1 className="mt-2 text-xl font-semibold tracking-tight">
-          Join a team
-        </h1>
+        <h1 className="text-xl font-semibold tracking-tight">Join a team</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Enter a 12-character code or open an invite.
+          Accept a pending invite or enter a team code.
         </p>
       </header>
 

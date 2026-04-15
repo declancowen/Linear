@@ -106,7 +106,7 @@ export function CreateTeamScreen() {
       ) : null}
 
       <div className="space-y-6">
-        <div>
+        <div className="space-y-10">
           <TeamEditorFields
             canChangeExperience
             disabled={!canCreateTeam}
@@ -114,6 +114,7 @@ export function CreateTeamScreen() {
             features={features}
             icon={icon}
             joinCode=""
+            showJoinCode={false}
             joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
             name={name}
             savedFeatures={features}

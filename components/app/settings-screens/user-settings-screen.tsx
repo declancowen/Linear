@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -26,9 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 
-import { ImageUploadControl, SettingsScaffold } from "./shared"
+import {
+  ImageUploadControl,
+  SettingsScaffold,
+  SettingsSection,
+  SettingsToggleRow,
+} from "./shared"
 import { getUserInitials, uploadSettingsImage } from "./utils"
 
 const themePreferenceOptions: Array<{
@@ -53,72 +57,18 @@ const themePreferenceOptions: Array<{
   },
 ]
 
-function UserSettingsSection({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description?: string
-  children: ReactNode
-}) {
-  return (
-    <section className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-          {title}
-        </h2>
-        {description ? (
-          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <div className="space-y-4">{children}</div>
-    </section>
-  )
-}
-
-function UserSettingsToggleRow({
-  title,
-  description,
-  checked,
-  onCheckedChange,
-}: {
-  title: string
-  description: string
-  checked: boolean
-  onCheckedChange: (checked: boolean) => void
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-1">
-      <div className="min-w-0 space-y-1">
-        <div className="text-sm font-medium">{title}</div>
-        <div className="text-sm leading-relaxed text-muted-foreground">
-          {description}
-        </div>
-      </div>
-      <Switch
-        checked={checked}
-        className="mt-0.5 shrink-0"
-        onCheckedChange={onCheckedChange}
-      />
-    </div>
-  )
-}
-
 export function UserSettingsScreen() {
   const router = useRouter()
   const { setTheme } = useTheme()
   const data = useAppStore()
   const currentUser = getCurrentUser(data)
   const avatarImageSrc = resolveImageAssetSource(
-    currentUser.avatarImageUrl,
-    currentUser.avatarUrl
+    currentUser?.avatarImageUrl,
+    currentUser?.avatarUrl
   )
-  const [name, setName] = useState(currentUser.name)
-  const [title, setTitle] = useState(currentUser.title)
-  const [avatarUrl, setAvatarUrl] = useState(currentUser.avatarUrl)
+  const [name, setName] = useState(currentUser?.name ?? "")
+  const [title, setTitle] = useState(currentUser?.title ?? "")
+  const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? "")
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(
     avatarImageSrc ?? null
   )
@@ -126,18 +76,18 @@ export function UserSettingsScreen() {
     string | undefined
   >(undefined)
   const [clearAvatarImage, setClearAvatarImage] = useState(false)
-  const [email, setEmail] = useState(currentUser.email)
+  const [email, setEmail] = useState(currentUser?.email ?? "")
   const [emailMentions, setEmailMentions] = useState(
-    currentUser.preferences.emailMentions
+    currentUser?.preferences.emailMentions ?? false
   )
   const [emailAssignments, setEmailAssignments] = useState(
-    currentUser.preferences.emailAssignments
+    currentUser?.preferences.emailAssignments ?? false
   )
   const [emailDigest, setEmailDigest] = useState(
-    currentUser.preferences.emailDigest
+    currentUser?.preferences.emailDigest ?? false
   )
   const [themePreference, setThemePreference] = useState<ThemePreference>(
-    currentUser.preferences.theme
+    currentUser?.preferences.theme ?? "system"
   )
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -155,6 +105,10 @@ export function UserSettingsScreen() {
   }, [avatarPreviewUrl])
 
   useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
     setName(currentUser.name)
     setTitle(currentUser.title)
     setAvatarUrl(currentUser.avatarUrl)
@@ -171,7 +125,7 @@ export function UserSettingsScreen() {
     setEmailAssignments(currentUser.preferences.emailAssignments)
     setEmailDigest(currentUser.preferences.emailDigest)
     setThemePreference(currentUser.preferences.theme)
-  }, [currentUser.id])
+  }, [currentUser?.id])
 
   async function handleAvatarUpload(file: File) {
     try {
@@ -190,6 +144,10 @@ export function UserSettingsScreen() {
   }
 
   async function handleEmailChange() {
+    if (!currentUser) {
+      return
+    }
+
     if (email.trim().toLowerCase() === currentUser.email.toLowerCase()) {
       toast.error("Enter a different email address")
       return
@@ -269,6 +227,10 @@ export function UserSettingsScreen() {
   }
 
   async function handleSave() {
+    if (!currentUser) {
+      return
+    }
+
     try {
       setSaving(true)
       const response = await fetch("/api/profile", {
@@ -330,6 +292,19 @@ export function UserSettingsScreen() {
     }
   }
 
+  if (!currentUser) {
+    return (
+      <SettingsScaffold
+        title="User settings"
+        subtitle="Personal profile, notifications, and account access"
+      >
+        <div className="flex min-h-[240px] items-center justify-center text-sm text-muted-foreground">
+          Loading profile...
+        </div>
+      </SettingsScaffold>
+    )
+  }
+
   return (
     <SettingsScaffold
       title="User settings"
@@ -341,9 +316,9 @@ export function UserSettingsScreen() {
       }
     >
       <div className="max-w-2xl space-y-10">
-        <UserSettingsSection
+        <SettingsSection
           title="Profile photo"
-          description="This image appears anywhere your profile is shown in the workspace."
+          description="Shown wherever your profile appears in the workspace."
         >
           <ImageUploadControl
             imageSrc={avatarPreviewUrl}
@@ -362,9 +337,9 @@ export function UserSettingsScreen() {
             title="Profile photo"
             uploading={uploadingAvatar}
           />
-        </UserSettingsSection>
+        </SettingsSection>
 
-        <UserSettingsSection
+        <SettingsSection
           title="Identity"
           description="Update how your name and role appear across the app."
         >
@@ -403,35 +378,35 @@ export function UserSettingsScreen() {
               </FieldDescription>
             </Field>
           </FieldGroup>
-        </UserSettingsSection>
+        </SettingsSection>
 
-        <UserSettingsSection
+        <SettingsSection
           title="Notifications"
           description="Control which email events reach you outside the app."
         >
           <div className="space-y-4">
-            <UserSettingsToggleRow
+            <SettingsToggleRow
               checked={emailMentions}
               description="Send an email when someone mentions you."
               title="Email mentions"
               onCheckedChange={setEmailMentions}
             />
-            <UserSettingsToggleRow
+            <SettingsToggleRow
               checked={emailAssignments}
               description="Send an email when work is assigned to you."
               title="Email assignments"
               onCheckedChange={setEmailAssignments}
             />
-            <UserSettingsToggleRow
+            <SettingsToggleRow
               checked={emailDigest}
               description="Include unread notifications in a digest email."
               title="Email digest"
               onCheckedChange={setEmailDigest}
             />
           </div>
-        </UserSettingsSection>
+        </SettingsSection>
 
-        <UserSettingsSection
+        <SettingsSection
           title="Appearance"
           description="Choose how the interface theme should behave."
         >
@@ -468,9 +443,9 @@ export function UserSettingsScreen() {
               </FieldDescription>
             </Field>
           </FieldGroup>
-        </UserSettingsSection>
+        </SettingsSection>
 
-        <UserSettingsSection
+        <SettingsSection
           title="Account email"
           description="Changing your email starts a WorkOS verification flow and signs you out when it completes."
         >
@@ -487,7 +462,7 @@ export function UserSettingsScreen() {
               </FieldContent>
             </Field>
           </FieldGroup>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 pt-1">
             <Button
               type="button"
               variant="outline"
@@ -505,7 +480,7 @@ export function UserSettingsScreen() {
               {sendingPasswordReset ? "Sending..." : "Send password reset"}
             </Button>
           </div>
-        </UserSettingsSection>
+        </SettingsSection>
       </div>
     </SettingsScaffold>
   )

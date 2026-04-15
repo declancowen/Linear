@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import {
@@ -42,6 +42,18 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     team?.settings.features ?? getTeamFeatureSettings(team)
   )
 
+  useEffect(() => {
+    setName(team?.name ?? "")
+    setIcon(
+      normalizeTeamIconToken(
+        team?.icon,
+        team?.settings.experience ?? "software-development"
+      )
+    )
+    setSummary(team?.settings.summary ?? "")
+    setFeatures(team?.settings.features ?? getTeamFeatureSettings(team))
+  }, [team?.id])
+
   if (!team) {
     return (
       <SettingsScaffold
@@ -67,7 +79,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   return (
     <SettingsScaffold
       title="Team settings"
-      subtitle=""
+      subtitle="Identity, team type, and surfaces"
       footer={
         <Button
           disabled={!canManageTeam || saving}
@@ -93,7 +105,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         </Button>
       }
     >
-      <div className="space-y-6">
+      <div className="max-w-3xl space-y-10">
         {!canManageTeam ? (
           <Card className="border-dashed shadow-none">
             <CardHeader>
@@ -127,6 +139,26 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
           summary={summary}
           surfaceDisableReasons={surfaceDisableReasons}
         />
+
+        <section className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4">
+          <div className="space-y-1">
+            <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
+              Danger zone
+            </h2>
+          </div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Delete team</div>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Permanently remove this team and all associated data. This
+                action cannot be undone.
+              </p>
+            </div>
+            <Button type="button" variant="destructive" disabled>
+              Delete team
+            </Button>
+          </div>
+        </section>
       </div>
     </SettingsScaffold>
   )

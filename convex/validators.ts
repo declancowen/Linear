@@ -483,6 +483,7 @@ export const notificationFields = {
   actorId: v.string(),
   message: v.string(),
   readAt: nullableString,
+  archivedAt: v.optional(nullableString),
   emailedAt: nullableString,
   createdAt: v.string(),
 }

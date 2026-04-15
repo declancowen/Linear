@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { teamDetailsSchema } from "@/lib/domain/types"
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { updateTeamDetailsServer } from "@/lib/server/convex"
+import { deleteTeamServer, updateTeamDetailsServer } from "@/lib/server/convex"
 
 export async function PATCH(
   request: NextRequest,
@@ -45,6 +45,46 @@ export async function PATCH(
       {
         error:
           error instanceof Error ? error.message : "Failed to update team details",
+      },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ teamId: string }> }
+) {
+  const session = await withAuth()
+
+  if (!session.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
+    const { teamId } = await params
+    const { ensuredUser } = await ensureAuthenticatedAppContext(
+      session.user,
+      session.organizationId
+    )
+
+    const result = await deleteTeamServer({
+      currentUserId: ensuredUser.userId,
+      teamId,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      teamId: result?.teamId ?? teamId,
+      workspaceId: result?.workspaceId ?? null,
+      deletedUserIds: result?.deletedUserIds ?? [],
+    })
+  } catch (error) {
+    console.error(error)
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to delete team",
       },
       { status: 500 }
     )

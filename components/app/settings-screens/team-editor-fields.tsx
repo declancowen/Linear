@@ -4,29 +4,46 @@ import { useEffect, useRef, useState } from "react"
 import {
   ArrowsClockwise,
   Check,
+  CheckCircle,
   CopySimple,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
+  getDefaultTeamIconForExperience,
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   getWorkSurfaceCopy,
   normalizeTeamIconToken,
   teamExperienceMeta,
   teamExperienceTypes,
+  teamFeatureMeta,
   teamIconMeta,
-  type TeamFeatureSettings,
+  teamIconTokens,
   type TeamExperienceType,
+  type TeamFeatureSettings,
 } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { Button } from "@/components/ui/button"
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-import { SettingsRow, SettingsSection } from "./shared"
+import { SettingsSection, SettingsToggleRow } from "./shared"
 
 export type TeamSurfaceDisableReasons = {
   docs: string | null
@@ -59,6 +76,7 @@ type TeamEditorFieldsProps = {
   surfaceDisableReasons: TeamSurfaceDisableReasons
   canChangeExperience?: boolean
   disabled?: boolean
+  showJoinCode?: boolean
   onExperienceChange?: (experience: TeamExperienceType) => void
   onRegenerateJoinCode?: (() => Promise<void>) | null
   joinCodeReadonlyLabel?: string
@@ -72,24 +90,40 @@ export function TeamEditorFields({
   experience,
   features,
   setName,
-  setIcon: _setIcon,
+  setIcon,
   setSummary,
   setFeatures,
   savedFeatures,
   surfaceDisableReasons,
   canChangeExperience = false,
   disabled = false,
+  showJoinCode = true,
   onExperienceChange,
   onRegenerateJoinCode,
-  joinCodeReadonlyLabel:
-    _joinCodeReadonlyLabel = "Generated automatically after the team is created.",
+  joinCodeReadonlyLabel = "Generated automatically after creation.",
 }: TeamEditorFieldsProps) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
   const workCopy = getWorkSurfaceCopy(experience)
-  const coreSurfaceItems = [
-    { key: "issues", label: workCopy.surfaceLabel },
-    { key: "projects", label: "Projects" },
-    { key: "views", label: "Views" },
+  const coreSurfaceItems: Array<{
+    key: "issues" | "projects" | "views"
+    label: string
+    description: string
+  }> = [
+    {
+      key: "issues",
+      label: workCopy.surfaceLabel,
+      description: teamFeatureMeta.issues.description,
+    },
+    {
+      key: "projects",
+      label: "Projects",
+      description: teamFeatureMeta.projects.description,
+    },
+    {
+      key: "views",
+      label: "Views",
+      description: teamFeatureMeta.views.description,
+    },
   ]
   const coreWorkModel = getDefaultWorkItemTypesForTeamExperience(experience)
     .map((itemType) => getDisplayLabelForWorkItemType(itemType, experience))
@@ -100,17 +134,17 @@ export function TeamEditorFields({
     {
       key: "docs" as const,
       label: "Docs",
-      description: "Long-form team documents and collaborative writing.",
+      description: teamFeatureMeta.docs.description,
     },
     {
       key: "chat" as const,
       label: "Chat",
-      description: "Real-time team conversation and quick coordination.",
+      description: teamFeatureMeta.chat.description,
     },
     {
       key: "channels" as const,
       label: "Channel",
-      description: "Shared forum-style posts with replies for the full team.",
+      description: teamFeatureMeta.channels.description,
     },
   ]
 
@@ -147,81 +181,131 @@ export function TeamEditorFields({
 
   return (
     <>
-      <SettingsSection title="Identity">
-        <div className="flex items-center gap-3 py-2">
-          <div className="w-24 shrink-0">
-            <span className="text-sm">Name</span>
-          </div>
-          <div className="min-w-0 flex-[7]">
-            <Input
-              id="team-name"
-              className="h-8 w-full text-xs"
-              disabled={disabled}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <span className="shrink-0 text-sm text-muted-foreground">Icon</span>
-          <div className="min-w-0 flex-[3]">
-            <div className="flex h-8 w-full items-center rounded-md border border-input bg-background px-3 text-xs">
-              <div className="flex items-center gap-2">
-                <TeamIconGlyph icon={selectedIcon} className="size-3.5" />
-                <span>{teamIconMeta[selectedIcon].label}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <SettingsRow label="Summary">
-          <Textarea
-            id="team-summary"
-            className="h-20 w-full resize-none text-xs"
-            disabled={disabled}
-            value={summary}
-            onChange={(event) => setSummary(event.target.value)}
-          />
-        </SettingsRow>
-        <SettingsRow label="Join code">
-          <div className="flex items-center gap-1.5">
-            <code className="rounded bg-muted/50 px-2 py-1 font-mono text-xs">
-              {joinCode || "Generated on create"}
-            </code>
-            {joinCode ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => void handleCopyJoinCode()}
-              >
-                {copiedJoinCode === joinCode ? (
-                  <Check className="size-3.5" />
-                ) : (
-                  <CopySimple className="size-3.5" />
-                )}
-              </Button>
-            ) : null}
-            {onRegenerateJoinCode ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7"
+      <SettingsSection
+        title="Identity"
+        description="Name, icon, and summary for this team."
+      >
+        <FieldGroup className="gap-4">
+          <Field>
+            <FieldLabel htmlFor="team-name">Name</FieldLabel>
+            <FieldContent>
+              <Input
+                id="team-name"
                 disabled={disabled}
-                onClick={() => void onRegenerateJoinCode()}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </FieldContent>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="team-icon">Icon</FieldLabel>
+            <FieldContent>
+              <Select
+                disabled={disabled}
+                value={selectedIcon}
+                onValueChange={setIcon}
               >
-                <ArrowsClockwise className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
-        </SettingsRow>
+                <SelectTrigger id="team-icon" className="w-full justify-between">
+                  <div className="flex items-center gap-2 text-sm">
+                    <TeamIconGlyph icon={selectedIcon} className="size-4" />
+                    <span>{teamIconMeta[selectedIcon].label}</span>
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {teamIconTokens.map((token) => (
+                      <SelectItem key={token} value={token}>
+                        <div className="flex items-center gap-2">
+                          <TeamIconGlyph icon={token} className="size-4" />
+                          <div className="flex min-w-0 flex-col">
+                            <span className="text-sm">
+                              {teamIconMeta[token].label}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {teamIconMeta[token].description}
+                            </span>
+                          </div>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </FieldContent>
+            <FieldDescription>
+              Defaults to{" "}
+              {teamIconMeta[getDefaultTeamIconForExperience(experience)].label}{" "}
+              for {teamExperienceMeta[experience].label.toLowerCase()} teams.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="team-summary">Summary</FieldLabel>
+            <FieldContent>
+              <Textarea
+                id="team-summary"
+                className="min-h-24 resize-none"
+                disabled={disabled}
+                value={summary}
+                onChange={(event) => setSummary(event.target.value)}
+              />
+            </FieldContent>
+            <FieldDescription>
+              A short description of what this team works on.
+            </FieldDescription>
+          </Field>
+          {showJoinCode ? (
+            <Field>
+              <FieldLabel>Join code</FieldLabel>
+              <FieldContent>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="inline-flex min-h-10 items-center rounded-lg border bg-muted/50 px-3 font-mono text-sm">
+                    {joinCode || "Generated on create"}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {joinCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleCopyJoinCode()}
+                      >
+                        {copiedJoinCode === joinCode ? (
+                          <Check className="size-3.5" />
+                        ) : (
+                          <CopySimple className="size-3.5" />
+                        )}
+                        {copiedJoinCode === joinCode ? "Copied" : "Copy"}
+                      </Button>
+                    ) : null}
+                    {onRegenerateJoinCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={disabled}
+                        onClick={() => void onRegenerateJoinCode()}
+                      >
+                        <ArrowsClockwise className="size-3.5" />
+                        Regenerate
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </FieldContent>
+              <FieldDescription>{joinCodeReadonlyLabel}</FieldDescription>
+            </Field>
+          ) : null}
+        </FieldGroup>
       </SettingsSection>
 
       <SettingsSection
         title="Team type"
-        description={canChangeExperience ? "Locked after creation." : undefined}
+        description={
+          canChangeExperience
+            ? "Choose the work model for this team. It locks after creation."
+            : "This team's work model determines the default language and surfaces."
+        }
       >
         {canChangeExperience ? (
-          <div className="grid items-start gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {teamExperienceTypes.map((type) => {
               const selected = type === experience
 
@@ -230,18 +314,18 @@ export function TeamEditorFields({
                   key={type}
                   type="button"
                   className={cn(
-                    "flex h-full flex-col items-start justify-start rounded-lg border px-2.5 py-2 text-left align-top transition-colors",
+                    "flex h-full flex-col items-start justify-start rounded-xl border p-4 text-left align-top transition-colors",
                     selected
-                      ? "border-primary/40 bg-primary/5"
+                      ? "border-primary/40 bg-primary/5 shadow-sm"
                       : "hover:bg-accent/40"
                   )}
                   disabled={disabled}
                   onClick={() => onExperienceChange?.(type)}
                 >
-                  <div className="text-[13px] font-medium">
+                  <div className="text-sm font-medium">
                     {teamExperienceMeta[type].label}
                   </div>
-                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                     {teamExperienceMeta[type].description}
                   </p>
                 </button>
@@ -249,16 +333,16 @@ export function TeamEditorFields({
             })}
           </div>
         ) : (
-          <div className="rounded-lg bg-muted/30 px-3 py-2.5">
+          <div>
             <div className="text-sm font-medium">
               {teamExperienceMeta[experience].label}
             </div>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
               {teamExperienceMeta[experience].description}
             </p>
-            <span className="mt-2 inline-block text-[10px] tracking-wider text-muted-foreground/70 uppercase">
+            <p className="mt-2 text-xs text-muted-foreground">
               Locked after creation
-            </span>
+            </p>
           </div>
         )}
       </SettingsSection>
@@ -267,152 +351,84 @@ export function TeamEditorFields({
         title="Surfaces"
         description={
           experience === "community"
-            ? "Community spaces can enable chat, channel, or both."
+            ? "Community spaces can enable docs, chat, channel, or any combination."
             : `${workCopy.surfaceLabel}, projects, and views are always enabled for this team type.`
         }
       >
         {experience === "community" ? (
-          <>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {/*
-                Community surface cards are mutually exclusive visually:
-                only the exact active configuration should appear selected.
-              */}
-              <button
-                type="button"
-                className={cn(
-                  "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  features.chat && !features.channels
-                    ? "border-primary/40 bg-primary/5"
-                    : "hover:bg-accent/40"
-                )}
-                disabled={
-                  disabled ||
-                  (savedFeatures.channels &&
-                    Boolean(surfaceDisableReasons.channels))
-                }
-                onClick={() =>
-                  setFeatures({
-                    issues: false,
-                    projects: false,
-                    views: false,
-                    docs: false,
-                    chat: true,
-                    channels: false,
-                  })
-                }
-              >
-                <div className="text-sm font-medium">Chat only</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Real-time conversation.
-                </div>
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  !features.chat && features.channels
-                    ? "border-primary/40 bg-primary/5"
-                    : "hover:bg-accent/40"
-                )}
-                disabled={
-                  disabled ||
-                  (savedFeatures.chat && Boolean(surfaceDisableReasons.chat))
-                }
-                onClick={() =>
-                  setFeatures({
-                    issues: false,
-                    projects: false,
-                    views: false,
-                    docs: false,
-                    chat: false,
-                    channels: true,
-                  })
-                }
-              >
-                <div className="text-sm font-medium">Channel only</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Forum posts with threaded replies.
-                </div>
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  features.chat && features.channels
-                    ? "border-primary/40 bg-primary/5"
-                    : "hover:bg-accent/40"
-                )}
-                disabled={disabled}
-                onClick={() =>
-                  setFeatures({
-                    issues: false,
-                    projects: false,
-                    views: false,
-                    docs: false,
-                    chat: true,
-                    channels: true,
-                  })
-                }
-              >
-                <div className="text-sm font-medium">Chat + channel</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Enable both conversation modes.
-                </div>
-              </button>
-            </div>
-            {savedFeatures.chat && surfaceDisableReasons.chat ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {surfaceDisableReasons.chat}
-              </p>
+          <div className="divide-y">
+            {optionalFeatures.map((feature) => (
+              <div key={feature.key} className="py-3 first:pt-0 last:pb-0">
+                <SettingsToggleRow
+                  checked={features[feature.key]}
+                  description={feature.description}
+                  disabled={
+                    disabled ||
+                    (savedFeatures[feature.key] &&
+                      Boolean(surfaceDisableReasons[feature.key]))
+                  }
+                  note={
+                    savedFeatures[feature.key]
+                      ? surfaceDisableReasons[feature.key]
+                      : null
+                  }
+                  title={feature.label}
+                  onCheckedChange={(checked) =>
+                    setFeatures((current) => ({
+                      ...current,
+                      issues: false,
+                      projects: false,
+                      views: false,
+                      [feature.key]: checked,
+                    }))
+                  }
+                />
+              </div>
+            ))}
+            {!(features.docs || features.chat || features.channels) ? (
+              <div className="pt-3 text-sm leading-relaxed text-muted-foreground">
+                Enable at least one surface for community teams.
+              </div>
             ) : null}
-            {savedFeatures.channels && surfaceDisableReasons.channels ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {surfaceDisableReasons.channels}
-              </p>
-            ) : null}
-          </>
+          </div>
         ) : (
-          <>
-            <div className="mb-3 flex flex-wrap gap-1.5">
+          <div>
+            <div className="space-y-3">
               {coreSurfaceItems.map((feature) => (
-                <div
-                  key={feature.key}
-                  className="flex items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-1 text-xs capitalize"
-                >
-                  {feature.label}
-                  <Switch checked disabled className="scale-[0.6]" />
+                <div key={feature.key} className="flex items-start gap-3">
+                  <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <CheckCircle className="size-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{feature.label}</div>
+                    <div className="text-sm leading-relaxed text-muted-foreground">
+                      {feature.description}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-            <p className="mb-3 text-xs text-muted-foreground">
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Core model: {coreWorkModel}
             </p>
-            <div className="divide-y">
+
+            <div className="mt-6 divide-y">
               {optionalFeatures.map((feature) => (
-                <div
-                  key={feature.key}
-                  className="flex items-center justify-between gap-4 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm">{feature.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {feature.description}
-                    </div>
-                    {savedFeatures[feature.key] &&
-                    surfaceDisableReasons[feature.key] ? (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {surfaceDisableReasons[feature.key]}
-                      </div>
-                    ) : null}
-                  </div>
-                  <Switch
+                <div key={feature.key} className="py-3 first:pt-0 last:pb-0">
+                  <SettingsToggleRow
                     checked={features[feature.key]}
+                    description={feature.description}
                     disabled={
                       disabled ||
                       (savedFeatures[feature.key] &&
                         Boolean(surfaceDisableReasons[feature.key]))
                     }
+                    note={
+                      savedFeatures[feature.key]
+                        ? surfaceDisableReasons[feature.key]
+                        : null
+                    }
+                    title={feature.label}
                     onCheckedChange={(checked) =>
                       setFeatures((current) => ({
                         ...current,
@@ -426,7 +442,7 @@ export function TeamEditorFields({
                 </div>
               ))}
             </div>
-          </>
+          </div>
         )}
       </SettingsSection>
     </>

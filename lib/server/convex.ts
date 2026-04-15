@@ -57,9 +57,7 @@ export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {
   })
 }
 
-export async function ensureConvexUserReadyServer(
-  user: AuthenticatedAppUser
-) {
+export async function ensureConvexUserReadyServer(user: AuthenticatedAppUser) {
   const authContext = await getAuthContextServer({
     workosUserId: user.workosUserId,
     email: user.email,
@@ -211,6 +209,26 @@ export async function toggleNotificationReadServer(input: {
   )
 }
 
+export async function archiveNotificationServer(input: {
+  currentUserId: string
+  notificationId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.archiveNotification,
+    withServerToken(input)
+  )
+}
+
+export async function unarchiveNotificationServer(input: {
+  currentUserId: string
+  notificationId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.unarchiveNotification,
+    withServerToken(input)
+  )
+}
+
 export async function updateWorkspaceBrandingServer(input: {
   currentUserId: string
   workspaceId: string
@@ -229,6 +247,16 @@ export async function updateWorkspaceBrandingServer(input: {
         | Id<"_storage">
         | undefined,
     })
+  )
+}
+
+export async function deleteWorkspaceServer(input: {
+  currentUserId: string
+  workspaceId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.deleteWorkspace,
+    withServerToken(input)
   )
 }
 
@@ -653,6 +681,16 @@ export async function createTeamServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.createTeam,
+    withServerToken(input)
+  )
+}
+
+export async function deleteTeamServer(input: {
+  currentUserId: string
+  teamId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.deleteTeam,
     withServerToken(input)
   )
 }
