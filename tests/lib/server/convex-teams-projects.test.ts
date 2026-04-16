@@ -36,6 +36,53 @@ describe("convex team-project server wrappers", () => {
     })
   })
 
+  it("maps current join-code conflict wording onto typed conflict errors", async () => {
+    const { regenerateTeamJoinCodeServer, updateTeamDetailsServer } =
+      await import("@/lib/server/convex/teams-projects")
+
+    mutationMock
+      .mockRejectedValueOnce(new Error("Join code already exists"))
+      .mockRejectedValueOnce(new Error("Join code already exists"))
+
+    await expect(
+      regenerateTeamJoinCodeServer({
+        currentUserId: "user_1",
+        teamId: "team_1",
+        joinCode: "ABC123DEF456",
+      })
+    ).rejects.toMatchObject({
+      message: "Join code already exists",
+      status: 409,
+      code: "TEAM_JOIN_CODE_CONFLICT",
+      retryable: true,
+    })
+
+    await expect(
+      updateTeamDetailsServer({
+        currentUserId: "user_1",
+        teamId: "team_1",
+        name: "Launch",
+        icon: "robot",
+        summary: "Launch summary",
+        joinCode: "ABC123DEF456",
+        experience: "software-development",
+        features: {
+          issues: true,
+          projects: true,
+          views: true,
+          docs: true,
+          chat: true,
+          channels: true,
+        },
+      })
+    ).rejects.toMatchObject({
+      message: "Join code already exists",
+      status: 409,
+      code: "TEAM_JOIN_CODE_CONFLICT",
+      retryable: true,
+    })
+  })
+
   it("maps project domain failures to typed application errors", async () => {
     const { createProjectServer, updateProjectServer } = await import(
       "@/lib/server/convex/teams-projects"

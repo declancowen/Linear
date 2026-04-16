@@ -28,6 +28,7 @@ describe("next config governance", () => {
     expect(headers.get("Content-Security-Policy")).toContain(
       "frame-ancestors 'none'"
     )
+    expect(headers.get("Content-Security-Policy")).toContain("'unsafe-eval'")
     expect(headers.get("Referrer-Policy")).toBe(
       "strict-origin-when-cross-origin"
     )

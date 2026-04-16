@@ -11,6 +11,8 @@ import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
 
+const TEAM_JOIN_CODE_CONFLICT_MATCH = /join code (already exists|is already in use)/i
+
 const REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS = [
   {
     match: "Team not found",
@@ -23,7 +25,7 @@ const REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS = [
     code: "TEAM_JOIN_CODE_ADMIN_REQUIRED",
   },
   {
-    match: /join code is already in use/i,
+    match: TEAM_JOIN_CODE_CONFLICT_MATCH,
     status: 409,
     code: "TEAM_JOIN_CODE_CONFLICT",
     retryable: true,
@@ -145,7 +147,7 @@ const TEAM_UPDATE_DETAILS_ERROR_MAPPINGS = [
   ...TEAM_FEATURE_VALIDATION_ERROR_MAPPINGS,
   ...TEAM_SURFACE_DISABLE_ERROR_MAPPINGS,
   {
-    match: /join code is already in use/i,
+    match: TEAM_JOIN_CODE_CONFLICT_MATCH,
     status: 409,
     code: "TEAM_JOIN_CODE_CONFLICT",
     retryable: true,

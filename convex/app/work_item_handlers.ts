@@ -20,12 +20,13 @@ import {
   isTeamMember,
   listAttachmentsByTargets,
   listCommentsByTargets,
-  listLabelsByWorkspace,
   listNotificationsByEntities,
+  listTeamDocuments,
   listWorkspaceDocuments,
 } from "./data"
 import { normalizeTeam } from "./normalization"
 import {
+  assertWorkspaceLabelIds,
   collectWorkItemCascadeIds,
   getResolvedProjectLinkForWorkItemUpdate,
   projectBelongsToTeamScope,
@@ -153,12 +154,7 @@ export async function updateWorkItemHandler(
   }
 
   if (args.patch.labelIds !== undefined) {
-    const labels = await listLabelsByWorkspace(ctx, team.workspaceId)
-    const labelIds = new Set(labels.map((label) => label.id))
-
-    if (args.patch.labelIds.some((labelId) => !labelIds.has(labelId))) {
-      throw new Error("One or more labels are invalid")
-    }
+    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.patch.labelIds)
   }
 
   if (resolvedPrimaryProjectId) {
@@ -346,7 +342,8 @@ export async function deleteWorkItemHandler(
     workItemAttachments,
     documentAttachments,
     notifications,
-    documents,
+    workspaceDocuments,
+    teamDocuments,
   ] = await Promise.all([
     listCommentsByTargets(ctx, {
       targetType: "workItem",
@@ -375,7 +372,16 @@ export async function deleteWorkItemHandler(
       })),
     ]),
     listWorkspaceDocuments(ctx, team.workspaceId),
+    listTeamDocuments(ctx, team.id),
   ])
+  const documents = [
+    ...new Map(
+      [...workspaceDocuments, ...teamDocuments].map((document) => [
+        document.id,
+        document,
+      ])
+    ).values(),
+  ]
   const comments = [...workItemComments, ...documentComments]
   const attachments = [...workItemAttachments, ...documentAttachments]
 
@@ -515,12 +521,7 @@ export async function createWorkItemHandler(
   }
 
   if (args.labelIds !== undefined) {
-    const labels = await listLabelsByWorkspace(ctx, team.workspaceId)
-    const labelIds = new Set(labels.map((label) => label.id))
-
-    if (args.labelIds.some((labelId) => !labelIds.has(labelId))) {
-      throw new Error("One or more labels are invalid")
-    }
+    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
   }
 
   if (resolvedPrimaryProjectId) {

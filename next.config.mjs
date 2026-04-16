@@ -1,4 +1,9 @@
 const isProduction = process.env.NODE_ENV === "production"
+const scriptSrc = [
+  "'self'",
+  "'unsafe-inline'",
+  ...(isProduction ? [] : ["'unsafe-eval'"]),
+].join(" ")
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -8,7 +13,7 @@ const contentSecurityPolicy = [
   "frame-ancestors 'none'",
   "img-src 'self' https: data: blob:",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self' https: wss:",
   "worker-src 'self' blob:",

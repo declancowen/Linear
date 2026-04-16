@@ -606,7 +606,11 @@ export async function createChannelPostHandler(
   const now = getNow()
   const postId = createId("channel_post")
   const actor = usersById.get(args.currentUserId)
-  const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
+  const mentionUserIds = createMentionIds(
+    args.content,
+    users,
+    audienceUserIds
+  ).filter((userId) => userId !== args.currentUserId)
   const mentionEmails: Array<{
     notificationId: string
     email: string
@@ -722,7 +726,11 @@ export async function addChannelPostCommentHandler(
   ])
   const usersById = new Map(users.map((user) => [user.id, user]))
   const actor = usersById.get(args.currentUserId)
-  const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
+  const mentionUserIds = createMentionIds(
+    args.content,
+    users,
+    audienceUserIds
+  ).filter((userId) => userId !== args.currentUserId)
   const notifiedUserIds = new Set<string>()
   const entityTitle = post.title.trim() || "a channel post"
   const entityPath = await getChannelConversationPath(
