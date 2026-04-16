@@ -111,6 +111,8 @@ import {
   deleteTeamHandler,
   deleteWorkspaceHandler,
   deleteCurrentAccountHandler,
+  prepareCurrentAccountDeletionHandler,
+  cancelCurrentAccountDeletionHandler,
   ensureWorkspaceScaffoldingHandler,
   leaveWorkspaceHandler,
   leaveTeamHandler,
@@ -375,6 +377,22 @@ export const deleteCurrentAccount = mutation({
     currentUserId: v.string(),
   },
   handler: deleteCurrentAccountHandler,
+})
+
+export const prepareCurrentAccountDeletion = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+  },
+  handler: prepareCurrentAccountDeletionHandler,
+})
+
+export const cancelCurrentAccountDeletion = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+  },
+  handler: cancelCurrentAccountDeletionHandler,
 })
 
 export const validateCurrentAccountDeletion = query({

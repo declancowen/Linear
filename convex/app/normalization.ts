@@ -37,6 +37,7 @@ export function normalizeUser<
     status?: string | null
     statusMessage?: string | null
     hasExplicitStatus?: boolean | null
+    accountDeletionPendingAt?: string | null
     accountDeletedAt?: string | null
   },
 >(user: T) {
@@ -54,6 +55,7 @@ export function normalizeUser<
       typeof user.hasExplicitStatus === "boolean"
         ? user.hasExplicitStatus
         : user.status != null,
+    accountDeletionPendingAt: user.accountDeletionPendingAt ?? null,
     accountDeletedAt: user.accountDeletedAt ?? null,
     status: resolveUserStatus(user.status),
     statusMessage: user.statusMessage ?? defaultUserStatusMessage,

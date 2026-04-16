@@ -90,6 +90,26 @@ export async function getUserByWorkOSUserId(ctx: AppCtx, workosUserId: string) {
     .unique()
 }
 
+function getAuthLifecycleError(
+  user:
+    | {
+        accountDeletedAt?: string | null
+        accountDeletionPendingAt?: string | null
+      }
+    | null
+    | undefined
+) {
+  if (user?.accountDeletedAt) {
+    return "This account has been deleted"
+  }
+
+  if (user?.accountDeletionPendingAt) {
+    return "This account is being deleted"
+  }
+
+  return null
+}
+
 export async function resolveActiveUserByIdentity(
   ctx: AppCtx,
   input: {
@@ -99,9 +119,10 @@ export async function resolveActiveUserByIdentity(
 ) {
   if (input.workosUserId) {
     const byWorkosId = await getUserByWorkOSUserId(ctx, input.workosUserId)
+    const lifecycleError = getAuthLifecycleError(byWorkosId)
 
-    if (byWorkosId?.accountDeletedAt) {
-      throw new Error("This account has been deleted")
+    if (lifecycleError) {
+      throw new Error(lifecycleError)
     }
 
     if (byWorkosId) {
@@ -110,7 +131,14 @@ export async function resolveActiveUserByIdentity(
   }
 
   if (input.email) {
-    return getUserByEmail(ctx, input.email)
+    const byEmail = await getUserByEmail(ctx, input.email)
+    const lifecycleError = getAuthLifecycleError(byEmail)
+
+    if (lifecycleError) {
+      throw new Error(lifecycleError)
+    }
+
+    return byEmail
   }
 
   return null

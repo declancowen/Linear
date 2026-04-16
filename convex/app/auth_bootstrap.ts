@@ -892,13 +892,22 @@ export async function bootstrapWorkspaceUserHandler(
   if (existingByWorkOSUserId?.accountDeletedAt) {
     throw new Error("This account has been deleted")
   }
+  if (existingByWorkOSUserId?.accountDeletionPendingAt) {
+    throw new Error("This account is being deleted")
+  }
   const existingByEmail = await getUserByEmail(ctx, normalizedEmail)
   const preferredUser = args.existingUserId
     ? await getUserDoc(ctx, args.existingUserId)
     : null
 
+  if (existingByEmail?.accountDeletionPendingAt) {
+    throw new Error("This account is being deleted")
+  }
   if (preferredUser?.accountDeletedAt) {
     throw new Error("This account has been deleted")
+  }
+  if (preferredUser?.accountDeletionPendingAt) {
+    throw new Error("This account is being deleted")
   }
 
   const resolvedUser = preferredUser ?? existingByWorkOSUserId ?? existingByEmail ?? null

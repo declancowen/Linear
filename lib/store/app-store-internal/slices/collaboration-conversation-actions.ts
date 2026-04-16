@@ -470,12 +470,11 @@ export function createCollaborationConversationActions({
           conversation
         )
 
-        if (
-          conversation.scopeType === "workspace" &&
-          !audienceUserIds.some((userId) => userId !== state.currentUserId)
-        ) {
+        if (!audienceUserIds.some((userId) => userId !== state.currentUserId)) {
           toast.error(
-            "This chat is read-only because the other participants have left the workspace or deleted their account"
+            conversation.scopeType === "team"
+              ? "This chat is read-only because the other participants have left the team or deleted their account"
+              : "This chat is read-only because the other participants have left the workspace or deleted their account"
           )
           return state
         }

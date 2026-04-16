@@ -1,7 +1,11 @@
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 
-import { getConvexServerClient, withServerToken } from "./core"
+import {
+  getConvexServerClient,
+  runConvexRequestWithRetry,
+  withServerToken,
+} from "./core"
 
 export async function createWorkspaceServer(input: {
   currentUserId: string
@@ -71,18 +75,44 @@ export async function leaveWorkspaceServer(input: {
 export async function deleteCurrentAccountServer(input: {
   currentUserId: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.deleteCurrentAccount,
-    withServerToken(input)
+  return runConvexRequestWithRetry("deleteCurrentAccountServer", () =>
+    getConvexServerClient().mutation(
+      api.app.deleteCurrentAccount,
+      withServerToken(input)
+    )
+  )
+}
+
+export async function prepareCurrentAccountDeletionServer(input: {
+  currentUserId: string
+}) {
+  return runConvexRequestWithRetry("prepareCurrentAccountDeletionServer", () =>
+    getConvexServerClient().mutation(
+      api.app.prepareCurrentAccountDeletion,
+      withServerToken(input)
+    )
+  )
+}
+
+export async function cancelCurrentAccountDeletionServer(input: {
+  currentUserId: string
+}) {
+  return runConvexRequestWithRetry("cancelCurrentAccountDeletionServer", () =>
+    getConvexServerClient().mutation(
+      api.app.cancelCurrentAccountDeletion,
+      withServerToken(input)
+    )
   )
 }
 
 export async function validateCurrentAccountDeletionServer(input: {
   currentUserId: string
 }) {
-  return getConvexServerClient().query(
-    api.app.validateCurrentAccountDeletion,
-    withServerToken(input)
+  return runConvexRequestWithRetry("validateCurrentAccountDeletionServer", () =>
+    getConvexServerClient().query(
+      api.app.validateCurrentAccountDeletion,
+      withServerToken(input)
+    )
   )
 }
 

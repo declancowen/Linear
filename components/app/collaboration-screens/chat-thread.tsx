@@ -22,6 +22,7 @@ import {
   getConversationParticipants,
   getTeamRole,
   getUser,
+  hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
@@ -119,7 +120,7 @@ function ChatComposer({
           <button
             type="button"
             onClick={handleSend}
-            disabled={!contentText}
+            disabled={!editable || !contentText}
             className={cn(
               "flex size-7 items-center justify-center rounded-full transition-colors",
               editable && contentText
@@ -160,28 +161,44 @@ export function ChatThread({
   const messages = useAppStore(
     useShallow((state) => getChatMessages(state, conversationId))
   )
-  const canCurrentUserSend = useAppStore((state) => {
-    const conversation = state.conversations.find(
-      (entry) => entry.id === conversationId
-    )
-
-    if (!conversation || conversation.kind !== "chat") {
-      return false
-    }
-
-    if (conversation.scopeType === "workspace") {
-      return (
-        conversation.participantIds.includes(state.currentUserId) &&
-        canEditWorkspace(state, conversation.scopeId)
+  const { canCurrentUserSend, conversationScopeType } = useAppStore(
+    useShallow((state) => {
+      const conversation = state.conversations.find(
+        (entry) => entry.id === conversationId
       )
-    }
 
-    const role = getTeamRole(state, conversation.scopeId)
+      if (!conversation || conversation.kind !== "chat") {
+        return {
+          canCurrentUserSend: false,
+          conversationScopeType: null,
+        }
+      }
 
-    return role === "admin" || role === "member"
-  })
-  const { currentUserId, currentWorkspaceId, users, workspaces, teams, teamMemberships } =
-    useAppStore(
+      if (conversation.scopeType === "workspace") {
+        return {
+          canCurrentUserSend:
+            conversation.participantIds.includes(state.currentUserId) &&
+            canEditWorkspace(state, conversation.scopeId),
+          conversationScopeType: conversation.scopeType,
+        }
+      }
+
+      const role = getTeamRole(state, conversation.scopeId)
+
+      return {
+        canCurrentUserSend: role === "admin" || role === "member",
+        conversationScopeType: conversation.scopeType,
+      }
+    })
+  )
+  const {
+    currentUserId,
+    currentWorkspaceId,
+    users,
+    workspaces,
+    teams,
+    teamMemberships,
+  } = useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
       currentWorkspaceId: state.currentWorkspaceId,
@@ -199,49 +216,50 @@ export function ChatThread({
   const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
-  const hasCurrentWorkspaceAccess = (userId: string) => {
-    if (!currentWorkspaceId) {
-      return false
-    }
+  const workspaceIdForParticipants = currentWorkspaceId
+  const messageableMembers = useMemo(
+    () =>
+      members.filter((member) => {
+        if (member.id === currentUserId) {
+          return true
+        }
 
-    const workspace =
-      workspaces.find((entry) => entry.id === currentWorkspaceId) ?? null
+        if (!workspaceIdForParticipants || member.accountDeletedAt) {
+          return false
+        }
 
-    if (!workspace) {
-      return false
-    }
-
-    if (workspace.createdBy === userId) {
-      return true
-    }
-
-    const workspaceTeamIds = new Set(
-      teams
-        .filter((team) => team.workspaceId === currentWorkspaceId)
-        .map((team) => team.id)
-    )
-
-    return teamMemberships.some(
-      (membership) =>
-        membership.userId === userId && workspaceTeamIds.has(membership.teamId)
-    )
-  }
-  const messageableMembers = members.filter(
-    (member) =>
-      member.id === currentUserId ||
-      (!member.accountDeletedAt && hasCurrentWorkspaceAccess(member.id))
+        return hasWorkspaceAccessInCollections(
+          workspaces,
+          teams,
+          teamMemberships,
+          workspaceIdForParticipants,
+          member.id
+        )
+      }),
+    [
+      currentUserId,
+      members,
+      teamMemberships,
+      teams,
+      workspaces,
+      workspaceIdForParticipants,
+    ]
   )
-  const activeOtherMemberCount = messageableMembers.filter(
-    (member) => member.id !== currentUserId
-  ).length
+  const activeOtherMemberCount = useMemo(
+    () =>
+      messageableMembers.filter((member) => member.id !== currentUserId).length,
+    [currentUserId, messageableMembers]
+  )
   const hasMessageableMembers = activeOtherMemberCount > 0
   const composerEditable = canCurrentUserSend && hasMessageableMembers
   const composerDisabledReason =
     !canCurrentUserSend
       ? "Messaging is read-only for your current role."
       : !hasMessageableMembers
-        ? "This chat is read-only because the other participants have left the workspace or deleted their account."
-      : null
+        ? conversationScopeType === "team"
+          ? "This chat is read-only because the other participants have left the team or deleted their account."
+          : "This chat is read-only because the other participants have left the workspace or deleted their account."
+        : null
 
   useEffect(() => {
     const el = scrollRef.current

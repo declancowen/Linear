@@ -156,6 +156,14 @@ type DeleteCurrentAccountArgs = ServerAccessArgs & {
   currentUserId: string
 }
 
+type PrepareCurrentAccountDeletionArgs = ServerAccessArgs & {
+  currentUserId: string
+}
+
+type CancelCurrentAccountDeletionArgs = ServerAccessArgs & {
+  currentUserId: string
+}
+
 type AccessEmailJob = {
   email: string
   subject: string
@@ -1283,22 +1291,12 @@ export async function removeWorkspaceUserHandler(
     teamNames.length > 0
       ? `${actorName} removed you from ${workspaceName}. This removed your access to ${teamSummary}.`
       : `${actorName} removed you from ${workspaceName}.`
-  const ownerEmailJobs = await notifyWorkspaceOwnerOfAccessChange(ctx, {
-    workspaceId: workspace.id,
-    actorUserId: args.currentUserId,
-    message: `${actorName} removed ${removedUserName} from ${workspaceName}.`,
-    subject: `${actorName} removed ${removedUserName} from ${workspaceName}`,
-    eyebrow: "WORKSPACE MEMBER REMOVED",
-    headline: `${removedUserName} was removed from ${workspaceName}`,
-    excludeUserIds: [args.currentUserId, args.userId],
-  })
 
   return {
     workspaceId: workspace.id,
     userId: args.userId,
     removedUserName,
     emailJobs: [
-      ...ownerEmailJobs,
       ...(removedUser?.email
         ? [
             {
@@ -1392,6 +1390,10 @@ async function assertCurrentAccountDeletionAllowed(
     throw new Error("User not found")
   }
 
+  if (user.accountDeletedAt) {
+    throw new Error("This account has already been deleted")
+  }
+
   const workspaces = await ctx.db.query("workspaces").collect()
 
   if (workspaces.some((workspace) => workspace.createdBy === currentUserId)) {
@@ -1415,6 +1417,59 @@ async function assertCurrentAccountDeletionAllowed(
     memberships,
     user,
     workspaces,
+  }
+}
+
+export async function prepareCurrentAccountDeletionHandler(
+  ctx: MutationCtx,
+  args: PrepareCurrentAccountDeletionArgs
+) {
+  assertServerToken(args.serverToken)
+  const { user } = await assertCurrentAccountDeletionAllowed(
+    ctx,
+    args.currentUserId
+  )
+
+  if (user.accountDeletionPendingAt) {
+    return {
+      userId: user.id,
+      pendingAt: user.accountDeletionPendingAt,
+    }
+  }
+
+  const pendingAt = new Date().toISOString()
+
+  await ctx.db.patch(user._id, {
+    accountDeletionPendingAt: pendingAt,
+  })
+
+  return {
+    userId: user.id,
+    pendingAt,
+  }
+}
+
+export async function cancelCurrentAccountDeletionHandler(
+  ctx: MutationCtx,
+  args: CancelCurrentAccountDeletionArgs
+) {
+  assertServerToken(args.serverToken)
+  const user = await getUserDoc(ctx, args.currentUserId)
+
+  if (!user || user.accountDeletedAt || !user.accountDeletionPendingAt) {
+    return {
+      userId: args.currentUserId,
+      cancelled: false,
+    }
+  }
+
+  await ctx.db.patch(user._id, {
+    accountDeletionPendingAt: null,
+  })
+
+  return {
+    userId: user.id,
+    cancelled: true,
   }
 }
 
@@ -1534,6 +1589,7 @@ export async function deleteCurrentAccountHandler(
   await ctx.db.patch(user._id, {
     email: buildDeletedUserEmail(user.id),
     handle: buildDeletedUserHandle(user.id),
+    accountDeletionPendingAt: null,
     accountDeletedAt: deletedAt,
     hasExplicitStatus: false,
     status: defaultUserStatus,

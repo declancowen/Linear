@@ -1,5 +1,7 @@
 import {
+  cancelCurrentAccountDeletionServer,
   deleteCurrentAccountServer,
+  prepareCurrentAccountDeletionServer,
   validateCurrentAccountDeletionServer,
 } from "@/lib/server/convex"
 import { sendAccessChangeEmails } from "@/lib/server/email"
@@ -38,10 +40,33 @@ export async function DELETE() {
   }
 
   try {
+    await prepareCurrentAccountDeletionServer({
+      currentUserId: appContext.ensuredUser.userId,
+    })
+  } catch (error) {
+    logProviderError("Failed to prepare account deletion", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete account"),
+      500
+    )
+  }
+
+  try {
     await deleteWorkOSUser({
       workosUserId: appContext.authenticatedUser.workosUserId,
     })
   } catch (error) {
+    try {
+      await cancelCurrentAccountDeletionServer({
+        currentUserId: appContext.ensuredUser.userId,
+      })
+    } catch (rollbackError) {
+      logProviderError(
+        "Failed to roll back pending account deletion after WorkOS error",
+        rollbackError
+      )
+    }
+
     logProviderError("Failed to delete WorkOS user", error)
     return jsonError(
       getWorkOSErrorMessage(error, "Failed to delete account"),
@@ -69,7 +94,7 @@ export async function DELETE() {
   } catch (error) {
     logProviderError("Failed to delete account", error)
     return jsonError(
-      getConvexErrorMessage(error, "Failed to delete account"),
+      "Your sign-in has been removed, but we couldn't finish deleting your account. Please contact support.",
       500
     )
   }

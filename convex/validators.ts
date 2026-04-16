@@ -311,6 +311,7 @@ export const userFields = {
   status: v.optional(userStatusValidator),
   statusMessage: v.optional(v.string()),
   hasExplicitStatus: v.optional(v.boolean()),
+  accountDeletionPendingAt: v.optional(nullableString),
   accountDeletedAt: v.optional(nullableString),
   preferences: v.object({
     emailMentions: v.boolean(),

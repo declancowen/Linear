@@ -58,12 +58,14 @@ export function isWorkspaceOwner(data: AppData, workspaceId: string) {
   )
 }
 
-export function hasWorkspaceAccess(
-  data: AppData,
+export function hasWorkspaceAccessInCollections(
+  workspaces: AppData["workspaces"],
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
   workspaceId: string,
   userId: string
 ) {
-  const workspace = data.workspaces.find((entry) => entry.id === workspaceId)
+  const workspace = workspaces.find((entry) => entry.id === workspaceId)
 
   if (!workspace) {
     return false
@@ -74,14 +76,28 @@ export function hasWorkspaceAccess(
   }
 
   const workspaceTeamIds = new Set(
-    data.teams
+    teams
       .filter((team) => team.workspaceId === workspaceId)
       .map((team) => team.id)
   )
 
-  return data.teamMemberships.some(
+  return teamMemberships.some(
     (membership) =>
       membership.userId === userId && workspaceTeamIds.has(membership.teamId)
+  )
+}
+
+export function hasWorkspaceAccess(
+  data: AppData,
+  workspaceId: string,
+  userId: string
+) {
+  return hasWorkspaceAccessInCollections(
+    data.workspaces,
+    data.teams,
+    data.teamMemberships,
+    workspaceId,
+    userId
   )
 }
 

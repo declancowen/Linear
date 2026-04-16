@@ -67,11 +67,105 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 18:44:15 BST` |
-| **Total turns** | `5` |
+| **Last reviewed** | `2026-04-16 19:09:41 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
-| **Resolved findings** | `7` |
+| **Resolved findings** | `12` |
 | **Accepted findings** | `0` |
+
+---
+
+## Turn 7 — 2026-04-16 19:09:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `fe4a855` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Follow-up fix pass closed the one remaining Turn 6 resilience finding. Delete-account now marks the user row with a durable `accountDeletionPendingAt` flag before WorkOS deletion, rolls that flag back if WorkOS deletion fails, and clears it only when the final local tombstone succeeds. Auth resolution and bootstrap now treat pending-deletion users as non-active, so the local row no longer appears live if the provider delete succeeds but final cleanup stalls.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved from Turn 6 | 1 |
+| Carried from Turn 6 | 0 |
+| Accepted | 0 |
+
+### Resolved from Turn 6
+
+#### B6-01 ~~[RESILIENCE] Medium~~ → RESOLVED — Delete-account was still missing a durable local compensation state after successful WorkOS deletion
+**How it was fixed:** [prepareCurrentAccountDeletionHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1423) now marks the local user with `accountDeletionPendingAt` before WorkOS deletion, [cancelCurrentAccountDeletionHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1452) rolls that marker back if provider deletion fails, and [deleteCurrentAccountHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1481) clears the pending marker only when the final tombstone succeeds. The route in [app/api/account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:38) now drives that prepare/delete/rollback sequence, and auth resolution in [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:92) plus bootstrap checks in [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:888) reject pending-deletion users the same way they already rejected deleted users.
+**Verified:** The local account no longer remains “active” after external identity deletion. If WorkOS deletion fails, the pending marker is rolled back; if WorkOS deletion succeeds but the final local delete fails, subsequent auth resolution treats the user as being deleted instead of active.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm eslint app/api/account/route.ts convex/app.ts convex/app/auth_bootstrap.ts convex/app/data.ts convex/app/normalization.ts convex/app/workspace_team_handlers.ts convex/validators.ts lib/domain/types-internal/models.ts lib/server/convex/workspace.ts components/app/collaboration-screens/chat-thread.tsx lib/store/app-store-internal/slices/collaboration-conversation-actions.ts convex/app/collaboration_handlers.ts lib/domain/selectors-internal/core.ts`
+
+---
+
+## Turn 6 — 2026-04-16 19:03:16 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `fe4a855` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** External PR-analysis notes were mostly accurate, but they mixed real defects with intentional behavior and informational confirmations. This turn fixed the valid UI/accessibility, chat-guard, and cleanup issues, and hardened delete-account with retry on the Convex preflight/finalization path. One resilience gap remains open: if WorkOS deletion succeeds and the local delete keeps failing with a non-transient server-side error, there is still no durable compensation/reconciliation path.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 6 | 4 |
+| Carried from Turn 5 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B6-01 [RESILIENCE] Medium — `app/api/account/route.ts:37` and `lib/server/convex/workspace.ts:69` — Delete-account is still missing a durable compensation path if WorkOS deletion succeeds and the final local tombstone persistently fails
+
+**What's happening:**
+The route still performs provider deletion before the final local delete. This turn added retry around `validateCurrentAccountDeletionServer` and `deleteCurrentAccountServer`, which reduces the likelihood of a broken intermediate state caused by transient Convex transport failures. But if the final local delete keeps failing with a non-transient application error after WorkOS deletion has already succeeded, the account can still end up with the external identity gone while the local row remains active.
+
+**Root cause:**
+The flow has retry but still no durable two-phase delete, outbox, reconciliation job, or minimal recovery mutation for the “provider delete succeeded, local finalize failed” case.
+
+**Codebase implication:**
+This is no longer the easy failure mode from Turn 4, but it remains a real operational edge case. It would leave sign-in removed at WorkOS while Convex still treats the user row as active until manual intervention or a later successful retry.
+
+**Evidence:**
+- [account route](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:37) deletes the WorkOS user before calling the final local delete.
+- [server wrapper](/Users/declancowen/Documents/GitHub/Linear/lib/server/convex/workspace.ts:69) now retries the local delete on transient Convex failures, but it still ultimately throws after exhausting retries.
+
+### Resolved during Turn 6
+
+#### B6-02 ~~[BUG] Low~~ → RESOLVED — `ChatComposer` send button remained focusable/clickable in read-only mode
+**How it was fixed:** [chat-thread.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/collaboration-screens/chat-thread.tsx:112) now disables the send button when `editable` is false as well as when the content is empty.
+**Verified:** The DOM disabled state now matches the visual state and the `handleSend` guard.
+
+#### B6-03 ~~[CODE QUALITY] Low~~ → RESOLVED — `ChatThread` duplicated workspace-access logic inline
+**How it was fixed:** [selectors-internal/core.ts](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/core.ts:61) now exposes `hasWorkspaceAccessInCollections`, and [chat-thread.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/collaboration-screens/chat-thread.tsx:201) uses that shared helper with `useMemo` instead of reimplementing the same membership check inline.
+**Verified:** The duplicated logic is removed and the derived member list/count are now memoized in the component.
+
+#### B6-04 ~~[DEFENSE-IN-DEPTH] Low~~ → RESOLVED — Server-side read-only guard did not apply to team-scoped chats
+**How it was fixed:** [collaboration_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/collaboration_handlers.ts:480) now blocks sends whenever no other audience user remains, regardless of workspace-vs-team scope. The mirrored optimistic client path in [collaboration-conversation-actions.ts](/Users/declancowen/Documents/GitHub/Linear/lib/store/app-store-internal/slices/collaboration-conversation-actions.ts:473) now uses the same rule and a scope-appropriate message.
+**Verified:** Direct API calls can no longer bypass the client-side read-only rule for one-person team chats after participant loss.
+
+#### B6-05 ~~[CODE QUALITY] Low~~ → RESOLVED — `removeWorkspaceUserHandler` still called a notification helper that was guaranteed to no-op
+**How it was fixed:** [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1277) no longer calls `notifyWorkspaceOwnerOfAccessChange` on workspace removal, since owner-only authorization means the actor is always the owner and therefore always excluded.
+**Verified:** The behavior is unchanged, but the dead call and misleading `ownerEmailJobs` plumbing are gone.
+
+### Informational notes validated
+
+- The owner-only workspace / team-admin authorization model is consistent across UI, route, and mutation layers.
+- The expanded snapshot user-visibility sweep in [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:503) is functionally correct for historical rendering; the remaining question there is scale/performance, not correctness.
+- [getUserByEmail](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:57) handles the deleted-account email rewrite correctly.
+- Leaving `workosUserId` on tombstoned rows is still intentional to reject stale sessions that present the deleted WorkOS identity.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm eslint components/app/collaboration-screens/chat-thread.tsx lib/store/app-store-internal/slices/collaboration-conversation-actions.ts convex/app/collaboration_handlers.ts convex/app/workspace_team_handlers.ts lib/server/convex/workspace.ts lib/domain/selectors-internal/core.ts app/api/account/route.ts`
 
 ---
 
