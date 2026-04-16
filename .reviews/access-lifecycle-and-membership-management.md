@@ -69,11 +69,54 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 19:34:25 BST` |
-| **Total turns** | `9` |
+| **Last reviewed** | `2026-04-16 19:46:44 BST` |
+| **Total turns** | `10` |
 | **Open findings** | `0` |
-| **Resolved findings** | `18` |
+| **Resolved findings** | `21` |
 | **Accepted findings** | `0` |
+
+---
+
+## Turn 10 — 2026-04-16 19:46:44 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `d68aaed` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Cleanup pass applied after the latest rerun. The new Finder-style duplicate files were removed again, the unreachable email-lifecycle checks were simplified so they match the current `getUserByEmail` contract, and the workspace store slice no longer captures/restores `users` during workspace-user removal when it never optimistically mutates them.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 10 | 3 |
+| Carried from Turn 9 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 10
+
+#### B10-01 ~~[BUG] Medium~~ → RESOLVED — New accidental ` 2` duplicate settings files reappeared in the working tree
+**How it was fixed:** The duplicate backup files were removed from the tree:
+[create-team-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/create-team-screen 2.tsx:1>),
+[team-settings-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-settings-screen 2.tsx:1>),
+[user-settings-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/user-settings-screen 2.tsx:1>),
+ [team-editor-fields 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-editor-fields 2.tsx:1>),
+ [index 2.ts](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/index 2.ts:1>),
+and [utils 2.ts](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/utils 2.ts:1>).
+**Verified:** `git status --short` no longer reports any ` 2` duplicate files after the cleanup.
+
+#### B10-02 ~~[CODE QUALITY] Low~~ → RESOLVED — Email lifecycle checks drifted from the new `getUserByEmail` contract
+**How it was fixed:** [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:87) now exports `getAuthLifecycleError`, and [resolveActiveUserByIdentity](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:109) no longer runs a dead lifecycle check on the result of `getUserByEmail`. [bootstrapWorkspaceUserHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:888) now uses the same helper for WorkOS/preferred-user lifecycle checks and drops the unreachable `existingByEmail?.accountDeletionPendingAt` branch.
+**Verified:** The remaining lifecycle checks are the load-bearing ones, which makes the auth path easier to reason about and less likely to drift.
+
+#### B10-03 ~~[CODE QUALITY] Low~~ → RESOLVED — `removeWorkspaceUser` captured `previousUsers` even though it never optimistically changed users
+**How it was fixed:** [workspace slice](/Users/declancowen/Documents/GitHub/Linear/lib/store/app-store-internal/slices/workspace.ts:153) no longer snapshots/restores `users` in the rollback path for `removeWorkspaceUser`.
+**Verified:** The optimistic update and rollback now only touch the state that actually changes (`teamMemberships`).
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm eslint convex/app/data.ts convex/app/auth_bootstrap.ts lib/store/app-store-internal/slices/workspace.ts`
 
 ---
 

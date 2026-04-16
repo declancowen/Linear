@@ -153,7 +153,6 @@ export function createWorkspaceSlice(
     async removeWorkspaceUser(userId) {
       const currentWorkspaceId = get().currentWorkspaceId
       const previousMemberships = get().teamMemberships
-      const previousUsers = get().users
 
       set((state) => {
         const workspaceTeamIds = new Set(
@@ -186,7 +185,6 @@ export function createWorkspaceSlice(
         } else {
           set({
             teamMemberships: previousMemberships,
-            users: previousUsers,
           })
         }
 

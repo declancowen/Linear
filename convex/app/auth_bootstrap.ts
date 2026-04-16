@@ -23,6 +23,7 @@ import {
   getAppConfig,
   getInviteByTokenDoc,
   getPendingInvitesForEmail,
+  getAuthLifecycleError,
   getTeamDoc,
   getUserAppState,
   getUserByEmail,
@@ -889,25 +890,19 @@ export async function bootstrapWorkspaceUserHandler(
     ctx,
     args.workosUserId
   )
-  if (existingByWorkOSUserId?.accountDeletedAt) {
-    throw new Error("This account has been deleted")
-  }
-  if (existingByWorkOSUserId?.accountDeletionPendingAt) {
-    throw new Error("This account is being deleted")
+  const workosLifecycleError = getAuthLifecycleError(existingByWorkOSUserId)
+
+  if (workosLifecycleError) {
+    throw new Error(workosLifecycleError)
   }
   const existingByEmail = await getUserByEmail(ctx, normalizedEmail)
   const preferredUser = args.existingUserId
     ? await getUserDoc(ctx, args.existingUserId)
     : null
+  const preferredLifecycleError = getAuthLifecycleError(preferredUser)
 
-  if (existingByEmail?.accountDeletionPendingAt) {
-    throw new Error("This account is being deleted")
-  }
-  if (preferredUser?.accountDeletedAt) {
-    throw new Error("This account has been deleted")
-  }
-  if (preferredUser?.accountDeletionPendingAt) {
-    throw new Error("This account is being deleted")
+  if (preferredLifecycleError) {
+    throw new Error(preferredLifecycleError)
   }
 
   const resolvedUser = preferredUser ?? existingByWorkOSUserId ?? existingByEmail ?? null

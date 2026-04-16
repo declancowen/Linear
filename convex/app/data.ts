@@ -91,7 +91,7 @@ export async function getUserByWorkOSUserId(ctx: AppCtx, workosUserId: string) {
     .unique()
 }
 
-function getAuthLifecycleError(
+export function getAuthLifecycleError(
   user:
     | {
         accountDeletedAt?: string | null
@@ -133,12 +133,6 @@ export async function resolveActiveUserByIdentity(
 
   if (input.email) {
     const byEmail = await getUserByEmail(ctx, input.email)
-    const lifecycleError = getAuthLifecycleError(byEmail)
-
-    if (lifecycleError) {
-      throw new Error(lifecycleError)
-    }
-
     return byEmail
   }
 
