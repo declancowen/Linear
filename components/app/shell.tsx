@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -168,7 +169,7 @@ export function AppShell({ children }: AppShellProps) {
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
+  const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useSyncExternalStore(
     subscribeToShortcutModifier,
     getShortcutModifierLabel,
@@ -184,12 +185,12 @@ export function AppShell({ children }: AppShellProps) {
     setSearchOpen(open)
 
     if (!open) {
-      setSearchQuery("")
+      searchQueryRef.current = ""
     }
   }
 
-  function openFullSearch() {
-    const trimmedQuery = searchQuery.trim()
+  function openFullSearch(query = "") {
+    const trimmedQuery = query.trim()
     const href =
       trimmedQuery.length > 0
         ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
@@ -213,7 +214,7 @@ export function AppShell({ children }: AppShellProps) {
     event.preventDefault()
 
     if (searchOpen) {
-      openFullSearch()
+      openFullSearch(searchQueryRef.current)
       return
     }
 
@@ -273,8 +274,9 @@ export function AppShell({ children }: AppShellProps) {
         <GlobalSearchDialog
           open={searchOpen}
           onOpenChange={handleSearchOpenChange}
-          query={searchQuery}
-          onQueryChange={setSearchQuery}
+          onQueryChange={(query) => {
+            searchQueryRef.current = query
+          }}
           onOpenFullSearch={openFullSearch}
           fullSearchShortcutKeys={[searchShortcutModifierLabel, "K"]}
         />

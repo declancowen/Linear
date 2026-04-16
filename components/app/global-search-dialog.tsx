@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   FileText,
@@ -83,20 +84,19 @@ function resultIcon(
 export function GlobalSearchDialog({
   open,
   onOpenChange,
-  query,
   onQueryChange,
   onOpenFullSearch,
   fullSearchShortcutKeys,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  query: string
   onQueryChange: (query: string) => void
-  onOpenFullSearch: () => void
+  onOpenFullSearch: (query: string) => void
   fullSearchShortcutKeys: string[]
 }) {
   const router = useRouter()
   const data = useAppStore()
+  const [query, setQuery] = useState("")
   const results = searchWorkspace(data, query).slice(0, 20)
   const trimmedQuery = query.trim()
   const hasQuery = trimmedQuery.length > 0
@@ -115,9 +115,13 @@ export function GlobalSearchDialog({
     { key: "docs", heading: "Documents", items: groupedResults.docs },
   ] as const
 
+  function handleQueryChange(nextQuery: string) {
+    setQuery(nextQuery)
+    onQueryChange(nextQuery)
+  }
+
   function handleSelect(href: string) {
     onOpenChange(false)
-    onQueryChange("")
     router.push(href)
   }
 
@@ -133,7 +137,7 @@ export function GlobalSearchDialog({
         <CommandInput
           placeholder="Search…"
           value={query}
-          onValueChange={onQueryChange}
+          onValueChange={handleQueryChange}
         />
         <CommandList className="min-h-0 flex-1 max-h-none">
           <CommandEmpty className="text-muted-foreground">
@@ -204,7 +208,7 @@ export function GlobalSearchDialog({
           <Button
             size="sm"
             variant="outline"
-            onClick={onOpenFullSearch}
+            onClick={() => onOpenFullSearch(query)}
             className="justify-between gap-3 border-border/60 bg-background/90 hover:bg-accent/70 sm:min-w-40"
           >
             <span>Open full search</span>
