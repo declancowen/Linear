@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react"
 import {
   Bell,
   CaretDown,
@@ -148,27 +148,49 @@ export function AppShell({ children }: AppShellProps) {
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
 
+  function openFullSearch() {
+    const trimmedQuery = searchQuery.trim()
+    const href =
+      trimmedQuery.length > 0
+        ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
+        : "/workspace/search"
+
+    setSearchOpen(false)
+    setSearchQuery("")
+    router.push(href)
+  }
+
+  const handleSearchShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      !(event.metaKey || event.ctrlKey) ||
+      event.altKey ||
+      event.shiftKey ||
+      event.repeat ||
+      event.key.toLowerCase() !== "k"
+    ) {
+      return
+    }
+
+    event.preventDefault()
+
+    if (searchOpen) {
+      openFullSearch()
+      return
+    }
+
+    setSearchOpen(true)
+  })
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") {
-        return
-      }
-
-      event.preventDefault()
-
-      if (event.shiftKey) {
-        setSearchOpen(false)
-        router.push("/workspace/search")
-        return
-      }
-
-      setSearchOpen((current) => !current)
+      handleSearchShortcut(event)
     }
 
     window.addEventListener("keydown", handleKeyDown)
@@ -176,7 +198,15 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [router])
+  }, [])
+
+  function handleSearchOpenChange(open: boolean) {
+    setSearchOpen(open)
+
+    if (!open) {
+      setSearchQuery("")
+    }
+  }
 
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {
@@ -216,7 +246,13 @@ export function AppShell({ children }: AppShellProps) {
         onOpenChange={setStatusDialogOpen}
       />
       {searchOpen ? (
-        <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+        <GlobalSearchDialog
+          open={searchOpen}
+          onOpenChange={handleSearchOpenChange}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          onOpenFullSearch={openFullSearch}
+        />
       ) : null}
       <Sidebar variant="inset">
         <SidebarHeader>

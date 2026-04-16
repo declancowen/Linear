@@ -10,7 +10,6 @@ import {
   UsersThree,
   X,
 } from "@phosphor-icons/react"
-import { useShallow } from "zustand/react/shallow"
 
 import {
   getAccessibleTeams,
@@ -91,14 +90,15 @@ export function WorkspaceSearchScreen({
 }: {
   initialQuery?: string
 }) {
-  const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
+  const data = useAppStore()
   const [query, setQuery] = useState(initialQuery)
   const [kind, setKind] = useState<SearchKindFilter>("all")
   const [teamId, setTeamId] = useState("all")
   const [status, setStatus] = useState<WorkStatus | "all">("all")
 
   const trimmedQuery = query.trim()
-  const queriedResults = useAppStore((state) => searchWorkspace(state, query))
+  const teams = useMemo(() => getAccessibleTeams(data), [data])
+  const queriedResults = useMemo(() => searchWorkspace(data, query), [data, query])
   const teamsById = useMemo(
     () => new Map(teams.map((team) => [team.id, team])),
     [teams]
