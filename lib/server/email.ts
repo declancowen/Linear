@@ -1,5 +1,7 @@
 import { Resend } from "resend"
 
+import { getAppOrigin } from "@/lib/auth-routing"
+
 const APP_NAME = "Recipe Room"
 const EMAIL_FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -56,14 +58,6 @@ type EmailMessage = {
 
 let resendClient: Resend | null | undefined
 let hasWarnedAboutMissingEmailConfig = false
-
-function getAppOrigin() {
-  return (
-    process.env.APP_URL?.trim() ??
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ??
-    "http://localhost:3000"
-  )
-}
 
 function getResendConfig() {
   const apiKey = process.env.RESEND_API_KEY?.trim()
