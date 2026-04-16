@@ -68,8 +68,8 @@ export async function getUserByEmail(ctx: AppCtx, email: string) {
     .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
     .unique()
 
-  if (!user?.accountDeletedAt) {
-    return user ?? null
+  if (user && !user.accountDeletedAt && !user.accountDeletionPendingAt) {
+    return user
   }
 
   const legacyUsers = await ctx.db.query("users").collect()
@@ -78,6 +78,7 @@ export async function getUserByEmail(ctx: AppCtx, email: string) {
     legacyUsers.find(
       (entry) =>
         !entry.accountDeletedAt &&
+        !entry.accountDeletionPendingAt &&
         normalizeEmailAddress(entry.email) === normalizedEmail
     ) ?? null
   )

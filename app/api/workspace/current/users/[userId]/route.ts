@@ -33,6 +33,13 @@ export async function DELETE(
       return jsonError("Workspace not found", 404)
     }
 
+    if (!appContext.authContext?.isWorkspaceOwner) {
+      return jsonError(
+        "Only the workspace owner can remove workspace users",
+        403
+      )
+    }
+
     const result = await removeWorkspaceUserServer({
       currentUserId: appContext.ensuredUser.userId,
       workspaceId,

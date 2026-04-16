@@ -25,9 +25,11 @@ Files and areas reviewed across all turns:
 - `app/api/workspace/current/leave/route.ts` — leave-workspace route
 - `app/api/workspace/current/route.ts` — workspace branding and delete route authorization
 - `app/api/workspace/current/users/[userId]/route.ts` — workspace user removal route
+- `app/api/notifications/route 2.ts` and `app/api/documents/[documentId]/presence/route 2.ts` — accidental duplicate backup files removed
 - `components/app/settings-screens/member-management.tsx` — shared team/workspace member management UI
 - `components/app/settings-screens/team-settings-screen.tsx` — team settings tabs, member management, delete team
 - `components/app/settings-screens/workspace-settings-screen.tsx` — workspace settings tabs, workspace users, delete workspace
+- `components/app/shell 2.tsx`, `components/app/user-presence 2.tsx`, `components/app/settings-screens/shared 2.tsx`, `components/app/settings-screens/workspace-settings-screen 2.tsx`, `components/ui/confirm-dialog 2.tsx`, `components/ui/hover-card 2.tsx` — accidental duplicate backup files removed
 - `components/app/settings-screens/user-settings-screen.tsx` — delete account UI
 - `components/app/shell.tsx` — leave team/workspace actions from shell
 - `components/app/collaboration-screens/chat-thread.tsx` — read-only chat behavior for departed/deleted users
@@ -67,11 +69,63 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 19:22:44 BST` |
-| **Total turns** | `8` |
+| **Last reviewed** | `2026-04-16 19:34:25 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `15` |
+| **Resolved findings** | `18` |
 | **Accepted findings** | `0` |
+
+---
+
+## Turn 9 — 2026-04-16 19:34:25 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e375622` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest PR-analysis notes found three additional real cleanup/consistency issues. This turn removed the accidental Finder duplicate files from the repository, restored the legacy case-insensitive fallback in `getUserByEmail` while excluding pending-deletion users, and added the missing route-level owner check on workspace-user removal. The remaining notes in the pasted analysis are either already fixed, behaviorally intentional, or maintainability observations rather than active bugs.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 9 | 3 |
+| Carried from Turn 8 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 9
+
+#### B9-01 ~~[BUG] Medium~~ → RESOLVED — `getUserByEmail` lost the legacy case-insensitive fallback and could surface pending-deletion users
+**How it was fixed:** [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:64) now returns the indexed user only when it is active, and otherwise falls back to the full-collection normalized-email scan. That scan now excludes both `accountDeletedAt` and `accountDeletionPendingAt`.
+**Verified:** Mixed-case legacy users can still be resolved by email-only lookup, and pending-deletion users are no longer returned by this helper.
+
+#### B9-02 ~~[BUG] Medium~~ → RESOLVED — Accidental ` 2` duplicate files were committed into the repository
+**How it was fixed:** The duplicate backup files were removed from the tree:
+[shell 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/shell 2.tsx:1>),
+[user-presence 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/user-presence 2.tsx:1>),
+[shared 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/shared 2.tsx:1>),
+[workspace-settings-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/workspace-settings-screen 2.tsx:1>),
+[confirm-dialog 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/ui/confirm-dialog 2.tsx:1>),
+[hover-card 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/ui/hover-card 2.tsx:1>),
+[notifications route 2.ts](</Users/declancowen/Documents/GitHub/Linear/app/api/notifications/route 2.ts:1>),
+and [presence route 2.ts](</Users/declancowen/Documents/GitHub/Linear/app/api/documents/[documentId]/presence/route 2.ts:1>).
+**Verified:** These files were not part of the real feature surface and removing them eliminates several thousand lines of dead code from the branch.
+
+#### B9-03 ~~[BUG] Low~~ → RESOLVED — Workspace-user removal route lacked the same route-level owner guard as sibling workspace routes
+**How it was fixed:** [workspace user removal route](/Users/declancowen/Documents/GitHub/Linear/app/api/workspace/current/users/[userId]/route.ts:31) now checks `appContext.authContext?.isWorkspaceOwner` before calling the backend mutation.
+**Verified:** Unauthorized callers now get a clean 403 response instead of falling through to the generic Convex error wrapper.
+
+### Remaining PR-analysis notes classified
+
+- The authorization consistency, snapshot visibility, deleted-email rewrite, solo-admin constraints, and retained `workosUserId` notes are informational.
+- The account-deletion two-phase note is already addressed by the pending-deletion flow from Turn 7.
+- The team-chat server-guard, team-scoped messageable-member check, workspace-leave team-admin notification gap, route-level workspace-delete guard, and `ChatThread` duplication notes are stale because those were fixed in Turns 6-8.
+- The `bootstrapWorkspaceUserHandler` lifecycle-check duplication remains a maintainability note rather than a current bug.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm eslint convex/app/data.ts 'app/api/workspace/current/users/[userId]/route.ts'`
 
 ---
 
