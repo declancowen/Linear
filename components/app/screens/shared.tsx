@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils"
 export const PROPERTY_SELECT_SEPARATOR_VALUE = "__separator__"
 
 export const SCREEN_HEADER_CLASS_NAME =
-  "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-4 py-2"
+  "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
 
 export function ScreenHeader({
   title,
