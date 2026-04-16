@@ -2,6 +2,7 @@ import { api } from "@/convex/_generated/api"
 import type {
   Priority,
   ProjectPresentationConfig,
+  Role,
   TeamExperienceType,
   TeamWorkflowSettings,
   TemplateType,
@@ -61,6 +62,18 @@ export async function updateTeamWorkflowSettingsServer(input: {
   )
 }
 
+export async function updateTeamMemberRoleServer(input: {
+  currentUserId: string
+  teamId: string
+  userId: string
+  role: Role
+}) {
+  return getConvexServerClient().mutation(
+    api.app.updateTeamMemberRole,
+    withServerToken(input)
+  )
+}
+
 export async function updateTeamDetailsServer(input: {
   currentUserId: string
   teamId: string
@@ -113,6 +126,27 @@ export async function deleteTeamServer(input: {
 }) {
   return getConvexServerClient().mutation(
     api.app.deleteTeam,
+    withServerToken(input)
+  )
+}
+
+export async function leaveTeamServer(input: {
+  currentUserId: string
+  teamId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.leaveTeam,
+    withServerToken(input)
+  )
+}
+
+export async function removeTeamMemberServer(input: {
+  currentUserId: string
+  teamId: string
+  userId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.removeTeamMember,
     withServerToken(input)
   )
 }

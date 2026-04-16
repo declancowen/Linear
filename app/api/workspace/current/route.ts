@@ -45,9 +45,9 @@ export async function PATCH(request: NextRequest) {
       return jsonError("Workspace not found", 404)
     }
 
-    if (!authContext.isWorkspaceAdmin) {
+    if (!authContext.isWorkspaceOwner) {
       return jsonError(
-        "Only workspace admins can update workspace details",
+        "Only the workspace owner can update workspace details",
         403
       )
     }

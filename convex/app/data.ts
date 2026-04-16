@@ -1,5 +1,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
+import { normalizeEmailAddress } from "./core"
+
 export type AppCtx = MutationCtx | QueryCtx
 
 export async function getWorkspaceDoc(ctx: AppCtx, id: string) {
@@ -20,6 +22,19 @@ export async function getUserDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("users")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+export async function getTeamMembershipDoc(
+  ctx: AppCtx,
+  teamId: string,
+  userId: string
+) {
+  return ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team_and_user", (q) =>
+      q.eq("teamId", teamId).eq("userId", userId)
+    )
     .unique()
 }
 
@@ -47,21 +62,24 @@ export async function getProjectDoc(ctx: AppCtx, id: string) {
 }
 
 export async function getUserByEmail(ctx: AppCtx, email: string) {
-  const exactMatch = await ctx.db
+  const normalizedEmail = normalizeEmailAddress(email)
+  const user = await ctx.db
     .query("users")
-    .withIndex("by_email", (q) => q.eq("email", email))
+    .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
     .unique()
 
-  if (exactMatch) {
-    return exactMatch
+  if (!user?.accountDeletedAt) {
+    return user ?? null
   }
 
-  const normalizedEmail = email.trim().toLowerCase()
-  const users = await ctx.db.query("users").collect()
+  const legacyUsers = await ctx.db.query("users").collect()
 
   return (
-    users.find((user) => user.email.trim().toLowerCase() === normalizedEmail) ??
-    null
+    legacyUsers.find(
+      (entry) =>
+        !entry.accountDeletedAt &&
+        normalizeEmailAddress(entry.email) === normalizedEmail
+    ) ?? null
   )
 }
 
@@ -70,6 +88,46 @@ export async function getUserByWorkOSUserId(ctx: AppCtx, workosUserId: string) {
     .query("users")
     .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", workosUserId))
     .unique()
+}
+
+export async function resolveActiveUserByIdentity(
+  ctx: AppCtx,
+  input: {
+    workosUserId?: string | null
+    email?: string | null
+  }
+) {
+  if (input.workosUserId) {
+    const byWorkosId = await getUserByWorkOSUserId(ctx, input.workosUserId)
+
+    if (byWorkosId?.accountDeletedAt) {
+      throw new Error("This account has been deleted")
+    }
+
+    if (byWorkosId) {
+      return byWorkosId
+    }
+  }
+
+  if (input.email) {
+    return getUserByEmail(ctx, input.email)
+  }
+
+  return null
+}
+
+export async function listWorkspaceTeams(ctx: AppCtx, workspaceId: string) {
+  return ctx.db
+    .query("teams")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect()
+}
+
+export async function listWorkspacesOwnedByUser(ctx: AppCtx, userId: string) {
+  return ctx.db
+    .query("workspaces")
+    .withIndex("by_created_by", (q) => q.eq("createdBy", userId))
+    .collect()
 }
 
 export async function getWorkItemDoc(ctx: AppCtx, id: string) {
@@ -302,7 +360,9 @@ export function resolvePreferredWorkspaceId(input: {
   return null
 }
 
-export function isDefinedString(value: string | null | undefined): value is string {
+export function isDefinedString(
+  value: string | null | undefined
+): value is string {
   return typeof value === "string" && value.length > 0
 }
 
@@ -359,23 +419,17 @@ export async function getEffectiveRole(
   teamId: string,
   userId: string
 ) {
-  const membership = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_team_and_user", (q) =>
-      q.eq("teamId", teamId).eq("userId", userId)
-    )
-    .unique()
+  const membership = await getTeamMembershipDoc(ctx, teamId, userId)
 
   return membership?.role ?? null
 }
 
-export async function isTeamMember(ctx: AppCtx, teamId: string, userId: string) {
-  const membership = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_team_and_user", (q) =>
-      q.eq("teamId", teamId).eq("userId", userId)
-    )
-    .unique()
+export async function isTeamMember(
+  ctx: AppCtx,
+  teamId: string,
+  userId: string
+) {
+  const membership = await getTeamMembershipDoc(ctx, teamId, userId)
 
   return Boolean(membership)
 }

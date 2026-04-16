@@ -47,6 +47,45 @@ export async function deleteWorkspaceServer(input: {
   )
 }
 
+export async function removeWorkspaceUserServer(input: {
+  currentUserId: string
+  workspaceId: string
+  userId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.removeWorkspaceUser,
+    withServerToken(input)
+  )
+}
+
+export async function leaveWorkspaceServer(input: {
+  currentUserId: string
+  workspaceId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.leaveWorkspace,
+    withServerToken(input)
+  )
+}
+
+export async function deleteCurrentAccountServer(input: {
+  currentUserId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.deleteCurrentAccount,
+    withServerToken(input)
+  )
+}
+
+export async function validateCurrentAccountDeletionServer(input: {
+  currentUserId: string
+}) {
+  return getConvexServerClient().query(
+    api.app.validateCurrentAccountDeletion,
+    withServerToken(input)
+  )
+}
+
 export async function setWorkspaceWorkosOrganizationServer(input: {
   workspaceId: string
   workosOrganizationId: string

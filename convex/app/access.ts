@@ -38,6 +38,21 @@ export async function requireReadableTeamAccess(
   return role
 }
 
+export async function requireTeamAdminAccess(
+  ctx: AppCtx,
+  teamId: string,
+  userId: string,
+  errorMessage = "Only team admins can perform this action"
+) {
+  const role = await getEffectiveRole(ctx, teamId, userId)
+
+  if (role !== "admin") {
+    throw new Error(errorMessage)
+  }
+
+  return role
+}
+
 export async function requireEditableWorkspaceAccess(
   ctx: AppCtx,
   workspaceId: string,
@@ -73,6 +88,19 @@ export async function requireReadableWorkspaceAccess(
   if (workspaceRoles.length === 0) {
     throw new Error("You do not have access to this workspace")
   }
+}
+
+export async function requireWorkspaceOwnerAccess(
+  ctx: AppCtx,
+  workspaceId: string,
+  userId: string,
+  errorMessage = "Only the workspace owner can perform this action"
+) {
+  if (await isWorkspaceOwner(ctx, workspaceId, userId)) {
+    return
+  }
+
+  throw new Error(errorMessage)
 }
 
 export async function requireReadableDocumentAccess(

@@ -17,8 +17,10 @@ import {
 import { useShallow } from "zustand/react/shallow"
 
 import {
+  canEditWorkspace,
   getChatMessages,
   getConversationParticipants,
+  getTeamRole,
   getUser,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
@@ -45,12 +47,16 @@ function ChatComposer({
   mentionCandidates,
   currentUserId,
   action,
+  editable = true,
+  disabledReason,
 }: {
   placeholder?: string
   onSend: (content: string) => void
   mentionCandidates: ReturnType<typeof getConversationParticipants>
   currentUserId: string
   action?: ReactNode
+  editable?: boolean
+  disabledReason?: string | null
 }) {
   const [content, setContent] = useState("")
   const [composerKey, setComposerKey] = useState(0)
@@ -63,7 +69,7 @@ function ChatComposer({
   )
 
   const handleSend = () => {
-    if (!contentText) return
+    if (!editable || !contentText) return
     onSend(content)
     setContent("")
     setComposerKey((current) => current + 1)
@@ -80,7 +86,9 @@ function ChatComposer({
           key={composerKey}
           content={content}
           onChange={setContent}
+          editable={editable}
           compact
+          allowSlashCommands={false}
           autoFocus={composerKey > 0}
           showToolbar={false}
           showStats={false}
@@ -101,6 +109,7 @@ function ChatComposer({
             trigger={
               <button
                 type="button"
+                disabled={!editable}
                 className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
               >
                 <Smiley className="size-4" />
@@ -113,7 +122,7 @@ function ChatComposer({
             disabled={!contentText}
             className={cn(
               "flex size-7 items-center justify-center rounded-full transition-colors",
-              contentText
+              editable && contentText
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground/50"
             )}
@@ -122,6 +131,9 @@ function ChatComposer({
           </button>
         </div>
       </div>
+      {!editable && disabledReason ? (
+        <div className="mt-2 text-xs text-muted-foreground">{disabledReason}</div>
+      ) : null}
     </div>
   )
 }
@@ -148,11 +160,35 @@ export function ChatThread({
   const messages = useAppStore(
     useShallow((state) => getChatMessages(state, conversationId))
   )
-  const { currentUserId, currentWorkspaceId, users } = useAppStore(
+  const canCurrentUserSend = useAppStore((state) => {
+    const conversation = state.conversations.find(
+      (entry) => entry.id === conversationId
+    )
+
+    if (!conversation || conversation.kind !== "chat") {
+      return false
+    }
+
+    if (conversation.scopeType === "workspace") {
+      return (
+        conversation.participantIds.includes(state.currentUserId) &&
+        canEditWorkspace(state, conversation.scopeId)
+      )
+    }
+
+    const role = getTeamRole(state, conversation.scopeId)
+
+    return role === "admin" || role === "member"
+  })
+  const { currentUserId, currentWorkspaceId, users, workspaces, teams, teamMemberships } =
+    useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
       currentWorkspaceId: state.currentWorkspaceId,
       users: state.users,
+      workspaces: state.workspaces,
+      teams: state.teams,
+      teamMemberships: state.teamMemberships,
     }))
   )
   const usersById = useMemo(
@@ -163,6 +199,49 @@ export function ChatThread({
   const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
+  const hasCurrentWorkspaceAccess = (userId: string) => {
+    if (!currentWorkspaceId) {
+      return false
+    }
+
+    const workspace =
+      workspaces.find((entry) => entry.id === currentWorkspaceId) ?? null
+
+    if (!workspace) {
+      return false
+    }
+
+    if (workspace.createdBy === userId) {
+      return true
+    }
+
+    const workspaceTeamIds = new Set(
+      teams
+        .filter((team) => team.workspaceId === currentWorkspaceId)
+        .map((team) => team.id)
+    )
+
+    return teamMemberships.some(
+      (membership) =>
+        membership.userId === userId && workspaceTeamIds.has(membership.teamId)
+    )
+  }
+  const messageableMembers = members.filter(
+    (member) =>
+      member.id === currentUserId ||
+      (!member.accountDeletedAt && hasCurrentWorkspaceAccess(member.id))
+  )
+  const activeOtherMemberCount = messageableMembers.filter(
+    (member) => member.id !== currentUserId
+  ).length
+  const hasMessageableMembers = activeOtherMemberCount > 0
+  const composerEditable = canCurrentUserSend && hasMessageableMembers
+  const composerDisabledReason =
+    !canCurrentUserSend
+      ? "Messaging is read-only for your current role."
+      : !hasMessageableMembers
+        ? "This chat is read-only because the other participants have left the workspace or deleted their account."
+      : null
 
   useEffect(() => {
     const el = scrollRef.current
@@ -399,9 +478,11 @@ export function ChatThread({
       <div className="shrink-0 border-t bg-background/95 backdrop-blur">
         <ChatComposer
           placeholder={`Message ${title}…`}
-          mentionCandidates={members}
+          mentionCandidates={messageableMembers}
           currentUserId={currentUserId}
           action={videoAction}
+          editable={composerEditable}
+          disabledReason={composerDisabledReason}
           onSend={(content) => {
             useAppStore.getState().sendChatMessage({ conversationId, content })
           }}

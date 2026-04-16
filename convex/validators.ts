@@ -185,6 +185,8 @@ const notificationEntityTypeLiterals = [
   v.literal("invite"),
   v.literal("channelPost"),
   v.literal("chat"),
+  v.literal("team"),
+  v.literal("workspace"),
 ] as const
 
 export const roleValidator = v.union(...roleLiterals)
@@ -309,6 +311,7 @@ export const userFields = {
   status: v.optional(userStatusValidator),
   statusMessage: v.optional(v.string()),
   hasExplicitStatus: v.optional(v.boolean()),
+  accountDeletedAt: v.optional(nullableString),
   preferences: v.object({
     emailMentions: v.boolean(),
     emailAssignments: v.boolean(),

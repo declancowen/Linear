@@ -43,9 +43,9 @@ export async function POST(request: NextRequest) {
 
     if (
       parsed.kind === "workspace-logo" &&
-      !appContext.authContext?.isWorkspaceAdmin
+      !appContext.authContext?.isWorkspaceOwner
     ) {
-      return jsonError("Only workspace admins can update workspace settings", 403)
+      return jsonError("Only the workspace owner can update workspace settings", 403)
     }
 
     const result = await generateSettingsImageUploadUrlServer({

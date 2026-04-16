@@ -50,6 +50,22 @@ type TeamInviteEmail = {
   joinCode: string
 }
 
+type TeamRemovalEmail = {
+  email: string
+  name: string
+  workspaceName: string
+  teamName: string
+  actorName: string
+}
+
+type AccessChangeEmail = {
+  email: string
+  subject: string
+  eyebrow: string
+  headline: string
+  body: string
+}
+
 type EmailMessage = {
   subject: string
   text: string
@@ -224,7 +240,8 @@ function renderFallbackLinks(input: {
 }) {
   return [
     `<p style="margin: 16px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">${escapeHtml(
-      input.intro ?? "If the button above does not open, use this link directly:"
+      input.intro ??
+        "If the button above does not open, use this link directly:"
     )}<br />`,
     input.links
       .map(
@@ -252,6 +269,66 @@ function renderInviteEmailText(input: {
     `Join with team code: ${input.joinCode}`,
     `Open code-based join: ${input.joinCodeUrl}`,
   ].join("\n")
+}
+
+function renderTeamRemovalEmail(input: {
+  origin: string
+  name: string
+  workspaceName: string
+  teamName: string
+  actorName: string
+}): EmailMessage {
+  return {
+    subject: `You were removed from ${input.teamName}`,
+    text: [
+      `Hi ${input.name},`,
+      "",
+      `${input.actorName} removed your access to ${input.teamName} in ${input.workspaceName}.`,
+      "",
+      "If you think this was a mistake, contact a team admin.",
+      `Open ${APP_NAME}: ${buildAbsoluteUrl(input.origin, "/")}`,
+    ].join("\n"),
+    html: renderEmailLayout({
+      logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
+      eyebrow: "TEAM ACCESS REMOVED",
+      content: [
+        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">Your access was removed</h1>`,
+        `<p style="margin: 12px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">${escapeHtml(input.actorName)} removed your access to <strong style="color: ${EMAIL_COLORS.text};">${escapeHtml(input.teamName)}</strong> in <strong style="color: ${EMAIL_COLORS.text};">${escapeHtml(input.workspaceName)}</strong>.</p>`,
+        '<div style="margin-top: 24px;">',
+        `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
+        "<tr>",
+        '<td style="padding: 16px 18px;">',
+        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Access Update</div>`,
+        `<p style="margin: 10px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">You no longer have access to this team. If this was unexpected, contact a team admin.</p>`,
+        "</td>",
+        "</tr>",
+        "</table>",
+        "</div>",
+      ].join(""),
+      footerText: `${APP_NAME} · Transactional team access update`,
+    }),
+  }
+}
+
+function renderAccessChangeEmail(input: {
+  origin: string
+  eyebrow: string
+  headline: string
+  body: string
+}): EmailMessage {
+  return {
+    subject: input.headline,
+    text: [input.headline, "", input.body].join("\n"),
+    html: renderEmailLayout({
+      logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
+      eyebrow: input.eyebrow,
+      content: [
+        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(input.headline)}</h1>`,
+        `<p style="margin: 12px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">${toHtmlWithLineBreaks(input.body)}</p>`,
+      ].join(""),
+      footerText: `${APP_NAME} · Transactional access update`,
+    }),
+  }
 }
 
 function renderInviteEmailHtml(input: {
@@ -584,6 +661,63 @@ export async function sendTeamInviteEmails(input: {
         })
       } catch (error) {
         console.error("Failed to send team invite email", error)
+      }
+    })
+  )
+}
+
+export async function sendAccessChangeEmails(input: {
+  emails: AccessChangeEmail[]
+}) {
+  const origin = getAppOrigin()
+
+  await Promise.all(
+    input.emails.map(async (email) => {
+      try {
+        const message = renderAccessChangeEmail({
+          origin,
+          eyebrow: email.eyebrow,
+          headline: email.headline,
+          body: email.body,
+        })
+
+        await sendEmail({
+          to: email.email,
+          subject: email.subject,
+          text: message.text,
+          html: message.html,
+        })
+      } catch (error) {
+        console.error("Failed to send access change email", error)
+      }
+    })
+  )
+}
+
+export async function sendTeamRemovalEmails(input: {
+  removals: TeamRemovalEmail[]
+}) {
+  const origin = getAppOrigin()
+
+  await Promise.all(
+    input.removals.map(async (removal) => {
+      try {
+        const message = renderTeamRemovalEmail({
+          origin,
+          name: removal.name,
+          workspaceName: removal.workspaceName,
+          teamName: removal.teamName,
+          actorName: removal.actorName,
+        })
+
+        await sendEmail({
+          to: removal.email,
+          subject: message.subject,
+          text: message.text,
+          html: message.html,
+        })
+      } catch (error) {
+        console.error("Failed to send team removal email", error)
       }
     })
   )

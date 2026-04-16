@@ -207,6 +207,24 @@ export async function updateWorkOSUserEmail(input: {
   })
 }
 
+export async function deleteWorkOSUser(input: {
+  workosUserId: string | null
+}) {
+  if (!input.workosUserId) {
+    return
+  }
+
+  try {
+    await getWorkOSClient().userManagement.deleteUser(input.workosUserId)
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return
+    }
+
+    throw error
+  }
+}
+
 export async function resetWorkOSPassword(input: {
   token: string
   newPassword: string

@@ -60,6 +60,7 @@ type RichTextEditorProps = {
   content: string | JSONContent
   onChange: (content: string) => void
   editable?: boolean
+  allowSlashCommands?: boolean
   placeholder?: string
   className?: string
   compact?: boolean
@@ -98,6 +99,7 @@ export function RichTextEditor({
   content,
   onChange,
   editable = true,
+  allowSlashCommands = true,
   placeholder = "Add a description…",
   className,
   compact = false,
@@ -250,7 +252,11 @@ export function RichTextEditor({
   }
 
   function syncCommandMenus(currentEditor: Editor) {
-    syncSlashState(buildSlashState(currentEditor, containerRef.current))
+    syncSlashState(
+      allowSlashCommands
+        ? buildSlashState(currentEditor, containerRef.current)
+        : null
+    )
     syncMentionState(buildMentionState(currentEditor, containerRef.current))
   }
 
@@ -343,7 +349,7 @@ export function RichTextEditor({
       },
       handleKeyDown(_view, event) {
         const currentEditor = editorRef.current
-        const currentSlashState = slashState
+        const currentSlashState = allowSlashCommands ? slashState : null
         const currentMentionState = mentionState
         const slashOptions = {
           enableUploads: Boolean(onUploadAttachment),
@@ -587,7 +593,7 @@ export function RichTextEditor({
   }, [imagePickerRequest])
 
   const filteredSlashCommands = useMemo(() => {
-    if (!slashState || !editor) {
+    if (!allowSlashCommands || !slashState || !editor) {
       return []
     }
 
@@ -598,7 +604,7 @@ export function RichTextEditor({
       promptAttachmentUpload: requestAttachmentPicker,
       promptImageUpload: requestImagePicker,
     })
-  }, [editor, onUploadAttachment, slashState])
+  }, [allowSlashCommands, editor, onUploadAttachment, slashState])
 
   const filteredMentionCandidates = useMemo(() => {
     if (!mentionState || !editor) {
@@ -763,7 +769,7 @@ export function RichTextEditor({
       </div>
     ) : null
 
-  const slashMenu = slashState ? (
+  const slashMenu = allowSlashCommands && slashState ? (
     <SlashCommandMenu
       activeIndex={activeSlashIndex}
       commands={filteredSlashCommands}

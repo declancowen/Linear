@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import { submitLogoutForm } from "@/lib/browser/logout"
 import {
+  syncDeleteCurrentAccount,
   syncRequestAccountEmailChange,
   syncRequestCurrentAccountPasswordReset,
   syncUpdateCurrentUserProfile,
@@ -23,6 +24,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -112,6 +114,29 @@ export function UserSettingsScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [changingEmail, setChangingEmail] = useState(false)
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const deleteAccountBlockReason = useAppStore((state) => {
+    if (
+      state.workspaces.some(
+        (workspace) => workspace.createdBy === state.currentUserId
+      )
+    ) {
+      return "Transfer or delete your owned workspace before deleting your account."
+    }
+
+    if (
+      state.teamMemberships.some(
+        (membership) =>
+          membership.userId === state.currentUserId &&
+          membership.role === "admin"
+      )
+    ) {
+      return "Leave or transfer your team admin access before deleting your account."
+    }
+
+    return null
+  })
 
   useEffect(() => {
     if (!avatarPreviewUrl?.startsWith("blob:")) {
@@ -272,6 +297,31 @@ export function UserSettingsScreen() {
       )
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleDeleteAccount() {
+    try {
+      setDeletingAccount(true)
+      const payload = await syncDeleteCurrentAccount()
+      const notice = payload.notice || "Your account has been deleted."
+
+      toast.success(notice)
+
+      if (payload.logoutRequired) {
+        submitLogoutForm(`/login?notice=${encodeURIComponent(notice)}`)
+        return
+      }
+
+      router.replace("/")
+      router.refresh()
+    } catch (error) {
+      console.error(error)
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete account"
+      )
+    } finally {
+      setDeletingAccount(false)
     }
   }
 
@@ -464,7 +514,46 @@ export function UserSettingsScreen() {
             </Button>
           </div>
         </SettingsSection>
+
+        <section className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4">
+          <div className="space-y-1">
+            <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
+              Danger zone
+            </h2>
+          </div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Delete account</div>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Permanently disconnect your sign-in and remove you from active
+                workspace memberships. Existing chats, posts, and documents stay
+                visible for history.
+                {deleteAccountBlockReason
+                  ? ` ${deleteAccountBlockReason}`
+                  : ""}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingAccount || deleteAccountBlockReason != null}
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              {deletingAccount ? "Deleting..." : "Delete account"}
+            </Button>
+          </div>
+        </section>
       </div>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete account"
+        description="This will remove your active access, disconnect your sign-in, and sign you out. Your existing chats, posts, and documents will stay visible for history."
+        confirmLabel="Delete account"
+        variant="destructive"
+        loading={deletingAccount}
+        onConfirm={() => void handleDeleteAccount()}
+      />
     </SettingsScaffold>
   )
 }

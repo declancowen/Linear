@@ -465,10 +465,25 @@ export function createCollaborationConversationActions({
 
         const now = getNow()
         const actor = state.users.find((user) => user.id === state.currentUserId)
+        const audienceUserIds = getConversationAudienceUserIds(
+          state,
+          conversation
+        )
+
+        if (
+          conversation.scopeType === "workspace" &&
+          !audienceUserIds.some((userId) => userId !== state.currentUserId)
+        ) {
+          toast.error(
+            "This chat is read-only because the other participants have left the workspace or deleted their account"
+          )
+          return state
+        }
+
         const mentionUserIds = createMentionIds(
           parsed.data.content,
           state.users,
-          getConversationAudienceUserIds(state, conversation)
+          audienceUserIds
         )
         const notifications = [...state.notifications]
         const notifiedUserIds = new Set<string>()

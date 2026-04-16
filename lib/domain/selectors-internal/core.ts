@@ -58,6 +58,41 @@ export function isWorkspaceOwner(data: AppData, workspaceId: string) {
   )
 }
 
+export function hasWorkspaceAccess(
+  data: AppData,
+  workspaceId: string,
+  userId: string
+) {
+  const workspace = data.workspaces.find((entry) => entry.id === workspaceId)
+
+  if (!workspace) {
+    return false
+  }
+
+  if (workspace.createdBy === userId) {
+    return true
+  }
+
+  const workspaceTeamIds = new Set(
+    data.teams
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => team.id)
+  )
+
+  return data.teamMemberships.some(
+    (membership) =>
+      membership.userId === userId && workspaceTeamIds.has(membership.teamId)
+  )
+}
+
+export function hasLeftWorkspace(
+  data: AppData,
+  workspaceId: string,
+  userId: string
+) {
+  return !hasWorkspaceAccess(data, workspaceId, userId)
+}
+
 export function canEditTeam(data: AppData, teamId: string) {
   const role = getTeamRole(data, teamId)
   return role === "admin" || role === "member"

@@ -28,6 +28,7 @@ import {
   Plus,
   PlusCircle,
   SignIn,
+  SignOut,
   SquaresFour,
   UserCircle,
   X,
@@ -40,6 +41,7 @@ import {
   getCurrentUser,
   getCurrentWorkspace,
   getTeamFeatureSettings,
+  isWorkspaceOwner,
 } from "@/lib/domain/selectors"
 import {
   getWorkSurfaceCopy,
@@ -57,6 +59,7 @@ import { SidebarLink } from "@/components/app/shell/sidebar-link"
 import { StatusDialog } from "@/components/app/shell/status-dialog"
 import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -165,9 +168,7 @@ function SidebarInsetResizeHandle() {
     }
   }, [isResizing, setDesktopWidth, setIsResizing])
 
-  const handlePointerDown = (
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || isMobile || state === "collapsed") {
       return
     }
@@ -187,7 +188,7 @@ function SidebarInsetResizeHandle() {
       type="button"
       aria-label="Resize sidebar"
       onPointerDown={handlePointerDown}
-      className="absolute inset-y-0 left-0 z-30 hidden w-8 cursor-col-resize touch-none select-none bg-transparent outline-hidden peer-data-[state=collapsed]:hidden md:block"
+      className="absolute inset-y-0 left-0 z-30 hidden w-8 cursor-col-resize touch-none bg-transparent outline-hidden select-none peer-data-[state=collapsed]:hidden md:block"
     />
   )
 }
@@ -252,6 +253,32 @@ export function AppShell({ children }: AppShellProps) {
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
   )
+  const canOpenWorkspaceSettings = useAppStore((state) => {
+    const currentWorkspace = getCurrentWorkspace(state)
+
+    return currentWorkspace
+      ? isWorkspaceOwner(state, currentWorkspace.id)
+      : false
+  })
+  const canLeaveWorkspace = useAppStore((state) => {
+    const currentWorkspace = getCurrentWorkspace(state)
+
+    if (!currentWorkspace || canAdminWorkspace(state, currentWorkspace.id)) {
+      return false
+    }
+
+    const workspaceTeamIds = new Set(
+      state.teams
+        .filter((team) => team.workspaceId === currentWorkspace.id)
+        .map((team) => team.id)
+    )
+
+    return state.teamMemberships.some(
+      (membership) =>
+        membership.userId === state.currentUserId &&
+        workspaceTeamIds.has(membership.teamId)
+    )
+  })
   const workspaceLogoImageSrc = resolveImageAssetSource(
     workspace?.logoImageUrl,
     workspace?.logoUrl
@@ -280,6 +307,19 @@ export function AppShell({ children }: AppShellProps) {
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
+  const [teamPendingLeave, setTeamPendingLeave] = useState<{
+    id: string
+    slug: string
+    name: string
+  } | null>(null)
+  const [leavingTeamId, setLeavingTeamId] = useState<string | null>(null)
+  const [workspacePendingLeave, setWorkspacePendingLeave] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [leavingWorkspaceId, setLeavingWorkspaceId] = useState<string | null>(
+    null
+  )
 
   function handleSearchOpenChange(open: boolean) {
     setSearchOpen(open)
@@ -298,6 +338,61 @@ export function AppShell({ children }: AppShellProps) {
 
     handleSearchOpenChange(false)
     router.push(href)
+  }
+
+  async function handleLeaveTeam() {
+    if (!teamPendingLeave) {
+      return
+    }
+
+    const targetTeam = teamPendingLeave
+
+    try {
+      setLeavingTeamId(targetTeam.id)
+      const left = await useAppStore.getState().leaveTeam(targetTeam.id)
+
+      if (!left) {
+        return
+      }
+
+      setTeamPendingLeave(null)
+
+      if (!useAppStore.getState().currentWorkspaceId) {
+        router.replace("/")
+        return
+      }
+
+      if (pathname.startsWith(`/team/${targetTeam.slug}`)) {
+        router.replace("/workspace/projects")
+        return
+      }
+
+      router.refresh()
+    } finally {
+      setLeavingTeamId(null)
+    }
+  }
+
+  async function handleLeaveWorkspace() {
+    if (!workspacePendingLeave) {
+      return
+    }
+
+    try {
+      setLeavingWorkspaceId(workspacePendingLeave.id)
+      const left = await useAppStore.getState().leaveWorkspace()
+
+      if (!left) {
+        return
+      }
+
+      setWorkspacePendingLeave(null)
+      router.replace(
+        useAppStore.getState().currentWorkspaceId ? "/workspace/projects" : "/"
+      )
+    } finally {
+      setLeavingWorkspaceId(null)
+    }
   }
 
   const handleSearchShortcut = useEffectEvent((event: KeyboardEvent) => {
@@ -382,7 +477,7 @@ export function AppShell({ children }: AppShellProps) {
         />
       ) : null}
       <Sidebar variant="inset">
-        <SidebarHeader>
+        <SidebarHeader className="pb-1">
           <div className="flex items-center gap-1">
             <SidebarMenu className="min-w-0 flex-1">
               <SidebarMenuItem>
@@ -413,12 +508,14 @@ export function AppShell({ children }: AppShellProps) {
                   <DropdownMenuContent align="start" className="w-64">
                     <DropdownMenuLabel>Workspace</DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      <DropdownMenuItem asChild>
-                        <Link href="/workspace/settings">
-                          <Gear />
-                          Workspace settings
-                        </Link>
-                      </DropdownMenuItem>
+                      {canOpenWorkspaceSettings ? (
+                        <DropdownMenuItem asChild>
+                          <Link href="/workspace/settings">
+                            <Gear />
+                            Workspace settings
+                          </Link>
+                        </DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuItem asChild>
                         <Link
                           href="/invites"
@@ -445,6 +542,27 @@ export function AppShell({ children }: AppShellProps) {
                         <PaperPlaneTilt />
                         Invite to workspace
                       </DropdownMenuItem>
+                      {canLeaveWorkspace ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onSelect={() => {
+                              if (!workspace) {
+                                return
+                              }
+
+                              setWorkspacePendingLeave({
+                                id: workspace.id,
+                                name: workspace.name,
+                              })
+                            }}
+                          >
+                            <SignOut />
+                            Leave workspace
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -461,7 +579,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup>
+          <SidebarGroup className="pt-1">
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarLink
@@ -586,6 +704,7 @@ export function AppShell({ children }: AppShellProps) {
                     const canInvite =
                       teamRole === "admin" || teamRole === "member"
                     const canManage = teamRole === "admin"
+                    const canLeave = teamRole !== null && teamRole !== "admin"
                     const features = getTeamFeatureSettings(team)
 
                     return (
@@ -621,34 +740,63 @@ export function AppShell({ children }: AppShellProps) {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start" className="w-48">
-                              {canInvite ? (
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    setInviteMode("team")
-                                    setInvitePresetTeamIds([team.id])
-                                    setInviteOpen(true)
-                                  }}
-                                >
-                                  <Plus />
-                                  Invite to Team
-                                </DropdownMenuItem>
+                              {canInvite || canManage ? (
+                                <DropdownMenuGroup>
+                                  {canInvite ? (
+                                    <DropdownMenuItem
+                                      onSelect={() => {
+                                        setInviteMode("team")
+                                        setInvitePresetTeamIds([team.id])
+                                        setInviteOpen(true)
+                                      }}
+                                    >
+                                      <Plus />
+                                      Invite to Team
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {canManage ? (
+                                    <DropdownMenuItem asChild>
+                                      <Link
+                                        href={`/team/${team.slug}/settings`}
+                                      >
+                                        <Gear />
+                                        Team settings
+                                      </Link>
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                </DropdownMenuGroup>
                               ) : null}
-                              {canManage ? (
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/team/${team.slug}/settings`}>
-                                    <Gear />
-                                    Team settings
-                                  </Link>
-                                </DropdownMenuItem>
+                              {canLeave ? (
+                                <>
+                                  {canInvite || canManage ? (
+                                    <DropdownMenuSeparator />
+                                  ) : null}
+                                  <DropdownMenuGroup>
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => {
+                                        setTeamPendingLeave({
+                                          id: team.id,
+                                          slug: team.slug,
+                                          name: team.name,
+                                        })
+                                      }}
+                                    >
+                                      <SignOut />
+                                      Leave team
+                                    </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                                </>
                               ) : null}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
                         {isExpanded ? (
-                          <SidebarMenuSub>
+                          <SidebarMenuSub className="mx-0 translate-x-0 gap-0.5 border-l-0 px-0 py-0">
                             {features.chat ? (
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
+                                  className="pl-8"
                                   asChild
                                   isActive={pathname.startsWith(
                                     `/team/${team.slug}/chat`
@@ -664,6 +812,7 @@ export function AppShell({ children }: AppShellProps) {
                             {features.channels ? (
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
+                                  className="pl-8"
                                   asChild
                                   isActive={pathname.startsWith(
                                     `/team/${team.slug}/channel`
@@ -679,6 +828,7 @@ export function AppShell({ children }: AppShellProps) {
                             {features.issues ? (
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
+                                  className="pl-8"
                                   asChild
                                   isActive={pathname.startsWith(
                                     `/team/${team.slug}/work`
@@ -700,6 +850,7 @@ export function AppShell({ children }: AppShellProps) {
                             {features.projects ? (
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
+                                  className="pl-8"
                                   asChild
                                   isActive={pathname.startsWith(
                                     `/team/${team.slug}/projects`
@@ -715,6 +866,7 @@ export function AppShell({ children }: AppShellProps) {
                             {features.views ? (
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
+                                  className="pl-8"
                                   asChild
                                   isActive={pathname.startsWith(
                                     `/team/${team.slug}/views`
@@ -730,6 +882,7 @@ export function AppShell({ children }: AppShellProps) {
                             {features.docs ? (
                               <SidebarMenuSubItem>
                                 <SidebarMenuSubButton
+                                  className="pl-8"
                                   asChild
                                   isActive={pathname.startsWith(
                                     `/team/${team.slug}/docs`
@@ -881,6 +1034,46 @@ export function AppShell({ children }: AppShellProps) {
           {children}
         </div>
       </SidebarInset>
+      <ConfirmDialog
+        open={teamPendingLeave !== null}
+        onOpenChange={(open) => {
+          if (open || leavingTeamId) {
+            return
+          }
+
+          setTeamPendingLeave(null)
+        }}
+        title="Leave team"
+        description={
+          teamPendingLeave
+            ? `You will lose access to ${teamPendingLeave.name} immediately.`
+            : "You will lose access to this team immediately."
+        }
+        confirmLabel="Leave team"
+        variant="destructive"
+        loading={leavingTeamId !== null}
+        onConfirm={() => void handleLeaveTeam()}
+      />
+      <ConfirmDialog
+        open={workspacePendingLeave !== null}
+        onOpenChange={(open) => {
+          if (open || leavingWorkspaceId) {
+            return
+          }
+
+          setWorkspacePendingLeave(null)
+        }}
+        title="Leave workspace"
+        description={
+          workspacePendingLeave
+            ? `You will lose access to ${workspacePendingLeave.name} and all of its teams immediately.`
+            : "You will lose access to this workspace immediately."
+        }
+        confirmLabel="Leave workspace"
+        variant="destructive"
+        loading={leavingWorkspaceId !== null}
+        onConfirm={() => void handleLeaveWorkspace()}
+      />
     </SidebarProvider>
   )
 }

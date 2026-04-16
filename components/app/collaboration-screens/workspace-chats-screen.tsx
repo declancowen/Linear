@@ -18,7 +18,7 @@ import {
   getWorkspaceChats,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn } from "@/lib/utils"
+import { cn, getPlainTextContent } from "@/lib/utils"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { UserAvatar } from "@/components/app/user-presence"
 import { CallInviteLauncher } from "@/components/app/collaboration-screens/call-invite-launcher"
@@ -363,7 +363,7 @@ export function WorkspaceChatsScreen() {
                 }
 
                 const callInvite = parseCallInviteMessage(latest.content)
-                return callInvite?.title ?? latest.content
+                return callInvite?.title ?? getPlainTextContent(latest.content)
               }}
             />
             <button

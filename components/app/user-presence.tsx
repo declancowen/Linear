@@ -14,6 +14,7 @@ import {
   resolveUserStatus,
   userStatusMeta,
 } from "@/lib/domain/types"
+import { hasWorkspaceAccess } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 import {
@@ -22,6 +23,7 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   HoverCard,
@@ -39,6 +41,7 @@ type UserPresenceData = {
   status?: UserStatus | null
   statusMessage?: string | null
   hasExplicitStatus?: boolean
+  accountDeletedAt?: string | null
 }
 
 function getUserInitials(name: string | null | undefined) {
@@ -135,6 +138,13 @@ export function UserHoverCard({
   workspaceId?: string | null
 }) {
   const router = useRouter()
+  const hasActiveWorkspaceAccess = useAppStore((state) => {
+    if (!userId || !workspaceId) {
+      return false
+    }
+
+    return hasWorkspaceAccess(state, workspaceId, userId)
+  })
 
   if (!user?.name) {
     return <>{children}</>
@@ -145,14 +155,21 @@ export function UserHoverCard({
   const normalizedStatusMessage = user.statusMessage?.trim() ?? ""
   const hasStatusMessage = normalizedStatusMessage.length > 0
   const normalizedTitle = user.title?.trim() ?? ""
-  const email = user.email?.trim() ?? ""
+  const hasDeletedAccount = Boolean(user.accountDeletedAt)
+  const email = hasDeletedAccount ? "" : (user.email?.trim() ?? "")
+  const hasLeftCurrentWorkspace =
+    Boolean(userId && workspaceId) &&
+    !hasDeletedAccount &&
+    !hasActiveWorkspaceAccess
   const isSelf =
     userId != null && currentUserId != null && userId === currentUserId
   const canMessage =
     userId != null &&
     currentUserId != null &&
     workspaceId != null &&
-    userId !== currentUserId
+    userId !== currentUserId &&
+    !hasDeletedAccount &&
+    hasActiveWorkspaceAccess
   const canEmail = Boolean(email) && !isSelf
 
   async function handleCopyEmail() {
@@ -203,7 +220,14 @@ export function UserHoverCard({
             showStatus={hasExplicitStatus}
           />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">{user.name}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="truncate text-sm font-semibold">{user.name}</div>
+              {hasDeletedAccount ? (
+                <Badge variant="outline">Deleted account</Badge>
+              ) : hasLeftCurrentWorkspace ? (
+                <Badge variant="outline">Left workspace</Badge>
+              ) : null}
+            </div>
             {normalizedTitle ? (
               <div className="truncate text-xs text-muted-foreground">
                 {normalizedTitle}

@@ -103,6 +103,10 @@ export type TeamDetailsInput = {
 export type CreateTeamInput = TeamDetailsInput
 export type UpdateTeamDetailsInput = TeamDetailsInput
 
+export type TeamMembershipRoleInput = {
+  role: Role
+}
+
 export type UpdateProfileInput = {
   name: string
   title: string
@@ -191,16 +195,25 @@ export type AppStore = AppData & {
   deleteNotification: (notificationId: string) => Promise<void>
   updateWorkspaceBranding: (input: UpdateWorkspaceBrandingInput) => void
   deleteCurrentWorkspace: () => Promise<boolean>
+  leaveWorkspace: () => Promise<boolean>
+  removeWorkspaceUser: (userId: string) => Promise<boolean>
   createTeam: (input: CreateTeamInput) => Promise<{
     teamId: string
     teamSlug: string
     features: TeamFeatureSettings
   } | null>
   deleteTeam: (teamId: string) => Promise<boolean>
+  leaveTeam: (teamId: string) => Promise<boolean>
   updateTeamDetails: (
     teamId: string,
     input: UpdateTeamDetailsInput
   ) => Promise<boolean>
+  updateTeamMemberRole: (
+    teamId: string,
+    userId: string,
+    input: TeamMembershipRoleInput
+  ) => Promise<boolean>
+  removeTeamMember: (teamId: string, userId: string) => Promise<boolean>
   regenerateTeamJoinCode: (teamId: string) => Promise<boolean>
   updateCurrentUserProfile: (input: UpdateProfileInput) => void
   updateCurrentUserStatus: (input: UpdateUserStatusInput) => void
@@ -273,16 +286,18 @@ export type AppStore = AppData & {
 export type AppStoreSet = StoreApi<AppStore>["setState"]
 export type AppStoreGet = StoreApi<AppStore>["getState"]
 
-export type AppStoreSlice<T> = (
-  set: AppStoreSet,
-  get: AppStoreGet
-) => T
+export type AppStoreSlice<T> = (set: AppStoreSet, get: AppStoreGet) => T
 
 export type RichTextSyncTask = () => Promise<unknown> | null
 
 export type ConversationAudienceState = Pick<
   AppData,
-  "currentUserId" | "workspaces" | "teams" | "teamMemberships" | "conversations" | "users"
+  | "currentUserId"
+  | "workspaces"
+  | "teams"
+  | "teamMemberships"
+  | "conversations"
+  | "users"
 >
 
 export type WorkItemValidationInput = CreateWorkItemInput & {

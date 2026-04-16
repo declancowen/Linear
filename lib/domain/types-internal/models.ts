@@ -82,6 +82,7 @@ export interface UserProfile {
   status: UserStatus
   statusMessage: string
   hasExplicitStatus?: boolean
+  accountDeletedAt?: string | null
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
