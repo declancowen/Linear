@@ -2,7 +2,14 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { type ReactNode, useEffect, useState } from "react"
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import {
   Bell,
   CaretDown,
@@ -85,6 +92,20 @@ type AppShellProps = {
   children: ReactNode
 }
 
+function getShortcutModifierLabel() {
+  if (typeof navigator === "undefined") {
+    return "Ctrl"
+  }
+
+  const platformDetails = `${navigator.platform} ${navigator.userAgent}`
+
+  return /Mac|iPhone|iPad|iPod/i.test(platformDetails) ? "Cmd" : "Ctrl"
+}
+
+function subscribeToShortcutModifier() {
+  return () => {}
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -148,27 +169,61 @@ export function AppShell({ children }: AppShellProps) {
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const searchQueryRef = useRef("")
+  const searchShortcutModifierLabel = useSyncExternalStore(
+    subscribeToShortcutModifier,
+    getShortcutModifierLabel,
+    getShortcutModifierLabel
+  )
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
 
+  function handleSearchOpenChange(open: boolean) {
+    setSearchOpen(open)
+
+    if (!open) {
+      searchQueryRef.current = ""
+    }
+  }
+
+  function openFullSearch(query = "") {
+    const trimmedQuery = query.trim()
+    const href =
+      trimmedQuery.length > 0
+        ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
+        : "/workspace/search"
+
+    handleSearchOpenChange(false)
+    router.push(href)
+  }
+
+  const handleSearchShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      !(event.metaKey || event.ctrlKey) ||
+      event.altKey ||
+      event.shiftKey ||
+      event.repeat ||
+      event.key.toLowerCase() !== "k"
+    ) {
+      return
+    }
+
+    event.preventDefault()
+
+    if (searchOpen) {
+      openFullSearch(searchQueryRef.current)
+      return
+    }
+
+    handleSearchOpenChange(true)
+  })
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") {
-        return
-      }
-
-      event.preventDefault()
-
-      if (event.shiftKey) {
-        setSearchOpen(false)
-        router.push("/workspace/search")
-        return
-      }
-
-      setSearchOpen((current) => !current)
+      handleSearchShortcut(event)
     }
 
     window.addEventListener("keydown", handleKeyDown)
@@ -176,7 +231,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [router])
+  }, [])
 
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {
@@ -216,7 +271,15 @@ export function AppShell({ children }: AppShellProps) {
         onOpenChange={setStatusDialogOpen}
       />
       {searchOpen ? (
-        <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+        <GlobalSearchDialog
+          open={searchOpen}
+          onOpenChange={handleSearchOpenChange}
+          onQueryChange={(query) => {
+            searchQueryRef.current = query
+          }}
+          onOpenFullSearch={openFullSearch}
+          fullSearchShortcutKeys={[searchShortcutModifierLabel, "K"]}
+        />
       ) : null}
       <Sidebar variant="inset">
         <SidebarHeader>

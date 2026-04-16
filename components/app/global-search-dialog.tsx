@@ -84,9 +84,15 @@ function resultIcon(
 export function GlobalSearchDialog({
   open,
   onOpenChange,
+  onQueryChange,
+  onOpenFullSearch,
+  fullSearchShortcutKeys,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+  onOpenFullSearch: (query: string) => void
+  fullSearchShortcutKeys: string[]
 }) {
   const router = useRouter()
   const data = useAppStore()
@@ -109,18 +115,14 @@ export function GlobalSearchDialog({
     { key: "docs", heading: "Documents", items: groupedResults.docs },
   ] as const
 
-  function handleSelect(href: string) {
-    onOpenChange(false)
-    setQuery("")
-    router.push(href)
+  function handleQueryChange(nextQuery: string) {
+    setQuery(nextQuery)
+    onQueryChange(nextQuery)
   }
 
-  function handleOpenFullSearch() {
-    const href = hasQuery
-      ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
-      : "/workspace/search"
-
-    handleSelect(href)
+  function handleSelect(href: string) {
+    onOpenChange(false)
+    router.push(href)
   }
 
   return (
@@ -131,25 +133,11 @@ export function GlobalSearchDialog({
       description="Search work items, projects, docs, teams, and navigation."
       className="!top-[12vh] sm:!top-[14vh] !w-[min(52rem,calc(100%-2rem))] !max-w-none overflow-hidden p-0"
     >
-      <Command
-        shouldFilter={false}
-        className="!h-[min(32rem,72vh)] p-0"
-        onKeyDown={(event) => {
-          if (
-            (event.metaKey || event.ctrlKey) &&
-            event.shiftKey &&
-            event.key.toLowerCase() === "k"
-          ) {
-            event.preventDefault()
-            event.stopPropagation()
-            handleOpenFullSearch()
-          }
-        }}
-      >
+      <Command shouldFilter={false} className="!h-[min(32rem,72vh)] p-0">
         <CommandInput
           placeholder="Search…"
           value={query}
-          onValueChange={setQuery}
+          onValueChange={handleQueryChange}
         />
         <CommandList className="min-h-0 flex-1 max-h-none">
           <CommandEmpty className="text-muted-foreground">
@@ -220,11 +208,11 @@ export function GlobalSearchDialog({
           <Button
             size="sm"
             variant="outline"
-            onClick={handleOpenFullSearch}
-            className="justify-between gap-3 border-border/60 bg-muted hover:bg-muted/80 sm:min-w-40"
+            onClick={() => onOpenFullSearch(query)}
+            className="justify-between gap-3 border-border/60 bg-background/90 hover:bg-accent/70 sm:min-w-40"
           >
             <span>Open full search</span>
-            <ShortcutKeys keys={["Cmd", "Shift", "K"]} />
+            <ShortcutKeys keys={fullSearchShortcutKeys} />
           </Button>
         </div>
       </Command>

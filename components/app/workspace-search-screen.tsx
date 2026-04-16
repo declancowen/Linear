@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
+import { useShallow } from "zustand/react/shallow"
 import {
   FileText,
   Folders,
@@ -10,7 +11,6 @@ import {
   UsersThree,
   X,
 } from "@phosphor-icons/react"
-import { useShallow } from "zustand/react/shallow"
 
 import {
   getAccessibleTeams,
@@ -20,6 +20,7 @@ import {
 import { statusMeta, type WorkStatus, workStatuses } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -91,14 +92,15 @@ export function WorkspaceSearchScreen({
 }: {
   initialQuery?: string
 }) {
-  const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState(initialQuery)
   const [kind, setKind] = useState<SearchKindFilter>("all")
   const [teamId, setTeamId] = useState("all")
   const [status, setStatus] = useState<WorkStatus | "all">("all")
 
   const trimmedQuery = query.trim()
-  const queriedResults = useAppStore((state) => searchWorkspace(state, query))
+  const teams = useMemo(() => getAccessibleTeams(data), [data])
+  const queriedResults = useMemo(() => searchWorkspace(data, query), [data, query])
   const teamsById = useMemo(
     () => new Map(teams.map((team) => [team.id, team])),
     [teams]

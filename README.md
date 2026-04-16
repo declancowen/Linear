@@ -45,6 +45,16 @@ cp .env.example .env.local
 
 The app expects the following variables.
 
+Use the exact runtime env names below in `.env.local`. Do not create parallel
+`*_DEVELOPMENT` or `*_PRODUCTION` copies in the same file. If you want to point
+local development at production services, keep the provider credentials here and
+use local values only for the app URL fields.
+
+If you want the file to also capture development and production reference
+profiles, keep that information as comment-only blocks in `.env.local`, grouped
+by provider. Do not add extra live env variable names for those references
+unless the runtime actually reads them.
+
 ### Convex
 
 - `CONVEX_URL`: server-side Convex deployment URL
@@ -57,7 +67,7 @@ The app expects the following variables.
 - `WORKOS_CLIENT_ID`: WorkOS client ID
 - `WORKOS_API_KEY`: WorkOS server API key
 - `WORKOS_COOKIE_PASSWORD`: cookie encryption secret
-- `WORKOS_COOKIE_DOMAIN`: shared auth cookie domain
+- `WORKOS_COOKIE_DOMAIN`: shared auth cookie domain, usually blank on localhost
 - `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: WorkOS callback URL
 
 ### App URLs
@@ -79,6 +89,20 @@ The app expects the following variables.
 - `HMS_SECRET`: 100ms secret
 - `HMS_TEMPLATE_ID`: 100ms room template ID
 - `HMS_TEMPLATE_SUBDOMAIN`: 100ms subdomain
+
+## Provider verification
+
+These commands help verify the linked project and the provider-side env names
+without changing local runtime config:
+
+```bash
+vercel env ls
+vercel env pull .vercel/.env.production.local
+convex env list
+```
+
+The linked Vercel project metadata lives in `.vercel/project.json`. Keep that
+metadata there instead of copying `VERCEL_*` values into `.env.local`.
 
 ## Local setup
 
