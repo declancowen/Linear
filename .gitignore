@@ -35,6 +35,7 @@ pnpm-debug.log*
 
 # local toolchains
 .tools/
+.convex-migration/
 
 # typescript
 *.tsbuildinfo

@@ -28,8 +28,6 @@ import {
 export default defineSchema({
   appConfig: defineTable({
     key: v.literal("singleton"),
-    currentUserId: v.optional(v.string()),
-    currentWorkspaceId: v.optional(v.string()),
     snapshotVersion: v.optional(v.number()),
   }).index("by_key", ["key"]),
   userAppStates: defineTable({

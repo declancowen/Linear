@@ -45,10 +45,6 @@ import {
   lookupTeamByJoinCodeHandler,
 } from "./app/auth_bootstrap"
 import {
-  normalizeAppConfigHandler,
-  wipeAllAppDataHandler,
-} from "./app/maintenance_handlers"
-import {
   archiveNotificationHandler,
   deleteNotificationHandler,
   listPendingNotificationDigestsHandler,
@@ -57,11 +53,6 @@ import {
   toggleNotificationReadHandler,
   unarchiveNotificationHandler,
 } from "./app/notification_handlers"
-import {
-  backfillChatMessageKindsHandler,
-  backfillUserPreferenceThemesHandler,
-  backfillWorkItemModelHandler,
-} from "./app/backfill_handlers"
 import {
   addChannelPostCommentHandler,
   createChannelHandler,
@@ -151,16 +142,6 @@ const mutation: typeof convexMutation = ((config: any) =>
       return result
     },
   })) as typeof convexMutation
-
-export const wipeAllAppData = mutation({
-  args: serverAccessArgs,
-  handler: wipeAllAppDataHandler,
-})
-
-export const normalizeAppConfig = mutation({
-  args: serverAccessArgs,
-  handler: normalizeAppConfigHandler,
-})
 
 export const bootstrapAppWorkspace = mutation({
   args: {
@@ -901,20 +882,6 @@ export const sendChatMessage = mutation({
   handler: sendChatMessageHandler,
 })
 
-export const backfillChatMessageKinds = mutation({
-  args: serverAccessArgs,
-  handler: backfillChatMessageKindsHandler,
-})
-
-export const backfillUserPreferenceThemes = mutation({
-  args: serverAccessArgs,
-  handler: backfillUserPreferenceThemesHandler,
-})
-
-export const backfillWorkItemModel = mutation({
-  args: serverAccessArgs,
-  handler: backfillWorkItemModelHandler,
-})
 
 export const createChannelPost = mutation({
   args: {

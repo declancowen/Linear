@@ -162,10 +162,3 @@ export async function createWorkItemServer(input: {
     withServerToken(input)
   )
 }
-
-export async function backfillWorkItemModelServer() {
-  return getConvexServerClient().mutation(
-    api.app.backfillWorkItemModel,
-    withServerToken({})
-  )
-}

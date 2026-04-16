@@ -50,8 +50,6 @@ The app expects the following variables.
 - `CONVEX_URL`: server-side Convex deployment URL
 - `NEXT_PUBLIC_CONVEX_URL`: browser-visible Convex deployment URL
 - `CONVEX_SERVER_TOKEN`: shared server token used by Next.js routes and Convex functions for the active app environment
-- `CONVEX_URL_DEVELOPMENT` / `CONVEX_URL_PRODUCTION`: script-only deployment URLs for dual-environment wipe workflows
-- `CONVEX_SERVER_TOKEN_DEVELOPMENT` / `CONVEX_SERVER_TOKEN_PRODUCTION`: script-only server tokens for dual-environment wipe workflows
 - `CONVEX_DEPLOY_KEY`: Convex deploy key used for deployment/codegen workflows
 
 ### WorkOS
@@ -125,7 +123,6 @@ pnpm desktop:start
 These scripts require a correctly configured `.env.local` and usually talk to live services:
 
 - `pnpm bootstrap:workspace`: create/bootstrap a workspace for a user
-- `pnpm backfill:work-item-model`: run the work item model backfill
 - `pnpm notifications:send-digests`: send notification digest emails
 - `pnpm sync:workos:workspaces`: sync Convex workspaces to WorkOS organizations
 
