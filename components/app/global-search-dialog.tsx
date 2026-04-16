@@ -86,12 +86,14 @@ export function GlobalSearchDialog({
   query,
   onQueryChange,
   onOpenFullSearch,
+  fullSearchShortcutKeys,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   query: string
   onQueryChange: (query: string) => void
   onOpenFullSearch: () => void
+  fullSearchShortcutKeys: string[]
 }) {
   const router = useRouter()
   const data = useAppStore()
@@ -206,7 +208,7 @@ export function GlobalSearchDialog({
             className="justify-between gap-3 border-border/60 bg-background/90 hover:bg-accent/70 sm:min-w-40"
           >
             <span>Open full search</span>
-            <ShortcutKeys keys={["Cmd", "K"]} />
+            <ShortcutKeys keys={fullSearchShortcutKeys} />
           </Button>
         </div>
       </Command>

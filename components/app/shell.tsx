@@ -2,7 +2,13 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { type ReactNode, useEffect, useEffectEvent, useState } from "react"
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import {
   Bell,
   CaretDown,
@@ -85,6 +91,20 @@ type AppShellProps = {
   children: ReactNode
 }
 
+function getShortcutModifierLabel() {
+  if (typeof navigator === "undefined") {
+    return "Ctrl"
+  }
+
+  const platformDetails = `${navigator.platform} ${navigator.userAgent}`
+
+  return /Mac|iPhone|iPad|iPod/i.test(platformDetails) ? "Cmd" : "Ctrl"
+}
+
+function subscribeToShortcutModifier() {
+  return () => {}
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -149,11 +169,24 @@ export function AppShell({ children }: AppShellProps) {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const searchShortcutModifierLabel = useSyncExternalStore(
+    subscribeToShortcutModifier,
+    getShortcutModifierLabel,
+    getShortcutModifierLabel
+  )
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   )
+
+  function handleSearchOpenChange(open: boolean) {
+    setSearchOpen(open)
+
+    if (!open) {
+      setSearchQuery("")
+    }
+  }
 
   function openFullSearch() {
     const trimmedQuery = searchQuery.trim()
@@ -162,8 +195,7 @@ export function AppShell({ children }: AppShellProps) {
         ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
         : "/workspace/search"
 
-    setSearchOpen(false)
-    setSearchQuery("")
+    handleSearchOpenChange(false)
     router.push(href)
   }
 
@@ -185,7 +217,7 @@ export function AppShell({ children }: AppShellProps) {
       return
     }
 
-    setSearchOpen(true)
+    handleSearchOpenChange(true)
   })
 
   useEffect(() => {
@@ -199,14 +231,6 @@ export function AppShell({ children }: AppShellProps) {
       window.removeEventListener("keydown", handleKeyDown)
     }
   }, [])
-
-  function handleSearchOpenChange(open: boolean) {
-    setSearchOpen(open)
-
-    if (!open) {
-      setSearchQuery("")
-    }
-  }
 
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {
@@ -252,6 +276,7 @@ export function AppShell({ children }: AppShellProps) {
           query={searchQuery}
           onQueryChange={setSearchQuery}
           onOpenFullSearch={openFullSearch}
+          fullSearchShortcutKeys={[searchShortcutModifierLabel, "K"]}
         />
       ) : null}
       <Sidebar variant="inset">
