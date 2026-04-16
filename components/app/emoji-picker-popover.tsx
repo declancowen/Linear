@@ -13,17 +13,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
-const PICKER_DIMENSIONS = {
-  compact: { height: 388, width: 332 },
-  composer: { height: 388, width: 332 },
+const BASE_PICKER_DIMENSIONS = {
+  compact: { height: 420, width: 352 },
+  composer: { height: 420, width: 352 },
 } as const
+const PICKER_SCALE = 0.8
 
 type EmojiPickerPopoverProps = {
   trigger: ReactElement
   onEmojiSelect: (emoji: string) => void
   side?: "top" | "bottom" | "left" | "right"
   align?: "start" | "center" | "end"
-  size?: keyof typeof PICKER_DIMENSIONS
+  size?: keyof typeof BASE_PICKER_DIMENSIONS
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }
@@ -70,7 +71,11 @@ export function EmojiPickerPopover({
   const [internalOpen, setInternalOpen] = useState(false)
   const isControlled = open !== undefined
   const pickerOpen = open ?? internalOpen
-  const dimensions = PICKER_DIMENSIONS[size]
+  const baseDimensions = BASE_PICKER_DIMENSIONS[size]
+  const scaledDimensions = {
+    width: Math.round(baseDimensions.width * PICKER_SCALE),
+    height: Math.round(baseDimensions.height * PICKER_SCALE),
+  }
 
   const handleEmojiSelect = (emoji: EmojiClickData) => {
     onEmojiSelect(emoji.emoji)
@@ -97,18 +102,32 @@ export function EmojiPickerPopover({
         sideOffset={8}
         className="w-auto border-0 bg-transparent p-0 shadow-none ring-0"
       >
-        <EmojiPicker
-          autoFocusSearch={false}
-          className="app-emoji-picker"
-          emojiStyle={EmojiStyle.NATIVE}
-          height={dimensions.height}
-          lazyLoadEmojis
-          previewConfig={{ showPreview: false }}
-          searchPlaceholder="Search emoji"
-          theme={Theme.LIGHT}
-          width={dimensions.width}
-          onEmojiClick={handleEmojiSelect}
-        />
+        <div
+          style={{
+            width: scaledDimensions.width,
+            height: scaledDimensions.height,
+          }}
+        >
+          <div
+            style={{
+              transform: `scale(${PICKER_SCALE})`,
+              transformOrigin: "top left",
+            }}
+          >
+            <EmojiPicker
+              autoFocusSearch={false}
+              className="app-emoji-picker"
+              emojiStyle={EmojiStyle.NATIVE}
+              height={baseDimensions.height}
+              lazyLoadEmojis
+              previewConfig={{ showPreview: false }}
+              searchPlaceholder="Search emoji"
+              theme={Theme.LIGHT}
+              width={baseDimensions.width}
+              onEmojiClick={handleEmojiSelect}
+            />
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   )

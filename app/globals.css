@@ -335,6 +335,11 @@
     content: none !important;
     border: 0 !important;
   }
+
+  .app-emoji-picker input {
+    color: #111111 !important;
+    caret-color: #111111 !important;
+  }
 }
 
 @layer utilities {
