@@ -70,7 +70,7 @@ export default async function OnboardingPage({
   }
 
   return (
-    <main className="min-h-screen px-6 py-10">
+    <main className="min-h-screen bg-background px-6 py-10">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-8">
         <header className="text-center">
           <h1 className="text-xl font-semibold tracking-tight">

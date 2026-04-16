@@ -143,8 +143,8 @@ export function WorkspaceSearchScreen({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b px-4 py-2">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b bg-background px-4 py-2">
         <SidebarTrigger className="size-5 shrink-0" />
         <h1 className="truncate text-sm font-medium">Search</h1>
       </div>

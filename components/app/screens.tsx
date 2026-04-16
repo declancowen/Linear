@@ -244,7 +244,7 @@ export function ProjectsScreen({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       <ScreenHeader
         title={title}
         actions={
@@ -404,7 +404,7 @@ export function ViewsScreen({
   })
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       <ScreenHeader
         title={title}
         actions={
@@ -573,7 +573,7 @@ export function DocsScreen({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       {isWorkspaceDocs ? (
         <div className={SCREEN_HEADER_CLASS_NAME}>
           <div className="flex min-w-0 items-center gap-2">

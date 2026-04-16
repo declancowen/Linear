@@ -207,11 +207,13 @@ export function GlobalSearchDialog({
           </div>
           <Button
             size="sm"
-            variant="outline"
+            variant="ghost"
             onClick={() => onOpenFullSearch(query)}
-            className="justify-between gap-3 border-border/60 bg-background/90 hover:bg-accent/70 sm:min-w-40"
+            className="justify-between gap-3 border-0 bg-transparent px-0 hover:bg-transparent sm:min-w-40"
           >
-            <span>Open full search</span>
+            <span className="inline-flex items-center rounded-md border border-border/60 px-2.5 py-1.5 text-foreground transition-colors hover:bg-accent/70">
+              Open full search
+            </span>
             <ShortcutKeys keys={fullSearchShortcutKeys} />
           </Button>
         </div>

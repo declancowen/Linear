@@ -102,7 +102,7 @@ export function WorkspaceChannelsScreen() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       <PageHeader
         title="Channel"
         subtitle="Workspace-wide updates"
@@ -235,7 +235,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       <PageHeader
         title={team.name}
         subtitle="Chat"
@@ -375,7 +375,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       <PageHeader
         title={team.name}
         subtitle="Channel"
