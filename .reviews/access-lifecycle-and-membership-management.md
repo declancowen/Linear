@@ -67,11 +67,56 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 19:09:41 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-04-16 19:22:44 BST` |
+| **Total turns** | `8` |
 | **Open findings** | `0` |
-| **Resolved findings** | `12` |
+| **Resolved findings** | `15` |
 | **Accepted findings** | `0` |
+
+---
+
+## Turn 8 — 2026-04-16 19:22:44 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `7279f70` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest PR-analysis notes found three real remaining gaps and several stale or informational notes. This turn fixed the actual issues: workspace-leave now notifies team admins for each removed team, workspace delete now returns a clean route-level 403 for non-owners, and chat-thread participant eligibility now uses team membership for team-scoped chats instead of the broader workspace check. The account-deletion intermediate-state note in the pasted analysis is stale relative to Turn 7 and no longer applies.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 8 | 3 |
+| Carried from Turn 7 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 8
+
+#### B8-01 ~~[BUG] Medium~~ → RESOLVED — `leaveWorkspaceHandler` notified the workspace owner but not the admins of the teams the user implicitly left
+**How it was fixed:** [leaveWorkspaceHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1314) now deduplicates the removed team IDs and calls `notifyTeamAdminsOfAccessChange` for each affected team in addition to the workspace-owner notification.
+**Verified:** Workspace leave, team leave, remove, and delete-account now all notify the relevant team-admin audience described in the clarified requirements.
+
+#### B8-02 ~~[BUG] Low~~ → RESOLVED — Workspace `DELETE` route returned a generic 500 instead of a route-level 403 for non-owners
+**How it was fixed:** [workspace current route](/Users/declancowen/Documents/GitHub/Linear/app/api/workspace/current/route.ts:103) now mirrors the `PATCH` route and checks `authContext.isWorkspaceOwner` before calling the backend delete mutation.
+**Verified:** Non-owner callers now get a clean 403 response instead of falling through to the generic Convex error path.
+
+#### B8-03 ~~[BUG] Low~~ → RESOLVED — Team-scoped chat participant filtering used a workspace-level access check
+**How it was fixed:** [chat-thread.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/collaboration-screens/chat-thread.tsx:164) now tracks the active conversation scope ID/type and filters `messageableMembers` by team membership for team chats, while still using workspace access for workspace chats.
+**Verified:** The client-side participant gating now matches the tighter team-scoped semantics already enforced by conversation membership sync and the server-side audience guard.
+
+### Stale or informational PR-analysis notes
+
+- The account-deletion intermediate-state note against [app/api/account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:1) is stale after Turn 7. The route now uses `accountDeletionPendingAt` plus rollback on WorkOS failure, and auth rejects pending-deletion users.
+- The `ChatThread` duplication note and the team-chat server-guard note are stale; both were fixed in Turn 6.
+- The `removeWorkspaceUserHandler` no-op owner-notification note is stale; that dead call was removed in Turn 6.
+- The authorization consistency, snapshot visibility, deleted-email rewrite, solo-admin safety, and retained `workosUserId` notes are informational rather than active defects.
+- The `bootstrapWorkspaceUserHandler` manual lifecycle checks and `getUserByEmail` pending-deletion nuance remain maintainability notes, but they do not currently violate the intended behavior because the active auth paths apply explicit lifecycle guards.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm eslint convex/app/workspace_team_handlers.ts app/api/workspace/current/route.ts components/app/collaboration-screens/chat-thread.tsx app/api/account/route.ts convex/app/data.ts convex/app/collaboration_handlers.ts`
 
 ---
 

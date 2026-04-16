@@ -114,6 +114,10 @@ export async function DELETE() {
       return jsonError("Workspace not found", 404)
     }
 
+    if (!authContext.isWorkspaceOwner) {
+      return jsonError("Only the workspace owner can delete the workspace", 403)
+    }
+
     const result = await deleteWorkspaceServer({
       currentUserId: authContext.currentUser.id,
       workspaceId: authContext.currentWorkspace.id,

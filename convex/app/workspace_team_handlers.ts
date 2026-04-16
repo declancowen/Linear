@@ -1362,6 +1362,7 @@ export async function leaveWorkspaceHandler(
   const currentUser = await getUserDoc(ctx, args.currentUserId)
   const userName = currentUser?.name ?? "A user"
   const leaveMessage = `${userName} left ${workspace.name}.`
+  const removedTeamIds = [...new Set(memberships.map((membership) => membership.teamId))]
   const emailJobs = await notifyWorkspaceOwnerOfAccessChange(ctx, {
     workspaceId: workspace.id,
     actorUserId: args.currentUserId,
@@ -1372,10 +1373,30 @@ export async function leaveWorkspaceHandler(
     excludeUserIds: [args.currentUserId],
   })
 
+  for (const teamId of removedTeamIds) {
+    const team = workspaceTeams.find((entry) => entry.id === teamId)
+
+    if (!team) {
+      continue
+    }
+
+    emailJobs.push(
+      ...(await notifyTeamAdminsOfAccessChange(ctx, {
+        teamId,
+        actorUserId: args.currentUserId,
+        message: `${userName} left ${team.name}.`,
+        subject: `${userName} left ${team.name}`,
+        eyebrow: "TEAM MEMBER LEFT",
+        headline: `${userName} left ${team.name}`,
+        excludeUserIds: [args.currentUserId],
+      }))
+    )
+  }
+
   return {
     workspaceId: workspace.id,
     userId: args.currentUserId,
-    removedTeamIds: memberships.map((membership) => membership.teamId),
+    removedTeamIds,
     emailJobs,
   }
 }

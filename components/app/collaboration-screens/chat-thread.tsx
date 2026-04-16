@@ -161,7 +161,8 @@ export function ChatThread({
   const messages = useAppStore(
     useShallow((state) => getChatMessages(state, conversationId))
   )
-  const { canCurrentUserSend, conversationScopeType } = useAppStore(
+  const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
+    useAppStore(
     useShallow((state) => {
       const conversation = state.conversations.find(
         (entry) => entry.id === conversationId
@@ -171,6 +172,7 @@ export function ChatThread({
         return {
           canCurrentUserSend: false,
           conversationScopeType: null,
+          conversationScopeId: null,
         }
       }
 
@@ -180,6 +182,7 @@ export function ChatThread({
             conversation.participantIds.includes(state.currentUserId) &&
             canEditWorkspace(state, conversation.scopeId),
           conversationScopeType: conversation.scopeType,
+          conversationScopeId: conversation.scopeId,
         }
       }
 
@@ -188,6 +191,7 @@ export function ChatThread({
       return {
         canCurrentUserSend: role === "admin" || role === "member",
         conversationScopeType: conversation.scopeType,
+        conversationScopeId: conversation.scopeId,
       }
     })
   )
@@ -216,7 +220,6 @@ export function ChatThread({
   const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
-  const workspaceIdForParticipants = currentWorkspaceId
   const messageableMembers = useMemo(
     () =>
       members.filter((member) => {
@@ -224,25 +227,34 @@ export function ChatThread({
           return true
         }
 
-        if (!workspaceIdForParticipants || member.accountDeletedAt) {
+        if (!conversationScopeId || member.accountDeletedAt) {
           return false
+        }
+
+        if (conversationScopeType === "team") {
+          return teamMemberships.some(
+            (membership) =>
+              membership.teamId === conversationScopeId &&
+              membership.userId === member.id
+          )
         }
 
         return hasWorkspaceAccessInCollections(
           workspaces,
           teams,
           teamMemberships,
-          workspaceIdForParticipants,
+          conversationScopeId,
           member.id
         )
       }),
     [
+      conversationScopeId,
+      conversationScopeType,
       currentUserId,
       members,
       teamMemberships,
       teams,
       workspaces,
-      workspaceIdForParticipants,
     ]
   )
   const activeOtherMemberCount = useMemo(
