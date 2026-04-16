@@ -231,6 +231,31 @@ export function syncDeleteCurrentWorkspace() {
   })
 }
 
+export function syncRemoveWorkspaceUser(userId: string) {
+  return runRouteMutation(`/api/workspace/current/users/${userId}`, {
+    method: "DELETE",
+  })
+}
+
+export function syncLeaveWorkspace() {
+  return runRouteMutation<{
+    workspaceId: string
+    removedTeamIds: string[]
+  }>("/api/workspace/current/leave", {
+    method: "DELETE",
+  })
+}
+
+export function syncDeleteCurrentAccount() {
+  return runRouteMutation<{
+    ok: true
+    logoutRequired: true
+    notice: string
+  }>("/api/account", {
+    method: "DELETE",
+  })
+}
+
 export function syncUpdateCurrentUserProfile(
   _userId: string,
   name: string,

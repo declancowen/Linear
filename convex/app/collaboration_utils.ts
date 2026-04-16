@@ -83,7 +83,9 @@ export function createNotification(
     | "project"
     | "invite"
     | "channelPost"
-    | "chat",
+    | "chat"
+    | "team"
+    | "workspace",
   entityId: string,
   type: "mention" | "assignment" | "comment" | "invite" | "status-change"
 ) {
@@ -99,5 +101,27 @@ export function createNotification(
     archivedAt: null,
     emailedAt: null,
     createdAt: getNow(),
+  }
+}
+
+export function createDeliveredNotification(
+  userId: string,
+  actorId: string,
+  message: string,
+  entityType:
+    | "workItem"
+    | "document"
+    | "project"
+    | "invite"
+    | "channelPost"
+    | "chat"
+    | "team"
+    | "workspace",
+  entityId: string,
+  type: "mention" | "assignment" | "comment" | "invite" | "status-change"
+) {
+  return {
+    ...createNotification(userId, actorId, message, entityType, entityId, type),
+    emailedAt: getNow(),
   }
 }

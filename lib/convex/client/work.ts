@@ -529,6 +529,37 @@ export function syncDeleteTeam(teamId: string) {
   })
 }
 
+export function syncLeaveTeam(teamId: string) {
+  return runRouteMutation<{
+    teamId: string
+    workspaceId: string | null
+  }>(`/api/teams/${teamId}/leave`, {
+    method: "DELETE",
+  })
+}
+
+export function syncUpdateTeamMemberRole(
+  teamId: string,
+  userId: string,
+  role: Role
+) {
+  return runRouteMutation(`/api/teams/${teamId}/members/${userId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      role,
+    }),
+  })
+}
+
+export function syncRemoveTeamMember(teamId: string, userId: string) {
+  return runRouteMutation(`/api/teams/${teamId}/members/${userId}`, {
+    method: "DELETE",
+  })
+}
+
 export function syncRegenerateTeamJoinCode(teamId: string) {
   return runRouteMutation<{ joinCode: string }>(
     `/api/teams/${teamId}/join-code`,

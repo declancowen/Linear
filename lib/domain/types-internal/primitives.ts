@@ -90,6 +90,8 @@ export const notificationEntityTypes = [
   "invite",
   "channelPost",
   "chat",
+  "team",
+  "workspace",
 ] as const
 export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 

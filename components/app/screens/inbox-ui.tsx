@@ -5,6 +5,7 @@ import { format } from "date-fns"
 import {
   Archive,
   Bell,
+  Buildings,
   ChatCircle,
   Circle,
   EnvelopeSimple,
@@ -14,6 +15,7 @@ import {
   Target,
   Trash,
   ArrowCounterClockwise,
+  UsersThree,
 } from "@phosphor-icons/react"
 
 import {
@@ -26,9 +28,7 @@ import { cn } from "@/lib/utils"
 
 export type InboxTab = "inbox" | "archived"
 
-function getNotificationEntityIcon(
-  entityType: NotificationEntityType
-) {
+function getNotificationEntityIcon(entityType: NotificationEntityType) {
   switch (entityType) {
     case "workItem":
       return Target
@@ -42,6 +42,10 @@ function getNotificationEntityIcon(
       return EnvelopeSimple
     case "project":
       return Kanban
+    case "team":
+      return UsersThree
+    case "workspace":
+      return Buildings
     default:
       return Circle
   }
@@ -115,7 +119,9 @@ export function InboxListPane({
               key={notification.id}
               className={cn(
                 "flex items-start border-b transition-colors",
-                notification.id === activeId ? "bg-accent" : "hover:bg-accent/50"
+                notification.id === activeId
+                  ? "bg-accent"
+                  : "hover:bg-accent/50"
               )}
             >
               <button

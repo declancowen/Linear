@@ -83,6 +83,10 @@ export const teamDetailsSchema = z
     }
   })
 
+export const teamMembershipRoleSchema = z.object({
+  role: z.enum(roles),
+})
+
 export const appWorkspaceBootstrapSchema = z.object({
   workspaceSlug: z.string().trim().min(2).max(64),
   workspaceName: z.string().trim().min(2).max(64),
@@ -130,7 +134,11 @@ export const profileSchema = z.object({
 export const projectSchema = z.object({
   scopeType: z.enum(scopeTypes),
   scopeId: z.string().min(1),
-  templateType: z.enum(["software-delivery", "bug-tracking", "project-management"]),
+  templateType: z.enum([
+    "software-delivery",
+    "bug-tracking",
+    "project-management",
+  ]),
   name: z.string().trim().min(2).max(64),
   summary: z.string().trim().min(2).max(140),
   priority: z.enum(priorities),

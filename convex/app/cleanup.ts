@@ -9,8 +9,56 @@ import {
 import {
   getTeamDoc,
   getUserDoc,
+  listWorkspacesOwnedByUser,
   resolvePreferredWorkspaceId,
 } from "./data"
+
+function filterOutUserId(ids: string[], userId: string) {
+  return ids.filter((id) => id !== userId)
+}
+
+function stripUserFromFilters<
+  T extends {
+    assigneeIds: string[]
+    creatorIds: string[]
+    leadIds: string[]
+  },
+>(filters: T, userId: string) {
+  return {
+    ...filters,
+    assigneeIds: filterOutUserId(filters.assigneeIds, userId),
+    creatorIds: filterOutUserId(filters.creatorIds, userId),
+    leadIds: filterOutUserId(filters.leadIds, userId),
+  }
+}
+
+function resolveFallbackUserId(input: {
+  existingLeadId: string
+  nextMemberIds: string[]
+  activeUserIds: Set<string>
+  preferredUserId?: string | null
+}) {
+  if (input.activeUserIds.has(input.existingLeadId)) {
+    return input.existingLeadId
+  }
+
+  const memberFallback = input.nextMemberIds.find((id) =>
+    input.activeUserIds.has(id)
+  )
+
+  if (memberFallback) {
+    return memberFallback
+  }
+
+  if (
+    input.preferredUserId &&
+    input.activeUserIds.has(input.preferredUserId)
+  ) {
+    return input.preferredUserId
+  }
+
+  return [...input.activeUserIds][0] ?? input.existingLeadId
+}
 
 function filterRemovedIds(ids: string[], removedIds: Set<string>) {
   return ids.filter((id) => !removedIds.has(id))
@@ -212,6 +260,234 @@ export async function cleanupUnusedLabels(ctx: MutationCtx) {
   }
 
   return deletedLabelIds
+}
+
+export async function cleanupUserAppStateForRemovedWorkspaceAccess(
+  ctx: MutationCtx,
+  input: {
+    userId: string
+    workspaceId: string
+  }
+) {
+  const userAppState = await ctx.db
+    .query("userAppStates")
+    .withIndex("by_user", (q) => q.eq("userId", input.userId))
+    .unique()
+
+  if (!userAppState || userAppState.currentWorkspaceId !== input.workspaceId) {
+    return
+  }
+
+  const teams = await ctx.db.query("teams").collect()
+  const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, input.userId)
+  const memberships = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_user", (q) => q.eq("userId", input.userId))
+    .collect()
+  const accessibleWorkspaceIds = new Set<string>([
+    ...teams
+      .filter((team) =>
+        memberships.some((membership) => membership.teamId === team.id)
+      )
+      .map((team) => team.workspaceId),
+    ...ownedWorkspaces.map((workspace) => workspace.id),
+  ])
+  const nextWorkspaceId = resolvePreferredWorkspaceId({
+    selectedWorkspaceId: null,
+    accessibleWorkspaceIds,
+    fallbackWorkspaceIds: [...accessibleWorkspaceIds],
+  })
+
+  if (nextWorkspaceId) {
+    await ctx.db.patch(userAppState._id, {
+      currentWorkspaceId: nextWorkspaceId,
+    })
+    return
+  }
+
+  await ctx.db.delete(userAppState._id)
+}
+
+export async function cleanupUserAccessRemoval(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    removedUserId: string
+    workspaceId: string
+    removedTeamIds: string[]
+  }
+) {
+  const removedTeamIds = [...new Set(input.removedTeamIds)]
+  const removedTeamIdSet = new Set(removedTeamIds)
+  const activeWorkspaceUserIds = new Set(
+    await getWorkspaceUserIds(ctx, input.workspaceId)
+  )
+  const hasWorkspaceAccess = activeWorkspaceUserIds.has(input.removedUserId)
+  const activeTeamUserIds = new Map<string, Set<string>>()
+
+  for (const teamId of removedTeamIds) {
+    const memberships = await ctx.db
+      .query("teamMemberships")
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
+      .collect()
+
+    activeTeamUserIds.set(
+      teamId,
+      new Set(memberships.map((membership) => membership.userId))
+    )
+  }
+
+  const projects = await ctx.db.query("projects").collect()
+  const views = await ctx.db.query("views").collect()
+  const workItems = await ctx.db.query("workItems").collect()
+  const documents = await ctx.db.query("documents").collect()
+  const documentPresence = await ctx.db.query("documentPresence").collect()
+
+  for (const project of projects) {
+    const isRemovedTeamProject =
+      project.scopeType === "team" && removedTeamIdSet.has(project.scopeId)
+    const isRemovedWorkspaceProject =
+      !hasWorkspaceAccess &&
+      project.scopeType === "workspace" &&
+      project.scopeId === input.workspaceId
+
+    if (!isRemovedTeamProject && !isRemovedWorkspaceProject) {
+      continue
+    }
+
+    const activeUserIds =
+      project.scopeType === "team"
+        ? (activeTeamUserIds.get(project.scopeId) ?? new Set<string>())
+        : activeWorkspaceUserIds
+    const nextMemberIds = filterOutUserId(project.memberIds, input.removedUserId)
+    const nextLeadId =
+      project.leadId === input.removedUserId
+        ? resolveFallbackUserId({
+            existingLeadId: project.leadId,
+            nextMemberIds,
+            activeUserIds,
+            preferredUserId: input.currentUserId,
+          })
+        : project.leadId
+    const nextPresentation = project.presentation
+      ? {
+          ...project.presentation,
+          filters: stripUserFromFilters(
+            project.presentation.filters,
+            input.removedUserId
+          ),
+        }
+      : project.presentation
+
+    const presentationChanged =
+      JSON.stringify(nextPresentation) !== JSON.stringify(project.presentation)
+
+    if (
+      nextLeadId === project.leadId &&
+      nextMemberIds.length === project.memberIds.length &&
+      !presentationChanged
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(project._id, {
+      leadId: nextLeadId,
+      memberIds: nextMemberIds,
+      presentation: nextPresentation,
+      updatedAt: getNow(),
+    })
+  }
+
+  for (const workItem of workItems) {
+    if (!removedTeamIdSet.has(workItem.teamId)) {
+      continue
+    }
+
+    const nextAssigneeId =
+      workItem.assigneeId === input.removedUserId ? null : workItem.assigneeId
+    const nextSubscriberIds = filterOutUserId(
+      workItem.subscriberIds,
+      input.removedUserId
+    )
+
+    if (
+      nextAssigneeId === workItem.assigneeId &&
+      nextSubscriberIds.length === workItem.subscriberIds.length
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(workItem._id, {
+      assigneeId: nextAssigneeId,
+      subscriberIds: nextSubscriberIds,
+      updatedAt: getNow(),
+    })
+  }
+
+  for (const view of views) {
+    const isRemovedTeamView =
+      view.scopeType === "team" && removedTeamIdSet.has(view.scopeId)
+    const isRemovedWorkspaceView =
+      !hasWorkspaceAccess &&
+      view.scopeType === "workspace" &&
+      view.scopeId === input.workspaceId
+
+    if (!isRemovedTeamView && !isRemovedWorkspaceView) {
+      continue
+    }
+
+    const nextFilters = stripUserFromFilters(view.filters, input.removedUserId)
+
+    if (
+      nextFilters.assigneeIds.length === view.filters.assigneeIds.length &&
+      nextFilters.creatorIds.length === view.filters.creatorIds.length &&
+      nextFilters.leadIds.length === view.filters.leadIds.length
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(view._id, {
+      filters: nextFilters,
+      updatedAt: getNow(),
+    })
+  }
+
+  for (const presence of documentPresence) {
+    if (presence.userId !== input.removedUserId) {
+      continue
+    }
+
+    const document =
+      documents.find((entry) => entry.id === presence.documentId) ?? null
+
+    if (!document) {
+      continue
+    }
+
+    const isRemovedTeamDocument =
+      document.teamId !== null && removedTeamIdSet.has(document.teamId)
+    const isRemovedWorkspaceDocument =
+      !hasWorkspaceAccess && document.workspaceId === input.workspaceId
+
+    if (!isRemovedTeamDocument && !isRemovedWorkspaceDocument) {
+      continue
+    }
+
+    await ctx.db.delete(presence._id)
+  }
+
+  if (!hasWorkspaceAccess) {
+    await cleanupUserAppStateForRemovedWorkspaceAccess(ctx, {
+      userId: input.removedUserId,
+      workspaceId: input.workspaceId,
+    })
+  }
+
+  return {
+    workspaceId: input.workspaceId,
+    removedTeamIds,
+    hasWorkspaceAccess,
+  }
 }
 
 export async function cleanupUserAppStatesForDeletedWorkspace(

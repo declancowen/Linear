@@ -45,9 +45,9 @@ export async function PATCH(request: NextRequest) {
       return jsonError("Workspace not found", 404)
     }
 
-    if (!authContext.isWorkspaceAdmin) {
+    if (!authContext.isWorkspaceOwner) {
       return jsonError(
-        "Only workspace admins can update workspace details",
+        "Only the workspace owner can update workspace details",
         403
       )
     }
@@ -112,6 +112,10 @@ export async function DELETE() {
 
     if (!authContext?.currentWorkspace || !authContext.currentUser) {
       return jsonError("Workspace not found", 404)
+    }
+
+    if (!authContext.isWorkspaceOwner) {
+      return jsonError("Only the workspace owner can delete the workspace", 403)
     }
 
     const result = await deleteWorkspaceServer({

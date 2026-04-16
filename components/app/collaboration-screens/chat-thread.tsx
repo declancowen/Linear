@@ -17,9 +17,12 @@ import {
 import { useShallow } from "zustand/react/shallow"
 
 import {
+  canEditWorkspace,
   getChatMessages,
   getConversationParticipants,
+  getTeamRole,
   getUser,
+  hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
@@ -45,12 +48,16 @@ function ChatComposer({
   mentionCandidates,
   currentUserId,
   action,
+  editable = true,
+  disabledReason,
 }: {
   placeholder?: string
   onSend: (content: string) => void
   mentionCandidates: ReturnType<typeof getConversationParticipants>
   currentUserId: string
   action?: ReactNode
+  editable?: boolean
+  disabledReason?: string | null
 }) {
   const [content, setContent] = useState("")
   const [composerKey, setComposerKey] = useState(0)
@@ -63,7 +70,7 @@ function ChatComposer({
   )
 
   const handleSend = () => {
-    if (!contentText) return
+    if (!editable || !contentText) return
     onSend(content)
     setContent("")
     setComposerKey((current) => current + 1)
@@ -80,7 +87,9 @@ function ChatComposer({
           key={composerKey}
           content={content}
           onChange={setContent}
+          editable={editable}
           compact
+          allowSlashCommands={false}
           autoFocus={composerKey > 0}
           showToolbar={false}
           showStats={false}
@@ -101,6 +110,7 @@ function ChatComposer({
             trigger={
               <button
                 type="button"
+                disabled={!editable}
                 className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
               >
                 <Smiley className="size-4" />
@@ -110,10 +120,10 @@ function ChatComposer({
           <button
             type="button"
             onClick={handleSend}
-            disabled={!contentText}
+            disabled={!editable || !contentText}
             className={cn(
               "flex size-7 items-center justify-center rounded-full transition-colors",
-              contentText
+              editable && contentText
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground/50"
             )}
@@ -122,6 +132,9 @@ function ChatComposer({
           </button>
         </div>
       </div>
+      {!editable && disabledReason ? (
+        <div className="mt-2 text-xs text-muted-foreground">{disabledReason}</div>
+      ) : null}
     </div>
   )
 }
@@ -148,11 +161,55 @@ export function ChatThread({
   const messages = useAppStore(
     useShallow((state) => getChatMessages(state, conversationId))
   )
-  const { currentUserId, currentWorkspaceId, users } = useAppStore(
+  const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
+    useAppStore(
+    useShallow((state) => {
+      const conversation = state.conversations.find(
+        (entry) => entry.id === conversationId
+      )
+
+      if (!conversation || conversation.kind !== "chat") {
+        return {
+          canCurrentUserSend: false,
+          conversationScopeType: null,
+          conversationScopeId: null,
+        }
+      }
+
+      if (conversation.scopeType === "workspace") {
+        return {
+          canCurrentUserSend:
+            conversation.participantIds.includes(state.currentUserId) &&
+            canEditWorkspace(state, conversation.scopeId),
+          conversationScopeType: conversation.scopeType,
+          conversationScopeId: conversation.scopeId,
+        }
+      }
+
+      const role = getTeamRole(state, conversation.scopeId)
+
+      return {
+        canCurrentUserSend: role === "admin" || role === "member",
+        conversationScopeType: conversation.scopeType,
+        conversationScopeId: conversation.scopeId,
+      }
+    })
+  )
+  const {
+    currentUserId,
+    currentWorkspaceId,
+    users,
+    workspaces,
+    teams,
+    teamMemberships,
+  } = useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
       currentWorkspaceId: state.currentWorkspaceId,
       users: state.users,
+      workspaces: state.workspaces,
+      teams: state.teams,
+      teamMemberships: state.teamMemberships,
     }))
   )
   const usersById = useMemo(
@@ -163,6 +220,58 @@ export function ChatThread({
   const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
+  const messageableMembers = useMemo(
+    () =>
+      members.filter((member) => {
+        if (member.id === currentUserId) {
+          return true
+        }
+
+        if (!conversationScopeId || member.accountDeletedAt) {
+          return false
+        }
+
+        if (conversationScopeType === "team") {
+          return teamMemberships.some(
+            (membership) =>
+              membership.teamId === conversationScopeId &&
+              membership.userId === member.id
+          )
+        }
+
+        return hasWorkspaceAccessInCollections(
+          workspaces,
+          teams,
+          teamMemberships,
+          conversationScopeId,
+          member.id
+        )
+      }),
+    [
+      conversationScopeId,
+      conversationScopeType,
+      currentUserId,
+      members,
+      teamMemberships,
+      teams,
+      workspaces,
+    ]
+  )
+  const activeOtherMemberCount = useMemo(
+    () =>
+      messageableMembers.filter((member) => member.id !== currentUserId).length,
+    [currentUserId, messageableMembers]
+  )
+  const hasMessageableMembers = activeOtherMemberCount > 0
+  const composerEditable = canCurrentUserSend && hasMessageableMembers
+  const composerDisabledReason =
+    !canCurrentUserSend
+      ? "Messaging is read-only for your current role."
+      : !hasMessageableMembers
+        ? conversationScopeType === "team"
+          ? "This chat is read-only because the other participants have left the team or deleted their account."
+          : "This chat is read-only because the other participants have left the workspace or deleted their account."
+        : null
 
   useEffect(() => {
     const el = scrollRef.current
@@ -399,9 +508,11 @@ export function ChatThread({
       <div className="shrink-0 border-t bg-background/95 backdrop-blur">
         <ChatComposer
           placeholder={`Message ${title}…`}
-          mentionCandidates={members}
+          mentionCandidates={messageableMembers}
           currentUserId={currentUserId}
           action={videoAction}
+          editable={composerEditable}
+          disabledReason={composerDisabledReason}
           onSend={(content) => {
             useAppStore.getState().sendChatMessage({ conversationId, content })
           }}

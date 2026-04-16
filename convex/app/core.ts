@@ -244,3 +244,7 @@ export function matchesTeamAccessIdentifier(
     team.settings.joinCode.toLowerCase() === normalized
   )
 }
+
+export function normalizeEmailAddress(email: string) {
+  return email.trim().toLowerCase()
+}

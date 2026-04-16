@@ -34,8 +34,12 @@ export default defineSchema({
     userId: v.string(),
     currentWorkspaceId: v.optional(v.string()),
   }).index("by_user", ["userId"]),
-  workspaces: defineTable(workspaceFields).index("by_domain_id", ["id"]),
-  teams: defineTable(teamFields).index("by_domain_id", ["id"]),
+  workspaces: defineTable(workspaceFields)
+    .index("by_domain_id", ["id"])
+    .index("by_created_by", ["createdBy"]),
+  teams: defineTable(teamFields)
+    .index("by_domain_id", ["id"])
+    .index("by_workspace", ["workspaceId"]),
   teamMemberships: defineTable(teamMembershipFields)
     .index("by_team_and_user", ["teamId", "userId"])
     .index("by_team", ["teamId"])

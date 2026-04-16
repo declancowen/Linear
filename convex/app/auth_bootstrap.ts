@@ -14,6 +14,7 @@ import {
   defaultUserStatus,
   defaultUserStatusMessage,
   matchesTeamAccessIdentifier,
+  normalizeEmailAddress,
   normalizeJoinCode,
   normalizeTeamIcon,
 } from "./core"
@@ -22,6 +23,7 @@ import {
   getAppConfig,
   getInviteByTokenDoc,
   getPendingInvitesForEmail,
+  getAuthLifecycleError,
   getTeamDoc,
   getUserAppState,
   getUserByEmail,
@@ -30,6 +32,7 @@ import {
   getWorkspaceDoc,
   getWorkspaceRoleMapForUser,
   isDefinedString,
+  resolveActiveUserByIdentity,
   resolvePreferredWorkspaceId,
   setCurrentWorkspaceForUser,
 } from "./data"
@@ -121,6 +124,7 @@ export async function bootstrapAppWorkspaceHandler(
   args: BootstrapAppWorkspaceArgs
 ) {
   assertServerToken(args.serverToken)
+  const normalizedEmail = normalizeEmailAddress(args.email)
   const workspaceSlug = createSlug(args.workspaceSlug)
   const teamSlug = createSlug(args.teamSlug)
   const joinCode = normalizeJoinCode(args.teamJoinCode)
@@ -232,18 +236,19 @@ export async function bootstrapAppWorkspaceHandler(
     })
   }
 
-  const resolvedUser =
-    (await getUserByWorkOSUserId(ctx, args.workosUserId)) ??
-    (await getUserByEmail(ctx, args.email))
+  const resolvedUser = await resolveActiveUserByIdentity(ctx, {
+    workosUserId: args.workosUserId,
+    email: normalizedEmail,
+  })
   const userId = resolvedUser?.id ?? createId("user")
 
   if (resolvedUser) {
     await ctx.db.patch(resolvedUser._id, {
-      email: args.email,
+      email: normalizedEmail,
       name: args.userName,
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
-      handle: createHandle(args.email),
+      handle: createHandle(normalizedEmail),
       status: resolveUserStatus(resolvedUser.status),
       statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
       hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
@@ -255,11 +260,11 @@ export async function bootstrapAppWorkspaceHandler(
   } else {
     await ctx.db.insert("users", {
       id: userId,
-      email: args.email,
+      email: normalizedEmail,
       name: args.userName,
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
-      handle: createHandle(args.email),
+      handle: createHandle(normalizedEmail),
       title: "Founder / Product",
       status: defaultUserStatus,
       statusMessage: defaultUserStatusMessage,
@@ -496,6 +501,132 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       mentionUserIds: comment.mentionUserIds ?? [],
     }))
 
+  for (const workspace of visibleWorkspaces) {
+    if (workspace.createdBy) {
+      visibleUserIds.add(workspace.createdBy)
+    }
+  }
+
+  for (const project of visibleProjects) {
+    visibleUserIds.add(project.leadId)
+
+    for (const memberId of project.memberIds) {
+      visibleUserIds.add(memberId)
+    }
+  }
+
+  for (const workItem of visibleWorkItems) {
+    visibleUserIds.add(workItem.creatorId)
+
+    if (workItem.assigneeId) {
+      visibleUserIds.add(workItem.assigneeId)
+    }
+
+    for (const subscriberId of workItem.subscriberIds) {
+      visibleUserIds.add(subscriberId)
+    }
+  }
+
+  for (const document of visibleDocuments) {
+    visibleUserIds.add(document.createdBy)
+    visibleUserIds.add(document.updatedBy)
+  }
+
+  for (const view of visibleViews) {
+    if (view.scopeType === "personal") {
+      visibleUserIds.add(view.scopeId)
+    }
+
+    for (const assigneeId of view.filters.assigneeIds) {
+      visibleUserIds.add(assigneeId)
+    }
+
+    for (const creatorId of view.filters.creatorIds) {
+      visibleUserIds.add(creatorId)
+    }
+
+    for (const leadId of view.filters.leadIds) {
+      visibleUserIds.add(leadId)
+    }
+  }
+
+  for (const comment of visibleComments) {
+    visibleUserIds.add(comment.createdBy)
+
+    for (const mentionUserId of comment.mentionUserIds) {
+      visibleUserIds.add(mentionUserId)
+    }
+
+    for (const reaction of comment.reactions) {
+      for (const reactionUserId of reaction.userIds) {
+        visibleUserIds.add(reactionUserId)
+      }
+    }
+  }
+
+  for (const attachment of attachments) {
+    visibleUserIds.add(attachment.uploadedBy)
+  }
+
+  for (const notification of visibleNotifications) {
+    visibleUserIds.add(notification.userId)
+    visibleUserIds.add(notification.actorId)
+  }
+
+  for (const invite of visibleInvites) {
+    visibleUserIds.add(invite.invitedBy)
+  }
+
+  for (const update of visibleProjectUpdates) {
+    visibleUserIds.add(update.createdBy)
+  }
+
+  for (const conversation of visibleConversations) {
+    visibleUserIds.add(conversation.createdBy)
+
+    for (const participantId of conversation.participantIds) {
+      visibleUserIds.add(participantId)
+    }
+  }
+
+  for (const call of visibleCalls) {
+    visibleUserIds.add(call.startedBy)
+
+    if (call.lastJoinedBy) {
+      visibleUserIds.add(call.lastJoinedBy)
+    }
+
+    for (const participantUserId of call.participantUserIds ?? []) {
+      visibleUserIds.add(participantUserId)
+    }
+  }
+
+  for (const message of visibleChatMessages) {
+    visibleUserIds.add(message.createdBy)
+
+    for (const mentionUserId of message.mentionUserIds) {
+      visibleUserIds.add(mentionUserId)
+    }
+  }
+
+  for (const post of visibleChannelPosts) {
+    visibleUserIds.add(post.createdBy)
+
+    for (const reaction of post.reactions) {
+      for (const reactionUserId of reaction.userIds) {
+        visibleUserIds.add(reactionUserId)
+      }
+    }
+  }
+
+  for (const comment of visibleChannelPostComments) {
+    visibleUserIds.add(comment.createdBy)
+
+    for (const mentionUserId of comment.mentionUserIds) {
+      visibleUserIds.add(mentionUserId)
+    }
+  }
+
   return {
     currentUserId,
     currentWorkspaceId,
@@ -665,6 +796,9 @@ export async function getAuthContextHandler(
       : null,
     pendingInvites,
     onboardingState,
+    isWorkspaceOwner: activeWorkspace
+      ? activeWorkspace.createdBy === user.id
+      : false,
     isWorkspaceAdmin: activeWorkspace
       ? (workspaceRoleMap[activeWorkspace.id] ?? []).includes("admin")
       : false,
@@ -676,16 +810,18 @@ export async function ensureUserFromAuthHandler(
   args: EnsureUserFromAuthArgs
 ) {
   assertServerToken(args.serverToken)
-  const existing =
-    (await getUserByWorkOSUserId(ctx, args.workosUserId)) ??
-    (await getUserByEmail(ctx, args.email))
+  const normalizedEmail = normalizeEmailAddress(args.email)
+  const existing = await resolveActiveUserByIdentity(ctx, {
+    workosUserId: args.workosUserId,
+    email: normalizedEmail,
+  })
 
   if (existing) {
     await ctx.db.patch(existing._id, {
       name: args.name,
-      email: args.email,
+      email: normalizedEmail,
       workosUserId: args.workosUserId,
-      handle: createHandle(args.email),
+      handle: createHandle(normalizedEmail),
       status: resolveUserStatus(existing.status),
       statusMessage: existing.statusMessage ?? defaultUserStatusMessage,
       hasExplicitStatus: existing.hasExplicitStatus ?? false,
@@ -706,8 +842,8 @@ export async function ensureUserFromAuthHandler(
   await ctx.db.insert("users", {
     id: newUserId,
     name: args.name,
-    handle: createHandle(args.email),
-    email: args.email,
+    handle: createHandle(normalizedEmail),
+    email: normalizedEmail,
     avatarUrl: args.avatarUrl,
     workosUserId: args.workosUserId,
     title: "Member",
@@ -730,6 +866,7 @@ export async function bootstrapWorkspaceUserHandler(
   args: BootstrapWorkspaceUserArgs
 ) {
   assertServerToken(args.serverToken)
+  const normalizedEmail = normalizeEmailAddress(args.email)
   const workspaces = await ctx.db.query("workspaces").collect()
   const workspace = workspaces.find(
     (entry) => entry.slug === args.workspaceSlug
@@ -753,10 +890,21 @@ export async function bootstrapWorkspaceUserHandler(
     ctx,
     args.workosUserId
   )
-  const existingByEmail = await getUserByEmail(ctx, args.email)
+  const workosLifecycleError = getAuthLifecycleError(existingByWorkOSUserId)
+
+  if (workosLifecycleError) {
+    throw new Error(workosLifecycleError)
+  }
+  const existingByEmail = await getUserByEmail(ctx, normalizedEmail)
   const preferredUser = args.existingUserId
     ? await getUserDoc(ctx, args.existingUserId)
     : null
+  const preferredLifecycleError = getAuthLifecycleError(preferredUser)
+
+  if (preferredLifecycleError) {
+    throw new Error(preferredLifecycleError)
+  }
+
   const resolvedUser = preferredUser ?? existingByWorkOSUserId ?? existingByEmail ?? null
 
   if (
@@ -773,7 +921,7 @@ export async function bootstrapWorkspaceUserHandler(
 
   if (resolvedUser) {
     await ctx.db.patch(resolvedUser._id, {
-      email: args.email,
+      email: normalizedEmail,
       name: args.name,
       workosUserId: args.workosUserId,
       status: resolveUserStatus(resolvedUser.status),
@@ -787,11 +935,11 @@ export async function bootstrapWorkspaceUserHandler(
   } else {
     await ctx.db.insert("users", {
       id: userId,
-      email: args.email,
+      email: normalizedEmail,
       name: args.name,
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
-      handle: createHandle(args.email),
+      handle: createHandle(normalizedEmail),
       title: "Founder / Product",
       status: defaultUserStatus,
       statusMessage: defaultUserStatusMessage,

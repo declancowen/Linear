@@ -12,6 +12,7 @@ import {
   getConversationDoc,
   getTeamDoc,
   getWorkspaceDoc,
+  listWorkspaceTeams,
   type AppCtx,
 } from "./data"
 import { haveSameIds, normalizeUniqueIds } from "./collaboration_utils"
@@ -27,9 +28,7 @@ export async function getTeamMemberIds(ctx: AppCtx, teamId: string) {
 
 export async function getWorkspaceUserIds(ctx: AppCtx, workspaceId: string) {
   const workspace = await getWorkspaceDoc(ctx, workspaceId)
-  const teams = (await ctx.db.query("teams").collect()).filter(
-    (team) => team.workspaceId === workspaceId
-  )
+  const teams = await listWorkspaceTeams(ctx, workspaceId)
   const userIds = new Set<string>()
 
   if (workspace?.createdBy) {

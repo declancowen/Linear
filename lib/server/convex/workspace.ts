@@ -1,7 +1,11 @@
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 
-import { getConvexServerClient, withServerToken } from "./core"
+import {
+  getConvexServerClient,
+  runConvexRequestWithRetry,
+  withServerToken,
+} from "./core"
 
 export async function createWorkspaceServer(input: {
   currentUserId: string
@@ -44,6 +48,71 @@ export async function deleteWorkspaceServer(input: {
   return getConvexServerClient().mutation(
     api.app.deleteWorkspace,
     withServerToken(input)
+  )
+}
+
+export async function removeWorkspaceUserServer(input: {
+  currentUserId: string
+  workspaceId: string
+  userId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.removeWorkspaceUser,
+    withServerToken(input)
+  )
+}
+
+export async function leaveWorkspaceServer(input: {
+  currentUserId: string
+  workspaceId: string
+}) {
+  return getConvexServerClient().mutation(
+    api.app.leaveWorkspace,
+    withServerToken(input)
+  )
+}
+
+export async function deleteCurrentAccountServer(input: {
+  currentUserId: string
+}) {
+  return runConvexRequestWithRetry("deleteCurrentAccountServer", () =>
+    getConvexServerClient().mutation(
+      api.app.deleteCurrentAccount,
+      withServerToken(input)
+    )
+  )
+}
+
+export async function prepareCurrentAccountDeletionServer(input: {
+  currentUserId: string
+}) {
+  return runConvexRequestWithRetry("prepareCurrentAccountDeletionServer", () =>
+    getConvexServerClient().mutation(
+      api.app.prepareCurrentAccountDeletion,
+      withServerToken(input)
+    )
+  )
+}
+
+export async function cancelCurrentAccountDeletionServer(input: {
+  currentUserId: string
+}) {
+  return runConvexRequestWithRetry("cancelCurrentAccountDeletionServer", () =>
+    getConvexServerClient().mutation(
+      api.app.cancelCurrentAccountDeletion,
+      withServerToken(input)
+    )
+  )
+}
+
+export async function validateCurrentAccountDeletionServer(input: {
+  currentUserId: string
+}) {
+  return runConvexRequestWithRetry("validateCurrentAccountDeletionServer", () =>
+    getConvexServerClient().query(
+      api.app.validateCurrentAccountDeletion,
+      withServerToken(input)
+    )
   )
 }
 

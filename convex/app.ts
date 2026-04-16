@@ -27,12 +27,8 @@ import {
   workItemTypeValidator,
   workStatusValidator,
 } from "./validators"
-import {
-  serverAccessArgs,
-} from "./app/core"
-import {
-  getOrCreateAppConfig,
-} from "./app/data"
+import { serverAccessArgs } from "./app/core"
+import { getOrCreateAppConfig } from "./app/data"
 import {
   bootstrapAppWorkspaceHandler,
   bootstrapWorkspaceUserHandler,
@@ -114,13 +110,22 @@ import {
   createWorkspaceHandler,
   deleteTeamHandler,
   deleteWorkspaceHandler,
+  deleteCurrentAccountHandler,
+  prepareCurrentAccountDeletionHandler,
+  cancelCurrentAccountDeletionHandler,
   ensureWorkspaceScaffoldingHandler,
+  leaveWorkspaceHandler,
+  leaveTeamHandler,
+  removeTeamMemberHandler,
+  removeWorkspaceUserHandler,
   regenerateTeamJoinCodeHandler,
   setWorkspaceWorkosOrganizationHandler,
   updateCurrentUserProfileHandler,
   updateTeamDetailsHandler,
+  updateTeamMemberRoleHandler,
   updateTeamWorkflowSettingsHandler,
   updateWorkspaceBrandingHandler,
+  validateCurrentAccountDeletionHandler,
 } from "./app/workspace_team_handlers"
 async function bumpSnapshotVersion(ctx: MutationCtx) {
   const config = await getOrCreateAppConfig(ctx)
@@ -366,6 +371,38 @@ export const updateCurrentUserProfile = mutation({
   handler: updateCurrentUserProfileHandler,
 })
 
+export const deleteCurrentAccount = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+  },
+  handler: deleteCurrentAccountHandler,
+})
+
+export const prepareCurrentAccountDeletion = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+  },
+  handler: prepareCurrentAccountDeletionHandler,
+})
+
+export const cancelCurrentAccountDeletion = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+  },
+  handler: cancelCurrentAccountDeletionHandler,
+})
+
+export const validateCurrentAccountDeletion = query({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+  },
+  handler: validateCurrentAccountDeletionHandler,
+})
+
 export const ensureWorkspaceScaffolding = mutation({
   args: {
     ...serverAccessArgs,
@@ -397,6 +434,44 @@ export const deleteTeam = mutation({
     teamId: v.string(),
   },
   handler: deleteTeamHandler,
+})
+
+export const leaveTeam = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    teamId: v.string(),
+  },
+  handler: leaveTeamHandler,
+})
+
+export const leaveWorkspace = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    workspaceId: v.string(),
+  },
+  handler: leaveWorkspaceHandler,
+})
+
+export const removeTeamMember = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    teamId: v.string(),
+    userId: v.string(),
+  },
+  handler: removeTeamMemberHandler,
+})
+
+export const removeWorkspaceUser = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    workspaceId: v.string(),
+    userId: v.string(),
+  },
+  handler: removeWorkspaceUserHandler,
 })
 
 export const createLabel = mutation({
@@ -442,6 +517,17 @@ export const updateTeamWorkflowSettings = mutation({
     workflow: teamWorkflowSettingsValidator,
   },
   handler: updateTeamWorkflowSettingsHandler,
+})
+
+export const updateTeamMemberRole = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    teamId: v.string(),
+    userId: v.string(),
+    role: roleValidator,
+  },
+  handler: updateTeamMemberRoleHandler,
 })
 
 export const updateViewConfig = mutation({
@@ -881,7 +967,6 @@ export const sendChatMessage = mutation({
   },
   handler: sendChatMessageHandler,
 })
-
 
 export const createChannelPost = mutation({
   args: {

@@ -478,6 +478,15 @@ export async function sendChatMessageHandler(
   }
 
   const audienceUserIds = await getConversationAudienceUserIds(ctx, conversation)
+
+  if (!audienceUserIds.some((userId) => userId !== args.currentUserId)) {
+    throw new Error(
+      conversation.scopeType === "team"
+        ? "This chat is read-only because the other participants have left the team or deleted their account"
+        : "This chat is read-only because the other participants have left the workspace or deleted their account"
+    )
+  }
+
   const mentionUserIds = createMentionIds(messageHtml, users, audienceUserIds)
   const mentionEmails: Array<{
     notificationId: string

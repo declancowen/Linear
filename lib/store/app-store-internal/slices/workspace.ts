@@ -8,37 +8,44 @@ import {
   syncDeleteCurrentWorkspace,
   syncDeleteTeam,
   syncJoinTeamByCode,
+  syncLeaveWorkspace,
+  syncLeaveTeam,
   syncRegenerateTeamJoinCode,
+  syncRemoveTeamMember,
+  syncRemoveWorkspaceUser,
   syncUpdateCurrentUserProfile,
   syncUpdateTeamDetails,
+  syncUpdateTeamMemberRole,
   syncUpdateTeamWorkflowSettings,
   syncUpdateWorkspaceBranding,
 } from "@/lib/convex/client"
-import {
-  getTeamFeatureSettings,
-} from "@/lib/domain/selectors"
+import { getTeamFeatureSettings } from "@/lib/domain/selectors"
 import {
   joinCodeSchema,
   normalizeTeamFeatureSettings,
   normalizeTeamIconToken,
   profileSchema,
+  teamMembershipRoleSchema,
   teamDetailsSchema,
   workspaceBrandingSchema,
 } from "@/lib/domain/types"
 
 import { createStoreRuntime } from "../runtime"
-import {
-  getTeamDetailsDisableMessage,
-} from "../validation"
+import { getTeamDetailsDisableMessage } from "../validation"
 import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 
 type WorkspaceSlice = Pick<
   AppStore,
   | "updateWorkspaceBranding"
   | "deleteCurrentWorkspace"
+  | "leaveWorkspace"
+  | "removeWorkspaceUser"
   | "createTeam"
   | "deleteTeam"
+  | "leaveTeam"
   | "updateTeamDetails"
+  | "updateTeamMemberRole"
+  | "removeTeamMember"
   | "regenerateTeamJoinCode"
   | "updateCurrentUserProfile"
   | "updateCurrentUserStatus"
@@ -115,9 +122,76 @@ export function createWorkspaceSlice(
       } catch (error) {
         console.error(error)
         toast.error(
+          error instanceof Error ? error.message : "Failed to delete workspace"
+        )
+        return false
+      }
+    },
+    async leaveWorkspace() {
+      const workspace = get().workspaces.find(
+        (entry) => entry.id === get().currentWorkspaceId
+      )
+
+      if (!workspace) {
+        toast.error("Workspace not found")
+        return false
+      }
+
+      try {
+        await syncLeaveWorkspace()
+        await runtime.refreshFromServer()
+        toast.success("Left workspace")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to leave workspace"
+        )
+        return false
+      }
+    },
+    async removeWorkspaceUser(userId) {
+      const currentWorkspaceId = get().currentWorkspaceId
+      const previousMemberships = get().teamMemberships
+
+      set((state) => {
+        const workspaceTeamIds = new Set(
+          state.teams
+            .filter((team) => team.workspaceId === currentWorkspaceId)
+            .map((team) => team.id)
+        )
+
+        return {
+          teamMemberships: state.teamMemberships.filter(
+            (membership) =>
+              membership.userId !== userId ||
+              !workspaceTeamIds.has(membership.teamId)
+          ),
+        }
+      })
+
+      try {
+        await syncRemoveWorkspaceUser(userId)
+        await runtime.refreshFromServer()
+        toast.success("Workspace user removed")
+        return true
+      } catch (error) {
+        console.error(error)
+
+        const snapshot = await fetchSnapshot()
+
+        if (snapshot) {
+          get().replaceDomainData(snapshot)
+        } else {
+          set({
+            teamMemberships: previousMemberships,
+          })
+        }
+
+        toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to delete workspace"
+            : "Failed to remove workspace user"
         )
         return false
       }
@@ -173,6 +247,131 @@ export function createWorkspaceSlice(
         console.error(error)
         toast.error(
           error instanceof Error ? error.message : "Failed to delete team"
+        )
+        return false
+      }
+    },
+    async leaveTeam(teamId) {
+      const team = get().teams.find((entry) => entry.id === teamId)
+
+      if (!team) {
+        toast.error("Team not found")
+        return false
+      }
+
+      try {
+        await syncLeaveTeam(teamId)
+        await runtime.refreshFromServer()
+        toast.success("Left team")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to leave team"
+        )
+        return false
+      }
+    },
+    async updateTeamMemberRole(teamId, userId, input) {
+      const parsed = teamMembershipRoleSchema.safeParse(input)
+
+      if (!parsed.success) {
+        toast.error("Team role is invalid")
+        return false
+      }
+
+      const membership = get().teamMemberships.find(
+        (entry) => entry.teamId === teamId && entry.userId === userId
+      )
+
+      if (!membership) {
+        toast.error("Team member not found")
+        return false
+      }
+
+      if (membership.role === parsed.data.role) {
+        return true
+      }
+
+      const previousMemberships = get().teamMemberships
+
+      set((state) => ({
+        teamMemberships: state.teamMemberships.map((entry) =>
+          entry.teamId === teamId && entry.userId === userId
+            ? {
+                ...entry,
+                role: parsed.data.role,
+              }
+            : entry
+        ),
+      }))
+
+      try {
+        await syncUpdateTeamMemberRole(teamId, userId, parsed.data.role)
+        await runtime.refreshFromServer()
+        toast.success("Team member updated")
+        return true
+      } catch (error) {
+        console.error(error)
+
+        const snapshot = await fetchSnapshot()
+
+        if (snapshot) {
+          get().replaceDomainData(snapshot)
+        } else {
+          set({
+            teamMemberships: previousMemberships,
+          })
+        }
+
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to update team member"
+        )
+        return false
+      }
+    },
+    async removeTeamMember(teamId, userId) {
+      const membership = get().teamMemberships.find(
+        (entry) => entry.teamId === teamId && entry.userId === userId
+      )
+
+      if (!membership) {
+        toast.error("Team member not found")
+        return false
+      }
+
+      const previousMemberships = get().teamMemberships
+
+      set((state) => ({
+        teamMemberships: state.teamMemberships.filter(
+          (entry) => !(entry.teamId === teamId && entry.userId === userId)
+        ),
+      }))
+
+      try {
+        await syncRemoveTeamMember(teamId, userId)
+        await runtime.refreshFromServer()
+        toast.success("Team member removed")
+        return true
+      } catch (error) {
+        console.error(error)
+
+        const snapshot = await fetchSnapshot()
+
+        if (snapshot) {
+          get().replaceDomainData(snapshot)
+        } else {
+          set({
+            teamMemberships: previousMemberships,
+          })
+        }
+
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to remove team member"
         )
         return false
       }
@@ -248,7 +447,9 @@ export function createWorkspaceSlice(
           get().replaceDomainData(snapshot)
         } else {
           set((state) => ({
-            teams: state.teams.map((entry) => (entry.id === teamId ? team : entry)),
+            teams: state.teams.map((entry) =>
+              entry.id === teamId ? team : entry
+            ),
           }))
         }
 
