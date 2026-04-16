@@ -6,6 +6,26 @@ Reviewed against `main` for PR `#8` (`Harden lifecycle flows and membership mana
 
 No open blocking findings remain from this review pass.
 
+## Rerun after `611830c`
+
+I reran the diff review after the latest regression-fix commit and do not see any new blocking defects introduced by that pass.
+
+The local `.env.local` profile was also corrected so the active Convex runtime values and `CONVEX_DEPLOYMENT` now point at the same local-dev deployment again. That change is intentionally local-only and not part of the branch diff.
+
+### Follow-ups that should still change
+
+- Legacy unscoped labels are still a real migration tail. The compatibility path in [getLabelsForWorkspace](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/core.ts:329) and the fallback allowance in [assertWorkspaceLabelIds](/Users/declancowen/Documents/GitHub/Linear/convex/app/work_helpers.ts:338) should be removed after a dedicated label backfill assigns `workspaceId` everywhere. This is the main remaining correctness follow-up, not something I would leave permanently.
+- The legacy indexed-read fallbacks in [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:48) for teams/users/invites should be removed once you are satisfied every active deployment has been backfilled. They are no longer an architecture target-state, only a rollout hedge.
+- The snapshot fan-out in [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:490) should still be revisited if workspace sizes materially grow. I do not have evidence of an active Convex limit failure today, so this is scale hardening rather than a present bug.
+- CSP should still move to a nonce-based model later if you want a stronger browser hardening posture. The current state is acceptable for now, but it is not the end-state security posture.
+
+### Items that can stay as-is for now
+
+- The backward-compatible route error envelope in [route-response.ts](/Users/declancowen/Documents/GitHub/Linear/lib/server/route-response.ts:41) is intentional and tested.
+- The account-deletion ordering in [app/api/account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:76) is the correct lifecycle model.
+- The `WeakMap` search-index cache in [search.ts](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/search.ts:31) is a reasonable tradeoff until profiling says otherwise.
+- Workspace invite cleanup via team cascade in [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:549) is implicit but functionally correct.
+
 ## Resolved during review
 
 ### R1 [BUG] High - Comment writes were missing the new server-side rich-text sanitization
