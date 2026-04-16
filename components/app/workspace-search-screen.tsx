@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
+import { useShallow } from "zustand/react/shallow"
 import {
   FileText,
   Folders,
@@ -19,6 +20,7 @@ import {
 import { statusMeta, type WorkStatus, workStatuses } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -90,7 +92,7 @@ export function WorkspaceSearchScreen({
 }: {
   initialQuery?: string
 }) {
-  const data = useAppStore()
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState(initialQuery)
   const [kind, setKind] = useState<SearchKindFilter>("all")
   const [teamId, setTeamId] = useState("all")
