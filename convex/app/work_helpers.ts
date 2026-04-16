@@ -17,6 +17,7 @@ import {
   getTeamDoc,
   getViewDoc,
   getWorkItemDoc,
+  listViewsByScopeEntity,
   type AppCtx,
 } from "./data"
 import { normalizeTeam } from "./normalization"
@@ -119,13 +120,9 @@ export async function ensureTeamWorkViews(
     return 0
   }
 
-  const existingViews = (await ctx.db.query("views").collect()).filter(
-    (view) =>
-      view.scopeType === "team" &&
-      view.scopeId === team.id &&
-      view.entityKind === "items" &&
-      view.route === `/team/${team.slug}/work`
-  )
+  const existingViews = (
+    await listViewsByScopeEntity(ctx, "team", team.id, "items")
+  ).filter((view) => view.route === `/team/${team.slug}/work`)
   const existingByName = new Map(existingViews.map((view) => [view.name, view]))
   const legacyPrimaryView =
     existingByName.get("All work") ??

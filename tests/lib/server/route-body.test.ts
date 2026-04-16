@@ -52,6 +52,8 @@ describe("parseJsonBody", () => {
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({
       error: "Invalid payload",
+      message: "Invalid payload",
+      code: "ROUTE_INVALID_BODY",
     })
   })
 })

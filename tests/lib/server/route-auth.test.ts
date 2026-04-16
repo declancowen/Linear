@@ -42,6 +42,8 @@ describe("route auth helpers", () => {
     expect(result).toBeInstanceOf(Response)
     await expect((result as Response).json()).resolves.toEqual({
       error: "Unauthorized",
+      message: "Unauthorized",
+      code: "AUTH_UNAUTHORIZED",
     })
   })
 
@@ -122,6 +124,8 @@ describe("route auth helpers", () => {
     expect(result).toBeInstanceOf(Response)
     await expect((result as Response).json()).resolves.toEqual({
       error: "User context not found",
+      message: "User context not found",
+      code: "AUTH_CONVEX_USER_NOT_FOUND",
     })
   })
 })

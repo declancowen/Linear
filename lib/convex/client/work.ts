@@ -4,7 +4,6 @@ import type {
   AttachmentTargetType,
   DisplayProperty,
   GroupField,
-  Label,
   OrderingField,
   Priority,
   ProjectPresentationConfig,
@@ -17,6 +16,16 @@ import type {
   WorkStatus,
 } from "@/lib/domain/types"
 
+import {
+  normalizeCreateAttachmentResult,
+  normalizeCreateLabelResult,
+  normalizeCreateTeamResult,
+  normalizeDeleteTeamResult,
+  normalizeGenerateAttachmentUploadUrlResult,
+  normalizeJoinTeamByCodeResult,
+  normalizeLeaveTeamResult,
+  normalizeRegenerateTeamJoinCodeResult,
+} from "./contracts"
 import { runRouteMutation } from "./shared"
 
 type WorkItemPatch = {
@@ -220,13 +229,13 @@ export function syncUpdateWorkItem(
 }
 
 export function syncCreateLabel(input: { name: string; color?: string }) {
-  return runRouteMutation<{ label: Label }>("/api/labels", {
+  return runRouteMutation<unknown>("/api/labels", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
-  })
+  }).then(normalizeCreateLabelResult)
 }
 
 export function syncShiftTimelineItem(itemId: string, nextStartDate: string) {
@@ -336,7 +345,7 @@ export function syncGenerateAttachmentUploadUrl(
   targetType: AttachmentTargetType,
   targetId: string
 ) {
-  return runRouteMutation<{ uploadUrl: string }>(
+  return runRouteMutation<unknown>(
     "/api/attachments/upload-url",
     {
       method: "POST",
@@ -348,7 +357,7 @@ export function syncGenerateAttachmentUploadUrl(
         targetId,
       }),
     }
-  )
+  ).then(normalizeGenerateAttachmentUploadUrlResult)
 }
 
 export function syncCreateAttachment(input: {
@@ -359,7 +368,7 @@ export function syncCreateAttachment(input: {
   contentType: string
   size: number
 }) {
-  return runRouteMutation<{ attachmentId: string; fileUrl: string | null }>(
+  return runRouteMutation<unknown>(
     "/api/attachments",
     {
       method: "POST",
@@ -368,7 +377,7 @@ export function syncCreateAttachment(input: {
       },
       body: JSON.stringify(input),
     }
-  )
+  ).then(normalizeCreateAttachmentResult)
 }
 
 export function syncDeleteAttachment(attachmentId: string) {
@@ -397,11 +406,7 @@ export function syncCreateInvite(
 }
 
 export function syncJoinTeamByCode(_currentUserId: string, code: string) {
-  return runRouteMutation<{
-    role?: string
-    teamSlug?: string | null
-    workspaceId?: string
-  }>("/api/teams/join", {
+  return runRouteMutation<unknown>("/api/teams/join", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -409,7 +414,7 @@ export function syncJoinTeamByCode(_currentUserId: string, code: string) {
     body: JSON.stringify({
       code,
     }),
-  })
+  }).then(normalizeJoinTeamByCodeResult)
 }
 
 export function syncSendInvite(teamIds: string[], email: string, role: Role) {
@@ -431,17 +436,13 @@ export function syncCreateTeam(input: {
     | "community"
   features: TeamFeatureSettings
 }) {
-  return runRouteMutation<{
-    teamId: string
-    teamSlug: string
-    features: TeamFeatureSettings
-  }>("/api/teams", {
+  return runRouteMutation<unknown>("/api/teams", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
-  })
+  }).then(normalizeCreateTeamResult)
 }
 
 export function syncCreateProject(
@@ -520,22 +521,15 @@ export function syncUpdateTeamDetails(
 }
 
 export function syncDeleteTeam(teamId: string) {
-  return runRouteMutation<{
-    teamId: string
-    workspaceId: string | null
-    deletedUserIds: string[]
-  }>(`/api/teams/${teamId}/details`, {
+  return runRouteMutation<unknown>(`/api/teams/${teamId}/details`, {
     method: "DELETE",
-  })
+  }).then(normalizeDeleteTeamResult)
 }
 
 export function syncLeaveTeam(teamId: string) {
-  return runRouteMutation<{
-    teamId: string
-    workspaceId: string | null
-  }>(`/api/teams/${teamId}/leave`, {
+  return runRouteMutation<unknown>(`/api/teams/${teamId}/leave`, {
     method: "DELETE",
-  })
+  }).then(normalizeLeaveTeamResult)
 }
 
 export function syncUpdateTeamMemberRole(
@@ -561,7 +555,7 @@ export function syncRemoveTeamMember(teamId: string, userId: string) {
 }
 
 export function syncRegenerateTeamJoinCode(teamId: string) {
-  return runRouteMutation<{ joinCode: string }>(
+  return runRouteMutation<unknown>(
     `/api/teams/${teamId}/join-code`,
     {
       method: "POST",
@@ -569,7 +563,7 @@ export function syncRegenerateTeamJoinCode(teamId: string) {
         "Content-Type": "application/json",
       },
     }
-  )
+  ).then(normalizeRegenerateTeamJoinCodeResult)
 }
 
 export function syncCreateDocument(

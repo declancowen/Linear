@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { teamDetailsSchema } from "@/lib/domain/types"
 import { deleteTeamServer, updateTeamDetailsServer } from "@/lib/server/convex"
 import {
@@ -8,7 +9,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function PATCH(
   request: NextRequest,
@@ -49,10 +55,17 @@ export async function PATCH(
       teamId,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update team details", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to update team details"),
-      500
+      500,
+      {
+        code: "TEAM_UPDATE_FAILED",
+      }
     )
   }
 }
@@ -87,10 +100,17 @@ export async function DELETE(
       deletedUserIds: result?.deletedUserIds ?? [],
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to delete team", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete team"),
-      500
+      500,
+      {
+        code: "TEAM_DELETE_FAILED",
+      }
     )
   }
 }

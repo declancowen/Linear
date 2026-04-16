@@ -6,6 +6,9 @@ import {
 import { v } from "convex/values"
 
 import {
+  auditEventDetailsValidator,
+  auditEventOutcomeValidator,
+  auditEventTypeValidator,
   attachmentTargetTypeValidator,
   commentTargetTypeValidator,
   displayPropertyValidator,
@@ -28,7 +31,12 @@ import {
   workStatusValidator,
 } from "./validators"
 import { serverAccessArgs } from "./app/core"
+import { recordAuditEventHandler } from "./app/audit"
 import { getOrCreateAppConfig } from "./app/data"
+import {
+  backfillLegacyLookupFieldsHandler,
+  getLegacyLookupBackfillStatusHandler,
+} from "./app/maintenance"
 import {
   bootstrapAppWorkspaceHandler,
   bootstrapWorkspaceUserHandler,
@@ -148,6 +156,9 @@ const mutation: typeof convexMutation = ((config: any) =>
     },
   })) as typeof convexMutation
 
+// Operational side tables must not invalidate the client snapshot model.
+const operationalMutation: typeof convexMutation = convexMutation
+
 export const bootstrapAppWorkspace = mutation({
   args: {
     ...serverAccessArgs,
@@ -169,6 +180,37 @@ export const bootstrapAppWorkspace = mutation({
     role: v.optional(roleValidator),
   },
   handler: bootstrapAppWorkspaceHandler,
+})
+
+export const logAuditEvent = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    type: auditEventTypeValidator,
+    outcome: auditEventOutcomeValidator,
+    actorUserId: nullableStringValidator,
+    subjectUserId: nullableStringValidator,
+    workspaceId: nullableStringValidator,
+    teamId: nullableStringValidator,
+    entityId: nullableStringValidator,
+    summary: v.string(),
+    details: auditEventDetailsValidator,
+  },
+  handler: recordAuditEventHandler,
+})
+
+export const getLegacyLookupBackfillStatus = query({
+  args: {
+    ...serverAccessArgs,
+  },
+  handler: getLegacyLookupBackfillStatusHandler,
+})
+
+export const backfillLegacyLookupFields = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    limit: v.optional(v.number()),
+  },
+  handler: backfillLegacyLookupFieldsHandler,
 })
 
 export const getSnapshot = query({
@@ -478,6 +520,7 @@ export const createLabel = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    workspaceId: v.string(),
     name: v.string(),
     color: v.optional(v.string()),
   },

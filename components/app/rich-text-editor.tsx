@@ -22,6 +22,7 @@ import Typography from "@tiptap/extension-typography"
 import Underline from "@tiptap/extension-underline"
 import StarterKit from "@tiptap/starter-kit"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import {
@@ -267,6 +268,13 @@ export function RichTextEditor({
       ? "min-h-16 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-6 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
       : "min-h-24 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
 
+  const sanitizedStringContent = useMemo(
+    () => (typeof content === "string" ? sanitizeRichTextContent(content) : null),
+    [content]
+  )
+
+  const resolvedEditorContent = sanitizedStringContent ?? content
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -341,7 +349,7 @@ export function RichTextEditor({
         placeholder,
       }),
     ],
-    content,
+    content: resolvedEditorContent,
     editable,
     editorProps: {
       attributes: {
@@ -511,7 +519,7 @@ export function RichTextEditor({
       },
     },
     onUpdate({ editor: currentEditor }) {
-      onChange(currentEditor.getHTML())
+      onChange(sanitizeRichTextContent(currentEditor.getHTML()))
       syncCommandMenus(currentEditor)
     },
     onSelectionUpdate({ editor: currentEditor }) {
@@ -539,11 +547,11 @@ export function RichTextEditor({
 
     const currentContent = editor.getHTML()
 
-    if (typeof content !== "string") {
+    if (sanitizedStringContent === null) {
       return
     }
 
-    if (currentContent === content) {
+    if (currentContent === sanitizedStringContent) {
       return
     }
 
@@ -553,12 +561,12 @@ export function RichTextEditor({
       return
     }
 
-    if (currentContent !== content) {
-      editor.commands.setContent(content, {
+    if (currentContent !== sanitizedStringContent) {
+      editor.commands.setContent(sanitizedStringContent, {
         emitUpdate: false,
       })
     }
-  }, [content, editor])
+  }, [editor, sanitizedStringContent])
 
   useEffect(() => {
     if (!editor) {

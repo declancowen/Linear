@@ -1,5 +1,6 @@
 import { createWorkOS, type Organization } from "@workos-inc/node"
 
+import { ApplicationError, isApplicationError } from "@/lib/server/application-errors"
 import { splitName } from "@/lib/workos/auth"
 
 type WorkOSAuthErrorPayload = {
@@ -257,6 +258,59 @@ export function mapWorkOSAccountError(error: unknown, fallback: string) {
   }
 }
 
+export function coerceWorkOSAccountApplicationError(
+  error: unknown,
+  fallback: string
+) {
+  if (isApplicationError(error)) {
+    return error
+  }
+
+  if (error instanceof Error) {
+    if (error.message === "This account is not linked to WorkOS") {
+      return new ApplicationError(error.message, 409, {
+        code: "ACCOUNT_WORKOS_LINK_REQUIRED",
+      })
+    }
+
+    if (error.message === "WorkOS is not configured") {
+      return new ApplicationError(error.message, 503, {
+        code: "WORKOS_NOT_CONFIGURED",
+      })
+    }
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    error.status === 409
+  ) {
+    return new ApplicationError("That email address is already in use.", 409, {
+      code: "ACCOUNT_EMAIL_CONFLICT",
+    })
+  }
+
+  const errorCode = getWorkOSAuthErrorCode(error)
+
+  switch (errorCode) {
+    case "user_not_found":
+      return new ApplicationError(mapWorkOSAccountError(error, fallback), 404, {
+        code: "WORKOS_USER_NOT_FOUND",
+      })
+    case "invalid_password":
+      return new ApplicationError(mapWorkOSAccountError(error, fallback), 400, {
+        code: "WORKOS_PASSWORD_INVALID",
+      })
+    case "invalid_token":
+      return new ApplicationError(mapWorkOSAccountError(error, fallback), 400, {
+        code: "WORKOS_RESET_TOKEN_INVALID",
+      })
+    default:
+      return null
+  }
+}
+
 export async function ensureUserOrganizationMembership(input: {
   organizationId: string
   workosUserId: string
@@ -282,4 +336,32 @@ export async function ensureUserOrganizationMembership(input: {
     organizationId: input.organizationId,
     userId: input.workosUserId,
   })
+}
+
+export async function deactivateUserOrganizationMembership(input: {
+  organizationId: string | null | undefined
+  workosUserId: string | null
+}) {
+  if (!input.organizationId || !input.workosUserId) {
+    return null
+  }
+
+  const workos = getWorkOSClient()
+  const memberships = await workos.userManagement.listOrganizationMemberships({
+    organizationId: input.organizationId,
+    userId: input.workosUserId,
+  })
+  const existingMembership = memberships.data[0]
+
+  if (!existingMembership) {
+    return null
+  }
+
+  if (existingMembership.status === "inactive") {
+    return existingMembership
+  }
+
+  return workos.userManagement.deactivateOrganizationMembership(
+    existingMembership.id
+  )
 }

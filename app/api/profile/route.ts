@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { profileSchema } from "@/lib/domain/types"
 import { updateCurrentUserProfileServer } from "@/lib/server/convex"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
@@ -8,7 +9,12 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
-import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 import { syncUserProfileToWorkOS } from "@/lib/server/workos"
 
 export async function PATCH(request: NextRequest) {
@@ -50,12 +56,17 @@ export async function PATCH(request: NextRequest) {
       userId: appContext.ensuredUser.userId,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update profile", error)
-    return NextResponse.json(
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update profile"),
+      500,
       {
-        error: getConvexErrorMessage(error, "Failed to update profile"),
-      },
-      { status: 500 }
+        code: "PROFILE_UPDATE_FAILED",
+      }
     )
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { labelCreateSchema } from "@/lib/domain/types"
 import { createLabelServer } from "@/lib/server/convex"
 import {
@@ -8,7 +9,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -34,8 +40,17 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
+    const workspaceId = appContext.authContext?.currentWorkspace?.id
+
+    if (!workspaceId) {
+      return jsonError("No active workspace", 400, {
+        code: "LABEL_WORKSPACE_REQUIRED",
+      })
+    }
+
     const label = await createLabelServer({
       currentUserId: appContext.ensuredUser.userId,
+      workspaceId,
       ...parsed,
     })
 
@@ -44,10 +59,17 @@ export async function POST(request: NextRequest) {
       label,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to create label", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to create label"),
-      500
+      500,
+      {
+        code: "LABEL_CREATE_FAILED",
+      }
     )
   }
 }

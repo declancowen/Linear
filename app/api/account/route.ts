@@ -1,3 +1,4 @@
+import { ApplicationError } from "@/lib/server/application-errors"
 import {
   cancelCurrentAccountDeletionServer,
   deleteCurrentAccountServer,
@@ -5,14 +6,18 @@ import {
   validateCurrentAccountDeletionServer,
 } from "@/lib/server/convex"
 import { sendAccessChangeEmails } from "@/lib/server/email"
+import { reconcileDeletedAccountProviderCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
-  getWorkOSErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
-import { deleteWorkOSUser } from "@/lib/server/workos"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function DELETE() {
   const session = await requireSession()
@@ -32,10 +37,17 @@ export async function DELETE() {
       currentUserId: appContext.ensuredUser.userId,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to validate account deletion", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete account"),
-      500
+      500,
+      {
+        code: "ACCOUNT_DELETE_VALIDATION_FAILED",
+      }
     )
   }
 
@@ -44,16 +56,26 @@ export async function DELETE() {
       currentUserId: appContext.ensuredUser.userId,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to prepare account deletion", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete account"),
-      500
+      500,
+      {
+        code: "ACCOUNT_DELETE_PREPARE_FAILED",
+      }
     )
   }
 
+  let result:
+    | Awaited<ReturnType<typeof deleteCurrentAccountServer>>
+    | undefined
   try {
-    await deleteWorkOSUser({
-      workosUserId: appContext.authenticatedUser.workosUserId,
+    result = await deleteCurrentAccountServer({
+      currentUserId: appContext.ensuredUser.userId,
     })
   } catch (error) {
     try {
@@ -62,41 +84,41 @@ export async function DELETE() {
       })
     } catch (rollbackError) {
       logProviderError(
-        "Failed to roll back pending account deletion after WorkOS error",
+        "Failed to roll back pending account deletion after finalize error",
         rollbackError
       )
     }
 
-    logProviderError("Failed to delete WorkOS user", error)
-    return jsonError(
-      getWorkOSErrorMessage(error, "Failed to delete account"),
-      500
-    )
-  }
-
-  try {
-    const result = await deleteCurrentAccountServer({
-      currentUserId: appContext.ensuredUser.userId,
-    })
-
-    if (result?.emailJobs?.length) {
-      try {
-        await sendAccessChangeEmails({
-          emails: result.emailJobs,
-        })
-      } catch (emailError) {
-        logProviderError(
-          "Failed to send account-deletion access change emails",
-          emailError
-        )
-      }
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
     }
-  } catch (error) {
+
     logProviderError("Failed to delete account", error)
     return jsonError(
       "Your sign-in has been removed, but we couldn't finish deleting your account. Please contact support.",
-      500
+      500,
+      {
+        code: "ACCOUNT_DELETE_FINALIZE_FAILED",
+      }
     )
+  }
+
+  await reconcileDeletedAccountProviderCleanup({
+    workosUserId: appContext.authenticatedUser.workosUserId,
+    memberships: result?.providerMemberships ?? [],
+  })
+
+  if (result?.emailJobs?.length) {
+    try {
+      await sendAccessChangeEmails({
+        emails: result.emailJobs,
+      })
+    } catch (emailError) {
+      logProviderError(
+        "Failed to send account-deletion access change emails",
+        emailError
+      )
+    }
   }
 
   return jsonOk({

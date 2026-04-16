@@ -10,6 +10,7 @@ import {
   syncShiftTimelineItem,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
+import { getLabelsForWorkspace } from "@/lib/domain/selectors"
 import {
   getAllowedWorkItemTypesForTemplate,
   workItemSchema,
@@ -51,7 +52,10 @@ export function createWorkItemActions({
         return null
       }
 
-      const existing = get().labels.find(
+      const existing = getLabelsForWorkspace(
+        get(),
+        get().currentWorkspaceId
+      ).find(
         (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
       )
 

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { teamWorkflowSettingsSchema } from "@/lib/domain/types"
 import { updateTeamWorkflowSettingsServer } from "@/lib/server/convex"
 import {
@@ -8,7 +9,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function PATCH(
   request: NextRequest,
@@ -46,10 +52,17 @@ export async function PATCH(
 
     return jsonOk({ ok: true })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update team workflow settings", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to update team workflow settings"),
-      500
+      500,
+      {
+        code: "TEAM_WORKFLOW_UPDATE_FAILED",
+      }
     )
   }
 }

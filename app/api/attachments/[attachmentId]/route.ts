@@ -1,10 +1,16 @@
+import { ApplicationError } from "@/lib/server/application-errors"
 import { deleteAttachmentServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function DELETE(
   _request: Request,
@@ -37,10 +43,17 @@ export async function DELETE(
       ok: true,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to delete attachment", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete attachment"),
-      500
+      500,
+      {
+        code: "ATTACHMENT_DELETE_FAILED",
+      }
     )
   }
 }

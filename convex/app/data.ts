@@ -1,6 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
-import { normalizeEmailAddress } from "./core"
+import { normalizeEmailAddress, normalizeJoinCode } from "./core"
 
 export type AppCtx = MutationCtx | QueryCtx
 
@@ -11,9 +11,65 @@ export async function getWorkspaceDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function getWorkspaceBySlug(ctx: AppCtx, slug: string) {
+  return ctx.db
+    .query("workspaces")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique()
+}
+
 export async function getTeamDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("teams")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+export async function getTeamBySlug(ctx: AppCtx, slug: string) {
+  return ctx.db
+    .query("teams")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique()
+}
+
+export async function getTeamByWorkspaceAndSlug(
+  ctx: AppCtx,
+  workspaceId: string,
+  slug: string
+) {
+  return ctx.db
+    .query("teams")
+    .withIndex("by_workspace_and_slug", (q) =>
+      q.eq("workspaceId", workspaceId).eq("slug", slug)
+    )
+    .unique()
+}
+
+export async function getTeamByJoinCode(ctx: AppCtx, code: string) {
+  const normalizedCode = normalizeJoinCode(code)
+  const indexedTeam = await ctx.db
+    .query("teams")
+    .withIndex("by_join_code", (q) =>
+      q.eq("joinCodeNormalized", normalizedCode)
+    )
+    .unique()
+
+  if (indexedTeam) {
+    return indexedTeam
+  }
+
+  const legacyTeams = await ctx.db.query("teams").collect()
+
+  return (
+    legacyTeams.find(
+      (team) => normalizeJoinCode(team.settings.joinCode) === normalizedCode
+    ) ?? null
+  )
+}
+
+export async function getLabelDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("labels")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
 }
@@ -23,6 +79,14 @@ export async function getUserDoc(ctx: AppCtx, id: string) {
     .query("users")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
+}
+
+export async function listUsersByIds(ctx: AppCtx, userIds: Iterable<string>) {
+  return (
+    await Promise.all(
+      [...new Set(userIds)].map((userId) => getUserDoc(ctx, userId))
+    )
+  ).filter((user) => user != null)
 }
 
 export async function getTeamMembershipDoc(
@@ -36,6 +100,20 @@ export async function getTeamMembershipDoc(
       q.eq("teamId", teamId).eq("userId", userId)
     )
     .unique()
+}
+
+export async function listTeamMembershipsByUser(ctx: AppCtx, userId: string) {
+  return ctx.db
+    .query("teamMemberships")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()
+}
+
+export async function listTeamMembershipsByTeam(ctx: AppCtx, teamId: string) {
+  return ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team", (q) => q.eq("teamId", teamId))
+    .collect()
 }
 
 export async function getUserAppState(ctx: AppCtx, userId: string) {
@@ -61,11 +139,80 @@ export async function getProjectDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function listProjectsByScope(
+  ctx: AppCtx,
+  scopeType: "team" | "workspace",
+  scopeId: string
+) {
+  return ctx.db
+    .query("projects")
+    .withIndex("by_scope", (q) =>
+      q.eq("scopeType", scopeType).eq("scopeId", scopeId)
+    )
+    .collect()
+}
+
+export async function listProjectsByScopes(
+  ctx: AppCtx,
+  scopes: Iterable<{
+    scopeType: "team" | "workspace"
+    scopeId: string
+  }>
+) {
+  const uniqueScopes = [
+    ...new Map(
+      [...scopes].map(
+        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
+      )
+    ).values(),
+  ]
+
+  if (uniqueScopes.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueScopes.map((scope) =>
+        listProjectsByScope(ctx, scope.scopeType, scope.scopeId)
+      )
+    )
+  ).flat()
+}
+
+export async function listMilestonesByProject(ctx: AppCtx, projectId: string) {
+  return ctx.db
+    .query("milestones")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect()
+}
+
+export async function listMilestonesByProjects(
+  ctx: AppCtx,
+  projectIds: Iterable<string>
+) {
+  const uniqueProjectIds = [...new Set(projectIds)]
+
+  if (uniqueProjectIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueProjectIds.map((projectId) =>
+        listMilestonesByProject(ctx, projectId)
+      )
+    )
+  ).flat()
+}
+
 export async function getUserByEmail(ctx: AppCtx, email: string) {
   const normalizedEmail = normalizeEmailAddress(email)
   const user = await ctx.db
     .query("users")
-    .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+    .withIndex("by_email_normalized", (q) =>
+      q.eq("emailNormalized", normalizedEmail)
+    )
     .unique()
 
   if (user && !user.accountDeletedAt && !user.accountDeletionPendingAt) {
@@ -146,11 +293,39 @@ export async function listWorkspaceTeams(ctx: AppCtx, workspaceId: string) {
     .collect()
 }
 
+export async function listTeamsByIds(ctx: AppCtx, teamIds: Iterable<string>) {
+  return (
+    await Promise.all(
+      [...new Set(teamIds)].map((teamId) => getTeamDoc(ctx, teamId))
+    )
+  ).filter((team) => team != null)
+}
+
+export async function listLabelsByWorkspace(ctx: AppCtx, workspaceId: string) {
+  return ctx.db
+    .query("labels")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect()
+}
+
 export async function listWorkspacesOwnedByUser(ctx: AppCtx, userId: string) {
   return ctx.db
     .query("workspaces")
     .withIndex("by_created_by", (q) => q.eq("createdBy", userId))
     .collect()
+}
+
+export async function listWorkspacesByIds(
+  ctx: AppCtx,
+  workspaceIds: Iterable<string>
+) {
+  return (
+    await Promise.all(
+      [...new Set(workspaceIds)].map((workspaceId) =>
+        getWorkspaceDoc(ctx, workspaceId)
+      )
+    )
+  ).filter((workspace) => workspace != null)
 }
 
 export async function getWorkItemDoc(ctx: AppCtx, id: string) {
@@ -160,11 +335,52 @@ export async function getWorkItemDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function listWorkItemsByTeam(ctx: AppCtx, teamId: string) {
+  return ctx.db
+    .query("workItems")
+    .withIndex("by_team_id", (q) => q.eq("teamId", teamId))
+    .collect()
+}
+
 export async function getDocumentDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("documents")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
+}
+
+export async function listDocumentsByIds(
+  ctx: AppCtx,
+  documentIds: Iterable<string>
+) {
+  return (
+    await Promise.all(
+      [...new Set(documentIds)].map((documentId) =>
+        getDocumentDoc(ctx, documentId)
+      )
+    )
+  ).filter((document) => document != null)
+}
+
+export async function listWorkspaceDocuments(ctx: AppCtx, workspaceId: string) {
+  return ctx.db
+    .query("documents")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect()
+}
+
+export async function listTeamDocuments(ctx: AppCtx, teamId: string) {
+  return ctx.db
+    .query("documents")
+    .withIndex("by_team", (q) => q.eq("teamId", teamId))
+    .collect()
+}
+
+export async function listDocumentsByCreator(ctx: AppCtx, userId: string) {
+  return ctx.db
+    .query("documents")
+    .withIndex("by_created_by", (q) => q.eq("createdBy", userId))
+    .collect()
 }
 
 export async function getCommentDoc(ctx: AppCtx, id: string) {
@@ -174,11 +390,94 @@ export async function getCommentDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function listCommentsByTarget(
+  ctx: AppCtx,
+  targetType: "workItem" | "document",
+  targetId: string
+) {
+  return ctx.db
+    .query("comments")
+    .withIndex("by_target", (q) =>
+      q.eq("targetType", targetType).eq("targetId", targetId)
+    )
+    .collect()
+}
+
+export async function listCommentsByTargets(
+  ctx: AppCtx,
+  input: {
+    targetType: "workItem" | "document"
+    targetIds: Iterable<string>
+  }
+) {
+  const targetIds = [...new Set(input.targetIds)]
+
+  if (targetIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      targetIds.map((targetId) =>
+        listCommentsByTarget(ctx, input.targetType, targetId)
+      )
+    )
+  ).flat()
+}
+
+export async function listDocumentPresenceByUser(ctx: AppCtx, userId: string) {
+  return ctx.db
+    .query("documentPresence")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()
+}
+
 export async function getConversationDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("conversations")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
+}
+
+export async function listConversationsByScope(
+  ctx: AppCtx,
+  scopeType: "team" | "workspace",
+  scopeId: string
+) {
+  return ctx.db
+    .query("conversations")
+    .withIndex("by_scope", (q) =>
+      q.eq("scopeType", scopeType).eq("scopeId", scopeId)
+    )
+    .collect()
+}
+
+export async function listConversationsByScopes(
+  ctx: AppCtx,
+  scopes: Iterable<{
+    scopeType: "team" | "workspace"
+    scopeId: string
+  }>
+) {
+  const uniqueScopes = [
+    ...new Map(
+      [...scopes].map(
+        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
+      )
+    ).values(),
+  ]
+
+  if (uniqueScopes.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueScopes.map((scope) =>
+        listConversationsByScope(ctx, scope.scopeType, scope.scopeId)
+      )
+    )
+  ).flat()
 }
 
 export async function getCallDoc(ctx: AppCtx, id: string) {
@@ -188,11 +487,125 @@ export async function getCallDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function listCallsByConversation(
+  ctx: AppCtx,
+  conversationId: string
+) {
+  return ctx.db
+    .query("calls")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+    .collect()
+}
+
+export async function listCallsByConversations(
+  ctx: AppCtx,
+  conversationIds: Iterable<string>
+) {
+  const uniqueConversationIds = [...new Set(conversationIds)]
+
+  if (uniqueConversationIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueConversationIds.map((conversationId) =>
+        listCallsByConversation(ctx, conversationId)
+      )
+    )
+  ).flat()
+}
+
 export async function getChannelPostDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("channelPosts")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
+}
+
+export async function listChatMessagesByConversation(
+  ctx: AppCtx,
+  conversationId: string
+) {
+  return ctx.db
+    .query("chatMessages")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+    .collect()
+}
+
+export async function listChatMessagesByConversations(
+  ctx: AppCtx,
+  conversationIds: Iterable<string>
+) {
+  const uniqueConversationIds = [...new Set(conversationIds)]
+
+  if (uniqueConversationIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueConversationIds.map((conversationId) =>
+        listChatMessagesByConversation(ctx, conversationId)
+      )
+    )
+  ).flat()
+}
+
+export async function listChannelPostsByConversation(
+  ctx: AppCtx,
+  conversationId: string
+) {
+  return ctx.db
+    .query("channelPosts")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+    .collect()
+}
+
+export async function listChannelPostsByConversations(
+  ctx: AppCtx,
+  conversationIds: Iterable<string>
+) {
+  const uniqueConversationIds = [...new Set(conversationIds)]
+
+  if (uniqueConversationIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueConversationIds.map((conversationId) =>
+        listChannelPostsByConversation(ctx, conversationId)
+      )
+    )
+  ).flat()
+}
+
+export async function listChannelPostCommentsByPost(
+  ctx: AppCtx,
+  postId: string
+) {
+  return ctx.db
+    .query("channelPostComments")
+    .withIndex("by_post", (q) => q.eq("postId", postId))
+    .collect()
+}
+
+export async function listChannelPostCommentsByPosts(
+  ctx: AppCtx,
+  postIds: Iterable<string>
+) {
+  const uniquePostIds = [...new Set(postIds)]
+
+  if (uniquePostIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniquePostIds.map((postId) => listChannelPostCommentsByPost(ctx, postId))
+    )
+  ).flat()
 }
 
 export async function getAttachmentDoc(ctx: AppCtx, id: string) {
@@ -202,6 +615,41 @@ export async function getAttachmentDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function listAttachmentsByTarget(
+  ctx: AppCtx,
+  targetType: "workItem" | "document",
+  targetId: string
+) {
+  return ctx.db
+    .query("attachments")
+    .withIndex("by_target", (q) =>
+      q.eq("targetType", targetType).eq("targetId", targetId)
+    )
+    .collect()
+}
+
+export async function listAttachmentsByTargets(
+  ctx: AppCtx,
+  input: {
+    targetType: "workItem" | "document"
+    targetIds: Iterable<string>
+  }
+) {
+  const targetIds = [...new Set(input.targetIds)]
+
+  if (targetIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      targetIds.map((targetId) =>
+        listAttachmentsByTarget(ctx, input.targetType, targetId)
+      )
+    )
+  ).flat()
+}
+
 export async function getViewDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("views")
@@ -209,11 +657,191 @@ export async function getViewDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function listViewsByScope(
+  ctx: AppCtx,
+  scopeType: "personal" | "team" | "workspace",
+  scopeId: string
+) {
+  return ctx.db
+    .query("views")
+    .withIndex("by_scope", (q) =>
+      q.eq("scopeType", scopeType).eq("scopeId", scopeId)
+    )
+    .collect()
+}
+
+export async function listViewsByScopes(
+  ctx: AppCtx,
+  scopes: Iterable<{
+    scopeType: "team" | "workspace"
+    scopeId: string
+  }>
+) {
+  const uniqueScopes = [
+    ...new Map(
+      [...scopes].map(
+        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
+      )
+    ).values(),
+  ]
+
+  if (uniqueScopes.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueScopes.map((scope) =>
+        listViewsByScope(ctx, scope.scopeType, scope.scopeId)
+      )
+    )
+  ).flat()
+}
+
+export async function listViewsByScopeEntity(
+  ctx: AppCtx,
+  scopeType: "team" | "workspace",
+  scopeId: string,
+  entityKind: "items" | "projects"
+) {
+  return ctx.db
+    .query("views")
+    .withIndex("by_scope_entity_kind", (q) =>
+      q
+        .eq("scopeType", scopeType)
+        .eq("scopeId", scopeId)
+        .eq("entityKind", entityKind)
+    )
+    .collect()
+}
+
 export async function getNotificationDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("notifications")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
+}
+
+export async function listNotificationsByEntity(
+  ctx: AppCtx,
+  entityType:
+    | "chat"
+    | "team"
+    | "workspace"
+    | "project"
+    | "workItem"
+    | "document"
+    | "invite"
+    | "channelPost",
+  entityId: string
+) {
+  return ctx.db
+    .query("notifications")
+    .withIndex("by_entity", (q) =>
+      q.eq("entityType", entityType).eq("entityId", entityId)
+    )
+    .collect()
+}
+
+export async function listNotificationsByEntities(
+  ctx: AppCtx,
+  entities: Iterable<{
+    entityType:
+      | "chat"
+      | "team"
+      | "workspace"
+      | "project"
+      | "workItem"
+      | "document"
+      | "invite"
+      | "channelPost"
+    entityId: string
+  }>
+) {
+  const uniqueEntities = [
+    ...new Map(
+      [...entities].map(
+        (entity) => [`${entity.entityType}:${entity.entityId}`, entity] as const
+      )
+    ).values(),
+  ]
+
+  if (uniqueEntities.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueEntities.map((entity) =>
+        listNotificationsByEntity(ctx, entity.entityType, entity.entityId)
+      )
+    )
+  ).flat()
+}
+
+export async function listNotificationsByUser(ctx: AppCtx, userId: string) {
+  return ctx.db
+    .query("notifications")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()
+}
+
+export async function listPendingDigestNotifications(ctx: AppCtx) {
+  return ctx.db
+    .query("notifications")
+    .withIndex("by_emailed_at", (q) => q.eq("emailedAt", null))
+    .collect()
+}
+
+function dedupeInvitesById<
+  T extends {
+    id: string
+  },
+>(invites: T[]) {
+  return [
+    ...new Map(invites.map((invite) => [invite.id, invite] as const)).values(),
+  ]
+}
+
+export async function listInvitesByTeam(ctx: AppCtx, teamId: string) {
+  return ctx.db
+    .query("invites")
+    .withIndex("by_team", (q) => q.eq("teamId", teamId))
+    .collect()
+}
+
+export async function listInvitesByTeams(
+  ctx: AppCtx,
+  teamIds: Iterable<string>
+) {
+  const uniqueTeamIds = [...new Set(teamIds)]
+
+  if (uniqueTeamIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueTeamIds.map((teamId) => listInvitesByTeam(ctx, teamId))
+    )
+  ).flat()
+}
+
+export async function listInvitesByNormalizedEmail(ctx: AppCtx, email: string) {
+  const normalizedEmail = normalizeEmailAddress(email)
+  const indexedInvites = await ctx.db
+    .query("invites")
+    .withIndex("by_normalized_email", (q) =>
+      q.eq("normalizedEmail", normalizedEmail)
+    )
+    .collect()
+  const legacyInvites = (await ctx.db.query("invites").collect()).filter(
+    (invite) =>
+      !invite.normalizedEmail &&
+      normalizeEmailAddress(invite.email) === normalizedEmail
+  )
+
+  return dedupeInvitesById([...indexedInvites, ...legacyInvites])
 }
 
 export async function getInviteByTokenDoc(ctx: AppCtx, token: string) {
@@ -224,18 +852,9 @@ export async function getInviteByTokenDoc(ctx: AppCtx, token: string) {
 }
 
 export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
-  const normalizedEmail = email.trim().toLowerCase()
-  const invites = (await ctx.db.query("invites").collect()).filter((invite) => {
-    if (invite.email.trim().toLowerCase() !== normalizedEmail) {
-      return false
-    }
-
-    if (invite.acceptedAt || invite.declinedAt) {
-      return false
-    }
-
-    return true
-  })
+  const invites = (await listInvitesByNormalizedEmail(ctx, email)).filter(
+    (invite) => !invite.acceptedAt && !invite.declinedAt
+  )
 
   return Promise.all(
     invites.map(async (invite) => {
@@ -275,6 +894,35 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
   )
 }
 
+export async function listProjectUpdatesByProject(
+  ctx: AppCtx,
+  projectId: string
+) {
+  return ctx.db
+    .query("projectUpdates")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect()
+}
+
+export async function listProjectUpdatesByProjects(
+  ctx: AppCtx,
+  projectIds: Iterable<string>
+) {
+  const uniqueProjectIds = [...new Set(projectIds)]
+
+  if (uniqueProjectIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueProjectIds.map((projectId) =>
+        listProjectUpdatesByProject(ctx, projectId)
+      )
+    )
+  ).flat()
+}
+
 export async function getActiveInvitesForTeamAndEmail(
   ctx: AppCtx,
   input: {
@@ -282,24 +930,26 @@ export async function getActiveInvitesForTeamAndEmail(
     email: string
   }
 ) {
-  const normalizedEmail = input.email.trim().toLowerCase()
+  const normalizedEmail = normalizeEmailAddress(input.email)
   const now = Date.now()
+  const indexedInvites = await ctx.db
+    .query("invites")
+    .withIndex("by_team_and_normalized_email", (q) =>
+      q.eq("teamId", input.teamId).eq("normalizedEmail", normalizedEmail)
+    )
+    .collect()
+  const legacyInvites = (await listInvitesByTeam(ctx, input.teamId)).filter(
+    (invite) =>
+      !invite.normalizedEmail &&
+      normalizeEmailAddress(invite.email) === normalizedEmail
+  )
 
-  return (await ctx.db.query("invites").collect()).filter((invite) => {
-    if (invite.teamId !== input.teamId) {
-      return false
-    }
-
-    if (invite.email.trim().toLowerCase() !== normalizedEmail) {
-      return false
-    }
-
-    if (invite.acceptedAt || invite.declinedAt) {
-      return false
-    }
-
-    return new Date(invite.expiresAt).getTime() >= now
-  })
+  return dedupeInvitesById([...indexedInvites, ...legacyInvites]).filter(
+    (invite) =>
+      !invite.acceptedAt &&
+      !invite.declinedAt &&
+      new Date(invite.expiresAt).getTime() >= now
+  )
 }
 
 export async function getAppConfig(ctx: AppCtx) {
@@ -390,12 +1040,12 @@ export function isDefinedString(
 }
 
 export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
-  const memberships = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect()
-  const teams = await ctx.db.query("teams").collect()
-  const workspaces = await ctx.db.query("workspaces").collect()
+  const memberships = await listTeamMembershipsByUser(ctx, userId)
+  const teams = await listTeamsByIds(
+    ctx,
+    memberships.map((membership) => membership.teamId)
+  )
+  const workspaces = await listWorkspacesOwnedByUser(ctx, userId)
   const workspaceRoleMap = memberships.reduce<
     Record<string, Array<(typeof memberships)[number]["role"]>>
   >((accumulator, membership) => {

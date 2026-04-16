@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server"
 
+import {
+  ApplicationError,
+  coerceApplicationError,
+} from "@/lib/server/application-errors"
 import { teamDetailsSchema } from "@/lib/domain/types"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { createTeamServer } from "@/lib/server/convex"
@@ -10,7 +14,21 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
+
+const CREATE_TEAM_ROUTE_ERROR_MAPPINGS = [
+  {
+    match: "Unable to generate a unique join code",
+    status: 503,
+    code: "TEAM_JOIN_CODE_GENERATION_FAILED",
+    retryable: true,
+  },
+] as const
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -67,10 +85,22 @@ export async function POST(request: NextRequest) {
       features: result?.features ?? parsed.features,
     })
   } catch (error) {
+    const applicationError =
+      error instanceof ApplicationError
+        ? error
+        : coerceApplicationError(error, [...CREATE_TEAM_ROUTE_ERROR_MAPPINGS])
+
+    if (applicationError) {
+      return jsonApplicationError(applicationError)
+    }
+
     logProviderError("Failed to create team", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to create team"),
-      500
+      500,
+      {
+        code: "TEAM_CREATE_FAILED",
+      }
     )
   }
 }

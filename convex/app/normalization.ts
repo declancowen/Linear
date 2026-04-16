@@ -33,6 +33,7 @@ export function normalizeWorkspace<
 
 export function normalizeUser<
   T extends {
+    emailNormalized?: string | null
     workosUserId?: string | null
     status?: string | null
     statusMessage?: string | null
@@ -41,6 +42,10 @@ export function normalizeUser<
     accountDeletedAt?: string | null
   },
 >(user: T) {
+  const restUser = {
+    ...(user as T & { emailNormalized?: string | null }),
+  }
+  delete restUser.emailNormalized
   const preferences =
     "preferences" in user &&
     user.preferences &&
@@ -49,7 +54,7 @@ export function normalizeUser<
       : null
 
   return {
-    ...user,
+    ...restUser,
     workosUserId: user.workosUserId ?? null,
     hasExplicitStatus:
       typeof user.hasExplicitStatus === "boolean"
@@ -278,6 +283,10 @@ export function normalizeTeamFeatures(
 export function normalizeTeam<T extends { settings: Record<string, unknown> }>(
   team: T
 ) {
+  const restTeam = {
+    ...(team as T & { joinCodeNormalized?: string }),
+  }
+  delete restTeam.joinCodeNormalized
   const settings = team.settings as {
     experience?:
       | "software-development"
@@ -296,7 +305,7 @@ export function normalizeTeam<T extends { settings: Record<string, unknown> }>(
   }
 
   return {
-    ...team,
+    ...restTeam,
     icon: normalizeTeamIcon(
       (team as T & { icon?: string }).icon,
       settings.experience ?? "software-development"

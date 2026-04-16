@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import {
   deleteWorkItemServer,
   markNotificationsEmailedServer,
@@ -13,7 +14,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const workItemPatchSchema = z
   .object({
@@ -89,10 +95,17 @@ export async function PATCH(
       ok: true,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update work item", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to update work item"),
-      500
+      500,
+      {
+        code: "WORK_ITEM_UPDATE_FAILED",
+      }
     )
   }
 }
@@ -125,10 +138,17 @@ export async function DELETE(
       deletedItemIds: result?.deletedItemIds ?? [],
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to delete work item", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete work item"),
-      500
+      500,
+      {
+        code: "WORK_ITEM_DELETE_FAILED",
+      }
     )
   }
 }

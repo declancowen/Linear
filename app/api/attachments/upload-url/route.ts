@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { attachmentUploadUrlSchema } from "@/lib/domain/types"
 import { generateAttachmentUploadUrlServer } from "@/lib/server/convex"
 import {
@@ -8,7 +9,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -41,10 +47,17 @@ export async function POST(request: NextRequest) {
 
     return jsonOk(result)
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to prepare attachment upload", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to prepare attachment upload"),
-      500
+      500,
+      {
+        code: "ATTACHMENT_UPLOAD_PREPARE_FAILED",
+      }
     )
   }
 }
