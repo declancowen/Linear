@@ -10,10 +10,10 @@ import {
   UsersThree,
   X,
 } from "@phosphor-icons/react"
+import { useShallow } from "zustand/react/shallow"
 
 import {
   getAccessibleTeams,
-  getTeam,
   searchWorkspace,
   type GlobalSearchResult,
 } from "@/lib/domain/selectors"
@@ -91,18 +91,17 @@ export function WorkspaceSearchScreen({
 }: {
   initialQuery?: string
 }) {
-  const data = useAppStore()
-  const teams = getAccessibleTeams(data)
+  const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
   const [query, setQuery] = useState(initialQuery)
   const [kind, setKind] = useState<SearchKindFilter>("all")
   const [teamId, setTeamId] = useState("all")
   const [status, setStatus] = useState<WorkStatus | "all">("all")
 
   const trimmedQuery = query.trim()
-
-  const queriedResults = useMemo(
-    () => searchWorkspace(data, query),
-    [data, query]
+  const queriedResults = useAppStore((state) => searchWorkspace(state, query))
+  const teamsById = useMemo(
+    () => new Map(teams.map((team) => [team.id, team])),
+    [teams]
   )
 
   const scopedResults = useMemo(
@@ -249,7 +248,7 @@ export function WorkspaceSearchScreen({
           ) : (
             <div className="space-y-0">
               {filteredResults.map((result) => {
-                const team = result.teamId ? getTeam(data, result.teamId) : null
+                const team = result.teamId ? (teamsById.get(result.teamId) ?? null) : null
                 const subtitle = result.subtitle?.trim()
                 const metadata = [
                   searchResultLabel(result.kind),

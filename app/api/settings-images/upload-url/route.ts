@@ -1,70 +1,65 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { settingsImageUploadSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { generateSettingsImageUploadUrlServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = settingsImageUploadSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    settingsImageUploadSchema,
+    "Invalid image upload request"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid image upload request" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser, authContext } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
 
-    if (
-      parsed.data.kind === "workspace-logo" &&
-      !authContext?.currentWorkspace
-    ) {
-      return NextResponse.json(
-        { error: "Workspace not found" },
-        { status: 404 }
-      )
+    if (isRouteResponse(appContext)) {
+      return appContext
     }
 
     if (
-      parsed.data.kind === "workspace-logo" &&
-      !authContext?.isWorkspaceAdmin
+      parsed.kind === "workspace-logo" &&
+      !appContext.authContext?.currentWorkspace
     ) {
-      return NextResponse.json(
-        { error: "Only workspace admins can update workspace settings" },
-        { status: 403 }
-      )
+      return jsonError("Workspace not found", 404)
+    }
+
+    if (
+      parsed.kind === "workspace-logo" &&
+      !appContext.authContext?.isWorkspaceAdmin
+    ) {
+      return jsonError("Only workspace admins can update workspace settings", 403)
     }
 
     const result = await generateSettingsImageUploadUrlServer({
-      currentUserId: ensuredUser.userId,
-      kind: parsed.data.kind,
-      workspaceId: authContext?.currentWorkspace?.id,
+      currentUserId: appContext.ensuredUser.userId,
+      kind: parsed.kind,
+      workspaceId: appContext.authContext?.currentWorkspace?.id,
     })
 
-    return NextResponse.json(result)
+    return jsonOk(result)
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to prepare image upload",
-      },
-      { status: 500 }
+    logProviderError("Failed to prepare image upload", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to prepare image upload"),
+      500
     )
   }
 }

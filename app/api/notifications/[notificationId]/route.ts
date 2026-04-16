@@ -1,16 +1,20 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import {
   archiveNotificationServer,
   deleteNotificationServer,
-  ensureConvexUserReadyServer,
   markNotificationReadServer,
   toggleNotificationReadServer,
   unarchiveNotificationServer,
 } from "@/lib/server/convex"
-import { toAuthenticatedAppUser } from "@/lib/workos/auth"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const notificationMutationSchema = z.discriminatedUnion("action", [
   z.object({
@@ -31,48 +35,43 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ notificationId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = notificationMutationSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    notificationMutationSchema,
+    "Invalid notification request"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid notification request" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
     const { notificationId } = await params
-    const authContext = await ensureConvexUserReadyServer(
-      toAuthenticatedAppUser(
-        session.user,
-        session.organizationId
-      )
-    )
+    const authContext = await requireConvexUser(session)
 
-    if (!authContext?.currentUser) {
-      return NextResponse.json({ error: "User context not found" }, { status: 404 })
+    if (isRouteResponse(authContext)) {
+      return authContext
     }
 
     const currentUserId = authContext.currentUser.id
 
-    if (parsed.data.action === "markRead") {
+    if (parsed.action === "markRead") {
       await markNotificationReadServer({
         currentUserId,
         notificationId,
       })
-    } else if (parsed.data.action === "toggleRead") {
+    } else if (parsed.action === "toggleRead") {
       await toggleNotificationReadServer({
         currentUserId,
         notificationId,
       })
-    } else if (parsed.data.action === "archive") {
+    } else if (parsed.action === "archive") {
       await archiveNotificationServer({
         currentUserId,
         notificationId,
@@ -84,17 +83,12 @@ export async function PATCH(
       })
     }
 
-    return NextResponse.json({ ok: true })
+    return jsonOk({ ok: true })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to update notification",
-      },
-      { status: 500 }
+    logProviderError("Failed to update notification", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update notification"),
+      500
     )
   }
 }
@@ -103,23 +97,18 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ notificationId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     const { notificationId } = await params
-    const authContext = await ensureConvexUserReadyServer(
-      toAuthenticatedAppUser(
-        session.user,
-        session.organizationId
-      )
-    )
+    const authContext = await requireConvexUser(session)
 
-    if (!authContext?.currentUser) {
-      return NextResponse.json({ error: "User context not found" }, { status: 404 })
+    if (isRouteResponse(authContext)) {
+      return authContext
     }
 
     await deleteNotificationServer({
@@ -127,17 +116,12 @@ export async function DELETE(
       notificationId,
     })
 
-    return NextResponse.json({ ok: true })
+    return jsonOk({ ok: true })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to delete notification",
-      },
-      { status: 500 }
+    logProviderError("Failed to delete notification", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete notification"),
+      500
     )
   }
 }

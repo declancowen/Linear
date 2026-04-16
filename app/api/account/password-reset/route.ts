@@ -1,29 +1,27 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextResponse } from "next/server"
-
+import {
+  getWorkOSErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 import { requestWorkOSPasswordReset } from "@/lib/server/workos"
 
 export async function POST() {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     await requestWorkOSPasswordReset(session.user.email)
 
-    return NextResponse.json({ ok: true })
+    return jsonOk({ ok: true })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to start password reset",
-      },
-      { status: 500 }
+    logProviderError("Failed to start password reset", error)
+    return jsonError(
+      getWorkOSErrorMessage(error, "Failed to start password reset"),
+      500
     )
   }
 }

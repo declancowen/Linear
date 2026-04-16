@@ -15,6 +15,7 @@ function readUrlEnv(value: string | undefined) {
 export function getAppOrigin() {
   return (
     readUrlEnv(process.env.APP_URL) ??
+    readUrlEnv(process.env.NEXT_PUBLIC_APP_URL) ??
     readUrlEnv(process.env.TEAMS_URL) ??
     DEFAULT_APP_ORIGIN
   )

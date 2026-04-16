@@ -1,4 +1,3 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextRequest, NextResponse } from "next/server"
 
 import { workspaceBrandingSchema } from "@/lib/domain/types"
@@ -7,56 +6,62 @@ import {
   setWorkspaceWorkosOrganizationServer,
   updateWorkspaceBrandingServer,
 } from "@/lib/server/convex"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 import { ensureWorkspaceOrganization } from "@/lib/server/workos"
 
 export async function PATCH(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = workspaceBrandingSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    workspaceBrandingSchema,
+    "Invalid workspace details payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid workspace details payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { authContext } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    const { authContext } = appContext
 
     if (!authContext?.currentWorkspace) {
-      return NextResponse.json(
-        { error: "Workspace not found" },
-        { status: 404 }
-      )
+      return jsonError("Workspace not found", 404)
     }
 
     if (!authContext.isWorkspaceAdmin) {
-      return NextResponse.json(
-        { error: "Only workspace admins can update workspace details" },
-        { status: 403 }
+      return jsonError(
+        "Only workspace admins can update workspace details",
+        403
       )
     }
 
     await updateWorkspaceBrandingServer({
       currentUserId: authContext.currentUser.id,
       workspaceId: authContext.currentWorkspace.id,
-      ...parsed.data,
+      ...parsed,
     })
 
     const organization = await ensureWorkspaceOrganization({
       workspaceId: authContext.currentWorkspace.id,
       slug: authContext.currentWorkspace.slug,
-      name: parsed.data.name,
+      name: parsed.name,
       existingOrganizationId: authContext.currentWorkspace.workosOrganizationId,
     })
 
@@ -65,25 +70,24 @@ export async function PATCH(request: NextRequest) {
       workosOrganizationId: organization.id,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       workspace: {
         ...authContext.currentWorkspace,
-        name: parsed.data.name,
-        logoUrl: parsed.data.logoUrl,
+        name: parsed.name,
+        logoUrl: parsed.logoUrl,
         settings: {
-          accent: parsed.data.accent,
-          description: parsed.data.description,
+          accent: parsed.accent,
+          description: parsed.description,
         },
         workosOrganizationId: organization.id,
       },
     })
   } catch (error) {
-    console.error(error)
+    logProviderError("Failed to update workspace", error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to update workspace",
+        error: getConvexErrorMessage(error, "Failed to update workspace"),
       },
       { status: 500 }
     )
@@ -91,23 +95,23 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE() {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
-    const { authContext } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    const { authContext } = appContext
 
     if (!authContext?.currentWorkspace || !authContext.currentUser) {
-      return NextResponse.json(
-        { error: "Workspace not found" },
-        { status: 404 }
-      )
+      return jsonError("Workspace not found", 404)
     }
 
     const result = await deleteWorkspaceServer({
@@ -115,18 +119,17 @@ export async function DELETE() {
       workspaceId: authContext.currentWorkspace.id,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       workspaceId: result?.workspaceId ?? authContext.currentWorkspace.id,
       deletedTeamIds: result?.deletedTeamIds ?? [],
       deletedUserIds: result?.deletedUserIds ?? [],
     })
   } catch (error) {
-    console.error(error)
+    logProviderError("Failed to delete workspace", error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to delete workspace",
+        error: getConvexErrorMessage(error, "Failed to delete workspace"),
       },
       { status: 500 }
     )

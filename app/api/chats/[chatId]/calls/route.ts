@@ -1,11 +1,13 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
-  getSnapshotServer,
-  sendChatMessageServer,
-} from "@/lib/server/convex"
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import type { RequiredAppContext } from "@/lib/server/route-auth"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import { getSnapshotServer, sendChatMessageServer } from "@/lib/server/convex"
 
 function createConversationJoinHref(conversationId: string) {
   const query = new URLSearchParams({
@@ -16,9 +18,7 @@ function createConversationJoinHref(conversationId: string) {
 }
 
 function getWorkspaceRolesForConversation(
-  authContext: NonNullable<
-    Awaited<ReturnType<typeof ensureAuthenticatedAppContext>>["authContext"]
-  >,
+  authContext: NonNullable<RequiredAppContext["authContext"]>,
   snapshot: NonNullable<Awaited<ReturnType<typeof getSnapshotServer>>>,
   workspaceId: string
 ) {
@@ -32,27 +32,27 @@ function getWorkspaceRolesForConversation(
 }
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ chatId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     const { chatId } = await params
-    const { ensuredUser, authContext } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    const { ensuredUser, authContext } = appContext
 
     if (!authContext) {
-      return NextResponse.json(
-        { error: "User context not found" },
-        { status: 404 }
-      )
+      return jsonError("User context not found", 404)
     }
 
     const snapshot = await getSnapshotServer({
@@ -61,30 +61,21 @@ export async function POST(
     })
 
     if (!snapshot) {
-      return NextResponse.json(
-        { error: "Snapshot not available" },
-        { status: 404 }
-      )
+      return jsonError("Snapshot not available", 404)
     }
 
     const conversation =
       snapshot.conversations.find((entry) => entry.id === chatId) ?? null
 
     if (!conversation || conversation.kind !== "chat") {
-      return NextResponse.json(
-        { error: "Conversation not found" },
-        { status: 404 }
-      )
+      return jsonError("Conversation not found", 404)
     }
 
     if (
       conversation.scopeType === "workspace" &&
       !conversation.participantIds.includes(ensuredUser.userId)
     ) {
-      return NextResponse.json(
-        { error: "You do not have access to this chat" },
-        { status: 403 }
-      )
+      return jsonError("You do not have access to this chat", 403)
     }
 
     if (conversation.scopeType === "workspace") {
@@ -98,10 +89,7 @@ export async function POST(
       )
 
       if (!canWrite) {
-        return NextResponse.json(
-          { error: "Your current role is read-only" },
-          { status: 403 }
-        )
+        return jsonError("Your current role is read-only", 403)
       }
     }
 
@@ -111,17 +99,11 @@ export async function POST(
       )
 
       if (!membership) {
-        return NextResponse.json(
-          { error: "You do not have access to this chat" },
-          { status: 403 }
-        )
+        return jsonError("You do not have access to this chat", 403)
       }
 
       if (membership.role === "viewer" || membership.role === "guest") {
-        return NextResponse.json(
-          { error: "Your current role is read-only" },
-          { status: 403 }
-        )
+        return jsonError("Your current role is read-only", 403)
       }
     }
 
@@ -139,7 +121,7 @@ export async function POST(
       throw new Error("Failed to create call")
     }
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       call: null,
       message: {
@@ -155,12 +137,7 @@ export async function POST(
       joinHref,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to start call",
-      },
-      { status: 500 }
-    )
+    logProviderError("Failed to start chat call", error)
+    return jsonError(getConvexErrorMessage(error, "Failed to start call"), 500)
   }
 }

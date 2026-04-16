@@ -3,10 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 
-import {
-  canAdminWorkspace,
-  getCurrentWorkspace,
-} from "@/lib/domain/selectors"
+import { canAdminWorkspace, getCurrentWorkspace } from "@/lib/domain/selectors"
 import {
   createDefaultTeamFeatureSettings,
   getDefaultTeamIconForExperience,
@@ -32,11 +29,14 @@ import { getTeamLandingHref } from "./utils"
 
 export function CreateTeamScreen() {
   const router = useRouter()
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
-  const canCreateTeam = workspace
-    ? canAdminWorkspace(data, workspace.id)
-    : false
+  const workspace = useAppStore(getCurrentWorkspace)
+  const canCreateTeam = useAppStore((state) => {
+    const currentWorkspace = getCurrentWorkspace(state)
+
+    return currentWorkspace
+      ? canAdminWorkspace(state, currentWorkspace.id)
+      : false
+  })
   const [name, setName] = useState("")
   const [icon, setIcon] = useState(() =>
     getDefaultTeamIconForExperience("software-development")
@@ -52,7 +52,10 @@ export function CreateTeamScreen() {
 
   if (!workspace) {
     return (
-      <SettingsScaffold title="Create team" subtitle="Current workspace not found">
+      <SettingsScaffold
+        title="Create team"
+        subtitle="Current workspace not found"
+      >
         <Card className="shadow-none">
           <CardHeader>
             <CardTitle>Workspace unavailable</CardTitle>

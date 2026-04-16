@@ -1,35 +1,17 @@
 "use client"
 
 import {
-  useRef,
   useEffect,
   useState,
-  useEffectEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
 import {
-  ArrowUp,
-  ArrowSquareOut,
-  ChatCircle,
-  DotsThree,
   Hash,
   PaperPlaneTilt,
-  Plus,
-  Smiley,
-  Trash,
-  UsersThree,
-  VideoCamera,
-  X,
 } from "@phosphor-icons/react"
-import { format, isToday, isYesterday } from "date-fns"
-import { toast } from "sonner"
+import { useShallow } from "zustand/react/shallow"
 
 import {
   canEditTeam,
-  getChatMessages,
-  getChannelPostComments,
   getChannelPosts,
   getConversationParticipants,
   getCurrentWorkspace,
@@ -38,34 +20,25 @@ import {
   getTeamBySlug,
   getTeamChannels,
   getTeamChatConversation,
-  getUser,
   getWorkspaceChannels,
-  getWorkspaceChats,
-  getWorkspaceUsers,
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn, getPlainTextContent } from "@/lib/utils"
-import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
-import { RichTextContent } from "@/components/app/rich-text-content"
-import { RichTextEditor } from "@/components/app/rich-text-editor"
-import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
-import { Button } from "@/components/ui/button"
-import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
+  ForumPostCard,
+  NewPostComposer,
+} from "@/components/app/collaboration-screens/channel-ui"
+import { CallInviteLauncher } from "@/components/app/collaboration-screens/call-invite-launcher"
+import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  ChatHeaderActions,
+  DetailsSidebarToggle,
+  EmptyState,
+  PageHeader,
+  SurfaceSidebarContent,
+  TeamSurfaceSidebar,
+} from "@/components/app/collaboration-screens/shared-ui"
+export { WorkspaceChatsScreen } from "@/components/app/collaboration-screens/workspace-chats-screen"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Sheet,
@@ -74,1847 +47,34 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { SidebarTrigger } from "@/components/ui/sidebar"
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
-function formatTimestamp(value: string) {
-  const d = new Date(value)
-  if (isToday(d)) return format(d, "h:mm a")
-  if (isYesterday(d)) return `Yesterday ${format(d, "h:mm a")}`
-  return format(d, "MMM d, h:mm a")
-}
-
-function formatShortDate(value: string) {
-  const d = new Date(value)
-  if (isToday(d)) return format(d, "h:mm a")
-  if (isYesterday(d)) return "Yesterday"
-  return format(d, "MMM d")
-}
-
-const CHANNEL_REACTION_OPTIONS = [
-  { emoji: "👍", label: "Thumbs up" },
-  { emoji: "❤️", label: "Love" },
-  { emoji: "🎉", label: "Celebrate" },
-  { emoji: "👀", label: "Watching" },
-  { emoji: "🚀", label: "Ship it" },
-  { emoji: "🔥", label: "Fire" },
-  { emoji: "🙌", label: "Nice work" },
-  { emoji: "😄", label: "Smile" },
-] as const
-
-const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY = "workspace-chat-list-width"
-const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH = 256
-const WORKSPACE_CHAT_LIST_MIN_WIDTH = 224
-const WORKSPACE_CHAT_LIST_MAX_WIDTH = 420
-
-function clampWorkspaceChatListWidth(value: number) {
-  return Math.min(
-    WORKSPACE_CHAT_LIST_MAX_WIDTH,
-    Math.max(WORKSPACE_CHAT_LIST_MIN_WIDTH, value)
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Shared primitives                                                  */
-/* ------------------------------------------------------------------ */
-
-function EmptyState({
-  title,
-  description,
-  action,
-  icon,
-  className,
-}: {
-  title: string
-  description: string
-  action?: ReactNode
-  icon?: ReactNode
-  className?: string
-}) {
-  return (
-    <div
-      className={cn(
-        "flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center",
-        className
-      )}
-    >
-      <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-        {icon ?? <Hash className="size-5 text-muted-foreground" />}
-      </div>
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-          {description}
-        </p>
-      </div>
-      {action ?? null}
-    </div>
-  )
-}
-
-function PageHeader({
-  title,
-  subtitle,
-  actions,
-}: {
-  title: string
-  subtitle?: string
-  actions?: ReactNode
-}) {
-  return (
-    <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
-      <div className="flex min-w-0 items-center gap-2">
-        <SidebarTrigger className="size-5 shrink-0" />
-        <h1 className="truncate text-sm font-medium">{title}</h1>
-        {subtitle ? (
-          <span className="hidden truncate text-xs text-muted-foreground xl:inline">
-            — {subtitle}
-          </span>
-        ) : null}
-      </div>
-      {actions ? (
-        <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
-      ) : null}
-    </div>
-  )
-}
-
-function buildCallJoinHref(callId: string) {
-  const query = new URLSearchParams({
-    callId,
-  })
-
-  return `/api/calls/join?${query.toString()}`
-}
-
-function parseCallInviteMessage(content: string) {
-  const trimmed = content.trim()
-
-  if (!trimmed.startsWith("Started a call")) {
-    return null
-  }
-
-  const match = trimmed.match(
-    /Join call:\s+(https?:\/\/\S+|\/api\/calls\/join\?\S+)/
-  )
-
-  if (!match) {
-    return null
-  }
-
-  return {
-    href: match[1],
-    title: "Started a call",
-  }
-}
-
-function CallInviteLauncher({ conversationId }: { conversationId: string }) {
-  const [loading, setLoading] = useState(false)
-
-  async function handleLaunch() {
-    setLoading(true)
-
-    try {
-      const joinHref = await useAppStore
-        .getState()
-        .startConversationCall(conversationId)
-
-      if (!joinHref) {
-        return
-      }
-
-      toast.success("Call link added to the thread")
-    } catch (error) {
-      console.error(error)
-      toast.error(
-        error instanceof Error ? error.message : "Failed to start the call"
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Button
-      size="icon-xs"
-      variant="ghost"
-      className="size-7"
-      onClick={handleLaunch}
-      disabled={loading}
-      aria-label="Start call"
-    >
-      <VideoCamera className="size-3.5" />
-    </Button>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Conversation sidebar (left)                                        */
-/* ------------------------------------------------------------------ */
-
-function ConversationList({
-  conversations,
-  selectedId,
-  onSelect,
-  renderLeading,
-  renderPreview,
-  className,
-}: {
-  conversations: Array<{
-    id: string
-    title: string
-    updatedAt: string
-  }>
-  selectedId: string | null
-  onSelect: (id: string) => void
-  renderLeading?: (id: string) => ReactNode
-  renderPreview: (id: string) => string
-  className?: string
-}) {
-  return (
-    <div className={cn("flex h-full flex-col border-r", className)}>
-      <ScrollArea className="flex-1">
-        <div className="flex flex-col px-1 py-1">
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              className={cn(
-                "block max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
-                selectedId === conversation.id
-                  ? "bg-accent"
-                  : "hover:bg-accent/50"
-              )}
-              onClick={() => onSelect(conversation.id)}
-            >
-              <div className="flex items-center gap-3">
-                {renderLeading ? (
-                  <div className="shrink-0">
-                    {renderLeading(conversation.id)}
-                  </div>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={cn(
-                      "truncate text-sm",
-                      selectedId === conversation.id
-                        ? "font-semibold"
-                        : "font-medium"
-                    )}
-                  >
-                    {conversation.title}
-                  </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {renderPreview(conversation.id)}
-                  </div>
-                </div>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {formatShortDate(conversation.updatedAt)}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </ScrollArea>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Members sidebar (right)                                            */
-/* ------------------------------------------------------------------ */
-
-function SurfaceSidebarContent({
-  label,
-  title,
-  description,
-  members,
-}: {
-  label?: string
-  title: string
-  description: string
-  members: ReturnType<typeof getConversationParticipants>
-}) {
-  const data = useAppStore()
-
-  return (
-    <div className="flex flex-col gap-4 p-4">
-      <div className={cn(!label && "border-b pb-4")}>
-        {label ? (
-          <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-            {label}
-          </h3>
-        ) : null}
-        <p className={cn("text-sm font-medium", label && "mt-2")}>{title}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
-
-      <div className={cn(!label && "pt-0.5")}>
-        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-          Members · {members.length}
-        </h3>
-        <div className="mt-3 flex flex-col gap-0.5">
-          {members.map((member) => (
-            <UserHoverCard
-              key={member.id}
-              user={member}
-              side="left"
-              userId={member.id}
-              currentUserId={data.currentUserId}
-              workspaceId={data.currentWorkspaceId}
-            >
-              <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50">
-                <div className="shrink-0">
-                  <UserAvatar
-                    name={member.name}
-                    avatarImageUrl={member.avatarImageUrl}
-                    avatarUrl={member.avatarUrl}
-                    status={member.status}
-                  />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm">{member.name}</div>
-                  {member.title ? (
-                    <div className="truncate text-[11px] text-muted-foreground">
-                      {member.title}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </UserHoverCard>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function MembersSidebar({
-  open,
-  title,
-  description,
-  members,
-}: {
-  open: boolean
-  title: string
-  description: string
-  members: ReturnType<typeof getConversationParticipants>
-}) {
-  return (
-    <CollapsibleRightSidebar
-      open={open}
-      width="16rem"
-      containerClassName="hidden xl:block"
-    >
-      <ScrollArea className="flex-1">
-        <SurfaceSidebarContent
-          title={title}
-          description={description}
-          members={members}
-        />
-      </ScrollArea>
-    </CollapsibleRightSidebar>
-  )
-}
-
-function TeamSurfaceSidebar({
-  open,
-  label,
-  title,
-  description,
-  members,
-}: {
-  open: boolean
-  label: string
-  title: string
-  description: string
-  members: ReturnType<typeof getConversationParticipants>
-}) {
-  return (
-    <CollapsibleRightSidebar
-      open={open}
-      width="19rem"
-      containerClassName="hidden xl:block"
-    >
-      <ScrollArea className="flex-1">
-        <SurfaceSidebarContent
-          label={label}
-          title={title}
-          description={description}
-          members={members}
-        />
-      </ScrollArea>
-    </CollapsibleRightSidebar>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Chat composer                                                      */
-/* ------------------------------------------------------------------ */
-
-function ChatComposer({
-  placeholder = "Write a message…",
-  onSend,
-}: {
-  placeholder?: string
-  onSend: (content: string) => void
-}) {
-  const [content, setContent] = useState("")
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Auto-resize
-  useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
-  }, [content])
-
-  const handleSend = () => {
-    if (!content.trim()) return
-    onSend(content)
-    setContent("")
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto"
-    }
-  }
-
-  return (
-    <div className="px-4 py-3">
-      <div className="flex min-h-[2.75rem] items-end gap-2 rounded-lg border bg-background px-3 py-2.5 shadow-sm focus-within:ring-1 focus-within:ring-ring/40">
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault()
-              handleSend()
-            }
-          }}
-          placeholder={placeholder}
-          rows={1}
-          className="max-h-40 min-h-[1.5rem] flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-        />
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            className="rounded-md p-1 text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-          >
-            <Smiley className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!content.trim()}
-            className={cn(
-              "flex size-7 items-center justify-center rounded-full transition-colors",
-              content.trim()
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground/50"
-            )}
-          >
-            <ArrowUp className="size-3.5" weight="bold" />
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DetailsSidebarToggle({
-  sidebarOpen,
-  onDesktopToggle,
-  onMobileOpen,
-}: {
-  sidebarOpen: boolean
-  onDesktopToggle: () => void
-  onMobileOpen: () => void
-}) {
-  return (
-    <>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 gap-1.5 text-xs xl:hidden"
-        onClick={onMobileOpen}
-      >
-        <UsersThree className="size-3.5" />
-        Details
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
-        onClick={onDesktopToggle}
-      >
-        <UsersThree className="size-3.5" />
-        {sidebarOpen ? "Hide details" : "Show details"}
-      </Button>
-    </>
-  )
-}
-
-function ChatHeaderActions({
-  videoAction,
-  detailsAction,
-}: {
-  videoAction?: ReactNode
-  detailsAction?: ReactNode
-}) {
-  return (
-    <>
-      {videoAction ?? null}
-      {detailsAction ?? null}
-    </>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Chat thread                                                        */
-/* ------------------------------------------------------------------ */
-
-function ChatThread({
-  conversationId,
-  title,
-  description,
-  members,
-  showHeader = true,
-  videoAction,
-  detailsAction,
-  welcomeParticipant,
-}: {
-  conversationId: string
-  title: string
-  description: string
-  members: ReturnType<typeof getConversationParticipants>
-  showHeader?: boolean
-  videoAction?: ReactNode
-  detailsAction?: ReactNode
-  welcomeParticipant?: NonNullable<ReturnType<typeof getUser>> | null
-}) {
-  const data = useAppStore()
-  const messages = getChatMessages(data, conversationId)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const hasHeaderActions = videoAction != null || detailsAction != null
-  const showWelcomeIntro =
-    welcomeParticipant && messages.length > 0 && messages.length < 5
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [messages.length])
-
-  return (
-    <div className="flex h-full flex-col">
-      {showHeader ? (
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-medium">{title}</span>
-            {description ? (
-              <span className="hidden truncate text-xs text-muted-foreground 2xl:inline">
-                {description}
-              </span>
-            ) : null}
-            <span className="hidden text-xs text-muted-foreground xl:inline">
-              {members.length} members
-            </span>
-          </div>
-          {hasHeaderActions ? (
-            <div className="flex items-center gap-1.5">
-              <ChatHeaderActions
-                videoAction={videoAction}
-                detailsAction={detailsAction}
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
-      >
-        {messages.length === 0 ? (
-          <div className="mt-auto px-4 py-3">
-            <EmptyState
-              title="No messages yet"
-              description="Start the conversation below."
-              icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
-              className="flex-none px-0 py-6"
-            />
-          </div>
-        ) : (
-          <>
-            {showWelcomeIntro ? (
-              <div className="px-4 pt-6">
-                <div className="mx-auto flex max-w-sm flex-col items-center text-center">
-                  <UserAvatar
-                    name={welcomeParticipant.name}
-                    avatarImageUrl={welcomeParticipant.avatarImageUrl}
-                    avatarUrl={welcomeParticipant.avatarUrl}
-                    status={welcomeParticipant.status}
-                    size="lg"
-                    className="size-12"
-                  />
-                  <UserHoverCard
-                    user={welcomeParticipant}
-                    userId={welcomeParticipant.id}
-                    currentUserId={data.currentUserId}
-                    workspaceId={data.currentWorkspaceId}
-                  >
-                    <p className="mt-3 text-sm font-medium">
-                      {welcomeParticipant.name ?? title}
-                    </p>
-                  </UserHoverCard>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    This is the beginning of your conversation with{" "}
-                    {welcomeParticipant.name ?? title}.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-            <div className="mt-auto" />
-            <div className="flex flex-col gap-0.5 px-4 py-3">
-              {messages.map((message, idx) => {
-                const author = getUser(data, message.createdBy)
-                const prevMessage = messages[idx - 1]
-                const nextMessage = messages[idx + 1]
-                const isCurrentUser = message.createdBy === data.currentUserId
-                const legacyCallInvite =
-                  message.callId || message.kind === "call"
-                    ? null
-                    : parseCallInviteMessage(message.content)
-                const callJoinHref = message.callId
-                  ? buildCallJoinHref(message.callId)
-                  : (legacyCallInvite?.href ?? null)
-                const isCallMessage =
-                  message.kind === "call" ||
-                  Boolean(message.callId) ||
-                  Boolean(legacyCallInvite)
-                const prevIsCall = Boolean(
-                  prevMessage &&
-                  (prevMessage.kind === "call" ||
-                    prevMessage.callId ||
-                    parseCallInviteMessage(prevMessage.content))
-                )
-                const nextIsCall = Boolean(
-                  nextMessage &&
-                  (nextMessage.kind === "call" ||
-                    nextMessage.callId ||
-                    parseCallInviteMessage(nextMessage.content))
-                )
-                const groupedWithPrev =
-                  !isCallMessage &&
-                  !prevIsCall &&
-                  prevMessage?.createdBy === message.createdBy &&
-                  new Date(message.createdAt).getTime() -
-                    new Date(prevMessage.createdAt).getTime() <
-                    5 * 60_000
-                const groupedWithNext =
-                  !isCallMessage &&
-                  !nextIsCall &&
-                  nextMessage?.createdBy === message.createdBy &&
-                  new Date(nextMessage.createdAt).getTime() -
-                    new Date(message.createdAt).getTime() <
-                    5 * 60_000
-
-                return (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      "flex px-4 py-0.5",
-                      isCurrentUser ? "justify-end" : "justify-start",
-                      idx > 0 && !groupedWithPrev && "mt-3"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex max-w-[min(78%,42rem)] items-end gap-2",
-                        isCurrentUser && "flex-row-reverse"
-                      )}
-                    >
-                      {!isCurrentUser ? (
-                        groupedWithPrev ? (
-                          <div className="size-8 shrink-0" />
-                        ) : (
-                          <UserAvatar
-                            name={author?.name}
-                            avatarImageUrl={author?.avatarImageUrl}
-                            avatarUrl={author?.avatarUrl}
-                            status={author?.status}
-                            size="default"
-                          />
-                        )
-                      ) : null}
-                      <div
-                        className={cn(
-                          "flex min-w-0 flex-col",
-                          isCurrentUser ? "items-end" : "items-start"
-                        )}
-                      >
-                        {!groupedWithPrev ? (
-                          <div
-                            className={cn(
-                              "mb-1 flex items-center gap-2 px-1",
-                              isCurrentUser ? "justify-end" : "justify-start"
-                            )}
-                          >
-                            {!isCurrentUser ? (
-                              <UserHoverCard
-                                user={author}
-                                userId={author?.id}
-                                currentUserId={data.currentUserId}
-                                workspaceId={data.currentWorkspaceId}
-                              >
-                                <span className="text-[11px] font-medium">
-                                  {author?.name ?? "Unknown"}
-                                </span>
-                              </UserHoverCard>
-                            ) : null}
-                            <span className="text-[10px] text-muted-foreground">
-                              {formatTimestamp(message.createdAt)}
-                            </span>
-                          </div>
-                        ) : null}
-                        <div
-                          className={cn(
-                            "rounded-2xl px-3 py-2.5 text-sm leading-normal whitespace-pre-wrap shadow-sm",
-                            isCurrentUser
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground",
-                            isCurrentUser
-                              ? groupedWithPrev && "rounded-tr-md"
-                              : groupedWithPrev && "rounded-tl-md",
-                            isCurrentUser
-                              ? groupedWithNext && "rounded-br-md"
-                              : groupedWithNext && "rounded-bl-md"
-                          )}
-                        >
-                          {callJoinHref ? (
-                            <div className="space-y-2 whitespace-normal">
-                              <p className="text-sm leading-5">
-                                Started a call
-                              </p>
-                              <Button
-                                asChild
-                                size="sm"
-                                variant={
-                                  isCurrentUser ? "secondary" : "outline"
-                                }
-                                className="h-7 text-xs"
-                              >
-                                <a
-                                  href={callJoinHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <ArrowSquareOut className="size-3.5" />
-                                  Join call
-                                </a>
-                              </Button>
-                            </div>
-                          ) : (
-                            message.content
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Composer */}
-      <ChatComposer
-        placeholder={`Message ${title}…`}
-        onSend={(content) => {
-          useAppStore.getState().sendChatMessage({ conversationId, content })
-        }}
-      />
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Channel post + comments                                            */
-/* ------------------------------------------------------------------ */
-
-/* ------------------------------------------------------------------ */
-/*  Forum post card (channel)                                          */
-/* ------------------------------------------------------------------ */
-
-function ForumPostCard({ postId }: { postId: string }) {
-  const data = useAppStore()
-  const post = data.channelPosts.find((entry) => entry.id === postId) ?? null
-  const [reply, setReply] = useState("")
-  const [showReplies, setShowReplies] = useState(false)
-  const [replyOpen, setReplyOpen] = useState(false)
-  const [deletePostOpen, setDeletePostOpen] = useState(false)
-
-  if (!post) return null
-
-  const author = getUser(data, post.createdBy)
-  const conversation =
-    data.conversations.find((entry) => entry.id === post.conversationId) ?? null
-  const comments = getChannelPostComments(data, post.id)
-  const reactions = post.reactions ?? []
-  const mentionCandidates =
-    conversation && conversation.kind === "channel"
-      ? getConversationParticipants(data, conversation)
-      : []
-  const replyText = getPlainTextContent(reply)
-  const canDeletePost = post.createdBy === data.currentUserId
-
-  const handleReply = () => {
-    if (!replyText) return
-    useAppStore.getState().addChannelPostComment({
-      postId: post.id,
-      content: reply,
-    })
-    setReply("")
-    setReplyOpen(false)
-  }
-
-  const handleDeletePost = () => {
-    useAppStore.getState().deleteChannelPost(post.id)
-    setDeletePostOpen(false)
-  }
-
-  const previewComments = comments.slice(-3)
-  const hiddenCount = comments.length - previewComments.length
-
-  return (
-    <div
-      id={post.id}
-      className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md"
-    >
-      <div className="px-4 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <UserAvatar
-              name={author?.name}
-              avatarImageUrl={author?.avatarImageUrl}
-              avatarUrl={author?.avatarUrl}
-              status={author?.status}
-              size="default"
-            />
-            <UserHoverCard
-              user={author}
-              userId={author?.id}
-              currentUserId={data.currentUserId}
-              workspaceId={data.currentWorkspaceId}
-            >
-              <span className="truncate text-sm font-semibold">
-                {author?.name ?? "Unknown"}
-              </span>
-            </UserHoverCard>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTimestamp(post.createdAt)}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5 rounded-md border bg-background p-0.5 opacity-0 shadow-sm transition-opacity group-hover/post:opacity-100">
-            <button
-              type="button"
-              onClick={() => {
-                setShowReplies(true)
-                setReplyOpen(true)
-              }}
-              className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <ChatCircle className="size-4" />
-            </button>
-            {canDeletePost ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  >
-                    <DotsThree className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => setDeletePostOpen(true)}
-                  >
-                    <Trash className="size-4" />
-                    Delete post
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-        </div>
-
-        {post.title ? (
-          <h3 className="mt-3 text-base leading-snug font-bold">
-            {post.title}
-          </h3>
-        ) : null}
-
-        <RichTextContent
-          content={post.content}
-          className={cn(
-            "text-sm leading-relaxed text-foreground/90 [&_p]:leading-relaxed",
-            post.title ? "mt-2" : "mt-3"
-          )}
-        />
-
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {reactions.map((reaction) => {
-            const active = reaction.userIds.includes(data.currentUserId)
-
-            return (
-              <button
-                key={reaction.emoji}
-                type="button"
-                onClick={() =>
-                  useAppStore
-                    .getState()
-                    .toggleChannelPostReaction(post.id, reaction.emoji)
-                }
-                className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors",
-                  active
-                    ? "border-primary/40 bg-primary/10 text-foreground"
-                    : "bg-background hover:bg-accent"
-                )}
-              >
-                <span>{reaction.emoji}</span>
-                <span>{reaction.userIds.length}</span>
-              </button>
-            )
-          })}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-7 items-center gap-1.5 rounded-full border border-dashed bg-background px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <Smiley className="size-3.5" />
-                <span>React</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44 min-w-44">
-              {CHANNEL_REACTION_OPTIONS.map((option) => {
-                const active =
-                  reactions
-                    .find((entry) => entry.emoji === option.emoji)
-                    ?.userIds.includes(data.currentUserId) ?? false
-
-                return (
-                  <DropdownMenuItem
-                    key={option.emoji}
-                    onSelect={() => {
-                      useAppStore
-                        .getState()
-                        .toggleChannelPostReaction(post.id, option.emoji)
-                    }}
-                  >
-                    <span className="mr-2 text-base leading-none">
-                      {option.emoji}
-                    </span>
-                    <span className="flex-1">{option.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {active ? "Remove" : "Add"}
-                    </span>
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      <div className="border-t px-4 py-3">
-        {hiddenCount > 0 ? (
-          <button
-            type="button"
-            onClick={() => setShowReplies(!showReplies)}
-            className="mb-2.5 text-xs font-medium text-primary hover:underline"
-          >
-            {showReplies
-              ? "Show less"
-              : `Show ${hiddenCount} earlier ${hiddenCount === 1 ? "reply" : "replies"}`}
-          </button>
-        ) : null}
-
-        {showReplies && hiddenCount > 0 ? (
-          <div className="mb-2 flex flex-col gap-0.5">
-            {comments.slice(0, hiddenCount).map((comment) => {
-              const commentAuthor = getUser(data, comment.createdBy)
-
-              return (
-                <div
-                  key={comment.id}
-                  className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
-                >
-                  <UserAvatar
-                    name={commentAuthor?.name}
-                    avatarImageUrl={commentAuthor?.avatarImageUrl}
-                    avatarUrl={commentAuthor?.avatarUrl}
-                    status={commentAuthor?.status}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <UserHoverCard
-                        user={commentAuthor}
-                        userId={commentAuthor?.id}
-                        currentUserId={data.currentUserId}
-                        workspaceId={data.currentWorkspaceId}
-                      >
-                        <span className="text-xs font-medium">
-                          {commentAuthor?.name ?? "Unknown"}
-                        </span>
-                      </UserHoverCard>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatTimestamp(comment.createdAt)}
-                      </span>
-                    </div>
-                    <RichTextContent
-                      content={comment.content}
-                      className="mt-0.5 text-sm leading-relaxed"
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : null}
-
-        {previewComments.length > 0 ? (
-          <div className="flex flex-col gap-0.5">
-            {previewComments.map((comment) => {
-              const commentAuthor = getUser(data, comment.createdBy)
-
-              return (
-                <div
-                  key={comment.id}
-                  className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
-                >
-                  <UserAvatar
-                    name={commentAuthor?.name}
-                    avatarImageUrl={commentAuthor?.avatarImageUrl}
-                    avatarUrl={commentAuthor?.avatarUrl}
-                    status={commentAuthor?.status}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <UserHoverCard
-                        user={commentAuthor}
-                        userId={commentAuthor?.id}
-                        currentUserId={data.currentUserId}
-                        workspaceId={data.currentWorkspaceId}
-                      >
-                        <span className="text-xs font-medium">
-                          {commentAuthor?.name ?? "Unknown"}
-                        </span>
-                      </UserHoverCard>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatTimestamp(comment.createdAt)}
-                      </span>
-                    </div>
-                    <RichTextContent
-                      content={comment.content}
-                      className="mt-0.5 text-sm leading-relaxed"
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : null}
-
-        {replyOpen ? (
-          <div className={cn(previewComments.length > 0 && "mt-3")}>
-            <div className="rounded-md border bg-background px-3 py-2">
-              <RichTextEditor
-                content={reply}
-                onChange={setReply}
-                compact
-                autoFocus
-                showToolbar={false}
-                placeholder="Reply with @mentions or /commands…"
-                mentionCandidates={mentionCandidates}
-                onSubmitShortcut={handleReply}
-                className="[&_.ProseMirror]:min-h-[2.5rem]"
-              />
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
-                Use `@` to mention people. Press Cmd/Ctrl + Enter to send.
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    setReply("")
-                    setReplyOpen(false)
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs"
-                  onClick={handleReply}
-                  disabled={!replyText}
-                >
-                  <ArrowUp className="size-3.5" weight="bold" />
-                  Reply
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setShowReplies(true)
-              setReplyOpen(true)
-            }}
-            className={cn(
-              "mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-              previewComments.length === 0 && "mt-0"
-            )}
-          >
-            <ChatCircle className="size-3.5" />
-            Add comment
-          </button>
-        )}
-      </div>
-      <ConfirmDialog
-        open={deletePostOpen}
-        onOpenChange={setDeletePostOpen}
-        title="Delete post"
-        description="This post and all its comments will be permanently removed. This can't be undone."
-        confirmLabel="Delete"
-        variant="destructive"
-        onConfirm={handleDeletePost}
-      />
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  New chat dialog — search-based user picker                         */
-/* ------------------------------------------------------------------ */
-
-function CreateWorkspaceChatDialog({
-  open,
-  onOpenChange,
-  onCreated,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onCreated: (conversationId: string) => void
-}) {
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
-  const allUsers = workspace
-    ? getWorkspaceUsers(data, workspace.id).filter(
-        (user) => user.id !== data.currentUserId
-      )
-    : []
-
-  const [participantIds, setParticipantIds] = useState<string[]>([])
-  const [search, setSearch] = useState("")
-  const [groupName, setGroupName] = useState("")
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const isGroup = participantIds.length > 1
-  const query = search.toLowerCase().trim()
-  const filteredUsers = !query
-    ? allUsers
-    : allUsers.filter(
-        (user) =>
-          user.name.toLowerCase().includes(query) ||
-          user.handle.toLowerCase().includes(query) ||
-          user.email.toLowerCase().includes(query)
-      )
-
-  // Users not yet selected
-  const availableUsers = filteredUsers.filter(
-    (user) => !participantIds.includes(user.id)
-  )
-
-  // Selected user objects
-  const selectedUsers = participantIds
-    .map((id) => allUsers.find((u) => u.id === id))
-    .filter(Boolean) as typeof allUsers
-
-  function addUser(userId: string) {
-    setParticipantIds((ids) => [...ids, userId])
-    setSearch("")
-    inputRef.current?.focus()
-  }
-
-  function removeUser(userId: string) {
-    setParticipantIds((ids) => ids.filter((id) => id !== userId))
-    inputRef.current?.focus()
-  }
-
-  function handleCreate() {
-    if (!workspace || participantIds.length === 0) return
-    const conversationId = useAppStore.getState().createWorkspaceChat({
-      workspaceId: workspace.id,
-      participantIds,
-      title: groupName,
-      description: "",
-    })
-    if (conversationId) {
-      onCreated(conversationId)
-      onOpenChange(false)
-      // Reset
-      setParticipantIds([])
-      setSearch("")
-      setGroupName("")
-    }
-  }
-
-  if (!workspace) return null
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) {
-          setParticipantIds([])
-          setSearch("")
-          setGroupName("")
-        }
-        onOpenChange(v)
-      }}
-    >
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
-        <DialogHeader className="sr-only">
-          <DialogTitle>Create workspace chat</DialogTitle>
-          <DialogDescription>
-            Select people to start a direct message or create a group chat.
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* To field */}
-        <div className="flex items-center gap-2 border-b px-4 py-3">
-          <span className="shrink-0 text-sm text-muted-foreground">To:</span>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-            {selectedUsers.map((user) => (
-              <span
-                key={user.id}
-                className="flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs"
-              >
-                <UserAvatar
-                  name={user.name}
-                  avatarImageUrl={user.avatarImageUrl}
-                  avatarUrl={user.avatarUrl}
-                  showStatus={false}
-                />
-                <span className="font-medium">{user.name}</span>
-                <button
-                  type="button"
-                  onClick={() => removeUser(user.id)}
-                  className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
-            ))}
-            <input
-              ref={inputRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                // Backspace to remove last user when input is empty
-                if (
-                  e.key === "Backspace" &&
-                  !search &&
-                  participantIds.length > 0
-                ) {
-                  removeUser(participantIds[participantIds.length - 1])
-                }
-                // Enter to select first result
-                if (e.key === "Enter" && availableUsers.length > 0) {
-                  e.preventDefault()
-                  addUser(availableUsers[0].id)
-                }
-              }}
-              placeholder={
-                participantIds.length === 0 ? "Search people…" : "Add another…"
-              }
-              className="min-w-[6rem] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-            />
-          </div>
-        </div>
-
-        {/* Group name — only shown when 2+ people selected */}
-        {isGroup ? (
-          <div className="flex items-center gap-2 border-b px-4 py-2.5">
-            <span className="shrink-0 text-sm text-muted-foreground">
-              Name:
-            </span>
-            <input
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              placeholder="Group name (optional)"
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-            />
-          </div>
-        ) : null}
-
-        {/* User results list */}
-        <ScrollArea className="max-h-64">
-          <div className="flex flex-col py-1">
-            {availableUsers.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                {search
-                  ? "No people found"
-                  : participantIds.length === allUsers.length
-                    ? "Everyone has been added"
-                    : "Type to search people"}
-              </div>
-            ) : (
-              availableUsers.map((user) => (
-                <button
-                  key={user.id}
-                  type="button"
-                  onClick={() => addUser(user.id)}
-                  className="flex items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-accent/50"
-                >
-                  <UserAvatar
-                    name={user.name}
-                    avatarImageUrl={user.avatarImageUrl}
-                    avatarUrl={user.avatarUrl}
-                    status={user.status}
-                    size="default"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {user.name}
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {user.title || user.handle}
-                    </div>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </ScrollArea>
-
-        {/* Footer */}
-        {participantIds.length > 0 ? (
-          <div className="flex items-center justify-between border-t px-4 py-3">
-            <span className="text-xs text-muted-foreground">
-              {participantIds.length === 1
-                ? "Direct message"
-                : `Group · ${participantIds.length} people`}
-            </span>
-            <Button size="sm" className="h-7 text-xs" onClick={handleCreate}>
-              {isGroup ? "Create group" : "Start chat"}
-            </Button>
-          </div>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  New-post composer (forum-style, title + body)                       */
-/* ------------------------------------------------------------------ */
-
-function NewPostComposer({ channelId }: { channelId: string }) {
-  const data = useAppStore()
-  const currentUser = getUser(data, data.currentUserId)
-  const conversation =
-    data.conversations.find((entry) => entry.id === channelId) ?? null
-  const mentionCandidates =
-    conversation && conversation.kind === "channel"
-      ? getConversationParticipants(data, conversation)
-      : []
-  const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState("")
-  const [content, setContent] = useState("")
-  const contentText = getPlainTextContent(content)
-
-  const handlePost = () => {
-    if (!contentText) return
-    useAppStore.getState().createChannelPost({
-      conversationId: channelId,
-      title: title.trim(),
-      content,
-    })
-    setTitle("")
-    setContent("")
-    setOpen(false)
-  }
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-accent/30"
-      >
-        <UserAvatar
-          name={currentUser?.name}
-          avatarImageUrl={currentUser?.avatarImageUrl}
-          avatarUrl={currentUser?.avatarUrl}
-          status={currentUser?.status}
-          size="default"
-        />
-        <span className="text-sm text-muted-foreground">Post in channel</span>
-      </button>
-    )
-  }
-
-  return (
-    <div className="rounded-lg border border-border/70 bg-card shadow-sm">
-      <div className="flex items-start gap-3 px-4 pt-4">
-        <UserAvatar
-          name={currentUser?.name}
-          avatarImageUrl={currentUser?.avatarImageUrl}
-          avatarUrl={currentUser?.avatarUrl}
-          status={currentUser?.status}
-          size="default"
-        />
-        <div className="min-w-0 flex-1 space-y-2">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Title (optional)"
-            className="w-full bg-transparent text-sm font-semibold outline-none placeholder:text-muted-foreground/50"
-          />
-          <div className="rounded-md border bg-background px-3 py-2">
-            <RichTextEditor
-              content={content}
-              onChange={setContent}
-              compact
-              autoFocus
-              showToolbar={false}
-              placeholder="Write your post with @mentions or /commands…"
-              mentionCandidates={mentionCandidates}
-              onSubmitShortcut={handlePost}
-              className="[&_.ProseMirror]:min-h-[5rem]"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Use `@` to mention people. Press Cmd/Ctrl + Enter to publish.
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center justify-end gap-2 border-t px-4 py-2.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => {
-            setTitle("")
-            setContent("")
-            setOpen(false)
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          className="h-7 text-xs"
-          onClick={handlePost}
-          disabled={!contentText}
-        >
-          Post
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Screen: Workspace chats                                            */
-/* ------------------------------------------------------------------ */
-
-export function WorkspaceChatsScreen() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
-  const chats = workspace ? getWorkspaceChats(data, workspace.id) : []
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [conversationListWidth, setConversationListWidth] = useState(
-    WORKSPACE_CHAT_LIST_DEFAULT_WIDTH
-  )
-  const [conversationListResizing, setConversationListResizing] =
-    useState(false)
-  const [conversationListWidthReady, setConversationListWidthReady] =
-    useState(false)
-  const conversationListDragRef = useRef<{
-    startX: number
-    startWidth: number
-  } | null>(null)
-
-  useEffect(() => {
-    const storedWidth = window.localStorage.getItem(
-      WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY
-    )
-
-    if (!storedWidth) {
-      setConversationListWidthReady(true)
-      return
-    }
-
-    const parsedWidth = Number(storedWidth)
-
-    if (!Number.isFinite(parsedWidth)) {
-      setConversationListWidthReady(true)
-      return
-    }
-
-    setConversationListWidth(clampWorkspaceChatListWidth(parsedWidth))
-    setConversationListWidthReady(true)
-  }, [])
-
-  useEffect(() => {
-    if (!conversationListWidthReady) {
-      return
-    }
-
-    window.localStorage.setItem(
-      WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY,
-      String(conversationListWidth)
-    )
-  }, [conversationListWidth, conversationListWidthReady])
-
-  const stopConversationListResize = useEffectEvent(() => {
-    conversationListDragRef.current = null
-    setConversationListResizing(false)
-    document.body.style.removeProperty("cursor")
-    document.body.style.removeProperty("user-select")
-  })
-
-  const handleConversationListResizeMove = useEffectEvent(
-    (event: PointerEvent) => {
-      const dragState = conversationListDragRef.current
-
-      if (!dragState) {
-        return
-      }
-
-      setConversationListWidth(
-        clampWorkspaceChatListWidth(
-          dragState.startWidth + event.clientX - dragState.startX
-        )
-      )
-    }
-  )
-
-  useEffect(() => {
-    if (!conversationListResizing) {
-      return
-    }
-
-    window.addEventListener("pointermove", handleConversationListResizeMove)
-    window.addEventListener("pointerup", stopConversationListResize)
-    window.addEventListener("pointercancel", stopConversationListResize)
-
-    return () => {
-      window.removeEventListener(
-        "pointermove",
-        handleConversationListResizeMove
-      )
-      window.removeEventListener("pointerup", stopConversationListResize)
-      window.removeEventListener("pointercancel", stopConversationListResize)
-      document.body.style.removeProperty("cursor")
-      document.body.style.removeProperty("user-select")
-    }
-  }, [conversationListResizing])
-
-  function handleConversationListResizeStart(
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) {
-    if (event.button !== 0) {
-      return
-    }
-
-    event.preventDefault()
-    conversationListDragRef.current = {
-      startX: event.clientX,
-      startWidth: conversationListWidth,
-    }
-    setConversationListResizing(true)
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-  }
-
-  if (!workspace) {
-    return (
-      <EmptyState
-        title="Workspace not found"
-        description="Select a workspace first."
-        icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
-      />
-    )
-  }
-
-  const selectedChatId = searchParams.get("chatId")
-  const activeChatId =
-    selectedChatId && chats.some((c) => c.id === selectedChatId)
-      ? selectedChatId
-      : (chats[0]?.id ?? null)
-  const activeChat =
-    chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null
-  const members = getConversationParticipants(data, activeChat)
-  const otherParticipantIds = activeChat
-    ? activeChat.participantIds.filter(
-        (userId) => userId !== data.currentUserId
-      )
-    : []
-  const welcomeParticipant =
-    otherParticipantIds.length === 1
-      ? getUser(data, otherParticipantIds[0])
-      : null
-
-  function renderConversationAvatar(conversationId: string) {
-    const conversation = chats.find((entry) => entry.id === conversationId)
-
-    if (!conversation) {
-      return <UserAvatar name="Chat" size="default" showStatus={false} />
-    }
-
-    const participants = conversation.participantIds
-      .filter((userId) => userId !== data.currentUserId)
-      .map((userId) => getUser(data, userId))
-      .filter(
-        (participant): participant is NonNullable<ReturnType<typeof getUser>> =>
-          Boolean(participant)
-      )
-
-    if (participants.length <= 1) {
-      const participant = participants[0]
-
-      return (
-        <UserAvatar
-          name={participant?.name ?? conversation.title}
-          avatarImageUrl={participant?.avatarImageUrl}
-          avatarUrl={participant?.avatarUrl}
-          status={participant?.status}
-          showStatus={Boolean(participant)}
-          size="default"
-        />
-      )
-    }
-
-    const visibleParticipants = participants.slice(0, 2)
-    const overflowCount = participants.length - visibleParticipants.length
-
-    return (
-      <AvatarGroup>
-        {visibleParticipants.map((participant) => (
-          <UserAvatar
-            key={participant.id}
-            name={participant.name}
-            avatarImageUrl={participant.avatarImageUrl}
-            avatarUrl={participant.avatarUrl}
-            status={participant.status}
-            size="default"
-          />
-        ))}
-        {overflowCount > 0 ? (
-          <AvatarGroupCount className="text-[10px] font-medium">
-            +{overflowCount}
-          </AvatarGroupCount>
-        ) : null}
-      </AvatarGroup>
-    )
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <PageHeader
-        title="Chats"
-        subtitle="Direct and group conversations"
-        actions={
-          activeChat ? (
-            <ChatHeaderActions
-              videoAction={
-                <CallInviteLauncher conversationId={activeChat.id} />
-              }
-              detailsAction={
-                <DetailsSidebarToggle
-                  sidebarOpen={sidebarOpen}
-                  onDesktopToggle={() => setSidebarOpen((current) => !current)}
-                  onMobileOpen={() => setMobileSidebarOpen(true)}
-                />
-              }
-            />
-          ) : null
-        }
-      />
-      <CreateWorkspaceChatDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onCreated={(id) =>
-          router.replace(`/chats?chatId=${id}`, { scroll: false })
-        }
-      />
-      {chats.length === 0 ? (
-        <EmptyState
-          title="No chats yet"
-          description="Create a direct or group chat with people in the workspace."
-          icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
-          action={
-            <Button
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Plus className="size-3.5" />
-              Create chat
-            </Button>
-          }
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div
-            className="relative flex shrink-0 flex-col border-r"
-            style={{
-              width: `${conversationListWidth}px`,
-              flexBasis: `${conversationListWidth}px`,
-            }}
-          >
-            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
-              <span className="truncate text-sm font-medium">
-                Conversations
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1.5 text-xs"
-                onClick={() => setDialogOpen(true)}
-              >
-                <Plus className="size-3.5" />
-                New chat
-              </Button>
-            </div>
-            <ConversationList
-              className="h-auto min-h-0 flex-1 border-r-0"
-              conversations={chats}
-              selectedId={activeChat?.id ?? null}
-              onSelect={(id) =>
-                router.replace(`/chats?chatId=${id}`, { scroll: false })
-              }
-              renderLeading={renderConversationAvatar}
-              renderPreview={(id) => {
-                const latest = getChatMessages(data, id).at(-1)
-
-                if (!latest) {
-                  return "Open the conversation"
-                }
-
-                if (latest.kind === "call" || latest.callId) {
-                  return "Started a call"
-                }
-
-                const callInvite = parseCallInviteMessage(latest.content)
-                return callInvite?.title ?? latest.content
-              }}
-            />
-            <button
-              type="button"
-              aria-label="Resize chat list"
-              className={cn(
-                "group absolute top-0 -right-1.5 z-10 hidden h-full w-3 cursor-col-resize touch-none md:block",
-                conversationListResizing && "bg-accent/20"
-              )}
-              onPointerDown={handleConversationListResizeStart}
-              onDoubleClick={() =>
-                setConversationListWidth(WORKSPACE_CHAT_LIST_DEFAULT_WIDTH)
-              }
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "pointer-events-none absolute inset-y-3 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors",
-                  conversationListResizing
-                    ? "bg-foreground/25"
-                    : "group-hover:bg-foreground/20"
-                )}
-              />
-            </button>
-          </div>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {activeChat ? (
-              <ChatThread
-                conversationId={activeChat.id}
-                title={activeChat.title}
-                description=""
-                members={members}
-                welcomeParticipant={welcomeParticipant}
-              />
-            ) : null}
-          </div>
-          <MembersSidebar
-            open={sidebarOpen}
-            title={activeChat?.title ?? "Chat"}
-            description={activeChat?.description || "Workspace conversation"}
-            members={members}
-          />
-        </div>
-      )}
-
-      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetContent side="right" className="w-full max-w-sm p-0">
-          <SheetHeader className="border-b">
-            <SheetTitle>{activeChat?.title ?? "Chat"}</SheetTitle>
-            <SheetDescription>Conversation details</SheetDescription>
-          </SheetHeader>
-          <ScrollArea className="flex-1">
-            <SurfaceSidebarContent
-              title={activeChat?.title ?? "Chat"}
-              description={activeChat?.description || "Workspace conversation"}
-              members={members}
-            />
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
-    </div>
-  )
-}
-
 /* ------------------------------------------------------------------ */
 /*  Screen: Workspace channel                                          */
 /* ------------------------------------------------------------------ */
 
 export function WorkspaceChannelsScreen() {
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
+  const workspace = useAppStore((state) => getCurrentWorkspace(state))
+  const channels = useAppStore(
+    useShallow((state) =>
+      workspace ? getWorkspaceChannels(state, workspace.id) : []
+    )
+  )
+  const activeChannel = useAppStore((state) =>
+    workspace ? getPrimaryWorkspaceChannel(state, workspace.id) : null
+  )
+  const posts = useAppStore(
+    useShallow((state) =>
+      channels
+        .flatMap((channel) => getChannelPosts(state, channel.id))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    )
+  )
+  const members = useAppStore(
+    useShallow((state) =>
+      activeChannel ? getConversationParticipants(state, activeChannel) : []
+    )
+  )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-
-  const channels = workspace ? getWorkspaceChannels(data, workspace.id) : []
-  const activeChannel = workspace
-    ? getPrimaryWorkspaceChannel(data, workspace.id)
-    : null
-  const members = activeChannel
-    ? getConversationParticipants(data, activeChannel)
-    : []
-  const posts = channels
-    .flatMap((channel) => getChannelPosts(data, channel.id))
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   const workspaceDescription =
     workspace?.settings.description ||
     "Forum-style updates, questions, and threaded decisions for the entire workspace."
@@ -1961,25 +121,32 @@ export function WorkspaceChannelsScreen() {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
-              <NewPostComposer channelId={activeChannel.id} />
-
-              {posts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                    <Hash className="size-5 text-muted-foreground" />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 border-b bg-background/95 backdrop-blur">
+              <div className="mx-auto max-w-3xl px-5 py-4">
+                <NewPostComposer channelId={activeChannel.id} />
+              </div>
+            </div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="mx-auto max-w-3xl px-5 py-5">
+                {posts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                      <Hash className="size-5 text-muted-foreground" />
+                    </div>
+                    <p className="mt-3 text-sm font-medium">No posts yet</p>
+                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                      Start a workspace discussion by creating the first post.
+                    </p>
                   </div>
-                  <p className="mt-3 text-sm font-medium">No posts yet</p>
-                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                    Start a workspace discussion by creating the first post.
-                  </p>
-                </div>
-              ) : (
-                posts.map((post) => (
-                  <ForumPostCard key={post.id} postId={post.id} />
-                ))
-              )}
+                ) : (
+                  <div className="space-y-4">
+                    {posts.map((post) => (
+                      <ForumPostCard key={post.id} postId={post.id} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <TeamSurfaceSidebar
@@ -2017,13 +184,20 @@ export function WorkspaceChannelsScreen() {
 /* ------------------------------------------------------------------ */
 
 export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
-  const data = useAppStore()
-  const team = getTeamBySlug(data, teamSlug)
+  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const editable = useAppStore((state) =>
+    team ? canEditTeam(state, team.id) : false
+  )
+  const conversation = useAppStore((state) =>
+    team ? getTeamChatConversation(state, team.id) : null
+  )
+  const members = useAppStore(
+    useShallow((state) =>
+      team ? getConversationParticipants(state, conversation) : []
+    )
+  )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const editable = team ? canEditTeam(data, team.id) : false
-  const conversation = team ? getTeamChatConversation(data, team.id) : null
-  const members = team ? getConversationParticipants(data, conversation) : []
   const teamDescription =
     team?.settings.summary ||
     `One live conversation for everyone working in ${team?.name ?? "this team"}.`
@@ -2067,11 +241,6 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         subtitle="Chat"
         actions={
           <ChatHeaderActions
-            videoAction={
-              conversation && editable ? (
-                <CallInviteLauncher conversationId={conversation.id} />
-              ) : null
-            }
             detailsAction={
               <DetailsSidebarToggle
                 sidebarOpen={sidebarOpen}
@@ -2094,13 +263,18 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <ChatThread
               conversationId={conversation.id}
               title="Team chat"
               description=""
               members={members}
               showHeader={false}
+              videoAction={
+                editable ? (
+                  <CallInviteLauncher conversationId={conversation.id} />
+                ) : null
+              }
             />
           </div>
           <TeamSurfaceSidebar
@@ -2138,20 +312,30 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
 /* ------------------------------------------------------------------ */
 
 export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
-  const data = useAppStore()
-  const team = getTeamBySlug(data, teamSlug)
+  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const channels = useAppStore(
+    useShallow((state) => (team ? getTeamChannels(state, team.id) : []))
+  )
+  const editable = useAppStore((state) =>
+    team ? canEditTeam(state, team.id) : false
+  )
+  const activeChannel = useAppStore((state) =>
+    team ? getPrimaryTeamChannel(state, team.id) : null
+  )
+  const members = useAppStore(
+    useShallow((state) =>
+      activeChannel ? getConversationParticipants(state, activeChannel) : []
+    )
+  )
+  const posts = useAppStore(
+    useShallow((state) =>
+      channels
+        .flatMap((channel) => getChannelPosts(state, channel.id))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    )
+  )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-
-  const channels = team ? getTeamChannels(data, team.id) : []
-  const editable = team ? canEditTeam(data, team.id) : false
-  const activeChannel = team ? getPrimaryTeamChannel(data, team.id) : null
-  const members = activeChannel
-    ? getConversationParticipants(data, activeChannel)
-    : []
-  const posts = channels
-    .flatMap((channel) => getChannelPosts(data, channel.id))
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   const teamDescription =
     team?.settings.summary ||
     `Forum-style updates, questions, and threaded decisions for ${team?.name ?? "this team"}.`
@@ -2214,29 +398,34 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-4 px-5 py-5">
-              {/* Composer at top */}
-              {editable ? (
-                <NewPostComposer channelId={activeChannel.id} />
-              ) : null}
-
-              {/* Posts feed */}
-              {posts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-                    <Hash className="size-5 text-muted-foreground" />
-                  </div>
-                  <p className="mt-3 text-sm font-medium">No posts yet</p>
-                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                    Start a discussion by creating the first post.
-                  </p>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {editable ? (
+              <div className="shrink-0 border-b bg-background/95 backdrop-blur">
+                <div className="mx-auto max-w-3xl px-5 py-4">
+                  <NewPostComposer channelId={activeChannel.id} />
                 </div>
-              ) : (
-                posts.map((post) => (
-                  <ForumPostCard key={post.id} postId={post.id} />
-                ))
-              )}
+              </div>
+            ) : null}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="mx-auto max-w-3xl px-5 py-5">
+                {posts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                      <Hash className="size-5 text-muted-foreground" />
+                    </div>
+                    <p className="mt-3 text-sm font-medium">No posts yet</p>
+                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                      Start a discussion by creating the first post.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {posts.map((post) => (
+                      <ForumPostCard key={post.id} postId={post.id} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <TeamSurfaceSidebar

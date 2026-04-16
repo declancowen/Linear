@@ -1,13 +1,17 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import {
   archiveNotificationServer,
-  ensureConvexUserReadyServer,
   unarchiveNotificationServer,
 } from "@/lib/server/convex"
-import { toAuthenticatedAppUser } from "@/lib/workos/auth"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const notificationsMutationSchema = z.discriminatedUnion("action", [
   z.object({
@@ -21,35 +25,33 @@ const notificationsMutationSchema = z.discriminatedUnion("action", [
 ])
 
 export async function PATCH(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = notificationsMutationSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    notificationsMutationSchema,
+    "Invalid notification request"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid notification request" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const authContext = await ensureConvexUserReadyServer(
-      toAuthenticatedAppUser(session.user, session.organizationId)
-    )
+    const authContext = await requireConvexUser(session)
 
-    if (!authContext?.currentUser) {
-      return NextResponse.json({ error: "User context not found" }, { status: 404 })
+    if (isRouteResponse(authContext)) {
+      return authContext
     }
 
     const currentUserId = authContext.currentUser.id
 
-    for (const notificationId of parsed.data.notificationIds) {
-      if (parsed.data.action === "archive") {
+    for (const notificationId of parsed.notificationIds) {
+      if (parsed.action === "archive") {
         await archiveNotificationServer({
           currentUserId,
           notificationId,
@@ -63,17 +65,12 @@ export async function PATCH(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ ok: true })
+    return jsonOk({ ok: true })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to update notifications",
-      },
-      { status: 500 }
+    logProviderError("Failed to update notifications", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update notifications"),
+      500
     )
   }
 }

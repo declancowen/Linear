@@ -1,52 +1,58 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { teamDetailsSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { deleteTeamServer, updateTeamDetailsServer } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ teamId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = teamDetailsSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    teamDetailsSchema,
+    "Invalid team details payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid team details payload" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
     const { teamId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await updateTeamDetailsServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       teamId,
-      ...parsed.data,
+      ...parsed,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       teamId,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to update team details",
-      },
-      { status: 500 }
+    logProviderError("Failed to update team details", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update team details"),
+      500
     )
   }
 }
@@ -55,38 +61,36 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ teamId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     const { teamId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     const result = await deleteTeamServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       teamId,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       teamId: result?.teamId ?? teamId,
       workspaceId: result?.workspaceId ?? null,
       deletedUserIds: result?.deletedUserIds ?? [],
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to delete team",
-      },
-      { status: 500 }
+    logProviderError("Failed to delete team", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete team"),
+      500
     )
   }
 }

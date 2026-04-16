@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
+import { submitLogoutForm } from "@/lib/browser/logout"
+import {
+  syncRequestAccountEmailChange,
+  syncRequestCurrentAccountPasswordReset,
+  syncUpdateCurrentUserProfile,
+} from "@/lib/convex/client"
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
@@ -60,8 +66,21 @@ const themePreferenceOptions: Array<{
 export function UserSettingsScreen() {
   const router = useRouter()
   const { setTheme } = useTheme()
-  const data = useAppStore()
-  const currentUser = getCurrentUser(data)
+  const currentUser = useAppStore(getCurrentUser)
+  const currentUserId = currentUser?.id ?? null
+  const currentUserName = currentUser?.name ?? ""
+  const currentUserTitle = currentUser?.title ?? ""
+  const currentUserAvatarUrl = currentUser?.avatarUrl ?? ""
+  const currentUserAvatarPreviewUrl =
+    resolveImageAssetSource(currentUser?.avatarImageUrl, currentUser?.avatarUrl) ??
+    null
+  const currentUserEmail = currentUser?.email ?? ""
+  const currentUserEmailMentions =
+    currentUser?.preferences.emailMentions ?? false
+  const currentUserEmailAssignments =
+    currentUser?.preferences.emailAssignments ?? false
+  const currentUserEmailDigest = currentUser?.preferences.emailDigest ?? false
+  const currentUserThemePreference = currentUser?.preferences.theme ?? "system"
   const avatarImageSrc = resolveImageAssetSource(
     currentUser?.avatarImageUrl,
     currentUser?.avatarUrl
@@ -105,27 +124,33 @@ export function UserSettingsScreen() {
   }, [avatarPreviewUrl])
 
   useEffect(() => {
-    if (!currentUser) {
+    if (!currentUserId) {
       return
     }
 
-    setName(currentUser.name)
-    setTitle(currentUser.title)
-    setAvatarUrl(currentUser.avatarUrl)
-    setAvatarPreviewUrl(
-      resolveImageAssetSource(
-        currentUser.avatarImageUrl,
-        currentUser.avatarUrl
-      ) ?? null
-    )
+    setName(currentUserName)
+    setTitle(currentUserTitle)
+    setAvatarUrl(currentUserAvatarUrl)
+    setAvatarPreviewUrl(currentUserAvatarPreviewUrl)
     setAvatarImageStorageId(undefined)
     setClearAvatarImage(false)
-    setEmail(currentUser.email)
-    setEmailMentions(currentUser.preferences.emailMentions)
-    setEmailAssignments(currentUser.preferences.emailAssignments)
-    setEmailDigest(currentUser.preferences.emailDigest)
-    setThemePreference(currentUser.preferences.theme)
-  }, [currentUser?.id])
+    setEmail(currentUserEmail)
+    setEmailMentions(currentUserEmailMentions)
+    setEmailAssignments(currentUserEmailAssignments)
+    setEmailDigest(currentUserEmailDigest)
+    setThemePreference(currentUserThemePreference)
+  }, [
+    currentUserAvatarPreviewUrl,
+    currentUserAvatarUrl,
+    currentUserEmail,
+    currentUserEmailAssignments,
+    currentUserEmailDigest,
+    currentUserEmailMentions,
+    currentUserId,
+    currentUserName,
+    currentUserThemePreference,
+    currentUserTitle,
+  ])
 
   async function handleAvatarUpload(file: File) {
     try {
@@ -155,24 +180,7 @@ export function UserSettingsScreen() {
 
     try {
       setChangingEmail(true)
-      const response = await fetch("/api/account/email", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-        }),
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-        notice?: string
-        logoutRequired?: boolean
-      } | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to update your email address")
-      }
+      const payload = await syncRequestAccountEmailChange(email)
 
       const notice =
         payload?.notice ??
@@ -180,14 +188,8 @@ export function UserSettingsScreen() {
 
       toast.success(notice)
 
-      if (payload?.logoutRequired && typeof document !== "undefined") {
-        const form = document.createElement("form")
-        form.method = "POST"
-        form.action = `/auth/logout?returnTo=${encodeURIComponent(
-          `/login?notice=${encodeURIComponent(notice)}`
-        )}`
-        document.body.appendChild(form)
-        form.submit()
+      if (payload?.logoutRequired) {
+        submitLogoutForm(`/login?notice=${encodeURIComponent(notice)}`)
       }
     } catch (error) {
       console.error(error)
@@ -202,16 +204,7 @@ export function UserSettingsScreen() {
   async function handlePasswordReset() {
     try {
       setSendingPasswordReset(true)
-      const response = await fetch("/api/account/password-reset", {
-        method: "POST",
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-      } | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to start password reset")
-      }
+      await syncRequestCurrentAccountPasswordReset()
 
       toast.success("Password reset email sent")
     } catch (error) {
@@ -233,32 +226,22 @@ export function UserSettingsScreen() {
 
     try {
       setSaving(true)
-      const response = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
+      await syncUpdateCurrentUserProfile(
+        currentUser.id,
+        name,
+        title,
+        avatarUrl,
+        {
+          emailMentions,
+          emailAssignments,
+          emailDigest,
+          theme: themePreference,
         },
-        body: JSON.stringify({
-          name,
-          title,
-          avatarUrl,
+        {
           ...(avatarImageStorageId ? { avatarImageStorageId } : {}),
           ...(clearAvatarImage ? { clearAvatarImage: true } : {}),
-          preferences: {
-            emailMentions,
-            emailAssignments,
-            emailDigest,
-            theme: themePreference,
-          },
-        }),
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-      } | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to update profile")
-      }
+        }
+      )
 
       toast.success("Profile updated")
       setTheme(themePreference)

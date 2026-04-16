@@ -1,47 +1,50 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { getSnapshotServer, updateTeamDetailsServer } from "@/lib/server/convex"
 import { withGeneratedJoinCode } from "@/lib/server/join-codes"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ teamId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     const { teamId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
     const snapshot = await getSnapshotServer({
       workosUserId: session.user.id,
       email: session.user.email,
     })
 
     if (!snapshot) {
-      return NextResponse.json(
-        { error: "Snapshot not available" },
-        { status: 404 }
-      )
+      return jsonError("Snapshot not available", 404)
     }
 
     const team = snapshot?.teams.find((entry) => entry.id === teamId)
 
     if (!team) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 })
+      return jsonError("Team not found", 404)
     }
 
     const result = await withGeneratedJoinCode((joinCode) =>
       updateTeamDetailsServer({
-        currentUserId: ensuredUser.userId,
+        currentUserId: appContext.ensuredUser.userId,
         teamId,
         joinCode,
         name: team.name,
@@ -52,20 +55,15 @@ export async function POST(
       })
     )
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       joinCode: result.joinCode,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to regenerate join code",
-      },
-      { status: 500 }
+    logProviderError("Failed to regenerate join code", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to regenerate join code"),
+      500
     )
   }
 }

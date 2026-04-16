@@ -1,49 +1,53 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { inviteSchema } from "@/lib/domain/types"
 import { createInviteServer } from "@/lib/server/convex"
 import { sendTeamInviteEmails } from "@/lib/server/email"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = inviteSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    inviteSchema,
+    "Invalid invite payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid invite payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
     const createdInvites = await Promise.all(
-      parsed.data.teamIds.map((teamId) =>
+      parsed.teamIds.map((teamId) =>
         createInviteServer({
-          currentUserId: ensuredUser.userId,
+          currentUserId: appContext.ensuredUser.userId,
           teamId,
-          email: parsed.data.email,
-          role: parsed.data.role,
+          email: parsed.email,
+          role: parsed.role,
         })
       )
     )
 
     if (createdInvites.some((entry) => !entry)) {
-      return NextResponse.json(
-        { error: "Failed to persist invite" },
-        { status: 500 }
-      )
+      return jsonError("Failed to persist invite", 500)
     }
 
     await sendTeamInviteEmails({
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest) {
         created
           ? [
               {
-                email: parsed.data.email,
+                email: parsed.email,
                 workspaceName: created.workspaceName,
                 teamName: created.teamName,
                 role: created.invite.role,
@@ -63,20 +67,17 @@ export async function POST(request: NextRequest) {
       ),
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       inviteIds: createdInvites.flatMap((entry) =>
         entry ? [entry.invite.id] : []
       ),
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to create invite",
-      },
-      { status: 500 }
+    logProviderError("Failed to create invite", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to create invite"),
+      500
     )
   }
 }

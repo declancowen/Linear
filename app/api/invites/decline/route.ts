@@ -1,62 +1,66 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { declineInviteServer, getInviteByTokenServer } from "@/lib/server/convex"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const declineInviteSchema = z.object({
   token: z.string().min(1),
 })
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = declineInviteSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    declineInviteSchema,
+    "Invalid invite token"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid invite token" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const invite = await getInviteByTokenServer(parsed.data.token)
+    const invite = await getInviteByTokenServer(parsed.token)
 
     if (!invite) {
-      return NextResponse.json({ error: "Invite not found" }, { status: 404 })
+      return jsonError("Invite not found", 404)
     }
 
     if (invite.invite.email.toLowerCase() !== session.user.email.toLowerCase()) {
-      return NextResponse.json(
-        { error: "This invite belongs to a different email address" },
-        { status: 403 }
-      )
+      return jsonError("This invite belongs to a different email address", 403)
     }
 
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
 
     await declineInviteServer({
-      currentUserId: ensuredUser.userId,
-      token: parsed.data.token,
+      currentUserId: appContext.ensuredUser.userId,
+      token: parsed.token,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to decline invite",
-      },
-      { status: 500 }
+    logProviderError("Failed to decline invite", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to decline invite"),
+      500
     )
   }
 }

@@ -5,8 +5,7 @@ import { getCurrentWorkspace } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 
 export default function WorkspaceViewsPage() {
-  const data = useAppStore()
-  const workspace = getCurrentWorkspace(data)
+  const workspace = useAppStore(getCurrentWorkspace)
 
   if (!workspace) {
     return null

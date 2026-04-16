@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { SpinnerGap } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
+import { syncJoinTeam } from "@/lib/convex/client"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { resolveImageAssetSource } from "@/lib/utils"
@@ -35,7 +36,8 @@ export function OnboardingJoinCard({
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
   const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
-  const workspaceBadgeFallback = workspaceName.trim().charAt(0).toUpperCase() || "?"
+  const workspaceBadgeFallback =
+    workspaceName.trim().charAt(0).toUpperCase() || "?"
 
   return (
     <Card className="gap-0 py-0 shadow-none">
@@ -74,22 +76,7 @@ export function OnboardingJoinCard({
                 setSubmitting(true)
 
                 try {
-                  const response = await fetch("/api/teams/join", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({ code: joinCode }),
-                  })
-                  const payload = (await response.json()) as {
-                    error?: string
-                    role?: string
-                    teamSlug?: string | null
-                  }
-
-                  if (!response.ok) {
-                    throw new Error(payload.error ?? "Failed to join team")
-                  }
+                  const payload = await syncJoinTeam(joinCode)
 
                   toast.success(
                     `Joined ${teamName} as ${payload.role ?? "viewer"}`
@@ -111,7 +98,9 @@ export function OnboardingJoinCard({
                 }
               }}
             >
-              {submitting ? <SpinnerGap className="size-4 animate-spin" /> : null}
+              {submitting ? (
+                <SpinnerGap className="size-4 animate-spin" />
+              ) : null}
               {alreadyJoined ? "Already joined" : "Join team"}
             </Button>
           ) : (

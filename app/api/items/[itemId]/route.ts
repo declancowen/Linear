@@ -1,14 +1,19 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   deleteWorkItemServer,
   markNotificationsEmailedServer,
   updateWorkItemServer,
 } from "@/lib/server/convex"
 import { sendAssignmentEmails } from "@/lib/server/email"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 const workItemPatchSchema = z
   .object({
@@ -42,32 +47,34 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ itemId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   const { itemId } = await params
-  const body = await request.json()
-  const parsed = workItemPatchSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    workItemPatchSchema,
+    "Invalid work item update payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid work item update payload" },
-      { status: 400 }
-    )
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
     const result = await updateWorkItemServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       itemId,
-      patch: parsed.data,
+      patch: parsed,
     })
     const emailedNotificationIds = await sendAssignmentEmails({
       origin: new URL(request.url).origin,
@@ -78,17 +85,14 @@ export async function PATCH(
       await markNotificationsEmailedServer(emailedNotificationIds)
     }
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to update work item",
-      },
-      { status: 500 }
+    logProviderError("Failed to update work item", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update work item"),
+      500
     )
   }
 }
@@ -97,35 +101,34 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ itemId: string }> }
 ) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
     const { itemId } = await params
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
     const result = await deleteWorkItemServer({
-      currentUserId: ensuredUser.userId,
+      currentUserId: appContext.ensuredUser.userId,
       itemId,
     })
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       deletedItemIds: result?.deletedItemIds ?? [],
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to delete work item",
-      },
-      { status: 500 }
+    logProviderError("Failed to delete work item", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete work item"),
+      500
     )
   }
 }

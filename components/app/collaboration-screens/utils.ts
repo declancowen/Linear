@@ -1,0 +1,64 @@
+import { format, isToday, isYesterday } from "date-fns"
+
+export function formatTimestamp(value: string) {
+  const d = new Date(value)
+  if (isToday(d)) return format(d, "h:mm a")
+  if (isYesterday(d)) return `Yesterday ${format(d, "h:mm a")}`
+  return format(d, "MMM d, h:mm a")
+}
+
+export function formatShortDate(value: string) {
+  const d = new Date(value)
+  if (isToday(d)) return format(d, "h:mm a")
+  if (isYesterday(d)) return "Yesterday"
+  return format(d, "MMM d")
+}
+
+const CHAT_MESSAGE_HTML_PATTERN =
+  /^\s*<(p|h[1-6]|ul|ol|li|blockquote|pre|table|div|span|a|img)\b/i
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+export function getChatMessageMarkup(content: string) {
+  if (CHAT_MESSAGE_HTML_PATTERN.test(content)) {
+    return content
+  }
+
+  return `<p>${escapeHtml(content).replace(/\r?\n/g, "<br />")}</p>`
+}
+
+export function buildCallJoinHref(callId: string) {
+  const query = new URLSearchParams({
+    callId,
+  })
+
+  return `/api/calls/join?${query.toString()}`
+}
+
+export function parseCallInviteMessage(content: string) {
+  const trimmed = content.trim()
+
+  if (!trimmed.startsWith("Started a call")) {
+    return null
+  }
+
+  const match = trimmed.match(
+    /Join call:\s+(https?:\/\/\S+|\/api\/calls\/join\?\S+)/
+  )
+
+  if (!match) {
+    return null
+  }
+
+  return {
+    href: match[1],
+    title: "Started a call",
+  }
+}

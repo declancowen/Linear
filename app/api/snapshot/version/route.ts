@@ -1,25 +1,25 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextResponse } from "next/server"
-
 import {
-  ensureConvexUserReadyServer,
-  getErrorDiagnostics,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
 async function loadSnapshotVersionWithFallback(input: {
-  workosUserId: string
-  email: string
+  authenticatedUser: ReturnType<typeof toAuthenticatedAppUser>
   currentUserId: string
 }) {
   try {
     return await getSnapshotVersionServer({
-      workosUserId: input.workosUserId,
-      email: input.email,
+      workosUserId: input.authenticatedUser.workosUserId,
+      email: input.authenticatedUser.email,
     })
   } catch (error) {
-    console.error("Falling back to snapshot version 0", getErrorDiagnostics(error))
+    logProviderError("Falling back to snapshot version 0", error)
 
     return {
       version: 0,
@@ -29,43 +29,31 @@ async function loadSnapshotVersionWithFallback(input: {
 }
 
 export async function GET() {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
   try {
-    const authenticatedUser = toAuthenticatedAppUser(
-      session.user,
-      session.organizationId
-    )
-    const authContext = await ensureConvexUserReadyServer(authenticatedUser)
+    const authenticatedUser = toAuthenticatedAppUser(session.user, session.organizationId)
+    const authContext = await requireConvexUser(session)
 
-    if (!authContext?.currentUser) {
-      return NextResponse.json(
-        { error: "User context not found" },
-        { status: 404 }
-      )
+    if (isRouteResponse(authContext)) {
+      return authContext
     }
 
     const snapshotVersion = await loadSnapshotVersionWithFallback({
-      workosUserId: authenticatedUser.workosUserId,
-      email: authenticatedUser.email,
+      authenticatedUser,
       currentUserId: authContext.currentUser.id,
     })
 
-    return NextResponse.json(snapshotVersion)
+    return jsonOk(snapshotVersion)
   } catch (error) {
-    console.error("Failed to load snapshot version", getErrorDiagnostics(error))
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load snapshot version",
-      },
-      { status: 500 }
+    logProviderError("Failed to load snapshot version", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to load snapshot version"),
+      500
     )
   }
 }

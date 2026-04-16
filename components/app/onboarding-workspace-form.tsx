@@ -14,7 +14,12 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { fetchSnapshotState } from "@/lib/convex/client"
+import {
+  fetchSnapshotState,
+  syncCreateWorkspace,
+  syncGenerateSettingsImageUploadUrl,
+  syncUpdateWorkspaceBranding,
+} from "@/lib/convex/client"
 import { useAppStore } from "@/lib/store/app-store"
 
 const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
@@ -45,24 +50,11 @@ async function uploadWorkspaceLogo(file: File) {
     throw new Error("Images must be 10 MB or smaller")
   }
 
-  const uploadUrlResponse = await fetch("/api/settings-images/upload-url", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ kind: "workspace-logo" }),
-  })
-  const uploadUrlPayload = (await uploadUrlResponse
-    .json()
-    .catch(() => null)) as {
-    error?: string
-    uploadUrl?: string
-  } | null
+  const uploadUrlPayload =
+    await syncGenerateSettingsImageUploadUrl("workspace-logo")
 
-  if (!uploadUrlResponse.ok || !uploadUrlPayload?.uploadUrl) {
-    throw new Error(
-      uploadUrlPayload?.error ?? "Failed to prepare the logo upload"
-    )
+  if (!uploadUrlPayload?.uploadUrl) {
+    throw new Error("Failed to prepare the logo upload")
   }
 
   const storageResponse = await fetch(uploadUrlPayload.uploadUrl, {
@@ -113,7 +105,10 @@ export function OnboardingWorkspaceForm() {
 
     const updateAvatarSize = () => {
       setAvatarSize(
-        Math.max(DEFAULT_AVATAR_SIZE, Math.round(field.getBoundingClientRect().height))
+        Math.max(
+          DEFAULT_AVATAR_SIZE,
+          Math.round(field.getBoundingClientRect().height)
+        )
       )
     }
 
@@ -142,51 +137,24 @@ export function OnboardingWorkspaceForm() {
     setSubmitting(true)
 
     try {
-      const response = await fetch("/api/workspaces", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: normalizedName,
-          description: normalizedDescription,
-        }),
+      await syncCreateWorkspace({
+        name: normalizedName,
+        description: normalizedDescription,
       })
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to create workspace")
-      }
 
       if (logoFile) {
         try {
           const logoImageStorageId = await uploadWorkspaceLogo(logoFile)
-          const brandingResponse = await fetch("/api/workspace/current", {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: normalizedName,
-              description: normalizedDescription,
-              logoUrl: getWorkspaceBadge(normalizedName),
+          await syncUpdateWorkspaceBranding(
+            "",
+            normalizedName,
+            getWorkspaceBadge(normalizedName),
+            "emerald",
+            normalizedDescription,
+            {
               logoImageStorageId,
-              accent: "emerald",
-            }),
-          })
-          const brandingPayload = (await brandingResponse
-            .json()
-            .catch(() => null)) as {
-            error?: string
-          } | null
-
-          if (!brandingResponse.ok) {
-            throw new Error(
-              brandingPayload?.error ?? "Failed to save workspace branding"
-            )
-          }
+            }
+          )
         } catch (error) {
           toast.error(
             error instanceof Error

@@ -1,11 +1,13 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
 import { NextResponse } from "next/server"
 
 import {
-  ensureConvexUserReadyServer,
-  getErrorDiagnostics,
   getSnapshotVersionServer,
 } from "@/lib/server/convex"
+import {
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { isRouteResponse } from "@/lib/server/route-response"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -32,17 +34,12 @@ async function getSnapshotVersionForUser(
     })
 
     return {
-      error: null,
       snapshotVersion,
     }
   } catch (error) {
-    console.error(
-      "Falling back to snapshot stream version 0",
-      getErrorDiagnostics(error)
-    )
+    logProviderError("Falling back to snapshot stream version 0", error)
 
     return {
-      error: null,
       snapshotVersion: {
         version: 0,
         currentUserId,
@@ -53,33 +50,23 @@ async function getSnapshotVersionForUser(
 
 export async function GET(request: Request) {
   const encoder = new TextEncoder()
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const authenticatedUser = toAuthenticatedAppUser(
-    session.user,
-    session.organizationId
-  )
-  const authContext = await ensureConvexUserReadyServer(authenticatedUser)
+  const authContext = await requireConvexUser(session)
 
-  if (!authContext?.currentUser) {
-    return NextResponse.json(
-      { error: "User context not found" },
-      { status: 404 }
-    )
+  if (isRouteResponse(authContext)) {
+    return authContext
   }
 
+  const authenticatedUser = toAuthenticatedAppUser(session.user, session.organizationId)
   const authenticatedSnapshotVersion = await getSnapshotVersionForUser(
     authenticatedUser,
     authContext.currentUser.id
   )
-
-  if (authenticatedSnapshotVersion.error) {
-    return authenticatedSnapshotVersion.error
-  }
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -137,10 +124,6 @@ export async function GET(request: Request) {
                 authContext.currentUser.id
               )
 
-            if (nextSnapshotVersion.error) {
-              break
-            }
-
             if (
               nextSnapshotVersion.snapshotVersion.version !==
               currentSnapshotVersion?.version
@@ -159,10 +142,7 @@ export async function GET(request: Request) {
             }
           }
         } catch (error) {
-          console.error(
-            "Snapshot event stream failed",
-            getErrorDiagnostics(error)
-          )
+          logProviderError("Snapshot event stream failed", error)
         } finally {
           close()
         }

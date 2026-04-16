@@ -1,59 +1,64 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { joinCodeSchema } from "@/lib/domain/types"
 import { joinTeamByCodeServer } from "@/lib/server/convex"
 import {
-  ensureAuthenticatedAppContext,
   reconcileAuthenticatedAppContext,
 } from "@/lib/server/authenticated-app"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = joinCodeSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    joinCodeSchema,
+    "Invalid join code"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid join code" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
     const joined = await joinTeamByCodeServer({
-      currentUserId: ensuredUser.userId,
-      code: parsed.data.code,
+      currentUserId: appContext.ensuredUser.userId,
+      code: parsed.code,
     })
 
     if (!joined) {
-      return NextResponse.json(
-        { error: "Unable to join team" },
-        { status: 500 }
-      )
+      return jsonError("Unable to join team", 500)
     }
 
     await reconcileAuthenticatedAppContext(session.user, session.organizationId)
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       role: joined.role,
       teamSlug: joined.teamSlug,
       workspaceId: joined.workspaceId,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to join team",
-      },
-      { status: 500 }
+    logProviderError("Failed to join team", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to join team"),
+      500
     )
   }
 }

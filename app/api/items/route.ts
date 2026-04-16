@@ -1,36 +1,46 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import { workItemSchema } from "@/lib/domain/types"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   createWorkItemServer,
   markNotificationsEmailedServer,
 } from "@/lib/server/convex"
 import { sendAssignmentEmails } from "@/lib/server/email"
+import {
+  getConvexErrorMessage,
+  logProviderError,
+} from "@/lib/server/provider-errors"
+import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { parseJsonBody } from "@/lib/server/route-body"
+import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
-  const session = await withAuth()
+  const session = await requireSession()
 
-  if (!session.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (isRouteResponse(session)) {
+    return session
   }
 
-  const body = await request.json()
-  const parsed = workItemSchema.safeParse(body)
+  const parsed = await parseJsonBody(
+    request,
+    workItemSchema,
+    "Invalid work item payload"
+  )
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid work item payload" }, { status: 400 })
+  if (isRouteResponse(parsed)) {
+    return parsed
   }
 
   try {
-    const { ensuredUser } = await ensureAuthenticatedAppContext(
-      session.user,
-      session.organizationId
-    )
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
     const result = await createWorkItemServer({
-      currentUserId: ensuredUser.userId,
-      ...parsed.data,
+      currentUserId: appContext.ensuredUser.userId,
+      ...parsed,
     })
     const emailedNotificationIds = await sendAssignmentEmails({
       origin: new URL(request.url).origin,
@@ -41,17 +51,15 @@ export async function POST(request: NextRequest) {
       await markNotificationsEmailedServer(emailedNotificationIds)
     }
 
-    return NextResponse.json({
+    return jsonOk({
       ok: true,
       itemId: result?.itemId ?? null,
     })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to create work item",
-      },
-      { status: 500 }
+    logProviderError("Failed to create work item", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to create work item"),
+      500
     )
   }
 }
