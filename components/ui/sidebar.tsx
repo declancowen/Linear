@@ -48,6 +48,8 @@ type SidebarContextProps = {
   toggleSidebar: () => void
   desktopWidth: number
   setDesktopWidth: React.Dispatch<React.SetStateAction<number>>
+  isResizing: boolean
+  setIsResizing: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -94,6 +96,7 @@ function SidebarProvider({
 
     return clampSidebarWidth(parsedWidth)
   })
+  const [isResizing, setIsResizing] = React.useState(false)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -161,6 +164,8 @@ function SidebarProvider({
       toggleSidebar,
       desktopWidth,
       setDesktopWidth,
+      isResizing,
+      setIsResizing,
     }),
     [
       state,
@@ -172,6 +177,8 @@ function SidebarProvider({
       toggleSidebar,
       desktopWidth,
       setDesktopWidth,
+      isResizing,
+      setIsResizing,
     ]
   )
 
@@ -211,7 +218,8 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, isResizing, state, openMobile, setOpenMobile } =
+    useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -266,6 +274,7 @@ function Sidebar({
       {/* This is what handles the sidebar gap on desktop */}
       <div
         data-slot="sidebar-gap"
+        style={isResizing ? { transitionDuration: "0ms" } : undefined}
         className={cn(
           "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
           "group-data-[collapsible=offcanvas]:w-0",
@@ -278,6 +287,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         data-side={side}
+        style={isResizing ? { transitionDuration: "0ms" } : undefined}
         className={cn(
           "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex",
           // Adjust the padding for floating and inset variants.
@@ -333,9 +343,15 @@ function SidebarRail({
   title,
   ...props
 }: React.ComponentProps<"button">) {
-  const { desktopWidth, isMobile, setDesktopWidth, state, toggleSidebar } =
-    useSidebar()
-  const [isResizing, setIsResizing] = React.useState(false)
+  const {
+    desktopWidth,
+    isMobile,
+    setDesktopWidth,
+    isResizing,
+    setIsResizing,
+    state,
+    toggleSidebar,
+  } = useSidebar()
   const dragStateRef = React.useRef<{
     moved: boolean
     side: "left" | "right"
@@ -343,6 +359,8 @@ function SidebarRail({
     startX: number
   } | null>(null)
   const suppressClickRef = React.useRef(false)
+  const animationFrameRef = React.useRef<number | null>(null)
+  const nextWidthRef = React.useRef(desktopWidth)
 
   React.useEffect(() => {
     if (!isResizing) {
@@ -365,12 +383,25 @@ function SidebarRail({
         dragState.moved = true
       }
 
-      setDesktopWidth(clampSidebarWidth(dragState.startWidth + delta))
+      nextWidthRef.current = clampSidebarWidth(dragState.startWidth + delta)
+
+      if (animationFrameRef.current != null) {
+        return
+      }
+
+      animationFrameRef.current = window.requestAnimationFrame(() => {
+        animationFrameRef.current = null
+        setDesktopWidth(nextWidthRef.current)
+      })
     }
 
     const stopResize = () => {
       suppressClickRef.current = Boolean(dragStateRef.current?.moved)
       dragStateRef.current = null
+      if (animationFrameRef.current != null) {
+        window.cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
       setIsResizing(false)
       document.body.style.removeProperty("cursor")
       document.body.style.removeProperty("user-select")
@@ -384,10 +415,14 @@ function SidebarRail({
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", stopResize)
       window.removeEventListener("pointercancel", stopResize)
+      if (animationFrameRef.current != null) {
+        window.cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
       document.body.style.removeProperty("cursor")
       document.body.style.removeProperty("user-select")
     }
-  }, [isResizing, setDesktopWidth])
+  }, [isResizing, setDesktopWidth, setIsResizing])
 
   const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     onPointerDown?.(event)
@@ -534,7 +569,7 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-0 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        "no-scrollbar flex min-h-0 flex-1 flex-col gap-0 overflow-x-hidden overflow-y-auto overscroll-contain group-data-[collapsible=icon]:overflow-hidden",
         className
       )}
       {...props}
@@ -830,7 +865,7 @@ function SidebarMenuSubButton({
       data-size={size}
       data-active={isActive}
       className={cn(
-        "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground ring-sidebar-ring outline-hidden group-data-[collapsible=icon]:hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[size=md]:text-[12px] data-[size=sm]:text-[10px] data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
+        "flex h-7 w-full min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground ring-sidebar-ring outline-hidden group-data-[collapsible=icon]:hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[size=md]:text-[12px] data-[size=sm]:text-[10px] data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
         className
       )}
       {...props}
@@ -839,6 +874,7 @@ function SidebarMenuSubButton({
 }
 
 export {
+  clampSidebarWidth,
   Sidebar,
   SidebarContent,
   SidebarFooter,

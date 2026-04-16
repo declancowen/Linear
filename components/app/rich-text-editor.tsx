@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react"
 import {
   EditorContent,
   type Editor,
@@ -21,6 +21,7 @@ import { TableKit } from "@tiptap/extension-table"
 import Typography from "@tiptap/extension-typography"
 import Underline from "@tiptap/extension-underline"
 import StarterKit from "@tiptap/starter-kit"
+import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import {
@@ -45,6 +46,11 @@ type UploadedAttachment = {
   fileUrl: string | null
 }
 
+type EmojiPickerAnchor = {
+  left: number
+  top: number
+}
+
 export type RichTextEditorStats = {
   words: number
   characters: number
@@ -66,8 +72,13 @@ type RichTextEditorProps = {
   onSubmitShortcut?: () => void
   submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
+  mentionMenuPlacement?: "above" | "below"
+  editorInstanceRef?: MutableRefObject<Editor | null>
   mentionCandidates?: Array<
-    Pick<UserProfile, "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl">
+    Pick<
+      UserProfile,
+      "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl" | "title"
+    >
   >
 }
 
@@ -98,6 +109,8 @@ export function RichTextEditor({
   onSubmitShortcut,
   submitOnEnter = false,
   onStatsChange,
+  mentionMenuPlacement = "below",
+  editorInstanceRef,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -117,6 +130,9 @@ export function RichTextEditor({
   const [pickerInsertPosition, setPickerInsertPosition] = useState<
     number | null
   >(null)
+  const [emojiPickerAnchor, setEmojiPickerAnchor] =
+    useState<EmojiPickerAnchor | null>(null)
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [containerWidth, setContainerWidth] = useState(256)
   const [fullPageCanvasWidth, setFullPageCanvasWidth] =
     useState<FullPageCanvasWidth>("narrow")
@@ -195,6 +211,20 @@ export function RichTextEditor({
   function requestImagePicker(currentEditor: Editor) {
     setPickerInsertPosition(currentEditor.state.selection.from)
     setImagePickerRequest((current) => current + 1)
+  }
+
+  function requestEmojiPicker(
+    currentEditor: Editor,
+    anchor?: EmojiPickerAnchor | null
+  ) {
+    setPickerInsertPosition(currentEditor.state.selection.from)
+    setEmojiPickerAnchor(
+      anchor ?? {
+        left: 12,
+        top: 12,
+      }
+    )
+    setEmojiPickerOpen(true)
   }
 
   function syncSlashState(nextSlashState: MenuState | null) {
@@ -317,6 +347,8 @@ export function RichTextEditor({
         const currentMentionState = mentionState
         const slashOptions = {
           enableUploads: Boolean(onUploadAttachment),
+          promptEmojiPicker: (nextEditor: Editor) =>
+            requestEmojiPicker(nextEditor, currentSlashState),
           promptAttachmentUpload: requestAttachmentPicker,
           promptImageUpload: requestImagePicker,
         }
@@ -326,6 +358,12 @@ export function RichTextEditor({
         }
 
         if (currentSlashState) {
+          const nextCommands = filterSlashCommands(
+            currentSlashState.query,
+            slashOptions
+          )
+          const maxSlashIndex = Math.max(nextCommands.length - 1, 0)
+
           if (event.key === "Escape") {
             setSlashState(null)
             previousSlashQueryRef.current = null
@@ -334,22 +372,21 @@ export function RichTextEditor({
 
           if (event.key === "ArrowDown") {
             event.preventDefault()
-            setSlashIndex((current) => current + 1)
+            setSlashIndex((current) =>
+              Math.min(Math.min(current, maxSlashIndex) + 1, maxSlashIndex)
+            )
             return true
           }
 
           if (event.key === "ArrowUp") {
             event.preventDefault()
-            setSlashIndex((current) => Math.max(0, current - 1))
+            setSlashIndex((current) =>
+              Math.max(0, Math.min(current, maxSlashIndex) - 1)
+            )
             return true
           }
 
           if (event.key === "Enter") {
-            const nextCommands = filterSlashCommands(
-              currentSlashState.query,
-              slashOptions
-            )
-
             const selected =
               nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
               nextCommands[0]
@@ -387,6 +424,12 @@ export function RichTextEditor({
         }
 
         if (currentMentionState) {
+          const nextCandidates = filterMentionCandidates(
+            currentMentionState.query,
+            mentionCandidates
+          )
+          const maxMentionIndex = Math.max(nextCandidates.length - 1, 0)
+
           if (event.key === "Escape") {
             setMentionState(null)
             previousMentionQueryRef.current = null
@@ -395,21 +438,21 @@ export function RichTextEditor({
 
           if (event.key === "ArrowDown") {
             event.preventDefault()
-            setMentionIndex((current) => current + 1)
+            setMentionIndex((current) =>
+              Math.min(Math.min(current, maxMentionIndex) + 1, maxMentionIndex)
+            )
             return true
           }
 
           if (event.key === "ArrowUp") {
             event.preventDefault()
-            setMentionIndex((current) => Math.max(0, current - 1))
+            setMentionIndex((current) =>
+              Math.max(0, Math.min(current, maxMentionIndex) - 1)
+            )
             return true
           }
 
           if (event.key === "Enter") {
-            const nextCandidates = filterMentionCandidates(
-              currentMentionState.query,
-              mentionCandidates
-            )
             const selected =
               nextCandidates[
                 Math.min(mentionIndex, nextCandidates.length - 1)
@@ -472,7 +515,16 @@ export function RichTextEditor({
 
   useEffect(() => {
     editorRef.current = editor
-  }, [editor])
+    if (editorInstanceRef) {
+      editorInstanceRef.current = editor
+    }
+
+    return () => {
+      if (editorInstanceRef) {
+        editorInstanceRef.current = null
+      }
+    }
+  }, [editor, editorInstanceRef])
 
   useEffect(() => {
     if (!editor) {
@@ -541,6 +593,8 @@ export function RichTextEditor({
 
     return filterSlashCommands(slashState.query, {
       enableUploads: Boolean(onUploadAttachment),
+      promptEmojiPicker: (nextEditor) =>
+        requestEmojiPicker(nextEditor, slashState),
       promptAttachmentUpload: requestAttachmentPicker,
       promptImageUpload: requestImagePicker,
     })
@@ -672,6 +726,43 @@ export function RichTextEditor({
       />
     ) : null
 
+  const inlineEmojiPicker =
+    editable && emojiPickerAnchor ? (
+      <div
+        className="absolute z-20"
+        style={{
+          left: Math.min(
+            Math.max(12, emojiPickerAnchor.left),
+            Math.max(12, containerWidth - 24)
+          ),
+          top: emojiPickerAnchor.top,
+        }}
+      >
+        <EmojiPickerPopover
+          align="start"
+          side="bottom"
+          open={emojiPickerOpen}
+          onOpenChange={(open) => {
+            setEmojiPickerOpen(open)
+            if (!open) {
+              setEmojiPickerAnchor(null)
+            }
+          }}
+          onEmojiSelect={(emoji) => {
+            currentEditor.chain().focus().insertContent(emoji).run()
+          }}
+          trigger={
+            <button
+              type="button"
+              aria-hidden="true"
+              tabIndex={-1}
+              className="size-px opacity-0 pointer-events-none"
+            />
+          }
+        />
+      </div>
+    ) : null
+
   const slashMenu = slashState ? (
     <SlashCommandMenu
       activeIndex={activeSlashIndex}
@@ -693,6 +784,7 @@ export function RichTextEditor({
       candidates={filteredMentionCandidates}
       containerWidth={containerWidth}
       editor={currentEditor}
+      placement={mentionMenuPlacement}
       state={mentionState}
       onComplete={() => {
         setMentionState(null)
@@ -723,6 +815,7 @@ export function RichTextEditor({
             <EditorContent editor={currentEditor} />
             {slashMenu}
             {mentionMenu}
+            {inlineEmojiPicker}
           </div>
         </div>
       </div>
@@ -736,6 +829,7 @@ export function RichTextEditor({
         <EditorContent editor={currentEditor} />
         {slashMenu}
         {mentionMenu}
+        {inlineEmojiPicker}
       </div>
       {toolbar}
     </div>

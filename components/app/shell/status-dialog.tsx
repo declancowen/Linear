@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { Smiley } from "@phosphor-icons/react"
 
 import { getCurrentUser } from "@/lib/domain/selectors"
 import {
@@ -11,6 +12,10 @@ import {
   userStatuses,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  EmojiPickerPopover,
+  insertEmojiIntoTextarea,
+} from "@/components/app/emoji-picker-popover"
 import { UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +49,7 @@ export function StatusDialog({
   const [statusMessage, setStatusMessage] = useState(
     currentUser?.statusMessage ?? ""
   )
+  const statusTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const hasCurrentUser = currentUser != null
   const currentUserResolvedStatus = resolveUserStatus(currentUser?.status)
   const currentUserStatusMessage = currentUser?.statusMessage ?? ""
@@ -128,12 +134,35 @@ export function StatusDialog({
               <FieldLabel htmlFor="status-message">Status message</FieldLabel>
               <FieldContent>
                 <Textarea
+                  ref={statusTextareaRef}
                   id="status-message"
                   value={statusMessage}
                   onChange={(event) => setStatusMessage(event.target.value)}
                   placeholder="Heads down on planning, back this afternoon"
                   maxLength={userStatusMessageMaxLength}
                 />
+                <div className="mt-2 flex items-center">
+                  <EmojiPickerPopover
+                    align="start"
+                    side="top"
+                    onEmojiSelect={(emoji) =>
+                      insertEmojiIntoTextarea({
+                        emoji,
+                        textarea: statusTextareaRef.current,
+                        value: statusMessage,
+                        onChange: setStatusMessage,
+                      })
+                    }
+                    trigger={
+                      <button
+                        type="button"
+                        className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                      >
+                        <Smiley className="size-4" />
+                      </button>
+                    }
+                  />
+                </div>
               </FieldContent>
             </Field>
           </FieldGroup>

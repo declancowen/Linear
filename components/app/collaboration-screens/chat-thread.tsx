@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
+import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ArrowSquareOut,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
+import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
@@ -41,22 +43,34 @@ function ChatComposer({
   placeholder = "Write a message…",
   onSend,
   mentionCandidates,
+  currentUserId,
   action,
 }: {
   placeholder?: string
   onSend: (content: string) => void
   mentionCandidates: ReturnType<typeof getConversationParticipants>
+  currentUserId: string
   action?: ReactNode
 }) {
   const [content, setContent] = useState("")
   const [composerKey, setComposerKey] = useState(0)
+  const editorInstanceRef = useRef<Editor | null>(null)
   const contentText = getPlainTextContent(content)
+  const filteredMentionCandidates = useMemo(
+    () =>
+      mentionCandidates.filter((candidate) => candidate.id !== currentUserId),
+    [currentUserId, mentionCandidates]
+  )
 
   const handleSend = () => {
     if (!contentText) return
     onSend(content)
     setContent("")
     setComposerKey((current) => current + 1)
+  }
+
+  const handleInsertEmoji = (emoji: string) => {
+    editorInstanceRef.current?.chain().focus().insertContent(emoji).run()
   }
 
   return (
@@ -71,19 +85,28 @@ function ChatComposer({
           showToolbar={false}
           showStats={false}
           placeholder={placeholder}
-          mentionCandidates={mentionCandidates}
+          editorInstanceRef={editorInstanceRef}
+          mentionMenuPlacement="above"
+          mentionCandidates={filteredMentionCandidates}
           onSubmitShortcut={handleSend}
           submitOnEnter
           className="min-w-0 flex-1 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.5rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-5 [&_.ProseMirror]:outline-none"
         />
         <div className="flex shrink-0 items-center gap-1.5">
           {action ?? null}
-          <button
-            type="button"
-            className="rounded-md p-1 text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-          >
-            <Smiley className="size-4" />
-          </button>
+          <EmojiPickerPopover
+            align="end"
+            side="top"
+            onEmojiSelect={handleInsertEmoji}
+            trigger={
+              <button
+                type="button"
+                className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+              >
+                <Smiley className="size-4" />
+              </button>
+            }
+          />
           <button
             type="button"
             onClick={handleSend}
@@ -377,6 +400,7 @@ export function ChatThread({
         <ChatComposer
           placeholder={`Message ${title}…`}
           mentionCandidates={members}
+          currentUserId={currentUserId}
           action={videoAction}
           onSend={(content) => {
             useAppStore.getState().sendChatMessage({ conversationId, content })

@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
+import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ChatCircle,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
+import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
@@ -28,17 +30,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
-
-const CHANNEL_REACTION_OPTIONS = [
-  { emoji: "👍", label: "Thumbs up" },
-  { emoji: "❤️", label: "Love" },
-  { emoji: "🎉", label: "Celebrate" },
-  { emoji: "👀", label: "Watching" },
-  { emoji: "🚀", label: "Ship it" },
-  { emoji: "🔥", label: "Fire" },
-  { emoji: "🙌", label: "Nice work" },
-  { emoji: "😄", label: "Smile" },
-] as const
 
 export function ForumPostCard({ postId }: { postId: string }) {
   const { currentUserId, currentWorkspaceId, post } = useAppStore(
@@ -67,6 +58,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
   const [showReplies, setShowReplies] = useState(false)
   const [replyOpen, setReplyOpen] = useState(false)
   const [deletePostOpen, setDeletePostOpen] = useState(false)
+  const replyEditorRef = useRef<Editor | null>(null)
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
@@ -91,6 +83,9 @@ export function ForumPostCard({ postId }: { postId: string }) {
   const handleDeletePost = () => {
     useAppStore.getState().deleteChannelPost(post.id)
     setDeletePostOpen(false)
+  }
+  const handleInsertReplyEmoji = (emoji: string) => {
+    replyEditorRef.current?.chain().focus().insertContent(emoji).run()
   }
 
   const previewComments = comments.slice(-3)
@@ -200,8 +195,13 @@ export function ForumPostCard({ postId }: { postId: string }) {
             )
           })}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <EmojiPickerPopover
+            align="start"
+            side="top"
+            onEmojiSelect={(emoji) => {
+              useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
+            }}
+            trigger={
               <button
                 type="button"
                 className="flex h-7 items-center gap-1.5 rounded-full border border-dashed bg-background px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -209,35 +209,8 @@ export function ForumPostCard({ postId }: { postId: string }) {
                 <Smiley className="size-3.5" />
                 <span>React</span>
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44 min-w-44">
-              {CHANNEL_REACTION_OPTIONS.map((option) => {
-                const active =
-                  reactions
-                    .find((entry) => entry.emoji === option.emoji)
-                    ?.userIds.includes(currentUserId) ?? false
-
-                return (
-                  <DropdownMenuItem
-                    key={option.emoji}
-                    onSelect={() => {
-                      useAppStore
-                        .getState()
-                        .toggleChannelPostReaction(post.id, option.emoji)
-                    }}
-                  >
-                    <span className="mr-2 text-base leading-none">
-                      {option.emoji}
-                    </span>
-                    <span className="flex-1">{option.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {active ? "Remove" : "Add"}
-                    </span>
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+          />
         </div>
       </div>
 
@@ -350,15 +323,31 @@ export function ForumPostCard({ postId }: { postId: string }) {
                 autoFocus
                 showToolbar={false}
                 placeholder="Reply with @mentions or /commands…"
+                editorInstanceRef={replyEditorRef}
                 mentionCandidates={mentionCandidates}
                 onSubmitShortcut={handleReply}
                 className="[&_.ProseMirror]:min-h-[2.5rem]"
               />
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
-                Use `@` to mention people. Press Cmd/Ctrl + Enter to send.
-              </span>
+              <div className="flex items-center gap-2">
+                <EmojiPickerPopover
+                  align="start"
+                  side="top"
+                  onEmojiSelect={handleInsertReplyEmoji}
+                  trigger={
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                    >
+                      <Smiley className="size-4" />
+                    </button>
+                  }
+                />
+                <span className="text-xs text-muted-foreground">
+                  Use `@` to mention people. Press Cmd/Ctrl + Enter to send.
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
@@ -456,6 +445,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
+  const editorInstanceRef = useRef<Editor | null>(null)
   const contentText = getPlainTextContent(content)
 
   const handlePost = () => {
@@ -468,6 +458,9 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
     setTitle("")
     setContent("")
     setOpen(false)
+  }
+  const handleInsertPostEmoji = (emoji: string) => {
+    editorInstanceRef.current?.chain().focus().insertContent(emoji).run()
   }
 
   if (!open) {
@@ -513,14 +506,30 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
               autoFocus
               showToolbar={false}
               placeholder="Write your post with @mentions or /commands…"
+              editorInstanceRef={editorInstanceRef}
               mentionCandidates={mentionCandidates}
               onSubmitShortcut={handlePost}
               className="[&_.ProseMirror]:min-h-[5rem]"
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Use `@` to mention people. Press Cmd/Ctrl + Enter to publish.
-          </p>
+          <div className="flex items-center gap-2">
+            <EmojiPickerPopover
+              align="start"
+              side="top"
+              onEmojiSelect={handleInsertPostEmoji}
+              trigger={
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                >
+                  <Smiley className="size-4" />
+                </button>
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Use `@` to mention people. Press Cmd/Ctrl + Enter to publish.
+            </p>
+          </div>
         </div>
       </div>
       <div className="flex items-center justify-end gap-2 border-t px-4 py-2.5">

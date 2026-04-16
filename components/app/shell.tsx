@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
   useEffectEvent,
@@ -71,6 +72,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  clampSidebarWidth,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -86,10 +88,108 @@ import {
   SidebarMenuSubItem,
   SidebarProvider,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 type AppShellProps = {
   children: ReactNode
+}
+
+function SidebarInsetResizeHandle() {
+  const {
+    desktopWidth,
+    isMobile,
+    setDesktopWidth,
+    isResizing,
+    setIsResizing,
+    state,
+  } = useSidebar()
+  const dragStateRef = useRef<{
+    startWidth: number
+    startX: number
+  } | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const nextWidthRef = useRef(desktopWidth)
+
+  useEffect(() => {
+    if (!isResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = dragStateRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      nextWidthRef.current = clampSidebarWidth(
+        dragState.startWidth + (event.clientX - dragState.startX)
+      )
+
+      if (animationFrameRef.current != null) {
+        return
+      }
+
+      animationFrameRef.current = window.requestAnimationFrame(() => {
+        animationFrameRef.current = null
+        setDesktopWidth(nextWidthRef.current)
+      })
+    }
+
+    const stopResize = () => {
+      dragStateRef.current = null
+      if (animationFrameRef.current != null) {
+        window.cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+      setIsResizing(false)
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", stopResize)
+    window.addEventListener("pointercancel", stopResize)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", stopResize)
+      window.removeEventListener("pointercancel", stopResize)
+      if (animationFrameRef.current != null) {
+        window.cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+      document.body.style.removeProperty("cursor")
+      document.body.style.removeProperty("user-select")
+    }
+  }, [isResizing, setDesktopWidth, setIsResizing])
+
+  const handlePointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => {
+    if (event.button !== 0 || isMobile || state === "collapsed") {
+      return
+    }
+
+    event.preventDefault()
+    dragStateRef.current = {
+      startWidth: desktopWidth,
+      startX: event.clientX,
+    }
+    setIsResizing(true)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label="Resize sidebar"
+      onPointerDown={handlePointerDown}
+      className="absolute inset-y-0 left-0 z-30 hidden w-8 cursor-col-resize touch-none select-none bg-transparent outline-hidden peer-data-[state=collapsed]:hidden md:block"
+    />
+  )
 }
 
 function getShortcutModifierLabel() {
@@ -289,7 +389,7 @@ export function AppShell({ children }: AppShellProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <SidebarMenuButton className="h-9">
-                      <div className="flex size-5 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
+                      <div className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
                         {workspaceLogoImageSrc ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -305,7 +405,7 @@ export function AppShell({ children }: AppShellProps) {
                         {workspace?.name}
                       </span>
                       <CaretDown
-                        className="ml-auto size-2.5 text-sidebar-foreground/50"
+                        className="ml-auto size-2.5 shrink-0 text-sidebar-foreground/50"
                         weight="fill"
                       />
                     </SidebarMenuButton>
@@ -776,6 +876,7 @@ export function AppShell({ children }: AppShellProps) {
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
+        <SidebarInsetResizeHandle />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {children}
         </div>

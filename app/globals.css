@@ -318,4 +318,34 @@
     background: var(--ring);
     pointer-events: none;
   }
+
+  .app-emoji-picker .epr-cat-btn {
+    opacity: 0.42 !important;
+    filter: grayscale(1) brightness(1.16);
+  }
+
+  .app-emoji-picker .epr-cat-btn:hover,
+  .app-emoji-picker .epr-cat-btn.epr-active {
+    opacity: 1 !important;
+    filter: grayscale(1) brightness(0.16);
+  }
+
+  .app-emoji-picker .epr-cat-btn:focus::before {
+    display: none !important;
+    content: none !important;
+    border: 0 !important;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
 }

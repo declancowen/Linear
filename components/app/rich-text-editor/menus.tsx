@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import type { Editor } from "@tiptap/react"
 import {
   CheckSquare,
@@ -12,6 +13,7 @@ import {
   Minus,
   Paragraph,
   Quotes,
+  Smiley,
   Table as TableIcon,
   TextHOne,
   TextHTwo,
@@ -34,12 +36,13 @@ export type MenuState = {
   to: number
   query: string
   top: number
+  bottom: number
   left: number
 }
 
 export type MentionCandidate = Pick<
   UserProfile,
-  "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl"
+  "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl" | "title"
 >
 
 type SlashCommand = {
@@ -119,6 +122,7 @@ export function buildSlashState(
     to: from,
     query: match[1]?.trim().toLowerCase() ?? "",
     top: containerRect ? coords.bottom - containerRect.top + 8 : 12,
+    bottom: containerRect ? containerRect.bottom - coords.top + 8 : 12,
     left: containerRect ? coords.left - containerRect.left + 8 : 12,
   }
 }
@@ -158,16 +162,19 @@ export function buildMentionState(
     to: from,
     query: query.trim().toLowerCase(),
     top: containerRect ? coords.bottom - containerRect.top + 8 : 12,
+    bottom: containerRect ? containerRect.bottom - coords.top + 8 : 12,
     left: containerRect ? coords.left - containerRect.left + 8 : 12,
   }
 }
 
 function getSlashCommands({
   enableUploads,
+  promptEmojiPicker,
   promptAttachmentUpload,
   promptImageUpload,
 }: {
   enableUploads: boolean
+  promptEmojiPicker: (editor: Editor) => void
   promptAttachmentUpload: (editor: Editor) => void
   promptImageUpload: (editor: Editor) => void
 }): SlashCommand[] {
@@ -230,6 +237,16 @@ function getSlashCommands({
       icon: <ListChecks className="size-4" />,
       run: (currentEditor) => {
         currentEditor.chain().focus().toggleTaskList().run()
+      },
+    },
+    {
+      id: "emoji",
+      label: "Emoji",
+      description: "Open the emoji picker",
+      keywords: ["emoji", "reaction", "smile", "icon"],
+      icon: <Smiley className="size-4" />,
+      run: (currentEditor) => {
+        promptEmojiPicker(currentEditor)
       },
     },
     {
@@ -339,6 +356,7 @@ export function filterSlashCommands(
   query: string,
   options: {
     enableUploads: boolean
+    promptEmojiPicker: (editor: Editor) => void
     promptAttachmentUpload: (editor: Editor) => void
     promptImageUpload: (editor: Editor) => void
   }
@@ -386,8 +404,30 @@ export function filterMentionCandidates(
     .slice(0, 8)
 }
 
-function getMenuLeft(state: MenuState, containerWidth: number) {
-  return Math.min(Math.max(12, state.left), Math.max(12, containerWidth - 268))
+const SLASH_MENU_WIDTH = 288
+const MENTION_MENU_WIDTH = 256
+
+function getMenuLeft(
+  state: MenuState,
+  containerWidth: number,
+  menuWidth: number
+) {
+  return Math.min(
+    Math.max(12, state.left),
+    Math.max(12, containerWidth - (menuWidth + 12))
+  )
+}
+
+function useActiveItemScroll(activeIndex: number, itemCount: number) {
+  const itemRefs = React.useRef<Array<HTMLDivElement | null>>([])
+
+  React.useEffect(() => {
+    itemRefs.current[activeIndex]?.scrollIntoView({
+      block: "nearest",
+    })
+  }, [activeIndex, itemCount])
+
+  return itemRefs
 }
 
 export function SlashCommandMenu({
@@ -405,17 +445,20 @@ export function SlashCommandMenu({
   state: MenuState
   onComplete: () => void
 }) {
+  const itemRefs = useActiveItemScroll(activeIndex, commands.length)
+
   return (
     <div
-      className="absolute z-10 w-64 max-w-[calc(100%-1rem)]"
+      className="absolute z-10 w-72 max-w-[calc(100%-1rem)]"
       style={{
-        left: getMenuLeft(state, containerWidth),
+        left: getMenuLeft(state, containerWidth, SLASH_MENU_WIDTH),
         top: state.top,
       }}
     >
       <Command
         className="overflow-hidden rounded-lg border bg-popover shadow-md"
         shouldFilter={false}
+        value={commands[activeIndex]?.id}
       >
         <CommandList className="max-h-[min(20rem,50vh)]">
           <CommandEmpty>
@@ -427,6 +470,9 @@ export function SlashCommandMenu({
             {commands.map((command, index) => (
               <CommandItem
                 key={command.id}
+                ref={(node) => {
+                  itemRefs.current[index] = node
+                }}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-2 py-1.5",
                   index === activeIndex && "bg-accent"
@@ -468,6 +514,7 @@ export function MentionMenu({
   candidates,
   containerWidth,
   editor,
+  placement = "below",
   state,
   onComplete,
 }: {
@@ -475,20 +522,25 @@ export function MentionMenu({
   candidates: MentionCandidate[]
   containerWidth: number
   editor: Editor
+  placement?: "above" | "below"
   state: MenuState
   onComplete: () => void
 }) {
+  const itemRefs = useActiveItemScroll(activeIndex, candidates.length)
+
   return (
     <div
       className="absolute z-10 w-64 max-w-[calc(100%-1rem)]"
       style={{
-        left: getMenuLeft(state, containerWidth),
-        top: state.top,
+        bottom: placement === "above" ? state.bottom : undefined,
+        left: getMenuLeft(state, containerWidth, MENTION_MENU_WIDTH),
+        top: placement === "below" ? state.top : undefined,
       }}
     >
       <Command
         className="overflow-hidden rounded-lg border bg-popover shadow-md"
         shouldFilter={false}
+        value={candidates[activeIndex]?.id}
       >
         <CommandList className="max-h-[min(20rem,50vh)]">
           <CommandEmpty>
@@ -500,6 +552,9 @@ export function MentionMenu({
             {candidates.map((candidate, index) => (
               <CommandItem
                 key={candidate.id}
+                ref={(node) => {
+                  itemRefs.current[index] = node
+                }}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-2 py-1.5",
                   index === activeIndex && "bg-accent"
@@ -536,8 +591,8 @@ export function MentionMenu({
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{candidate.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    @{candidate.handle}
+                  <div className="truncate text-xs text-muted-foreground">
+                    {candidate.title || "No title"}
                   </div>
                 </div>
               </CommandItem>

@@ -1,9 +1,9 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
-import { Circle } from "@phosphor-icons/react"
+import { Circle, Smiley } from "@phosphor-icons/react"
 
 import { getCommentsForTarget, getTeam, getUser } from "@/lib/domain/selectors"
 import {
@@ -20,6 +20,10 @@ import {
   type WorkItemType,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  EmojiPickerPopover,
+  insertEmojiIntoTextarea,
+} from "@/components/app/emoji-picker-popover"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,8 +61,6 @@ export function WorkItemTypeBadge({
   )
 }
 
-const commentReactionOptions = ["👍", "❤️", "👀"] as const
-
 function CommentThreadItem({
   comment,
   repliesByParentId,
@@ -80,6 +82,7 @@ function CommentThreadItem({
   )
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyContent, setReplyContent] = useState("")
+  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const replies = repliesByParentId[comment.id] ?? []
 
   return (
@@ -120,32 +123,24 @@ function CommentThreadItem({
             </button>
           )
         })}
-        {editable
-          ? commentReactionOptions.map((emoji) => {
-              const existingReaction = comment.reactions.find(
-                (reaction) => reaction.emoji === emoji
-              )
-
-              if (existingReaction) {
-                return null
-              }
-
-              return (
-                <button
-                  key={`${comment.id}-${emoji}-new`}
-                  type="button"
-                  className="rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleCommentReaction(comment.id, emoji)
-                  }
-                >
-                  {emoji}
-                </button>
-              )
-            })
-          : null}
+        {editable ? (
+          <EmojiPickerPopover
+            align="start"
+            side="top"
+            onEmojiSelect={(emoji) => {
+              useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+            }}
+            trigger={
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Smiley className="size-3.5" />
+                <span>React</span>
+              </button>
+            }
+          />
+        ) : null}
         {editable ? (
           <button
             type="button"
@@ -160,39 +155,62 @@ function CommentThreadItem({
       {replyOpen ? (
         <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
           <Textarea
+            ref={replyTextareaRef}
             autoFocus
             className="min-h-[4rem] resize-none"
             placeholder="Reply to this thread..."
             value={replyContent}
             onChange={(event) => setReplyContent(event.target.value)}
           />
-          <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setReplyContent("")
-                setReplyOpen(false)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={!replyContent.trim()}
-              onClick={() => {
-                useAppStore.getState().addComment({
-                  targetType,
-                  targetId,
-                  parentCommentId: comment.id,
-                  content: replyContent,
+          <div className="flex items-center justify-between gap-2">
+            <EmojiPickerPopover
+              align="start"
+              side="top"
+              onEmojiSelect={(emoji) =>
+                insertEmojiIntoTextarea({
+                  emoji,
+                  textarea: replyTextareaRef.current,
+                  value: replyContent,
+                  onChange: setReplyContent,
                 })
-                setReplyContent("")
-                setReplyOpen(false)
-              }}
-            >
-              Reply
-            </Button>
+              }
+              trigger={
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                >
+                  <Smiley className="size-4" />
+                </button>
+              }
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setReplyContent("")
+                  setReplyOpen(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!replyContent.trim()}
+                onClick={() => {
+                  useAppStore.getState().addComment({
+                    targetType,
+                    targetId,
+                    parentCommentId: comment.id,
+                    content: replyContent,
+                  })
+                  setReplyContent("")
+                  setReplyOpen(false)
+                }}
+              >
+                Reply
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -245,6 +263,7 @@ export function CommentsInline({
     return accumulator
   }, {})
   const [content, setContent] = useState("")
+  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   return (
     <div className="flex flex-col gap-4">
@@ -260,13 +279,35 @@ export function CommentsInline({
       ))}
       <div className="flex flex-col gap-2">
         <Textarea
+          ref={commentTextareaRef}
           disabled={!editable}
           placeholder="Leave a comment or mention a teammate with @handle..."
           className="min-h-[4rem] resize-none"
           value={content}
           onChange={(event) => setContent(event.target.value)}
         />
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <EmojiPickerPopover
+            align="start"
+            side="top"
+            onEmojiSelect={(emoji) =>
+              insertEmojiIntoTextarea({
+                emoji,
+                textarea: commentTextareaRef.current,
+                value: content,
+                onChange: setContent,
+              })
+            }
+            trigger={
+              <button
+                type="button"
+                disabled={!editable}
+                className="rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent"
+              >
+                <Smiley className="size-4" />
+              </button>
+            }
+          />
           <Button
             size="sm"
             disabled={!editable || !content.trim()}

@@ -1,6 +1,6 @@
 "use client"
 
-import type { RefObject } from "react"
+import { forwardRef, type RefObject } from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ColumnsPlusRight,
@@ -13,6 +13,7 @@ import {
   Paperclip,
   Paragraph,
   RowsPlusBottom,
+  Smiley,
   Table as TableIcon,
   TextAlignCenter,
   TextAlignLeft,
@@ -27,6 +28,7 @@ import {
   Quotes,
 } from "@phosphor-icons/react"
 
+import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -256,6 +258,24 @@ export function RichTextToolbar({
       >
         <TableIcon className="size-3.5" />
       </ToolbarButton>
+      <EmojiPickerPopover
+        align="start"
+        side={fullPage ? "bottom" : "top"}
+        onEmojiSelect={(emoji) => {
+          editor.chain().focus().insertContent(emoji).run()
+        }}
+        trigger={
+          <ToolbarButton
+            active={false}
+            onClick={() => {
+              editor.chain().focus().run()
+            }}
+            label="Insert emoji"
+          >
+            <Smiley className="size-3.5" />
+          </ToolbarButton>
+        }
+      />
       {fullPage ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -393,21 +413,22 @@ export function RichTextToolbar({
   )
 }
 
-function ToolbarButton({
-  active,
-  disabled = false,
-  onClick,
-  label,
-  children,
-}: {
-  active: boolean
-  disabled?: boolean
-  onClick: () => void
-  label: string
-  children: React.ReactNode
-}) {
+const ToolbarButton = forwardRef<
+  HTMLButtonElement,
+  {
+    active: boolean
+    disabled?: boolean
+    onClick: () => void
+    label: string
+    children: React.ReactNode
+  }
+>(function ToolbarButton(
+  { active, disabled = false, onClick, label, children },
+  ref
+) {
   return (
     <button
+      ref={ref}
       type="button"
       disabled={disabled}
       title={label}
@@ -425,4 +446,4 @@ function ToolbarButton({
       <span className="sr-only">{label}</span>
     </button>
   )
-}
+})
