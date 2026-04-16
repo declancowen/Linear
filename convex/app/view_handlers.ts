@@ -1,7 +1,11 @@
 import type { MutationCtx } from "../_generated/server"
 
 import { assertServerToken, getNow } from "./core"
-import { requireViewMutationAccess } from "./work_helpers"
+import {
+  assertWorkspaceLabelIds,
+  requireViewMutationAccess,
+  resolveViewWorkspaceId,
+} from "./work_helpers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -173,6 +177,16 @@ export async function toggleViewFilterValueHandler(
   const next = current.includes(args.value)
     ? current.filter((entry) => entry !== args.value)
     : [...current, args.value]
+
+  if (args.key === "labelIds" && next.length > 0) {
+    const workspaceId = await resolveViewWorkspaceId(ctx, view, args.currentUserId)
+
+    if (!workspaceId) {
+      throw new Error("Workspace not found")
+    }
+
+    await assertWorkspaceLabelIds(ctx, workspaceId, next)
+  }
 
   await ctx.db.patch(view._id, {
     filters: {

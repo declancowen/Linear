@@ -22,6 +22,7 @@ import {
   listInvitesByTeam,
   listMilestonesByProjects,
   listNotificationsByEntities,
+  listPersonalViewsByUsers,
   listProjectsByScope,
   listProjectsByScopes,
   listProjectUpdatesByProjects,
@@ -269,6 +270,9 @@ export async function cleanupUnusedLabels(
   const workspaceTeams = workspaceId
     ? await listWorkspaceTeams(ctx, workspaceId)
     : []
+  const workspaceUserIds = workspaceId
+    ? await getWorkspaceUserIds(ctx, workspaceId)
+    : []
   const scopedEntities = workspaceId
     ? [
         {
@@ -281,8 +285,8 @@ export async function cleanupUnusedLabels(
         })),
       ]
     : []
-  const [workItemsByTeam, views, projects, globalWorkItems] = await Promise.all(
-    [
+  const [workItemsByTeam, views, personalViews, projects, globalWorkItems] =
+    await Promise.all([
       workspaceId
         ? Promise.all(
             workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
@@ -292,16 +296,19 @@ export async function cleanupUnusedLabels(
         ? listViewsByScopes(ctx, scopedEntities)
         : ctx.db.query("views").collect(),
       workspaceId
+        ? listPersonalViewsByUsers(ctx, workspaceUserIds)
+        : Promise.resolve([]),
+      workspaceId
         ? listProjectsByScopes(ctx, scopedEntities)
         : ctx.db.query("projects").collect(),
       workspaceId ? Promise.resolve([]) : ctx.db.query("workItems").collect(),
-    ]
-  )
+    ])
   const workItems = workspaceId ? workItemsByTeam.flat() : globalWorkItems
+  const relevantViews = workspaceId ? [...views, ...personalViews] : views
   const deletedLabelIds: string[] = []
   const usedLabelIds = new Set([
     ...workItems.flatMap((workItem) => workItem.labelIds),
-    ...views.flatMap((view) => view.filters.labelIds),
+    ...relevantViews.flatMap((view) => view.filters.labelIds),
     ...projects.flatMap(
       (project) => project.presentation?.filters.labelIds ?? []
     ),
@@ -321,7 +328,7 @@ export async function cleanupUnusedLabels(
 
   const deletedLabelIdSet = new Set(deletedLabelIds)
 
-  for (const view of views) {
+  for (const view of relevantViews) {
     const nextLabelIds = filterRemovedIds(
       view.filters.labelIds,
       deletedLabelIdSet

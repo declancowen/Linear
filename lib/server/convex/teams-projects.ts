@@ -67,6 +67,11 @@ const PROJECT_MUTATION_ERROR_MAPPINGS = [
     code: "PROJECT_TEMPLATE_INVALID",
   },
   {
+    match: "One or more labels are invalid",
+    status: 400,
+    code: "PROJECT_LABELS_INVALID",
+  },
+  {
     match: (message: string) =>
       message === "Your current role is read-only" ||
       message === "You do not have access to this team" ||

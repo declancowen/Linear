@@ -69,13 +69,56 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 19:46:44 BST` |
-| **Total turns** | `10` |
+| **Last reviewed** | `2026-04-16 20:03:24 BST` |
+| **Total turns** | `11` |
 | **Open findings** | `0` |
-| **Resolved findings** | `21` |
+| **Resolved findings** | `22` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 11 — 2026-04-16 20:03:24 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `53f55c3` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest pasted PR-analysis notes found one remaining low-severity issue in the current source tree: the team join code was still rendered redundantly in the team-settings header card, increasing the risk of accidental exposure during screen sharing. That redundant header display has been removed. The rest of the pasted notes are either already fixed in the current branch, based on stale assumptions, or are intentional product / maintainability observations rather than active bugs.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 11 | 1 |
+| Carried from Turn 10 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 11
+
+#### B11-01 ~~[BUG] Low~~ → RESOLVED — Team join code was still exposed in the team-settings header card
+**How it was fixed:** [team-settings-screen.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-settings-screen.tsx:292) now shows only the member count in the header metadata row. The join code remains available in the dedicated team editor field where admins can intentionally view, copy, or regenerate it.
+**Verified:** The join code is no longer duplicated in the prominent header area, which reduces accidental exposure without removing the actual admin workflow.
+
+### Remaining pasted notes classified
+
+- The authorization-consistency note is correct and informational.
+- The snapshot-visibility expansion is functionally correct; the remaining concern is scale/performance, not a present correctness bug.
+- The `bootstrapWorkspaceUserHandler` / `resolveActiveUserByIdentity` note is maintainability-only. The handler still has extra merge logic for `existingUserId`, so this is not a straightforward bug fix.
+- The dead lifecycle-check note is stale; Turn 10 already removed the unreachable `existingByEmail` lifecycle branch.
+- The owner-only workspace-settings change and the workspace-admin leave restriction are intentional product decisions already captured in prior turns.
+- The team-admin self-demotion restriction and retained `workosUserId` on tombstoned users remain intentional safety/lifecycle constraints.
+- The `emailJobs.push(...)` note is informational only; mutating a `const` array is valid and already used consistently in this handler set.
+- The `getUserByEmail` legacy-case fallback regression, duplicate ` 2` files, workspace-leave team-admin notification gap, team-chat server guard, team-chat messageable-member filtering, workspace route-level owner checks, dead workspace-owner removal notification, and optimistic `previousUsers` rollback noise are all stale relative to Turns 6-10.
+- The team-chat `canCurrentUserSend` note is also not an active bug: the current client logic matches the server contract, where team chat write access is governed by editable team membership rather than a separate `participantIds` check.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm eslint components/app/settings-screens/team-settings-screen.tsx`
+
+### Local verification note
+
+- `pnpm typecheck` initially failed because ignored generated artifacts in `.next/types` (`routes.d 2.ts`, `routes.d 3.ts`, `validator 2.ts`, `validator 3.ts`) were still present locally and caused duplicate declaration errors. Those stale ignored files were removed locally before rerunning verification.
 
 ## Turn 10 — 2026-04-16 19:46:44 BST
 

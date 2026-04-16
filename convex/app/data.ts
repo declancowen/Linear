@@ -698,6 +698,23 @@ export async function listViewsByScopes(
   ).flat()
 }
 
+export async function listPersonalViewsByUsers(
+  ctx: AppCtx,
+  userIds: Iterable<string>
+) {
+  const uniqueUserIds = [...new Set(userIds)]
+
+  if (uniqueUserIds.length === 0) {
+    return []
+  }
+
+  return (
+    await Promise.all(
+      uniqueUserIds.map((userId) => listViewsByScope(ctx, "personal", userId))
+    )
+  ).flat()
+}
+
 export async function listViewsByScopeEntity(
   ctx: AppCtx,
   scopeType: "team" | "workspace",

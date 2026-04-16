@@ -20,6 +20,7 @@ describe("convex document server wrappers", () => {
 
   it("sanitizes document and item-description rich text before persistence", async () => {
     const {
+      addCommentServer,
       updateDocumentContentServer,
       updateItemDescriptionServer,
     } = await import("@/lib/server/convex/documents")
@@ -38,6 +39,13 @@ describe("convex document server wrappers", () => {
       content:
         '<p><img src="https://cdn.example.com/file.png" onerror="evil()" class="editor-image" /></p>',
     })
+    await addCommentServer({
+      currentUserId: "user_1",
+      targetType: "workItem",
+      targetId: "item_1",
+      content:
+        '<p><a href="javascript:alert(1)">Bad</a><a href="/safe" target="_blank">Safe</a></p>',
+    })
 
     expect(mutationMock).toHaveBeenNthCalledWith(
       1,
@@ -53,6 +61,14 @@ describe("convex document server wrappers", () => {
       expect.objectContaining({
         content:
           '<p><img src="https://cdn.example.com/file.png" class="editor-image" /></p>',
+      })
+    )
+    expect(mutationMock).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      expect.objectContaining({
+        content:
+          '<p><a>Bad</a><a href="/safe" target="_blank" rel="noopener noreferrer">Safe</a></p>',
       })
     )
   })

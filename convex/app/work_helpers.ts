@@ -15,8 +15,10 @@ import {
 import { getNow } from "./core"
 import {
   getTeamDoc,
+  getUserAppState,
   getViewDoc,
   getWorkItemDoc,
+  listLabelsByWorkspace,
   listViewsByScopeEntity,
   type AppCtx,
 } from "./data"
@@ -332,4 +334,53 @@ export async function requireViewMutationAccess(
 
   await requireEditableWorkspaceAccess(ctx, view.scopeId, userId)
   return view
+}
+
+export async function assertWorkspaceLabelIds(
+  ctx: AppCtx,
+  workspaceId: string,
+  labelIds: Iterable<string> | null | undefined
+) {
+  const uniqueLabelIds = [...new Set(labelIds ?? [])]
+
+  if (uniqueLabelIds.length === 0) {
+    return
+  }
+
+  const workspaceLabels = await listLabelsByWorkspace(ctx, workspaceId)
+  const workspaceLabelIds = new Set(
+    workspaceLabels.map((label) => label.id)
+  )
+
+  if (uniqueLabelIds.some((labelId) => !workspaceLabelIds.has(labelId))) {
+    throw new Error("One or more labels are invalid")
+  }
+}
+
+export async function resolveViewWorkspaceId(
+  ctx: AppCtx,
+  view: Awaited<ReturnType<typeof getViewDoc>>,
+  userId: string
+) {
+  if (!view) {
+    return null
+  }
+
+  if (view.scopeType === "workspace") {
+    return view.scopeId
+  }
+
+  if (view.scopeType === "team") {
+    const team = await getTeamDoc(ctx, view.scopeId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    return team.workspaceId
+  }
+
+  const userAppState = await getUserAppState(ctx, userId)
+
+  return userAppState?.currentWorkspaceId ?? null
 }

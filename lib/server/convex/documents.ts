@@ -399,10 +399,15 @@ export async function addCommentServer(input: {
   parentCommentId?: string | null
   content: string
 }) {
+  const preparedContent = prepareRichTextForStorage(input.content)
+
   try {
     return await getConvexServerClient().mutation(
       api.app.addComment,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        content: preparedContent.sanitized,
+      })
     )
   } catch (error) {
     throw coerceApplicationError(error, [...ADD_COMMENT_ERROR_MAPPINGS]) ?? error

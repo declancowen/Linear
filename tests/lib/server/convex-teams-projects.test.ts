@@ -43,6 +43,7 @@ describe("convex team-project server wrappers", () => {
 
     mutationMock
       .mockRejectedValueOnce(new Error("Settings team not found"))
+      .mockRejectedValueOnce(new Error("One or more labels are invalid"))
       .mockRejectedValueOnce(new Error("Project not found"))
 
     await expect(
@@ -60,6 +61,43 @@ describe("convex team-project server wrappers", () => {
       message: "Settings team not found",
       status: 404,
       code: "PROJECT_SETTINGS_TEAM_NOT_FOUND",
+    })
+
+    await expect(
+      createProjectServer({
+        currentUserId: "user_1",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        templateType: "software-delivery",
+        name: "Launch",
+        summary: "Launch summary",
+        priority: "medium",
+        presentation: {
+          layout: "board",
+          grouping: "status",
+          ordering: "priority",
+          displayProps: ["status", "assignee"],
+          filters: {
+            status: [],
+            priority: [],
+            assigneeIds: [],
+            creatorIds: [],
+            leadIds: [],
+            health: [],
+            milestoneIds: [],
+            relationTypes: [],
+            projectIds: [],
+            itemTypes: [],
+            labelIds: ["label_other_workspace"],
+            teamIds: [],
+            showCompleted: true,
+          },
+        },
+      })
+    ).rejects.toMatchObject({
+      message: "One or more labels are invalid",
+      status: 400,
+      code: "PROJECT_LABELS_INVALID",
     })
 
     await expect(

@@ -108,6 +108,21 @@ const VIEW_MUTATION_ERROR_MAPPINGS = [
     code: "VIEW_NOT_FOUND",
   },
   {
+    match: "Workspace not found",
+    status: 404,
+    code: "WORKSPACE_NOT_FOUND",
+  },
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "One or more labels are invalid",
+    status: 400,
+    code: "VIEW_LABELS_INVALID",
+  },
+  {
     match: (message: string) =>
       message === "You do not have access to this view" ||
       message === "Your current role is read-only" ||

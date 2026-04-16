@@ -73,11 +73,13 @@ describe("convex work server wrappers", () => {
   it("maps view mutation failures to typed application errors", async () => {
     const {
       clearViewFiltersServer,
+      toggleViewFilterValueServer,
       toggleViewDisplayPropertyServer,
     } = await import("@/lib/server/convex/work")
 
     mutationMock
       .mockRejectedValueOnce(new Error("View not found"))
+      .mockRejectedValueOnce(new Error("One or more labels are invalid"))
       .mockRejectedValueOnce(new Error("You do not have access to this view"))
 
     await expect(
@@ -88,6 +90,18 @@ describe("convex work server wrappers", () => {
     ).rejects.toMatchObject({
       status: 404,
       code: "VIEW_NOT_FOUND",
+    })
+
+    await expect(
+      toggleViewFilterValueServer({
+        currentUserId: "user_1",
+        viewId: "view_1",
+        key: "labelIds",
+        value: "label_other_workspace",
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "VIEW_LABELS_INVALID",
     })
 
     await expect(
