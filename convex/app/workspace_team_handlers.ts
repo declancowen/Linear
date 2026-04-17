@@ -161,23 +161,27 @@ type UpdateTeamMemberRoleArgs = ServerAccessArgs & {
 
 type RemoveTeamMemberArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   teamId: string
   userId: string
 }
 
 type RemoveWorkspaceUserArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   workspaceId: string
   userId: string
 }
 
 type LeaveWorkspaceArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   workspaceId: string
 }
 
 type DeleteCurrentAccountArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
 }
 
 type PrepareCurrentAccountDeletionArgs = ServerAccessArgs & {
@@ -438,6 +442,7 @@ async function requireMutableTeamMember(
 
 type LeaveTeamArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   teamId: string
 }
 
@@ -968,6 +973,7 @@ export async function leaveTeamHandler(ctx: MutationCtx, args: LeaveTeamArgs) {
   await queueEmailJobs(
     ctx,
     buildAccessChangeEmailJobs({
+      origin: args.origin,
       emails: emailJobs,
     })
   )
@@ -1331,6 +1337,7 @@ export async function removeTeamMemberHandler(
   await queueEmailJobs(
     ctx,
     buildAccessChangeEmailJobs({
+      origin: args.origin,
       emails: [
         ...adminEmailJobs,
         ...(removedUser?.email
@@ -1472,6 +1479,7 @@ export async function removeWorkspaceUserHandler(
   await queueEmailJobs(
     ctx,
     buildAccessChangeEmailJobs({
+      origin: args.origin,
       emails: removedUser?.email
         ? [
             {
@@ -1610,6 +1618,7 @@ export async function leaveWorkspaceHandler(
   await queueEmailJobs(
     ctx,
     buildAccessChangeEmailJobs({
+      origin: args.origin,
       emails: emailJobs,
     })
   )
@@ -1850,6 +1859,7 @@ export async function deleteCurrentAccountHandler(
   await queueEmailJobs(
     ctx,
     buildAccessChangeEmailJobs({
+      origin: args.origin,
       emails: emailJobs,
     })
   )

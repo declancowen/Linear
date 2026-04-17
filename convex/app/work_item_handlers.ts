@@ -60,6 +60,7 @@ type WorkItemPatch = {
 
 type UpdateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   itemId: string
   patch: WorkItemPatch
 }
@@ -77,6 +78,7 @@ type ShiftTimelineItemArgs = ServerAccessArgs & {
 
 type CreateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   teamId: string
   type: WorkItemType
   title: string
@@ -307,6 +309,7 @@ export async function updateWorkItemHandler(
   await queueEmailJobs(
     ctx,
     buildAssignmentEmailJobs({
+      origin: args.origin,
       emails: assignmentEmails,
     })
   )
@@ -646,6 +649,7 @@ export async function createWorkItemHandler(
   await queueEmailJobs(
     ctx,
     buildAssignmentEmailJobs({
+      origin: args.origin,
       emails: assignmentEmails,
     })
   )

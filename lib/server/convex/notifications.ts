@@ -6,6 +6,7 @@ import {
   runConvexRequestWithRetry,
   withServerToken,
 } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 const INVITE_MUTATION_ERROR_MAPPINGS = [
   {
@@ -55,9 +56,14 @@ export async function createInviteServer(input: {
   role: "admin" | "member" | "viewer" | "guest"
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.createInvite,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw coerceApplicationError(error, [...INVITE_MUTATION_ERROR_MAPPINGS]) ?? error

@@ -9,6 +9,7 @@ import {
   runConvexRequestWithRetry,
   withServerToken,
 } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 const DOCUMENT_MUTATION_ERROR_MAPPINGS = [
   {
@@ -402,10 +403,13 @@ export async function addCommentServer(input: {
   const preparedContent = prepareRichTextForStorage(input.content)
 
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.addComment,
       withServerToken({
         ...input,
+        origin,
         content: preparedContent.sanitized,
       })
     )

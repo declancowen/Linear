@@ -63,6 +63,24 @@ function isActiveClaim(
   return nowMs - claimedAtMs < EMAIL_JOB_CLAIM_TTL_MS
 }
 
+function getRetiredNotificationTimestamp(
+  notification:
+    | {
+        readAt?: string | null
+        archivedAt?: string | null
+        emailedAt?: string | null
+      }
+    | null,
+  fallbackNow: string
+) {
+  return (
+    notification?.emailedAt ??
+    notification?.readAt ??
+    notification?.archivedAt ??
+    fallbackNow
+  )
+}
+
 export async function enqueueEmailJobsHandler(
   ctx: MutationCtx,
   args: EnqueueEmailJobsArgs
@@ -142,9 +160,14 @@ export async function claimPendingEmailJobsHandler(
         .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
         .unique()
 
-      if (notification?.emailedAt) {
+      if (
+        !notification ||
+        notification.emailedAt ||
+        notification.readAt ||
+        notification.archivedAt
+      ) {
         await ctx.db.patch(job._id, {
-          sentAt: notification.emailedAt,
+          sentAt: getRetiredNotificationTimestamp(notification, now),
           claimId: null,
           claimedAt: null,
           lastError: null,

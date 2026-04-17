@@ -3,6 +3,7 @@ import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
 import { ApplicationError, coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 function isCollaborationAccessDeniedMessage(message: string) {
   return (
@@ -394,10 +395,13 @@ export async function sendChatMessageServer(input: {
   }
 
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.sendChatMessage,
       withServerToken({
         ...input,
+        origin,
         content: preparedContent.sanitized,
       })
     )
@@ -427,10 +431,13 @@ export async function createChannelPostServer(input: {
   }
 
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.createChannelPost,
       withServerToken({
         ...input,
+        origin,
         content: preparedContent.sanitized,
       })
     )
@@ -462,10 +469,13 @@ export async function addChannelPostCommentServer(input: {
   }
 
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.addChannelPostComment,
       withServerToken({
         ...input,
+        origin,
         content: preparedContent.sanitized,
       })
     )

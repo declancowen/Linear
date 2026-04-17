@@ -522,6 +522,7 @@ export const deleteCurrentAccount = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: deleteCurrentAccountHandler,
 })
@@ -588,6 +589,7 @@ export const leaveTeam = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: leaveTeamHandler,
 })
@@ -597,6 +599,7 @@ export const leaveWorkspace = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     workspaceId: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: leaveWorkspaceHandler,
 })
@@ -607,6 +610,7 @@ export const removeTeamMember = mutation({
     currentUserId: v.string(),
     teamId: v.string(),
     userId: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: removeTeamMemberHandler,
 })
@@ -617,6 +621,7 @@ export const removeWorkspaceUser = mutation({
     currentUserId: v.string(),
     workspaceId: v.string(),
     userId: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: removeWorkspaceUserHandler,
 })
@@ -747,6 +752,7 @@ export const updateWorkItem = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
+    origin: v.optional(v.string()),
     patch: v.object({
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),
@@ -903,6 +909,7 @@ export const addComment = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.optional(v.string()),
     targetType: commentTargetTypeValidator,
     targetId: v.string(),
     parentCommentId: v.optional(nullableStringValidator),
@@ -928,6 +935,7 @@ export const createInvite = mutation({
     teamId: v.string(),
     email: v.string(),
     role: roleValidator,
+    origin: v.optional(v.string()),
   },
   handler: createInviteHandler,
 })
@@ -1016,6 +1024,7 @@ export const createWorkItem = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.optional(v.string()),
     teamId: v.string(),
     type: workItemTypeValidator,
     title: v.string(),
@@ -1112,6 +1121,7 @@ export const sendChatMessage = mutation({
     currentUserId: v.string(),
     conversationId: v.string(),
     content: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: sendChatMessageHandler,
 })
@@ -1123,6 +1133,7 @@ export const createChannelPost = mutation({
     conversationId: v.string(),
     title: v.string(),
     content: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: createChannelPostHandler,
 })
@@ -1133,6 +1144,7 @@ export const addChannelPostComment = mutation({
     currentUserId: v.string(),
     postId: v.string(),
     content: v.string(),
+    origin: v.optional(v.string()),
   },
   handler: addChannelPostCommentHandler,
 })

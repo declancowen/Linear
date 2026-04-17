@@ -29,6 +29,7 @@ type ServerAccessArgs = {
 
 type AddCommentArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   targetType: "workItem" | "document"
   targetId: string
   parentCommentId?: string | null
@@ -218,6 +219,7 @@ export async function addCommentHandler(
   await queueEmailJobs(
     ctx,
     buildMentionEmailJobs({
+      origin: args.origin,
       emails: mentionEmails,
     })
   )

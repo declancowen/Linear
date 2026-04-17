@@ -209,6 +209,29 @@ describe("email job handlers", () => {
           createdAt: "2026-04-17T10:00:00.000Z",
         },
       ],
+      notifications: [
+        {
+          _id: "notification_1_doc",
+          id: "notification_1",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: null,
+        },
+        {
+          _id: "notification_2_doc",
+          id: "notification_2",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: null,
+        },
+        {
+          _id: "notification_3_doc",
+          id: "notification_3",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: null,
+        },
+      ],
     })
 
     const result = await claimPendingEmailJobsHandler(
@@ -301,6 +324,136 @@ describe("email job handlers", () => {
       lastError: null,
     })
     expect(ctx.tables.emailJobs[1]).toMatchObject({
+      claimId: "claim_1",
+      claimedAt: "2026-04-17T11:00:00.000Z",
+    })
+  })
+
+  it("retires notification-linked jobs when the notification is no longer pending", async () => {
+    const { claimPendingEmailJobsHandler } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const ctx = createCtx({
+      emailJobs: [
+        {
+          _id: "job_1_doc",
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_read",
+          toEmail: "alex@example.com",
+          subject: "Read",
+          text: "read",
+          html: "<p>read</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+        {
+          _id: "job_2_doc",
+          id: "job_2",
+          kind: "mention",
+          notificationId: "notification_archived",
+          toEmail: "jamie@example.com",
+          subject: "Archived",
+          text: "archived",
+          html: "<p>archived</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+        {
+          _id: "job_3_doc",
+          id: "job_3",
+          kind: "mention",
+          notificationId: "notification_missing",
+          toEmail: "morgan@example.com",
+          subject: "Missing",
+          text: "missing",
+          html: "<p>missing</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+        {
+          _id: "job_4_doc",
+          id: "job_4",
+          kind: "mention",
+          notificationId: "notification_pending",
+          toEmail: "riley@example.com",
+          subject: "Pending",
+          text: "pending",
+          html: "<p>pending</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+      notifications: [
+        {
+          _id: "notification_read_doc",
+          id: "notification_read",
+          emailedAt: null,
+          readAt: "2026-04-17T10:15:00.000Z",
+          archivedAt: null,
+        },
+        {
+          _id: "notification_archived_doc",
+          id: "notification_archived",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: "2026-04-17T10:20:00.000Z",
+        },
+        {
+          _id: "notification_pending_doc",
+          id: "notification_pending",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: null,
+        },
+      ],
+    })
+
+    const result = await claimPendingEmailJobsHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        claimId: "claim_1",
+      }
+    )
+
+    expect(result.map((job) => job.id)).toEqual(["job_4"])
+    expect(ctx.tables.emailJobs[0]).toMatchObject({
+      sentAt: "2026-04-17T10:15:00.000Z",
+      claimId: null,
+      claimedAt: null,
+    })
+    expect(ctx.tables.emailJobs[1]).toMatchObject({
+      sentAt: "2026-04-17T10:20:00.000Z",
+      claimId: null,
+      claimedAt: null,
+    })
+    expect(ctx.tables.emailJobs[2]).toMatchObject({
+      sentAt: "2026-04-17T11:00:00.000Z",
+      claimId: null,
+      claimedAt: null,
+    })
+    expect(ctx.tables.emailJobs[3]).toMatchObject({
       claimId: "claim_1",
       claimedAt: "2026-04-17T11:00:00.000Z",
     })

@@ -174,13 +174,14 @@ function renderEmailButton(input: {
 }
 
 function renderEmailLayout(input: {
+  origin: string
   logoUrl: string
   eyebrow: string
   content: string
   footerText?: string
 }) {
   const footerText = input.footerText ?? APP_NAME
-  const settingsUrl = buildAbsoluteUrl(getAppOrigin(), EMAIL_SETTINGS_PATH)
+  const settingsUrl = buildAbsoluteUrl(input.origin, EMAIL_SETTINGS_PATH)
 
   return [
     "<!doctype html>",
@@ -263,6 +264,7 @@ function renderAccessChangeEmail(input: {
     subject: input.headline,
     text: [input.headline, "", input.body].join("\n"),
     html: renderEmailLayout({
+      origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
       eyebrow: input.eyebrow,
       content: [
@@ -275,6 +277,7 @@ function renderAccessChangeEmail(input: {
 }
 
 function renderInviteEmailHtml(input: {
+  origin: string
   workspaceName: string
   teamName: string
   role: string
@@ -330,6 +333,7 @@ function renderInviteEmailHtml(input: {
   ].join("")
 
   return renderEmailLayout({
+    origin: input.origin,
     logoUrl: input.logoUrl,
     eyebrow: "WORKSPACE INVITE",
     content,
@@ -356,6 +360,7 @@ function renderAssignmentEmail(input: {
       `Open work item: ${itemUrl}`,
     ].join("\n"),
     html: renderEmailLayout({
+      origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
       eyebrow: "ASSIGNMENT",
       content: [
@@ -430,6 +435,7 @@ function renderMentionEmail(input: {
       `${openLabel}: ${entityUrl}`,
     ].join("\n"),
     html: renderEmailLayout({
+      origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
       eyebrow: "MENTION",
       content: [
@@ -521,9 +527,10 @@ export function buildAssignmentEmailJobs(input: {
 }
 
 export function buildTeamInviteEmailJobs(input: {
+  origin?: string
   invites: TeamInviteEmail[]
 }): QueuedInviteEmailJob[] {
-  const origin = getAppOrigin()
+  const origin = input.origin ?? getAppOrigin()
 
   return input.invites.map((invite) => {
     const acceptUrl = buildAbsoluteUrl(
@@ -546,6 +553,7 @@ export function buildTeamInviteEmailJobs(input: {
         joinCodeUrl,
       }),
       html: renderInviteEmailHtml({
+        origin,
         workspaceName: invite.workspaceName,
         teamName: invite.teamName,
         role: invite.role,
@@ -567,9 +575,10 @@ export function buildTeamInviteEmailJobs(input: {
 }
 
 export function buildAccessChangeEmailJobs(input: {
+  origin?: string
   emails: AccessChangeEmail[]
 }): QueuedAccessChangeEmailJob[] {
-  const origin = getAppOrigin()
+  const origin = input.origin ?? getAppOrigin()
 
   return input.emails.map((email) => {
     const message = renderAccessChangeEmail({

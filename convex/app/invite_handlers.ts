@@ -37,6 +37,7 @@ type InviteRole = "admin" | "member" | "viewer" | "guest"
 
 type CreateInviteArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   teamId: string
   email: string
   role: InviteRole
@@ -122,6 +123,7 @@ export async function createInviteHandler(
   await queueEmailJobs(
     ctx,
     buildTeamInviteEmailJobs({
+      origin: args.origin,
       invites: [
         {
           email: args.email,

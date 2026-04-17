@@ -440,6 +440,9 @@ export function createWorkspaceSlice(
         parsed.data.experience,
         parsed.data.features
       )
+      const shouldRefreshForNewRealtimeSurfaces =
+        (!team.settings.features.chat && nextFeatures.chat) ||
+        (!team.settings.features.channels && nextFeatures.channels)
       const disableMessage = getTeamDetailsDisableMessage(
         stateBeforeUpdate,
         teamId,
@@ -471,6 +474,18 @@ export function createWorkspaceSlice(
 
       try {
         await syncUpdateTeamDetails(teamId, parsed.data)
+
+        if (shouldRefreshForNewRealtimeSurfaces) {
+          try {
+            await runtime.refreshFromServer()
+          } catch (refreshError) {
+            console.error(
+              "Failed to reconcile team conversations after enabling chat or channels",
+              refreshError
+            )
+          }
+        }
+
         toast.success("Team updated")
         return true
       } catch (error) {

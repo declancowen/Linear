@@ -12,13 +12,16 @@ function readUrlEnv(value: string | undefined) {
   return trimmed ? trimTrailingSlash(trimmed) : null
 }
 
-export function getAppOrigin() {
+export function getConfiguredAppOrigin() {
   return (
     readUrlEnv(process.env.APP_URL) ??
     readUrlEnv(process.env.NEXT_PUBLIC_APP_URL) ??
-    readUrlEnv(process.env.TEAMS_URL) ??
-    DEFAULT_APP_ORIGIN
+    readUrlEnv(process.env.TEAMS_URL)
   )
+}
+
+export function getAppOrigin() {
+  return getConfiguredAppOrigin() ?? DEFAULT_APP_ORIGIN
 }
 
 export function normalizeAuthNextPath(value: string | null | undefined) {

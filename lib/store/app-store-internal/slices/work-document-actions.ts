@@ -304,6 +304,12 @@ export function createWorkDocumentActions({
         }
       } catch (error) {
         console.error(error)
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile attachments after upload failure",
+            refreshError
+          )
+        })
         toast.error("Failed to upload attachment")
         return null
       }
@@ -323,8 +329,6 @@ export function createWorkDocumentActions({
         return
       }
 
-      const previousAttachments = state.attachments
-
       set((current) => ({
         attachments: current.attachments.filter((entry) => entry.id !== attachmentId),
       }))
@@ -334,9 +338,13 @@ export function createWorkDocumentActions({
         toast.success("Attachment deleted")
       } catch (error) {
         console.error(error)
-        set({
-          attachments: previousAttachments,
-        })
+        set((current) => ({
+          attachments: current.attachments.some(
+            (entry) => entry.id === attachment.id
+          )
+            ? current.attachments
+            : [attachment, ...current.attachments],
+        }))
         toast.error("Failed to delete attachment")
       }
     },

@@ -118,12 +118,14 @@ type FinalizeCallJoinArgs = ServerAccessArgs & {
 
 type SendChatMessageArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   conversationId: string
   content: string
 }
 
 type CreateChannelPostArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   conversationId: string
   title: string
   content: string
@@ -131,6 +133,7 @@ type CreateChannelPostArgs = ServerAccessArgs & {
 
 type AddChannelPostCommentArgs = ServerAccessArgs & {
   currentUserId: string
+  origin?: string
   postId: string
   content: string
 }
@@ -666,10 +669,11 @@ export async function finalizeCallJoinHandler(
     throw new Error("Calls can only be joined from chats")
   }
 
-  const roomId = conversation.roomId ?? args.roomId
-  const roomName = conversation.roomName ?? args.roomName
+  const shouldUseProvisionedRoom = !conversation.roomId || !conversation.roomName
+  const roomId = shouldUseProvisionedRoom ? args.roomId : conversation.roomId
+  const roomName = shouldUseProvisionedRoom ? args.roomName : conversation.roomName
 
-  if (!conversation.roomId || !conversation.roomName) {
+  if (shouldUseProvisionedRoom) {
     await ctx.db.patch(conversation._id, {
       roomId,
       roomName,
@@ -801,6 +805,7 @@ export async function sendChatMessageHandler(
   await queueEmailJobs(
     ctx,
     buildMentionEmailJobs({
+      origin: args.origin,
       emails: mentionEmails,
     })
   )
@@ -918,6 +923,7 @@ export async function createChannelPostHandler(
   await queueEmailJobs(
     ctx,
     buildMentionEmailJobs({
+      origin: args.origin,
       emails: mentionEmails,
     })
   )
@@ -1081,6 +1087,7 @@ export async function addChannelPostCommentHandler(
   await queueEmailJobs(
     ctx,
     buildMentionEmailJobs({
+      origin: args.origin,
       emails: mentionEmails,
     })
   )

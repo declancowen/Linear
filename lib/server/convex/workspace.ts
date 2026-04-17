@@ -7,6 +7,7 @@ import {
   runConvexRequestWithRetry,
   withServerToken,
 } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 const REMOVE_WORKSPACE_USER_ERROR_MAPPINGS = [
   {
@@ -263,9 +264,14 @@ export async function removeWorkspaceUserServer(input: {
   userId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.removeWorkspaceUser,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw (
@@ -280,9 +286,14 @@ export async function leaveWorkspaceServer(input: {
   workspaceId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.leaveWorkspace,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw (
@@ -295,10 +306,15 @@ export async function deleteCurrentAccountServer(input: {
   currentUserId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await runConvexRequestWithRetry("deleteCurrentAccountServer", () =>
       getConvexServerClient().mutation(
         api.app.deleteCurrentAccount,
-        withServerToken(input)
+        withServerToken({
+          ...input,
+          origin,
+        })
       )
     )
   } catch (error) {
