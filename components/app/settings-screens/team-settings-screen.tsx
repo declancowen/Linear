@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 
-import { TeamIconGlyph } from "@/components/app/entity-icons"
 import {
   canAdminTeam,
   getTeamBySlug,
@@ -28,8 +27,8 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-import { TeamMembersCard, teamRoleRank } from "./member-management"
-import { SettingsScaffold } from "./shared"
+import { TeamMembersList, teamRoleRank } from "./member-management"
+import { SettingsScaffold, SettingsSection } from "./shared"
 import {
   defaultTeamSurfaceDisableReasons,
   TeamEditorFields,
@@ -88,7 +87,8 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         ]
       })
       .sort((left, right) => {
-        const rankDifference = teamRoleRank[left.role] - teamRoleRank[right.role]
+        const rankDifference =
+          teamRoleRank[left.role] - teamRoleRank[right.role]
 
         if (rankDifference !== 0) {
           return rankDifference
@@ -274,50 +274,31 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     >
       <div className="max-w-3xl space-y-10">
         <Tabs
+          className="gap-6"
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as "team" | "users")}
         >
-          <Card className="overflow-hidden shadow-none">
-            <div className="flex items-start gap-4 px-5 py-5">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border bg-muted/40">
-                <TeamIconGlyph icon={icon} className="size-5 text-foreground" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-base font-semibold">
-                  {currentTeam.name}
-                </div>
-                <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
-                  {currentTeam.settings.summary || "No summary set."}
-                </p>
-                <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span>{teamMembers.length} members</span>
-                  <span>·</span>
-                  <span>{currentTeam.settings.joinCode}</span>
-                </div>
-              </div>
-            </div>
-            <div className="border-t px-3">
-              <TabsList
-                variant="line"
-                className="h-10 justify-start gap-1 rounded-none border-0 px-0"
+          <div className="border-b">
+            <TabsList
+              variant="line"
+              className="h-9 justify-start gap-1 rounded-none border-0 px-0"
+            >
+              <TabsTrigger
+                value="team"
+                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
               >
-                <TabsTrigger
-                  value="team"
-                  className="rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  Team
-                </TabsTrigger>
-                <TabsTrigger
-                  value="users"
-                  className="rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  Users
-                </TabsTrigger>
-              </TabsList>
-            </div>
-          </Card>
+                Team
+              </TabsTrigger>
+              <TabsTrigger
+                value="users"
+                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                Users
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-          <TabsContent value="team" className="mt-6 space-y-10">
+          <TabsContent value="team" className="space-y-10">
             <TeamEditorFields
               canChangeExperience={false}
               disabled={!canManageTeam}
@@ -372,22 +353,24 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
             </section>
           </TabsContent>
 
-          <TabsContent value="users" className="mt-6">
-            <TeamMembersCard
-              members={teamMembers}
-              canManage={canManageTeam}
-              pendingMemberId={pendingMemberId}
-              pendingAction={pendingMemberAction}
-              onRoleChange={(userId, role) =>
-                void handleRoleChange(userId, role)
-              }
-              onRemove={(member) =>
-                setMemberToRemove({
-                  id: member.id,
-                  name: member.name,
-                })
-              }
-            />
+          <TabsContent value="users">
+            <SettingsSection title={`Team members · ${teamMembers.length}`}>
+              <TeamMembersList
+                members={teamMembers}
+                canManage={canManageTeam}
+                pendingMemberId={pendingMemberId}
+                pendingAction={pendingMemberAction}
+                onRoleChange={(userId, role) =>
+                  void handleRoleChange(userId, role)
+                }
+                onRemove={(member) =>
+                  setMemberToRemove({
+                    id: member.id,
+                    name: member.name,
+                  })
+                }
+              />
+            </SettingsSection>
           </TabsContent>
         </Tabs>
         <ConfirmDialog

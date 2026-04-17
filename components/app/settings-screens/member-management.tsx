@@ -1,13 +1,13 @@
 "use client"
 
-import type { ReactNode } from "react"
-import { Trash } from "@phosphor-icons/react"
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react"
+import { MagnifyingGlass, Trash } from "@phosphor-icons/react"
 
 import type { Role, UserStatus } from "@/lib/domain/types"
 import { UserAvatar } from "@/components/app/user-presence"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -15,6 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 type MemberIdentity = {
   id: string
@@ -71,6 +77,107 @@ export type TeamSettingsMember = MemberIdentity & {
   isCurrentUser: boolean
 }
 
+function getNormalizedMemberQuery(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function matchesMemberQuery(member: MemberIdentity, query: string) {
+  if (!query) {
+    return true
+  }
+
+  return (
+    member.name.toLowerCase().includes(query) ||
+    member.email.toLowerCase().includes(query)
+  )
+}
+
+function getMemberTitle(title?: string | null) {
+  const normalizedTitle = title?.trim()
+
+  if (!normalizedTitle || normalizedTitle.toLowerCase() === "member") {
+    return null
+  }
+
+  return normalizedTitle
+}
+
+function MemberSearchInput({
+  query,
+  onQueryChange,
+}: {
+  query: string
+  onQueryChange: (value: string) => void
+}) {
+  return (
+    <div className="relative max-w-md">
+      <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        className="h-10 pl-9 placeholder:text-muted-foreground/60"
+        placeholder="Search members..."
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+    </div>
+  )
+}
+
+function MemberList<T extends MemberIdentity>({
+  members,
+  renderRow,
+}: {
+  members: T[]
+  renderRow: (member: T) => ReactNode
+}) {
+  const [query, setQuery] = useState("")
+  const deferredQuery = useDeferredValue(query)
+  const normalizedQuery = getNormalizedMemberQuery(deferredQuery)
+  const filteredMembers = useMemo(() => {
+    return members.filter((member) =>
+      matchesMemberQuery(member, normalizedQuery)
+    )
+  }, [members, normalizedQuery])
+
+  return (
+    <div className="space-y-4">
+      {members.length > 0 ? (
+        <MemberSearchInput query={query} onQueryChange={setQuery} />
+      ) : null}
+      {filteredMembers.length > 0 ? (
+        <div className="divide-y">
+          {filteredMembers.map((member) => renderRow(member))}
+        </div>
+      ) : (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No members found.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function MemberTeamNote({ teamNames }: { teamNames: string[] }) {
+  const note =
+    teamNames.length > 0 ? teamNames.join(", ") : "No team memberships"
+
+  if (teamNames.length === 0) {
+    return <div className="truncate text-xs text-muted-foreground">{note}</div>
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="truncate text-xs text-muted-foreground">{note}</div>
+        </TooltipTrigger>
+        <TooltipContent sideOffset={6}>
+          <p className="max-w-sm leading-relaxed">{note}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 function MemberIdentityBlock({
   member,
   badge,
@@ -78,12 +185,12 @@ function MemberIdentityBlock({
 }: {
   member: MemberIdentity
   badge?: ReactNode
-  note?: string
+  note?: ReactNode
 }) {
-  const secondaryLine = member.title?.trim() || member.email
+  const title = getMemberTitle(member.title)
 
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="flex min-w-0 items-start gap-3">
       <UserAvatar
         name={member.name}
         avatarImageUrl={member.avatarImageUrl}
@@ -98,17 +205,37 @@ function MemberIdentityBlock({
           {badge}
         </div>
         <div className="truncate text-sm text-muted-foreground">
-          {secondaryLine}
+          {member.email}
         </div>
-        {note ? (
-          <div className="truncate text-xs text-muted-foreground">{note}</div>
+        {title ? (
+          <div className="truncate text-xs text-muted-foreground">{title}</div>
         ) : null}
+        {note ? note : null}
       </div>
     </div>
   )
 }
 
-export function WorkspaceUsersCard({
+function MemberListRow({
+  identity,
+  actions,
+}: {
+  identity: ReactNode
+  actions?: ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-3 px-0 py-3 sm:flex-row sm:items-start sm:justify-between">
+      {identity}
+      {actions ? (
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {actions}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function WorkspaceUsersList({
   members,
   canManage = false,
   pendingMemberId = null,
@@ -119,23 +246,10 @@ export function WorkspaceUsersCard({
   pendingMemberId?: string | null
   onRemove?: (member: WorkspaceSettingsUser) => void
 }) {
-  if (members.length === 0) {
-    return (
-      <Card className="border-dashed shadow-none">
-        <div className="px-5 py-6 text-sm text-muted-foreground">
-          No workspace users found.
-        </div>
-      </Card>
-    )
-  }
-
   return (
-    <Card className="overflow-hidden shadow-none">
-      {members.map((member, index) => {
-        const teamSummary =
-          member.teamNames.length > 0
-            ? `Teams: ${member.teamNames.join(", ")}`
-            : "No team memberships"
+    <MemberList
+      members={members}
+      renderRow={(member) => {
         const canRemove =
           canManage &&
           !member.isOwner &&
@@ -145,54 +259,53 @@ export function WorkspaceUsersCard({
         const isBusy = pendingMemberId === member.id
 
         return (
-          <div
+          <MemberListRow
             key={member.id}
-            className={
-              index < members.length - 1
-                ? "flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                : "flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+            identity={
+              <MemberIdentityBlock
+                member={member}
+                badge={
+                  member.isOwner ? (
+                    <Badge>Owner</Badge>
+                  ) : member.isWorkspaceAdmin ? (
+                    <Badge>Admin</Badge>
+                  ) : member.isCurrentUser ? (
+                    <Badge variant="outline">You</Badge>
+                  ) : null
+                }
+                note={<MemberTeamNote teamNames={member.teamNames} />}
+              />
             }
-          >
-            <MemberIdentityBlock
-              member={member}
-              badge={
-                member.isOwner ? (
-                  <Badge>Owner</Badge>
-                ) : member.isWorkspaceAdmin ? (
-                  <Badge>Admin</Badge>
-                ) : member.isCurrentUser ? (
-                  <Badge variant="outline">You</Badge>
-                ) : null
-              }
-              note={teamSummary}
-            />
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              <Badge variant="outline">
-                {member.isOwner
-                  ? "Workspace owner"
-                  : `${member.teamNames.length} team${member.teamNames.length === 1 ? "" : "s"}`}
-              </Badge>
-              {canRemove ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={isBusy}
-                  onClick={() => onRemove?.(member)}
-                >
-                  <Trash className="size-3.5" />
-                  {isBusy ? "Removing..." : "Remove"}
-                </Button>
-              ) : null}
-            </div>
-          </div>
+            actions={
+              <>
+                <Badge variant="outline">
+                  {member.isOwner
+                    ? "Workspace owner"
+                    : `${member.teamNames.length} team${member.teamNames.length === 1 ? "" : "s"}`}
+                </Badge>
+                {canRemove ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={isBusy}
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => onRemove?.(member)}
+                  >
+                    <Trash className="size-3.5" />
+                    {isBusy ? "Removing..." : "Remove"}
+                  </Button>
+                ) : null}
+              </>
+            }
+          />
         )
-      })}
-    </Card>
+      }}
+    />
   )
 }
 
-export function TeamMembersCard({
+export function TeamMembersList({
   members,
   canManage,
   pendingMemberId,
@@ -207,43 +320,27 @@ export function TeamMembersCard({
   onRoleChange: (userId: string, role: Role) => void
   onRemove: (member: TeamSettingsMember) => void
 }) {
-  if (members.length === 0) {
-    return (
-      <Card className="border-dashed shadow-none">
-        <div className="px-5 py-6 text-sm text-muted-foreground">
-          No team members found.
-        </div>
-      </Card>
-    )
-  }
-
   return (
-    <Card className="overflow-hidden shadow-none">
-      {members.map((member, index) => {
+    <MemberList
+      members={members}
+      renderRow={(member) => {
         const isBusy = pendingMemberId === member.id
 
         return (
-          <div
+          <MemberListRow
             key={member.id}
-            className={
-              index < members.length - 1
-                ? "flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                : "flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+            identity={
+              <MemberIdentityBlock
+                member={member}
+                badge={
+                  member.isCurrentUser ? (
+                    <Badge variant="outline">You</Badge>
+                  ) : undefined
+                }
+              />
             }
-          >
-            <MemberIdentityBlock
-              member={member}
-              badge={
-                member.isCurrentUser ? (
-                  <Badge variant="outline">You</Badge>
-                ) : undefined
-              }
-            />
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              <Badge variant={member.role === "admin" ? "default" : "outline"}>
-                {getRoleLabel(member.role)}
-              </Badge>
-              {canManage ? (
+            actions={
+              canManage ? (
                 <>
                   <Select
                     disabled={isBusy || member.isCurrentUser}
@@ -268,6 +365,7 @@ export function TeamMembersCard({
                     variant="ghost"
                     size="sm"
                     disabled={isBusy || member.isCurrentUser}
+                    className="text-muted-foreground hover:text-destructive"
                     onClick={() => onRemove(member)}
                   >
                     <Trash className="size-3.5" />
@@ -276,11 +374,17 @@ export function TeamMembersCard({
                       : "Remove"}
                   </Button>
                 </>
-              ) : null}
-            </div>
-          </div>
+              ) : (
+                <Badge
+                  variant={member.role === "admin" ? "default" : "outline"}
+                >
+                  {getRoleLabel(member.role)}
+                </Badge>
+              )
+            }
+          />
         )
-      })}
-    </Card>
+      }}
+    />
   )
 }
