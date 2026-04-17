@@ -75,8 +75,9 @@ export async function POST(
       documentId,
       workosUserId: authenticatedUser.workosUserId,
       email: authenticatedUser.email,
-      name: authenticatedUser.name,
-      avatarUrl: authenticatedUser.avatarUrl,
+      name: authContext.currentUser.name,
+      avatarUrl: authContext.currentUser.avatarUrl,
+      avatarImageUrl: authContext.currentUser.avatarImageUrl ?? null,
       sessionId: parsed.sessionId,
     })
 

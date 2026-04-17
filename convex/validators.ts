@@ -515,6 +515,7 @@ export const documentPresenceFields = {
   email: v.optional(v.string()),
   name: v.optional(v.string()),
   avatarUrl: v.optional(v.string()),
+  avatarImageUrl: v.optional(v.union(v.string(), v.null())),
   sessionId: v.string(),
   createdAt: v.string(),
   lastSeenAt: v.string(),

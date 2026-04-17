@@ -1,0 +1,9 @@
+.git
+.next
+dist
+node_modules
+linear/node_modules
+.reviews
+.DS_Store
+*.log
+*.zip

@@ -103,6 +103,9 @@ describe("workspace and profile route contracts", () => {
     requireConvexUserMock.mockResolvedValue({
       currentUser: {
         id: "user_1",
+        name: "Alex Stored",
+        avatarUrl: "AS",
+        avatarImageUrl: "https://example.com/convex-avatar.png",
       },
     })
     ensureWorkspaceOrganizationMock.mockResolvedValue({
@@ -308,6 +311,16 @@ describe("workspace and profile route contracts", () => {
       error: "Document presence session is already in use",
       message: "Document presence session is already in use",
       code: "DOCUMENT_PRESENCE_SESSION_CONFLICT",
+    })
+    expect(heartbeatDocumentPresenceServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      documentId: "document_1",
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+      name: "Alex Stored",
+      avatarUrl: "AS",
+      avatarImageUrl: "https://example.com/convex-avatar.png",
+      sessionId: "session_12345",
     })
   })
 })

@@ -1,5 +1,6 @@
 import { api } from "@/convex/_generated/api"
 import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
+import type { TeamMeetingRole } from "@/lib/server/100ms"
 import { ApplicationError, coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
@@ -130,6 +131,16 @@ const CREATE_WORKSPACE_CHAT_ERROR_MAPPINGS = [
     code: "CHAT_ACCESS_DENIED",
   },
 ] as const
+
+type CallJoinContext = {
+  callId: string | null
+  conversationId: string
+  roomId: string | null
+  roomName: string | null
+  roomKey: string
+  roomDescription: string
+  role: TeamMeetingRole
+}
 
 const ENSURE_TEAM_CHAT_ERROR_MAPPINGS = [
   {
@@ -544,12 +555,12 @@ export async function getCallJoinContextServer(input: {
   currentUserId: string
   callId?: string
   conversationId?: string
-}) {
+}): Promise<CallJoinContext> {
   try {
-    return await getConvexServerClient().query(
+    return (await getConvexServerClient().query(
       api.app.getCallJoinContext,
       withServerToken(input)
-    )
+    )) as CallJoinContext
   } catch (error) {
     throw (
       coerceApplicationError(error, [...GET_CALL_JOIN_CONTEXT_ERROR_MAPPINGS]) ??

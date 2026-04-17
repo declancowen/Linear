@@ -188,9 +188,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     let cancelled = false
+    let presenceActive = window.document.visibilityState === "visible"
     let heartbeatTimeoutId: number | null = null
     const activeDocumentId = currentDocumentId
-    const sessionId = getDocumentPresenceSessionId()
+    const sessionId = getDocumentPresenceSessionId(currentUserId)
 
     function clearHeartbeatTimeout() {
       if (heartbeatTimeoutId !== null) {
@@ -202,7 +203,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     function scheduleHeartbeat(delayMs: number) {
       clearHeartbeatTimeout()
 
-      if (cancelled) {
+      if (
+        cancelled ||
+        !presenceActive ||
+        window.document.visibilityState !== "visible"
+      ) {
         return
       }
 
@@ -212,7 +217,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     async function sendHeartbeat() {
-      if (cancelled) {
+      if (
+        cancelled ||
+        !presenceActive ||
+        window.document.visibilityState !== "visible"
+      ) {
         return
       }
 
@@ -222,7 +231,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
           sessionId
         )
 
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          presenceActive &&
+          window.document.visibilityState === "visible"
+        ) {
           setDocumentPresenceViewers(viewers)
         }
       } catch (error) {
@@ -234,7 +247,17 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       }
     }
 
+    function resumePresence() {
+      if (cancelled || window.document.visibilityState !== "visible") {
+        return
+      }
+
+      presenceActive = true
+      void sendHeartbeat()
+    }
+
     function leaveDocument(options?: { keepalive?: boolean }) {
+      presenceActive = false
       clearHeartbeatTimeout()
 
       if (!cancelled) {
@@ -252,21 +275,39 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     const handleVisibilityChange = () => {
       if (window.document.visibilityState === "visible") {
-        void sendHeartbeat()
+        resumePresence()
+        return
       }
+
+      leaveDocument({ keepalive: true })
+    }
+    const handleWindowFocus = () => {
+      resumePresence()
+    }
+    const handleWindowOnline = () => {
+      resumePresence()
+    }
+    const handlePageShow = () => {
+      resumePresence()
     }
     const handlePageHide = () => {
       leaveDocument({ keepalive: true })
     }
 
-    void sendHeartbeat()
+    resumePresence()
 
+    window.addEventListener("focus", handleWindowFocus)
+    window.addEventListener("online", handleWindowOnline)
+    window.addEventListener("pageshow", handlePageShow)
     window.document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("pagehide", handlePageHide)
 
     return () => {
       cancelled = true
       clearHeartbeatTimeout()
+      window.removeEventListener("focus", handleWindowFocus)
+      window.removeEventListener("online", handleWindowOnline)
+      window.removeEventListener("pageshow", handlePageShow)
       window.document.removeEventListener(
         "visibilitychange",
         handleVisibilityChange
@@ -276,7 +317,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [currentDocumentId, resolvedDocumentKind])
+  }, [currentDocumentId, resolvedDocumentKind, currentUserId])
   const activePendingMentionEntries = useMemo(
     () => getPendingDocumentMentionEntries(mentionQueue),
     [mentionQueue]

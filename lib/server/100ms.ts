@@ -9,7 +9,7 @@ type HmsRoom = {
   name: string
 }
 
-type TeamMeetingRole = "host" | "guest"
+export type TeamMeetingRole = "host" | "guest"
 
 type ConversationMeetingInput = {
   roomKey: string

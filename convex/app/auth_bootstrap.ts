@@ -858,13 +858,16 @@ export async function getAuthContextHandler(
     null
   const activeWorkspace = currentWorkspace ?? pendingWorkspace
   const onboardingState = activeWorkspace ? "ready" : "needs-workspace"
+  const resolvedCurrentUser = await resolveUserSnapshot(ctx, user)
 
   return {
     currentUser: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      workosUserId: user.workosUserId ?? null,
+      id: resolvedCurrentUser.id,
+      email: resolvedCurrentUser.email,
+      name: resolvedCurrentUser.name,
+      workosUserId: resolvedCurrentUser.workosUserId ?? null,
+      avatarUrl: resolvedCurrentUser.avatarUrl,
+      avatarImageUrl: resolvedCurrentUser.avatarImageUrl,
     },
     memberships: memberships.map((membership) => ({
       teamId: membership.teamId,

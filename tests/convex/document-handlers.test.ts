@@ -5,10 +5,12 @@ const assertServerTokenMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const listActiveUsersByIdsMock = vi.fn()
 const requireEditableDocumentAccessMock = vi.fn()
+const requireReadableDocumentAccessMock = vi.fn()
 const getTeamMemberIdsMock = vi.fn()
 const getWorkspaceUserIdsMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
 const createNotificationMock = vi.fn()
+const listDocumentPresenceViewersMock = vi.fn()
 type MockDocumentRecord = {
   _id: string
   notifiedMentionCounts?: Record<string, number>
@@ -40,7 +42,7 @@ vi.mock("@/convex/app/access", () => ({
   requireEditableDocumentAccess: requireEditableDocumentAccessMock,
   requireEditableTeamAccess: vi.fn(),
   requireEditableWorkspaceAccess: vi.fn(),
-  requireReadableDocumentAccess: vi.fn(),
+  requireReadableDocumentAccess: requireReadableDocumentAccessMock,
   requireWorkspaceAdminAccess: vi.fn(),
 }))
 
@@ -66,7 +68,7 @@ vi.mock("@/convex/app/lifecycle", () => ({
 }))
 
 vi.mock("@/convex/app/normalization", () => ({
-  listDocumentPresenceViewers: vi.fn(),
+  listDocumentPresenceViewers: listDocumentPresenceViewersMock,
   normalizeTeam: vi.fn(),
 }))
 
@@ -95,10 +97,12 @@ describe("document mention notifications", () => {
     getDocumentDocMock.mockReset()
     listActiveUsersByIdsMock.mockReset()
     requireEditableDocumentAccessMock.mockReset()
+    requireReadableDocumentAccessMock.mockReset()
     getTeamMemberIdsMock.mockReset()
     getWorkspaceUserIdsMock.mockReset()
     queueEmailJobsMock.mockReset()
     createNotificationMock.mockReset()
+    listDocumentPresenceViewersMock.mockReset()
 
     buildMentionEmailJobsMock.mockImplementation(({ emails }) => emails)
     createNotificationMock.mockImplementation(
@@ -341,6 +345,192 @@ describe("document mention notifications", () => {
       notifiedMentionCounts: {},
       updatedAt: "2026-04-17T20:24:45.000Z",
       updatedBy: "user_1",
+    })
+  })
+})
+
+describe("document presence handlers", () => {
+  beforeEach(() => {
+    assertServerTokenMock.mockReset()
+    getDocumentDocMock.mockReset()
+    requireReadableDocumentAccessMock.mockReset()
+    listDocumentPresenceViewersMock.mockReset()
+
+    getDocumentDocMock.mockResolvedValue({
+      _id: "document_1_db",
+      id: "document_1",
+      kind: "workspace-document",
+      workspaceId: "workspace_1",
+      teamId: null,
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    })
+    requireReadableDocumentAccessMock.mockResolvedValue(undefined)
+    listDocumentPresenceViewersMock.mockResolvedValue([
+      {
+        userId: "workos_2",
+        name: "Sam",
+        avatarUrl: "https://example.com/sam.png",
+        avatarImageUrl: null,
+        lastSeenAt: "2026-04-17T20:24:45.000Z",
+      },
+    ])
+  })
+
+  it("inserts document presence for a new session and returns other active viewers", async () => {
+    const { heartbeatDocumentPresenceHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const ctx = createCtx()
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([]),
+      })),
+    })
+
+    const result = await heartbeatDocumentPresenceHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      documentId: "document_1",
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+      name: "Alex",
+      avatarUrl: "https://example.com/alex.png",
+      avatarImageUrl: "https://example.com/alex-photo.png",
+      sessionId: "session_12345",
+    })
+
+    expect(requireReadableDocumentAccessMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        id: "document_1",
+      }),
+      "user_1"
+    )
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "documentPresence",
+      expect.objectContaining({
+        documentId: "document_1",
+        userId: "user_1",
+        workosUserId: "workos_1",
+        sessionId: "session_12345",
+        email: "alex@example.com",
+        name: "Alex",
+        avatarUrl: "https://example.com/alex.png",
+        avatarImageUrl: "https://example.com/alex-photo.png",
+        createdAt: "2026-04-17T20:24:45.000Z",
+        lastSeenAt: "2026-04-17T20:24:45.000Z",
+      })
+    )
+    expect(listDocumentPresenceViewersMock).toHaveBeenCalledWith(
+      ctx,
+      "document_1",
+      "user_1",
+      "workos_1"
+    )
+    expect(result).toEqual([
+      {
+        userId: "workos_2",
+        name: "Sam",
+        avatarUrl: "https://example.com/sam.png",
+        avatarImageUrl: null,
+        lastSeenAt: "2026-04-17T20:24:45.000Z",
+      },
+    ])
+  })
+
+  it("updates an existing session entry, removes duplicates, and moves presence to the latest document", async () => {
+    const { heartbeatDocumentPresenceHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const ctx = createCtx()
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([
+          {
+            _id: "presence_newest",
+            documentId: "document_old",
+            userId: "user_1",
+            workosUserId: "workos_1",
+            sessionId: "session_12345",
+            lastSeenAt: "2026-04-17T20:20:00.000Z",
+          },
+          {
+            _id: "presence_duplicate",
+            documentId: "document_old",
+            userId: "user_1",
+            workosUserId: "workos_1",
+            sessionId: "session_12345",
+            lastSeenAt: "2026-04-17T20:10:00.000Z",
+          },
+        ]),
+      })),
+    })
+
+    await heartbeatDocumentPresenceHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      documentId: "document_1",
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+      name: "Alex",
+      avatarUrl: "https://example.com/alex.png",
+      avatarImageUrl: "https://example.com/alex-photo.png",
+      sessionId: "session_12345",
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith("presence_newest", {
+      avatarUrl: "https://example.com/alex.png",
+      avatarImageUrl: "https://example.com/alex-photo.png",
+      documentId: "document_1",
+      email: "alex@example.com",
+      lastSeenAt: "2026-04-17T20:24:45.000Z",
+      name: "Alex",
+      userId: "user_1",
+      workosUserId: "workos_1",
+    })
+    expect(ctx.db.delete).toHaveBeenCalledWith("presence_duplicate")
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("clears presence only for the requested document when a session spans multiple documents", async () => {
+    const { clearDocumentPresenceHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const ctx = createCtx()
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([
+          {
+            _id: "presence_doc_1",
+            documentId: "document_1",
+            userId: "user_1",
+            workosUserId: "workos_1",
+            sessionId: "session_12345",
+          },
+          {
+            _id: "presence_doc_2",
+            documentId: "document_2",
+            userId: "user_1",
+            workosUserId: "workos_1",
+            sessionId: "session_12345",
+          },
+        ]),
+      })),
+    })
+
+    const result = await clearDocumentPresenceHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      documentId: "document_1",
+      workosUserId: "workos_1",
+      sessionId: "session_12345",
+    })
+
+    expect(ctx.db.delete).toHaveBeenCalledTimes(1)
+    expect(ctx.db.delete).toHaveBeenCalledWith("presence_doc_1")
+    expect(result).toEqual({
+      ok: true,
     })
   })
 })

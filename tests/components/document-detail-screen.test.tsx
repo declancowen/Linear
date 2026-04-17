@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
@@ -142,7 +142,11 @@ vi.mock("@/components/app/screens/helpers", () => ({
 }))
 
 vi.mock("@/components/app/screens/document-ui", () => ({
-  DocumentPresenceAvatarGroup: () => null,
+  DocumentPresenceAvatarGroup: ({
+    viewers,
+  }: {
+    viewers: Array<{ name: string }>
+  }) => <div>{viewers.map((viewer) => viewer.name).join(",")}</div>,
 }))
 
 vi.mock("@/components/app/screens/shared", () => ({
@@ -241,6 +245,10 @@ const mentionedUser = {
 }
 
 describe("DocumentDetailScreen", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   beforeEach(() => {
     fetchSnapshotMock.mockReset()
     flushDocumentSyncMock.mockReset()
@@ -314,6 +322,264 @@ describe("DocumentDetailScreen", () => {
         },
       ],
     })
+  })
+
+  it("starts and clears document presence for editable documents", async () => {
+    const { unmount } = render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    unmount()
+
+    await waitFor(() => {
+      expect(syncClearDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1",
+        {
+          keepalive: true,
+        }
+      )
+    })
+  })
+
+  it("refreshes document presence when the window regains focus", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    syncHeartbeatDocumentPresenceMock.mockClear()
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"))
+    })
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+  })
+
+  it("clears document presence when the page becomes hidden", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    syncClearDocumentPresenceMock.mockClear()
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      await waitFor(() => {
+        expect(syncClearDocumentPresenceMock).toHaveBeenCalledWith(
+          "doc_1",
+          "session_1",
+          {
+            keepalive: true,
+          }
+        )
+      })
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
+  it("does not resume document presence while hidden when connectivity returns", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      syncHeartbeatDocumentPresenceMock.mockClear()
+
+      await act(async () => {
+        window.dispatchEvent(new Event("online"))
+      })
+
+      expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
+  it("does not restart heartbeat polling after leaving with an in-flight heartbeat", async () => {
+    vi.useFakeTimers()
+
+    let resolveHeartbeat: ((viewers: []) => void) | null = null
+    syncHeartbeatDocumentPresenceMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHeartbeat = resolve as (viewers: []) => void
+        })
+    )
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledTimes(1)
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      syncHeartbeatDocumentPresenceMock.mockClear()
+
+      await act(async () => {
+        resolveHeartbeat?.([])
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000)
+      })
+
+      expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
+  it("does not show stale viewers when a hidden in-flight heartbeat resolves", async () => {
+    let resolveHeartbeat:
+      | ((viewers: Array<{ name: string; userId: string; avatarUrl: string; lastSeenAt: string }>) => void)
+      | null = null
+    syncHeartbeatDocumentPresenceMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHeartbeat = resolve as typeof resolveHeartbeat
+        })
+    )
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      await act(async () => {
+        resolveHeartbeat?.([
+          {
+            userId: "workos_2",
+            name: "Sam",
+            avatarUrl: "SS",
+            lastSeenAt: new Date().toISOString(),
+          },
+        ])
+        await Promise.resolve()
+      })
+
+      expect(screen.queryByText("Sam")).not.toBeInTheDocument()
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
   })
 
   it("opens the exit dialog when browser history navigation is attempted with pending mentions", async () => {
