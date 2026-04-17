@@ -146,6 +146,24 @@ export function getWorkspaceEditableRoleInCollections(
   return teamRole ? mergeRole(workspaceRole, teamRole) : workspaceRole
 }
 
+export function getWorkspaceEffectiveRoleInCollections(
+  workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
+  workspaceId: string,
+  userId: string
+) {
+  return getWorkspaceEditableRoleInCollections(
+    workspaces,
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+    workspaceId,
+    userId
+  )
+}
+
 export function hasWorkspaceAccessInCollections(
   workspaces: AppData["workspaces"],
   workspaceMemberships: AppData["workspaceMemberships"],
@@ -214,7 +232,7 @@ export function canEditTeam(data: AppData, teamId: string) {
 }
 
 export function canEditWorkspace(data: AppData, workspaceId: string) {
-  const role = getWorkspaceEditableRoleInCollections(
+  const role = getWorkspaceEffectiveRoleInCollections(
     data.workspaces,
     data.workspaceMemberships,
     data.teams,
@@ -236,7 +254,7 @@ export function canAdminTeam(data: AppData, teamId: string) {
 
 export function canAdminWorkspace(data: AppData, workspaceId: string) {
   return (
-    getWorkspaceRoleInCollections(
+    getWorkspaceEffectiveRoleInCollections(
       data.workspaces,
       data.workspaceMemberships,
       data.teams,

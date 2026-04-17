@@ -69,13 +69,82 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 20:03:24 BST` |
-| **Total turns** | `11` |
+| **Last reviewed** | `2026-04-17 18:55:33 BST` |
+| **Total turns** | `13` |
 | **Open findings** | `0` |
-| **Resolved findings** | `22` |
+| **Resolved findings** | `23` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 13 — 2026-04-17 18:55:33 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `84699d1` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `B12-01`. Workspace-admin capability now merges team-admin fallback again in both the server role map and the client selector path, so a stale direct `viewer` row no longer hides a real team-admin role for admin-gated flows like team creation.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 13 | 1 |
+| Carried from Turn 12 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 13
+
+#### B12-01 ~~[BUG] Medium~~ → RESOLVED — Workspace admin gating still dropped team-admin fallback when a direct workspace membership row exists
+**How it was fixed:** [buildWorkspaceRoleMapForUser](../convex/app/data.ts:1133) now merges direct workspace roles with team-derived roles instead of suppressing team roles whenever a direct membership row exists. On the client, [canAdminWorkspace](../lib/domain/selectors-internal/core.ts:254) now uses the merged effective workspace role rather than the direct-only role. This restores the pre-membership fallback behavior for admin capability while keeping the current direct-membership model.
+**Verified:** Added regression coverage in [workspace-role-map.test.ts](../tests/convex/workspace-role-map.test.ts:1) and [workspace-access.test.ts](../tests/lib/domain/workspace-access.test.ts:10), then ran:
+- `pnpm test -- tests/lib/domain/workspace-access.test.ts tests/convex/workspace-role-map.test.ts`
+- `pnpm exec eslint convex/app/data.ts lib/domain/selectors-internal/core.ts tests/lib/domain/workspace-access.test.ts tests/convex/workspace-role-map.test.ts --max-warnings 0`
+
+## Turn 12 — 2026-04-17 18:50:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `84699d1` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Follow-up review of the latest pasted provider findings found one real remaining regression in the current branch: workspace-admin capability still falls back to the direct workspace-membership row only, so a stale direct role can hide a real team-admin role in both client and server admin gates. The other new notes are either already fixed in the current branch, intentionally asymmetric behavior, or acceptable tradeoffs rather than active bugs.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 12 | 0 |
+| Carried from Turn 11 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B12-01 [BUG] Medium — Workspace admin gating still drops team-admin fallback when a direct workspace membership row exists
+**Where:** [convex/app/data.ts](../convex/app/data.ts:1133), [convex/app/access.ts](../convex/app/access.ts:168), [lib/domain/selectors-internal/core.ts](../lib/domain/selectors-internal/core.ts:237), [components/app/settings-screens/create-team-screen.tsx](../components/app/settings-screens/create-team-screen.tsx:31), [components/app/shell.tsx](../components/app/shell.tsx:254), [convex/app/auth_bootstrap.ts](../convex/app/auth_bootstrap.ts:896)
+
+**What’s wrong:** `getWorkspaceRoleMapForUser()` now suppresses team-derived roles for any workspace that already has a direct `workspaceMembership` row. `requireWorkspaceAdminAccess()` and `auth_bootstrap` consume that role map, while `canAdminWorkspace()` still uses the direct-first `getWorkspaceRoleInCollections()` path. As a result, a user with a stale direct `viewer` membership but a real team-admin role is treated as non-admin for admin-gated flows like team creation.
+
+**Why it matters:** This is the same cache-staleness class we already hardened for editable workspace access, but it still exists for admin capability. It regresses the pre-workspace-membership behavior on `main`, where workspace admin capability was derived from team-admin roles. If membership sync ever drifts again, legitimate admins lose access to admin-only actions in both client and server paths.
+
+**Root cause:** Admin capability is still modeled as “direct workspace role is authoritative if present” even though the direct workspace row is a denormalized projection of underlying team memberships for most non-owner users.
+
+**What to change:** Introduce a merged workspace-admin role path, parallel to the merged editable-role path:
+- either make `getWorkspaceRoleMapForUser()` merge direct and team-derived roles instead of skipping team roles when a direct row exists
+- or add a dedicated helper for effective workspace admin capability and use it consistently in `requireWorkspaceAdminAccess()`, `canAdminWorkspace()`, and bootstrap/UI admin flags
+
+### Remaining pasted notes classified
+
+- The two provider findings are the same underlying issue as `B12-01`, not separate bugs.
+- The `syncWorkspaceMembershipRoleFromTeams` / `cleanup.ts` viewer-accumulation note is still an intentional policy choice, not a correctness regression. The current design keeps workspace membership as persistent access rather than auto-removing the user when their last team is deleted.
+- The Electron-artifact note is stale. [`.gitignore`](../.gitignore:18) now ignores `dist/electron/`, [`.gitattributes`](../.gitattributes:1) no longer LFS-tracks it, and `git ls-files` now only shows `dist/electron-stage/*`.
+- The maintenance key-splitting note is stale. [maintenance.ts](../convex/app/maintenance.ts:86) now stores full membership records in the backfill map rather than reconstructing ids from `split(":")`.
+- The `mergeRole` duplication note is stale. Shared role precedence now lives in [lib/domain/roles.ts](../lib/domain/roles.ts:1), and [convex/app/core.ts](../convex/app/core.ts:7) delegates to it.
+- The document click interceptor in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:275) is still broad, but it reads as intentional UX policy while pending mention notifications exist.
+- The Resend sender-normalization note in [scripts/resend-from.mjs](../scripts/resend-from.mjs:1) is cosmetic. The current `email <email>` fallback is unusual but valid and covered by tests; this is not a blocking bug.
+- The rich-text mention fallback note is an acceptable parser tradeoff, not an active defect. The fallback in [rich-text-mentions.ts](../lib/content/rich-text-mentions.ts:9) now matches the mention-only semantics of the DOM path for the supported quoted-attribute cases we actually generate.
+- The workspace-deletion email/provider-cleanup asymmetry is intentional. Active users get emails; all memberships still get WorkOS cleanup.
+- The `Promise.all` indentation note is cosmetic only.
+- The team-deletion notification ordering note is intentional and already documented inline in the handler.
 
 ## Turn 11 — 2026-04-16 20:03:24 BST
 

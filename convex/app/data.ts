@@ -1130,6 +1130,69 @@ export function isDefinedString(
   return typeof value === "string" && value.length > 0
 }
 
+export function buildWorkspaceRoleMapForUser(input: {
+  userId: string
+  workspaces: Array<{
+    id: string
+    createdBy?: string | null
+  }>
+  teams: Array<{
+    id: string
+    workspaceId: string
+  }>
+  teamMemberships: Array<{
+    teamId: string
+    role: "admin" | "member" | "viewer" | "guest"
+  }>
+  workspaceMemberships: Array<{
+    workspaceId: string
+    role: "admin" | "member" | "viewer" | "guest"
+  }>
+}) {
+  const workspaceIdByTeamId = new Map(
+    input.teams.map((team) => [team.id, team.workspaceId] as const)
+  )
+  const workspaceRoleMap = input.workspaceMemberships.reduce<
+    Record<string, Array<(typeof input.teamMemberships)[number]["role"]>>
+  >((accumulator, membership) => {
+    accumulator[membership.workspaceId] = [
+      ...(accumulator[membership.workspaceId] ?? []),
+      membership.role,
+    ]
+    return accumulator
+  }, {})
+
+  for (const membership of input.teamMemberships) {
+    const workspaceId = workspaceIdByTeamId.get(membership.teamId)
+
+    if (!workspaceId) {
+      continue
+    }
+
+    const roles = new Set<(typeof input.teamMemberships)[number]["role"]>([
+      ...(workspaceRoleMap[workspaceId] ?? []),
+      membership.role,
+    ])
+
+    workspaceRoleMap[workspaceId] = [...roles]
+  }
+
+  for (const workspace of input.workspaces) {
+    if (workspace.createdBy !== input.userId) {
+      continue
+    }
+
+    const ownedRoles = new Set<(typeof input.teamMemberships)[number]["role"]>([
+      ...(workspaceRoleMap[workspace.id] ?? []),
+      "admin",
+    ])
+
+    workspaceRoleMap[workspace.id] = [...ownedRoles]
+  }
+
+  return workspaceRoleMap
+}
+
 export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
   const [workspaceMemberships, memberships] = await Promise.all([
     listWorkspaceMembershipsByUser(ctx, userId),
@@ -1140,53 +1203,14 @@ export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
     memberships.map((membership) => membership.teamId)
   )
   const workspaces = await listWorkspacesOwnedByUser(ctx, userId)
-  const directWorkspaceIds = new Set(
-    workspaceMemberships.map((membership) => membership.workspaceId)
-  )
-  const workspaceRoleMap = workspaceMemberships.reduce<
-    Record<string, Array<(typeof memberships)[number]["role"]>>
-  >((accumulator, membership) => {
-    accumulator[membership.workspaceId] = [membership.role]
-    return accumulator
-  }, {})
-  const fallbackWorkspaceRoleMap = memberships.reduce<
-    Record<string, Array<(typeof memberships)[number]["role"]>>
-  >((accumulator, membership) => {
-    const team = teams.find((entry) => entry.id === membership.teamId)
-    if (!team) {
-      return accumulator
-    }
 
-    if (directWorkspaceIds.has(team.workspaceId)) {
-      return accumulator
-    }
-
-    accumulator[team.workspaceId] = [
-      ...(accumulator[team.workspaceId] ?? []),
-      membership.role,
-    ]
-
-    return accumulator
-  }, {})
-
-  for (const [workspaceId, roles] of Object.entries(fallbackWorkspaceRoleMap)) {
-    workspaceRoleMap[workspaceId] = roles
-  }
-
-  for (const workspace of workspaces) {
-    if (workspace.createdBy !== userId) {
-      continue
-    }
-
-    const ownedRoles = new Set<(typeof memberships)[number]["role"]>([
-      ...(workspaceRoleMap[workspace.id] ?? []),
-      "admin",
-    ])
-
-    workspaceRoleMap[workspace.id] = [...ownedRoles]
-  }
-
-  return workspaceRoleMap
+  return buildWorkspaceRoleMapForUser({
+    userId,
+    workspaces,
+    teams,
+    teamMemberships: memberships,
+    workspaceMemberships,
+  })
 }
 
 export async function getWorkspaceEditRole(
