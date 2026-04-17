@@ -499,7 +499,6 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         ])
       )
         .flat()
-        .flat()
         .map((invite) => [invite.id, invite] as const)
     ).values(),
   ].filter(
@@ -526,7 +525,6 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         scopeId: workspaceId,
       }))
     ))
-      .flat()
       .filter(
         (conversation) =>
           conversation.kind === "channel" ||
@@ -702,9 +700,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         resolveUserSnapshot(ctx, user)
       )
     ),
-    labels: (await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList)).filter(
-      (label) => accessibleWorkspaceIds.has(label.workspaceId)
-    ),
+    labels: await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList),
     projects: visibleProjects,
     milestones: await listMilestonesByProjects(ctx, visibleProjectIds),
     workItems: visibleWorkItems.map((item) =>
