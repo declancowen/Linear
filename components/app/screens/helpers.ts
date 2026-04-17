@@ -189,11 +189,22 @@ export function getDocumentPresenceSessionId(currentUserId?: string | null) {
       DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY
     )
 
-    if (
-      existingSessionId &&
-      (!currentUserId || !existingUserId || existingUserId === currentUserId)
-    ) {
-      return existingSessionId
+    if (existingSessionId) {
+      if (!currentUserId) {
+        return existingSessionId
+      }
+
+      if (!existingUserId) {
+        window.sessionStorage.setItem(
+          DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY,
+          currentUserId
+        )
+        return existingSessionId
+      }
+
+      if (existingUserId === currentUserId) {
+        return existingSessionId
+      }
     }
 
     const nextSessionId = createPresenceSessionId()
@@ -214,12 +225,25 @@ export function getDocumentPresenceSessionId(currentUserId?: string | null) {
 
     return nextSessionId
   } catch (error) {
-    if (
-      !documentPresenceSessionFallbackState ||
-      documentPresenceSessionFallbackState.userId !== (currentUserId ?? null)
-    ) {
+    if (!documentPresenceSessionFallbackState) {
       documentPresenceSessionFallbackState = {
         userId: currentUserId ?? null,
+        sessionId: createPresenceSessionId(),
+      }
+    } else if (
+      currentUserId &&
+      !documentPresenceSessionFallbackState.userId
+    ) {
+      documentPresenceSessionFallbackState = {
+        ...documentPresenceSessionFallbackState,
+        userId: currentUserId,
+      }
+    } else if (
+      currentUserId &&
+      documentPresenceSessionFallbackState.userId !== currentUserId
+    ) {
+      documentPresenceSessionFallbackState = {
+        userId: currentUserId,
         sessionId: createPresenceSessionId(),
       }
     }

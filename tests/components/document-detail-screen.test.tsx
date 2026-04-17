@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
@@ -241,6 +241,10 @@ const mentionedUser = {
 }
 
 describe("DocumentDetailScreen", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   beforeEach(() => {
     fetchSnapshotMock.mockReset()
     flushDocumentSyncMock.mockReset()
@@ -399,6 +403,110 @@ describe("DocumentDetailScreen", () => {
           }
         )
       })
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
+  it("does not resume document presence while hidden when connectivity returns", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      syncHeartbeatDocumentPresenceMock.mockClear()
+
+      await act(async () => {
+        window.dispatchEvent(new Event("online"))
+      })
+
+      expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
+  it("does not restart heartbeat polling after leaving with an in-flight heartbeat", async () => {
+    vi.useFakeTimers()
+
+    let resolveHeartbeat: ((viewers: []) => void) | null = null
+    syncHeartbeatDocumentPresenceMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHeartbeat = resolve as (viewers: []) => void
+        })
+    )
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledTimes(1)
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      syncHeartbeatDocumentPresenceMock.mockClear()
+
+      await act(async () => {
+        resolveHeartbeat?.([])
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000)
+      })
+
+      expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
     } finally {
       if (visibilityStateDescriptor) {
         Object.defineProperty(

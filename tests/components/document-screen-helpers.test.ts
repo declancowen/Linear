@@ -20,4 +20,20 @@ describe("document presence session helpers", () => {
 
     expect(secondSessionId).not.toBe(firstSessionId)
   })
+
+  it("backfills the user key for legacy stored sessions before rotating", () => {
+    window.sessionStorage.setItem(
+      "linear.document-presence-session-id",
+      "legacy_session"
+    )
+
+    const firstSessionId = getDocumentPresenceSessionId("user_1")
+    const secondSessionId = getDocumentPresenceSessionId("user_2")
+
+    expect(firstSessionId).toBe("legacy_session")
+    expect(secondSessionId).not.toBe(firstSessionId)
+    expect(
+      window.sessionStorage.getItem("linear.document-presence-session-user-id")
+    ).toBe("user_2")
+  })
 })

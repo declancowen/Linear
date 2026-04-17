@@ -188,6 +188,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     let cancelled = false
+    let presenceActive = window.document.visibilityState === "visible"
     let heartbeatTimeoutId: number | null = null
     const activeDocumentId = currentDocumentId
     const sessionId = getDocumentPresenceSessionId(currentUserId)
@@ -202,7 +203,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     function scheduleHeartbeat(delayMs: number) {
       clearHeartbeatTimeout()
 
-      if (cancelled) {
+      if (
+        cancelled ||
+        !presenceActive ||
+        window.document.visibilityState !== "visible"
+      ) {
         return
       }
 
@@ -212,7 +217,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     async function sendHeartbeat() {
-      if (cancelled) {
+      if (
+        cancelled ||
+        !presenceActive ||
+        window.document.visibilityState !== "visible"
+      ) {
         return
       }
 
@@ -234,7 +243,17 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       }
     }
 
+    function resumePresence() {
+      if (cancelled || window.document.visibilityState !== "visible") {
+        return
+      }
+
+      presenceActive = true
+      void sendHeartbeat()
+    }
+
     function leaveDocument(options?: { keepalive?: boolean }) {
+      presenceActive = false
       clearHeartbeatTimeout()
 
       if (!cancelled) {
@@ -252,26 +271,26 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     const handleVisibilityChange = () => {
       if (window.document.visibilityState === "visible") {
-        void sendHeartbeat()
+        resumePresence()
         return
       }
 
       leaveDocument({ keepalive: true })
     }
     const handleWindowFocus = () => {
-      void sendHeartbeat()
+      resumePresence()
     }
     const handleWindowOnline = () => {
-      void sendHeartbeat()
+      resumePresence()
     }
     const handlePageShow = () => {
-      void sendHeartbeat()
+      resumePresence()
     }
     const handlePageHide = () => {
       leaveDocument({ keepalive: true })
     }
 
-    void sendHeartbeat()
+    resumePresence()
 
     window.addEventListener("focus", handleWindowFocus)
     window.addEventListener("online", handleWindowOnline)
