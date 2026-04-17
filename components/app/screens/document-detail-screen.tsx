@@ -13,7 +13,7 @@ import {
   syncSendDocumentMentionNotifications,
 } from "@/lib/convex/client"
 import {
-  filterPendingDocumentMentionsByContent,
+  extractRichTextMentionCounts,
   summarizePendingDocumentMentions,
   type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
@@ -48,6 +48,16 @@ type DocumentMentionNotificationsResponse = {
   recipientCount: number
   mentionCount: number
 }
+
+type PendingExitTarget =
+  | {
+      kind: "href"
+      href: string
+    }
+  | {
+      kind: "history"
+    }
+  | null
 
 function formatMentionCountLabel(count: number) {
   return `${count} ${count === 1 ? "mention" : "mentions"}`
@@ -95,25 +105,45 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
-  const [pendingMentionCounts, setPendingMentionCounts] = useState<
+  const [mentionBaselineCounts, setMentionBaselineCounts] = useState<
     Record<string, number>
+  >({})
+  const [pendingMentionUsers, setPendingMentionUsers] = useState<
+    Record<string, true>
   >({})
   const [sendingMentionNotifications, setSendingMentionNotifications] =
     useState(false)
-  const [pendingExitHref, setPendingExitHref] = useState<string | null>(null)
+  const [pendingExitTarget, setPendingExitTarget] =
+    useState<PendingExitTarget>(null)
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const allowHistoryExitRef = useRef(false)
+  const currentRouteHrefRef = useRef<string | null>(null)
+  const currentRouteStateRef = useRef<unknown>(null)
+  const previousDocumentIdRef = useRef<string | null>(null)
   const currentDocumentId = document?.id ?? null
   const resolvedDocumentKind = document?.kind ?? null
   const documentTitle = document?.title ?? ""
 
   useEffect(() => {
+    if (previousDocumentIdRef.current === currentDocumentId) {
+      return
+    }
+
+    previousDocumentIdRef.current = currentDocumentId
     setIsEditingTitle(false)
-    setPendingMentionCounts({})
-    setPendingExitHref(null)
+    setMentionBaselineCounts(extractRichTextMentionCounts(document?.content ?? ""))
+    setPendingMentionUsers({})
+    setPendingExitTarget(null)
     setExitDialogOpen(false)
+    allowHistoryExitRef.current = false
+  }, [currentDocumentId, document?.content])
+
+  useEffect(() => {
+    currentRouteHrefRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    currentRouteStateRef.current = window.history.state
   }, [currentDocumentId])
 
   useEffect(() => {
@@ -233,21 +263,31 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       }).catch(() => {})
     }
   }, [currentDocumentId, resolvedDocumentKind])
-  const pendingMentionEntries = useMemo<PendingDocumentMention[]>(
-    () =>
-      Object.entries(pendingMentionCounts).map(([userId, count]) => ({
-        userId,
-        count,
-      })),
-    [pendingMentionCounts]
+  const currentMentionCounts = useMemo(
+    () => extractRichTextMentionCounts(document?.content ?? ""),
+    [document?.content]
   )
   const activePendingMentionEntries = useMemo(
     () =>
-      filterPendingDocumentMentionsByContent(
-        pendingMentionEntries,
-        document?.content ?? ""
+      Object.keys(pendingMentionUsers).flatMap<PendingDocumentMention>(
+        (userId) => {
+          const pendingCount = Math.max(
+            0,
+            (currentMentionCounts[userId] ?? 0) -
+              (mentionBaselineCounts[userId] ?? 0)
+          )
+
+          return pendingCount > 0
+            ? [
+                {
+                  userId,
+                  count: pendingCount,
+                },
+              ]
+            : []
+        }
       ),
-    [document?.content, pendingMentionEntries]
+    [currentMentionCounts, mentionBaselineCounts, pendingMentionUsers]
   )
   const pendingMentionSummary = useMemo(
     () => summarizePendingDocumentMentions(activePendingMentionEntries),
@@ -335,7 +375,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       }
 
       event.preventDefault()
-      setPendingExitHref(nextHref)
+      setPendingExitTarget({
+        kind: "href",
+        href: nextHref,
+      })
       setExitDialogOpen(true)
     }
 
@@ -343,6 +386,43 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     return () => {
       window.document.removeEventListener("click", handleClick, true)
+    }
+  }, [hasPendingMentionNotifications])
+
+  useEffect(() => {
+    if (!hasPendingMentionNotifications) {
+      return
+    }
+
+    function handlePopState() {
+      if (allowHistoryExitRef.current) {
+        allowHistoryExitRef.current = false
+        return
+      }
+
+      const currentHref = currentRouteHrefRef.current
+
+      if (!currentHref) {
+        return
+      }
+
+      const nextHref = `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+      if (nextHref === currentHref) {
+        return
+      }
+
+      window.history.pushState(currentRouteStateRef.current, "", currentHref)
+      setPendingExitTarget({
+        kind: "history",
+      })
+      setExitDialogOpen(true)
+    }
+
+    window.addEventListener("popstate", handlePopState)
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
     }
   }, [hasPendingMentionNotifications])
 
@@ -359,21 +439,30 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const loadedDocumentId = loadedDocument.id
 
   function clearPendingMentionBatch() {
-    setPendingMentionCounts({})
+    setMentionBaselineCounts(currentMentionCounts)
+    setPendingMentionUsers({})
   }
 
   function closeExitDialog() {
     setExitDialogOpen(false)
-    setPendingExitHref(null)
+    setPendingExitTarget(null)
   }
 
   function completePendingExit() {
-    const nextHref = pendingExitHref
+    const nextTarget = pendingExitTarget
     closeExitDialog()
 
-    if (nextHref) {
-      router.push(nextHref)
+    if (!nextTarget) {
+      return
     }
+
+    if (nextTarget.kind === "href") {
+      router.push(nextTarget.href)
+      return
+    }
+
+    allowHistoryExitRef.current = true
+    window.history.back()
   }
 
   async function sendPendingMentionNotifications() {
@@ -529,9 +618,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
                 return
               }
 
-              setPendingMentionCounts((current) => ({
+              setPendingMentionUsers((current) => ({
                 ...current,
-                [candidate.id]: (current[candidate.id] ?? 0) + 1,
+                [candidate.id]: true,
               }))
             }}
             onStatsChange={setDocumentStats}
@@ -591,7 +680,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
           setExitDialogOpen(open)
 
           if (!open) {
-            setPendingExitHref(null)
+            setPendingExitTarget(null)
           }
         }}
       >

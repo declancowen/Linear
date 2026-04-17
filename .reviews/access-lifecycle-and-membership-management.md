@@ -69,13 +69,73 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-17 18:55:33 BST` |
-| **Total turns** | `13` |
+| **Last reviewed** | `2026-04-17 19:26:52 BST` |
+| **Total turns** | `15` |
 | **Open findings** | `0` |
-| **Resolved findings** | `23` |
+| **Resolved findings** | `24` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 15 — 2026-04-17 19:26:52 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `db08913` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `B14-01`. Account deletion now removes direct workspace memberships before the lifecycle cleanup runs and includes workspaces reached only through direct workspace access, so workspace-scope cleanup and WorkOS membership deactivation are no longer skipped after the backfill.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 15 | 1 |
+| Carried from Turn 14 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 15
+
+#### B14-01 ~~[BUG] High~~ → RESOLVED — Account deletion now skipped workspace-scope cleanup and WorkOS deactivation when a direct workspace membership row remained
+**How it was fixed:** [assertCurrentAccountDeletionAllowed](../convex/app/workspace_team_handlers.ts:1814) now loads both team memberships and direct workspace memberships. [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1928) deletes both sets before finalization and seeds `removedTeamIdsByWorkspace` with workspaces that were reachable only through direct workspace membership. That restores the intended lifecycle invariant for `finalizeCurrentAccountDeletionPolicy()` and `cleanupUserAccessRemoval()`.
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:610), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/lib/content/rich-text-mentions.test.ts tests/components/document-detail-screen.test.tsx`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts components/app/screens/document-detail-screen.tsx lib/content/rich-text-mentions.ts tests/convex/workspace-team-handlers.test.ts tests/lib/content/rich-text-mentions.test.ts tests/components/document-detail-screen.test.tsx --max-warnings 0`
+- `git diff --check`
+
+## Turn 14 — 2026-04-17 19:10:46 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `db08913` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest provider findings found one new real regression in the current branch: account deletion now leaves direct workspace memberships in place while evaluating workspace access removal, so workspace-scope cleanup and provider deactivation can be skipped entirely. The rest of the access-lifecycle notes in this round are stale relative to the current branch or are intentional policy choices rather than active bugs.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 14 | 0 |
+| Carried from Turn 13 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B14-01 [BUG] High — Account deletion now skips workspace-scope cleanup and WorkOS deactivation when a direct workspace membership row remains
+**Where:** [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1924), [cleanupUserAccessRemoval](../convex/app/cleanup.ts:404), [getWorkspaceUserIds](../convex/app/conversations.ts:30)
+
+**What’s wrong:** `deleteCurrentAccountHandler()` deletes only the user’s `teamMemberships` before calling `finalizeCurrentAccountDeletionPolicy()`. That policy eventually calls `cleanupUserAccessRemoval()`, which determines `hasWorkspaceAccess` from `getWorkspaceUserIds()`. `getWorkspaceUserIds()` now includes direct `workspaceMemberships`, so any leftover workspace row makes the just-deleted user still look present in the workspace. That suppresses workspace-scope cleanup and causes `resolveProviderMembershipCleanup()` to skip the WorkOS deactivation path.
+
+**Why it matters:** After the workspace-membership backfill, this is no longer an edge case. A normal non-owner user can delete their account, have all team memberships removed, and still retain stale workspace references plus stale IdP organization access because the direct workspace row was never removed before the access-removal check.
+
+**Root cause:** The account-deletion flow still models access removal as “delete team memberships, then infer workspace removal from remaining team access,” but the branch introduced first-class direct workspace memberships without updating this flow to remove or account for them.
+
+**What to change:** Remove the user’s direct workspace membership for each affected workspace before calling `finalizeCurrentAccountDeletionPolicy()`, or teach `cleanupUserAccessRemoval()` / `getWorkspaceUserIds()` to exclude the subject user’s direct workspace row when evaluating an in-progress account deletion. Also handle the case where a user has workspace memberships but no team memberships, because `removedTeamIdsByWorkspace` is currently derived only from `teamMemberships`.
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` note about `syncWorkspaceMembershipRoleFromTeams(..., fallbackRole: "viewer")` creating persistent viewer memberships after last-team deletion is still an intentional policy choice, not a correctness regression. The branch is modeling workspace membership as durable access rather than auto-pruning the user when their final team disappears.
+- The `canAdminWorkspace` and `getWorkspaceRoleMapForUser` notes are stale on the current branch. Turn 13 already restored merged team-admin fallback for workspace-admin capability in both the client selector path and the server role-map path.
+- The workspace-deletion email/provider-cleanup asymmetry and the team-deletion notification ordering note remain intentional and acceptable.
 
 ## Turn 13 — 2026-04-17 18:55:33 BST
 

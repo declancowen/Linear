@@ -30,14 +30,21 @@ const listNotificationsByEntitiesMock = vi.fn()
 const listProjectsByScopeMock = vi.fn()
 const listProjectUpdatesByProjectsMock = vi.fn()
 const listTeamMembershipsByTeamsMock = vi.fn()
+const listTeamsByIdsMock = vi.fn()
 const listUsersByIdsMock = vi.fn()
 const listViewsByScopeMock = vi.fn()
+const listWorkspaceMembershipsByUserMock = vi.fn()
 const listWorkspaceDocumentsMock = vi.fn()
 const listWorkspaceMembershipsByWorkspaceMock = vi.fn()
+const listWorkspacesByIdsMock = vi.fn()
+const listWorkspacesOwnedByUserMock = vi.fn()
 const listWorkspaceTeamsMock = vi.fn()
 const createNotificationMock = vi.fn()
 const insertAuditEventMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
+const applyWorkspaceAccessRemovalPolicyMock = vi.fn()
+const finalizeCurrentAccountDeletionPolicyMock = vi.fn()
+const syncTeamConversationMembershipsMock = vi.fn()
 
 vi.mock("@/lib/email/builders", () => ({
   buildAccessChangeEmailJobs: buildAccessChangeEmailJobsMock,
@@ -83,10 +90,14 @@ vi.mock("@/convex/app/data", () => ({
   listProjectsByScope: listProjectsByScopeMock,
   listProjectUpdatesByProjects: listProjectUpdatesByProjectsMock,
   listTeamMembershipsByTeams: listTeamMembershipsByTeamsMock,
+  listTeamsByIds: listTeamsByIdsMock,
   listUsersByIds: listUsersByIdsMock,
   listViewsByScope: listViewsByScopeMock,
+  listWorkspaceMembershipsByUser: listWorkspaceMembershipsByUserMock,
   listWorkspaceDocuments: listWorkspaceDocumentsMock,
   listWorkspaceMembershipsByWorkspace: listWorkspaceMembershipsByWorkspaceMock,
+  listWorkspacesByIds: listWorkspacesByIdsMock,
+  listWorkspacesOwnedByUser: listWorkspacesOwnedByUserMock,
   listWorkspaceTeams: listWorkspaceTeamsMock,
 }))
 
@@ -100,6 +111,15 @@ vi.mock("@/convex/app/audit", () => ({
 
 vi.mock("@/convex/app/email_job_handlers", () => ({
   queueEmailJobs: queueEmailJobsMock,
+}))
+
+vi.mock("@/convex/app/lifecycle", () => ({
+  applyWorkspaceAccessRemovalPolicy: applyWorkspaceAccessRemovalPolicyMock,
+  finalizeCurrentAccountDeletionPolicy: finalizeCurrentAccountDeletionPolicyMock,
+}))
+
+vi.mock("@/convex/app/conversations", () => ({
+  syncTeamConversationMemberships: syncTeamConversationMembershipsMock,
 }))
 
 function createCtx() {
@@ -144,14 +164,21 @@ describe("workspace and team deletion handlers", () => {
     listProjectsByScopeMock.mockReset()
     listProjectUpdatesByProjectsMock.mockReset()
     listTeamMembershipsByTeamsMock.mockReset()
+    listTeamsByIdsMock.mockReset()
     listUsersByIdsMock.mockReset()
     listViewsByScopeMock.mockReset()
+    listWorkspaceMembershipsByUserMock.mockReset()
     listWorkspaceDocumentsMock.mockReset()
     listWorkspaceMembershipsByWorkspaceMock.mockReset()
+    listWorkspacesByIdsMock.mockReset()
+    listWorkspacesOwnedByUserMock.mockReset()
     listWorkspaceTeamsMock.mockReset()
     createNotificationMock.mockReset()
     insertAuditEventMock.mockReset()
     queueEmailJobsMock.mockReset()
+    applyWorkspaceAccessRemovalPolicyMock.mockReset()
+    finalizeCurrentAccountDeletionPolicyMock.mockReset()
+    syncTeamConversationMembershipsMock.mockReset()
 
     buildAccessChangeEmailJobsMock.mockImplementation(({ emails }) => emails)
     createNotificationMock.mockImplementation(
@@ -186,10 +213,14 @@ describe("workspace and team deletion handlers", () => {
     listProjectsByScopeMock.mockResolvedValue([])
     listProjectUpdatesByProjectsMock.mockResolvedValue([])
     listViewsByScopeMock.mockResolvedValue([])
+    listWorkspaceMembershipsByUserMock.mockResolvedValue([])
     listWorkspaceDocumentsMock.mockResolvedValue([])
     listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([])
     listTeamMembershipsByTeamsMock.mockResolvedValue([])
+    listTeamsByIdsMock.mockResolvedValue([])
     listUsersByIdsMock.mockResolvedValue([])
+    listWorkspacesByIdsMock.mockResolvedValue([])
+    listWorkspacesOwnedByUserMock.mockResolvedValue([])
     deleteDocsMock.mockResolvedValue(undefined)
     deleteStorageObjectsMock.mockResolvedValue(undefined)
     cleanupRemainingLinksAfterDeleteMock.mockResolvedValue(undefined)
@@ -197,6 +228,15 @@ describe("workspace and team deletion handlers", () => {
     cleanupUserAppStatesForDeletedWorkspaceMock.mockResolvedValue(undefined)
     queueEmailJobsMock.mockResolvedValue(undefined)
     insertAuditEventMock.mockResolvedValue(undefined)
+    applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
+      providerMembershipCleanup: null,
+    })
+    finalizeCurrentAccountDeletionPolicyMock.mockResolvedValue({
+      deletedPrivateDocumentIds: [],
+      providerMemberships: [],
+      removedWorkspaceIds: [],
+    })
+    syncTeamConversationMembershipsMock.mockResolvedValue(undefined)
   })
 
   it("notifies all active team members via inbox and email before deleting the team", async () => {
@@ -561,5 +601,102 @@ describe("workspace member protection", () => {
         userId: "user_admin",
       })
     ).rejects.toThrow("Workspace admins can't be removed from the workspace")
+  })
+})
+
+describe("account deletion lifecycle", () => {
+  it("removes direct workspace memberships before finalizing account deletion", async () => {
+    const { deleteCurrentAccountHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const collectMock = vi.fn().mockResolvedValue([
+      {
+        _id: "team_membership_1",
+        teamId: "team_1",
+        userId: "user_1",
+        role: "member",
+      },
+    ])
+
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: collectMock,
+      }),
+    })
+    getUserDocMock.mockResolvedValue({
+      _id: "user_1_doc",
+      id: "user_1",
+      name: "Alex",
+      workosUserId: "workos_1",
+      accountDeletedAt: null,
+    })
+    listWorkspaceMembershipsByUserMock.mockResolvedValue([
+      {
+        _id: "workspace_membership_1",
+        workspaceId: "workspace_1",
+        userId: "user_1",
+        role: "viewer",
+      },
+      {
+        _id: "workspace_membership_2",
+        workspaceId: "workspace_2",
+        userId: "user_1",
+        role: "viewer",
+      },
+    ])
+    listTeamsByIdsMock.mockResolvedValue([
+      {
+        id: "team_1",
+        workspaceId: "workspace_1",
+        name: "Core",
+      },
+    ])
+    listWorkspacesByIdsMock.mockResolvedValue([
+      {
+        id: "workspace_1",
+        name: "Acme",
+      },
+      {
+        id: "workspace_2",
+        name: "Umbra",
+      },
+    ])
+    finalizeCurrentAccountDeletionPolicyMock.mockResolvedValue({
+      deletedPrivateDocumentIds: [],
+      providerMemberships: [],
+      removedWorkspaceIds: ["workspace_1", "workspace_2"],
+    })
+
+    const result = await deleteCurrentAccountHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+    })
+
+    expect(ctx.db.delete).toHaveBeenCalledWith("team_membership_1")
+    expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_1")
+    expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_2")
+    expect(finalizeCurrentAccountDeletionPolicyMock).toHaveBeenCalledWith(
+      ctx,
+      {
+        currentUserId: "user_1",
+        user: expect.objectContaining({
+          id: "user_1",
+          workosUserId: "workos_1",
+        }),
+        removedTeamIdsByWorkspace: {
+          workspace_1: ["team_1"],
+          workspace_2: [],
+        },
+      }
+    )
+    expect(result).toEqual({
+      userId: "user_1",
+      deletedPrivateDocumentIds: [],
+      removedWorkspaceIds: ["workspace_1", "workspace_2"],
+      providerMemberships: [],
+      emailJobs: [],
+    })
   })
 })

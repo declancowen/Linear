@@ -70,6 +70,7 @@ import {
   listUsersByIds,
   listViewsByScope,
   listWorkspacesByIds,
+  listWorkspaceMembershipsByUser,
   listWorkspaceMembershipsByWorkspace,
   listWorkspacesOwnedByUser,
   listWorkspaceDocuments,
@@ -1833,10 +1834,13 @@ async function assertCurrentAccountDeletionAllowed(
     )
   }
 
-  const memberships = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_user", (q) => q.eq("userId", currentUserId))
-    .collect()
+  const [memberships, workspaceMemberships] = await Promise.all([
+    ctx.db
+      .query("teamMemberships")
+      .withIndex("by_user", (q) => q.eq("userId", currentUserId))
+      .collect(),
+    listWorkspaceMembershipsByUser(ctx, currentUserId),
+  ])
 
   if (memberships.some((membership) => membership.role === "admin")) {
     throw new Error(
@@ -1846,6 +1850,7 @@ async function assertCurrentAccountDeletionAllowed(
 
   return {
     memberships,
+    workspaceMemberships,
     user,
   }
 }
@@ -1926,10 +1931,8 @@ export async function deleteCurrentAccountHandler(
   args: DeleteCurrentAccountArgs
 ) {
   assertServerToken(args.serverToken)
-  const { memberships, user } = await assertCurrentAccountDeletionAllowed(
-    ctx,
-    args.currentUserId
-  )
+  const { memberships, workspaceMemberships, user } =
+    await assertCurrentAccountDeletionAllowed(ctx, args.currentUserId)
 
   const teams = await listTeamsByIds(
     ctx,
@@ -1937,6 +1940,9 @@ export async function deleteCurrentAccountHandler(
   )
   const teamsById = new Map(teams.map((team) => [team.id, team]))
   const currentUserName = user.name ?? "A user"
+  const removedWorkspaceIds = new Set(
+    workspaceMemberships.map((membership) => membership.workspaceId)
+  )
   const removedTeamIdsByWorkspace = memberships.reduce<
     Record<string, string[]>
   >((accumulator, membership) => {
@@ -1946,6 +1952,7 @@ export async function deleteCurrentAccountHandler(
       return accumulator
     }
 
+    removedWorkspaceIds.add(team.workspaceId)
     accumulator[team.workspaceId] = [
       ...(accumulator[team.workspaceId] ?? []),
       membership.teamId,
@@ -1953,6 +1960,9 @@ export async function deleteCurrentAccountHandler(
 
     return accumulator
   }, {})
+  for (const workspaceId of removedWorkspaceIds) {
+    removedTeamIdsByWorkspace[workspaceId] ??= []
+  }
   const workspaces = await listWorkspacesByIds(
     ctx,
     Object.keys(removedTeamIdsByWorkspace)
@@ -1964,6 +1974,9 @@ export async function deleteCurrentAccountHandler(
 
   for (const membership of memberships) {
     await ctx.db.delete(membership._id)
+  }
+  for (const workspaceMembership of workspaceMemberships) {
+    await ctx.db.delete(workspaceMembership._id)
   }
   const deletionLifecycle = await finalizeCurrentAccountDeletionPolicy(ctx, {
     currentUserId: args.currentUserId,
