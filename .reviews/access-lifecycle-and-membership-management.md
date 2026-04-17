@@ -70,13 +70,45 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-17 20:34:22 BST` |
-| **Total turns** | `19` |
+| **Last reviewed** | `2026-04-17 20:44:55 BST` |
+| **Total turns** | `20` |
 | **Open findings** | `0` |
-| **Resolved findings** | `26` |
+| **Resolved findings** | `27` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 20 — 2026-04-17 20:44:55 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `7c146f2` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the remaining direct-membership workspace-channel sync gap in the other lifecycle paths. `leaveWorkspaceHandler()` and `deleteCurrentAccountHandler()` now mirror the direct-member workspace-channel resync that was already added to `removeWorkspaceUserHandler()`, so direct-workspace-only departures no longer leave stale workspace-channel participants behind.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 20 | 1 |
+| Carried from Turn 19 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 20
+
+#### B20-01 ~~[BUG] Medium~~ → RESOLVED — Direct-membership-only workspace departures still skipped workspace-channel participant resync in leave/account-deletion flows
+**How it was fixed:** [leaveWorkspaceHandler](../convex/app/workspace_team_handlers.ts:1691) now calls [syncWorkspaceChannelMemberships](../convex/app/conversations.ts:367) when the leaving user had no workspace team memberships, and [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1940) now does the same for workspaces whose `removedTeamIdsByWorkspace[workspaceId]` is empty. That keeps workspace-channel participant lists consistent across remove, leave, and delete-account flows for direct-workspace-only members.
+
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:577), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/lib/server/convex-documents.test.ts`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts lib/server/convex/documents.ts tests/convex/workspace-team-handlers.test.ts tests/lib/server/convex-documents.test.ts --max-warnings 0`
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+- Team creation granting workspace admin and the pre-cascade team-deletion notification ordering still match the current product model.
 
 ## Turn 19 — 2026-04-17 20:34:22 BST
 

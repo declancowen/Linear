@@ -58,6 +58,11 @@ const DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
     status: 400,
     code: "DOCUMENT_MENTION_USERS_INVALID",
   },
+  {
+    match: "One or more mentioned users are not present in the document",
+    status: 409,
+    code: "DOCUMENT_MENTION_STATE_STALE",
+  },
 ] as const
 
 const ITEM_DESCRIPTION_ERROR_MAPPINGS = [

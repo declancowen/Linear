@@ -660,9 +660,75 @@ describe("workspace member protection", () => {
       "workspace_1"
     )
   })
+
+  it("resyncs the workspace channel when a direct workspace member leaves with no team memberships", async () => {
+    const { leaveWorkspaceHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const collectMock = vi.fn().mockResolvedValue([])
+
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: collectMock,
+      }),
+    })
+    getWorkspaceMembershipDocMock.mockResolvedValue({
+      _id: "workspace_membership_1",
+      workspaceId: "workspace_1",
+      userId: "user_member",
+      role: "viewer",
+    })
+    getUserDocMock.mockResolvedValue({
+      id: "user_member",
+      name: "Sam",
+      email: "sam@example.com",
+      workosUserId: "workos_member",
+    })
+    applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
+      providerMembershipCleanup: null,
+    })
+
+    await leaveWorkspaceHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_member",
+      origin: "https://app.example.com",
+      workspaceId: "workspace_1",
+    })
+
+    expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_1")
+    expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
+    expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1"
+    )
+  })
 })
 
 describe("account deletion lifecycle", () => {
+  beforeEach(() => {
+    assertServerTokenMock.mockReset()
+    getUserDocMock.mockReset()
+    listTeamsByIdsMock.mockReset()
+    listWorkspaceMembershipsByUserMock.mockReset()
+    listWorkspacesByIdsMock.mockReset()
+    finalizeCurrentAccountDeletionPolicyMock.mockReset()
+    syncTeamConversationMembershipsMock.mockReset()
+    syncWorkspaceChannelMembershipsMock.mockReset()
+
+    assertServerTokenMock.mockImplementation(() => {})
+    listTeamsByIdsMock.mockResolvedValue([])
+    listWorkspaceMembershipsByUserMock.mockResolvedValue([])
+    listWorkspacesByIdsMock.mockResolvedValue([])
+    finalizeCurrentAccountDeletionPolicyMock.mockResolvedValue({
+      deletedPrivateDocumentIds: [],
+      providerMemberships: [],
+      removedWorkspaceIds: [],
+    })
+    syncTeamConversationMembershipsMock.mockResolvedValue(undefined)
+    syncWorkspaceChannelMembershipsMock.mockResolvedValue(undefined)
+  })
+
   it("blocks deleting an account while the user is a direct workspace admin", async () => {
     const { deleteCurrentAccountHandler } = await import(
       "@/convex/app/workspace_team_handlers"
@@ -795,5 +861,58 @@ describe("account deletion lifecycle", () => {
       providerMemberships: [],
       emailJobs: [],
     })
+  })
+
+  it("resyncs workspace channels for direct-membership-only workspaces during account deletion", async () => {
+    const { deleteCurrentAccountHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const collectMock = vi.fn().mockResolvedValue([])
+
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: collectMock,
+      }),
+    })
+    getUserDocMock.mockResolvedValue({
+      _id: "user_1_doc",
+      id: "user_1",
+      name: "Alex",
+      workosUserId: "workos_1",
+      accountDeletedAt: null,
+    })
+    listWorkspaceMembershipsByUserMock.mockResolvedValue([
+      {
+        _id: "workspace_membership_1",
+        workspaceId: "workspace_1",
+        userId: "user_1",
+        role: "viewer",
+      },
+    ])
+    listTeamsByIdsMock.mockResolvedValue([])
+    listWorkspacesByIdsMock.mockResolvedValue([
+      {
+        id: "workspace_1",
+        name: "Acme",
+      },
+    ])
+    finalizeCurrentAccountDeletionPolicyMock.mockResolvedValue({
+      deletedPrivateDocumentIds: [],
+      providerMemberships: [],
+      removedWorkspaceIds: ["workspace_1"],
+    })
+
+    await deleteCurrentAccountHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+    })
+
+    expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
+    expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1"
+    )
   })
 })

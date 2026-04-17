@@ -1749,6 +1749,11 @@ export async function leaveWorkspaceHandler(
   for (const membership of teamMemberships) {
     await syncTeamConversationMemberships(ctx, membership.teamId)
   }
+
+  if (teamMemberships.length === 0) {
+    await syncWorkspaceChannelMemberships(ctx, workspace.id)
+  }
+
   const userName = currentUser?.name ?? "A user"
   const leaveMessage = `${userName} left ${workspace.name}.`
   const removedTeamIds = [
@@ -1998,6 +2003,14 @@ export async function deleteCurrentAccountHandler(
   for (const removedTeamIds of Object.values(removedTeamIdsByWorkspace)) {
     for (const teamId of removedTeamIds) {
       await syncTeamConversationMemberships(ctx, teamId)
+    }
+  }
+
+  for (const [workspaceId, removedTeamIds] of Object.entries(
+    removedTeamIdsByWorkspace
+  )) {
+    if (removedTeamIds.length === 0) {
+      await syncWorkspaceChannelMemberships(ctx, workspaceId)
     }
   }
 

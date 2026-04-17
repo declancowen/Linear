@@ -31,13 +31,45 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 19:10:46 BST` |
-| **Last reviewed** | `2026-04-17 20:34:22 BST` |
-| **Total turns** | `6` |
+| **Last reviewed** | `2026-04-17 20:44:55 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
-| **Resolved findings** | `4` |
+| **Resolved findings** | `5` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 7 — 2026-04-17 20:44:55 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `7c146f2` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the follow-up contract gap in the server wrapper. When persisted mention validation rejects stale queued mention counts, the documents server wrapper now maps that domain error to a typed client-correctable response instead of falling through to an unmapped 500.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 7 | 1 |
+| Carried from Turn 6 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 7
+
+#### F7-01 ~~[BUG] Medium~~ → RESOLVED — Stale mention-count validation was not mapped to a typed client error
+**How it was fixed:** [DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS](../lib/server/convex/documents.ts:49) now maps `"One or more mentioned users are not present in the document"` to `409 DOCUMENT_MENTION_STATE_STALE`, so [sendDocumentMentionNotificationsServer](../lib/server/convex/documents.ts:313) returns a typed application error for a client-correctable mention-state mismatch.
+
+**Verified:** Added regression coverage in [convex-documents.test.ts](../tests/lib/server/convex-documents.test.ts:1), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/lib/server/convex-documents.test.ts`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts lib/server/convex/documents.ts tests/convex/workspace-team-handlers.test.ts tests/lib/server/convex-documents.test.ts --max-warnings 0`
+
+### Remaining notes classified
+
+- The server-side mention validation does currently rely on the regex fallback path in [rich-text-mentions.ts](../lib/content/rich-text-mentions.ts:58) under the Convex runtime; that is acceptable as long as mention markup changes keep both the DOM and regex extractors in sync.
+- Skipping self-mention validation remains intentional because self-mentions are discarded during delivery.
+- The broad same-origin anchor interception in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:294) still reads as intentional while pending mention notifications exist.
+- Mention counting on editor `onUpdate` remains a performance watchpoint for very large documents, not an active correctness bug from this review pass.
 
 ## Turn 6 — 2026-04-17 20:34:22 BST
 
