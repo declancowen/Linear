@@ -368,6 +368,27 @@ describe("document and workspace route contracts", () => {
     )
   })
 
+  it("returns an accurate message when account deletion finalization fails", async () => {
+    const { DELETE } = await import("@/app/api/account/route")
+
+    deleteCurrentAccountServerMock.mockRejectedValue(new Error("boom"))
+
+    const response = await DELETE()
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "We couldn't finish deleting your account. No changes were applied. Please try again or contact support.",
+      message:
+        "We couldn't finish deleting your account. No changes were applied. Please try again or contact support.",
+      code: "ACCOUNT_DELETE_FINALIZE_FAILED",
+    })
+    expect(cancelCurrentAccountDeletionServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+    })
+    expect(reconcileDeletedAccountProviderCleanupMock).not.toHaveBeenCalled()
+  })
+
   it("reconciles provider memberships after workspace removal commits", async () => {
     const { DELETE } = await import(
       "@/app/api/workspace/current/users/[userId]/route"

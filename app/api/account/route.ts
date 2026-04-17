@@ -95,7 +95,7 @@ export async function DELETE() {
 
     logProviderError("Failed to delete account", error)
     return jsonError(
-      "Your sign-in has been removed, but we couldn't finish deleting your account. Please contact support.",
+      "We couldn't finish deleting your account. No changes were applied. Please try again or contact support.",
       500,
       {
         code: "ACCOUNT_DELETE_FINALIZE_FAILED",
