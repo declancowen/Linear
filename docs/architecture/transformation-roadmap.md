@@ -4,11 +4,11 @@
 
 This document converts the target-state architecture and gap matrix into an execution roadmap.
 
-It is designed to move `Linear` from the current `65 / 100` architecture score toward a `95+ / 100` operating standard while preserving the frontend-backend relationship throughout the transformation.
+It is designed to move `Linear` from the current `97 / 100` architecture score toward a `97-98 / 100` operating standard while preserving the frontend-backend relationship throughout the transformation.
 
 ## Guiding rule
 
-The roadmap is governed by the compatibility contract in [target-state-architecture.md](/Users/declancowen/Documents/GitHub/Linear/docs/architecture/target-state-architecture.md):
+The roadmap is governed by the compatibility contract in [target-state-architecture.md](../../docs/architecture/target-state-architecture.md):
 
 - additive before subtractive
 - old and new paths can coexist during migration
@@ -19,21 +19,214 @@ The roadmap is governed by the compatibility contract in [target-state-architect
 
 | Measure | Value |
 |--------|--------|
-| Current architecture score | `65 / 100` |
-| Practical target | `95+ / 100` |
+| Current architecture score | `97 / 100` |
+| Practical target | `97-98 / 100` |
 | Design aspiration | `100 / 100` |
 | Deployment target | `Disciplined modular monolith` |
 
-## Transformation sequence
+## Current execution position
 
-| Phase | Stream | Why first | Expected score band after phase |
+The original roadmap phases remain useful as the historical transformation path, but the repo is now operating from a later position.
+
+The mandatory work left is no longer broad architectural cleanup. It is the final set of structural and operational streams needed to turn the current repo into a fully governed target-state monolith.
+
+Phase A is now materially complete:
+
+- auth/provider routes no longer log raw WorkOS error objects directly
+- provider-boundary logging is pinned by route-level regression coverage
+
+Phase B is now materially complete:
+
+- CI enforces Convex codegen freshness
+- CI enforces the high-severity dependency audit policy
+- the repo owns a deployment/migration runbook for privileged scripts and smoke expectations
+
+Phase C is now materially complete:
+
+- notification digest delivery is claim-safe under overlapping runners
+- invite, mention, assignment, and access-change email families now queue through the durable email outbox
+- the owned email worker claims, sends, marks, and releases jobs with observable failure state
+
+Phase D is now partially complete:
+
+- the join route no longer loads the full snapshot to authorize or locate call state
+- call join now runs through a narrow join-context query and canonical finalize mutation
+- the public `GET` redirect remains as a compatibility surface for existing links
+
+Phase E is now in progress:
+
+- several narrow workspace/team/document/item mutations now apply local command results instead of waiting for an immediate full snapshot refetch
+- failure reconciliation now rolls back locally and refreshes in the background instead of blocking user actions on a full snapshot round-trip
+- onboarding workspace creation now reloads into a fresh shell bootstrap instead of fetching the full snapshot inline before navigation
+
+## Remaining mandatory streams
+
+| Stream | Why it is still mandatory |
+|--------|--------|
+| `Read architecture` | the client/store contract is still snapshot-first at the provider/bootstrap layer and still uses broad graph replacement as the default sync model |
+| `Write and command architecture` | the call-join flow no longer uses the full snapshot, but the public compatibility path is still a stateful `GET` redirect |
+| `Verification and governance architecture` | CI now enforces codegen freshness and high-severity dependency audit policy, but coverage floors and stronger architecture budgets are still not codified |
+| `Deployment and migration architecture` | the repo owns a runbook, but scheduling/release ownership for privileged scripts is still partly out-of-band |
+| `Desktop/runtime architecture` | packaged-runtime smoke exists, but Electron packaging, signing, update, and release ownership are still not repo-governed |
+
+## Final execution plan
+
+This is the dependency-ordered plan from the current `97 / 100` state to the expected `97-98 / 100` state.
+
+| Phase | Stream | Why now | Expected score band after phase |
 |--------|--------|--------|--------|
-| `0` | Compatibility foundation | makes later change safe | `65-68` |
-| `1` | Contract | fixes the truthfulness of boundaries | `72-76` |
-| `2` | Ownership | fixes tenant and schema correctness | `78-82` |
-| `3` | Read-model | removes structural hot-path debt | `84-89` |
-| `4` | Lifecycle | centralizes privacy and identity-critical behavior | `89-92` |
-| `5` | Governance | makes the architecture durable and trustworthy | `93-96` |
+| `A` | Identity and provider boundary | completed | `94` |
+| `B` | Verification, governance, and deployment foundation | materially complete; remaining work is broader coverage/budget governance rather than missing foundation | `95` |
+| `C` | Side-effect and job architecture | materially complete; digest delivery and repo-owned outbound email families now run through claim-safe workers | `97` |
+| `D` | Write and command architecture | in progress; the snapshot-backed join flow is gone, but the compatibility `GET` still exists | `96-97` |
+| `E` | Read architecture | in progress; local command application is broader, but provider/bootstrap sync is still snapshot-first | `97` |
+| `F` | Desktop/runtime architecture | turns Electron into a governed supported release lane | `97-98` |
+
+## Phase A: Identity And Provider Boundary
+
+### Objective
+
+Remove the remaining raw-provider logging and make auth/provider diagnostics consistent with the rest of the backend boundary.
+
+### Closes
+
+- `S6-20`
+
+### Required end state
+
+- auth routes use sanitized provider diagnostics instead of raw provider objects
+- WorkOS logging follows one governed error contract
+- provider-boundary debugging remains useful without leaking temporary payload details
+
+### Acceptance criteria
+
+- no `app/auth/*` route logs raw WorkOS error objects directly
+- auth/provider failures are diagnosable through a shared sanitized helper
+
+## Phase B: Verification, Governance, And Deployment Foundation
+
+### Objective
+
+Make the remaining transformation streams executable and trustworthy through repo-owned automation and release discipline.
+
+### Closes
+
+- `O4-16`
+- `O4-17` in its CI/runbook/foundation dimension
+
+### Required end state
+
+- CI asserts Convex codegen freshness
+- verification expectations for critical suites are explicit
+- privileged scripts and migrations have documented ownership and safe invocation expectations
+- release and migration choreography are repo-governed rather than mostly procedural
+
+### Acceptance criteria
+
+- CI can fail on generated-contract drift
+- architecture-critical test expectations are codified
+- maintenance, sync, and bootstrap surfaces have declared runbooks and ownership
+
+## Phase C: Side-Effect And Job Architecture
+
+### Objective
+
+Move external email and digest delivery from inline best-effort work to a durable, claim-safe job model.
+
+### Closes
+
+- `A4-15`
+
+### Required end state
+
+- notification digests are claim-safe under concurrent execution
+- outbound emails move through an outbox or equivalent governed job contract
+- retry, replay, and operator-visible failure state exist for important side effects
+
+### Acceptance criteria
+
+- digest delivery cannot double-send under overlapping runners by design
+- core email side effects are decoupled from request latency
+- failed jobs are observable and recoverable
+
+## Phase D: Write And Command Architecture
+
+### Objective
+
+Finish the remaining narrow-action contract cleanup by replacing the legacy snapshot-backed call-join path.
+
+### Closes
+
+- `A4-14`
+
+### Required end state
+
+- call join is modeled as a narrow command or prepared contract
+- room provisioning is idempotent
+- browser interaction no longer depends on a mutating snapshot-backed `GET`
+
+### Acceptance criteria
+
+- call join no longer reads the full snapshot for authorization or lookup
+- room creation is structurally claim-safe / idempotent
+- HTTP semantics tell the truth about the action
+
+## Phase E: Read Architecture
+
+### Objective
+
+Complete the read-model refactor by retiring the large shared snapshot as the primary client contract.
+
+### Closes
+
+- `A5-18`
+
+### Required end state
+
+- shell bootstrap is bounded and intentionally small
+- capability surfaces read through scoped models
+- the store no longer depends on broad `replaceDomainData(snapshot)` semantics as the default sync model
+
+### Acceptance criteria
+
+- high-churn surfaces no longer depend on the monolithic snapshot contract
+- `/api/snapshot` is bootstrap-oriented if retained at all
+- store synchronization aligns with scoped capability ownership
+
+## Phase F: Desktop/Runtime Architecture
+
+### Objective
+
+Turn Electron from a local runtime mode into a governed release lane.
+
+### Closes
+
+- `A6-19`
+- `O4-17` in its desktop/runtime dimension
+
+### Required end state
+
+- packaging/signing/update ownership is explicit
+- desktop startup and packaged-runtime smoke validation exist
+- Electron release expectations are repo-governed
+
+### Acceptance criteria
+
+- the repo defines how desktop is packaged, signed, and updated
+- desktop startup regressions are detectable before release
+- Electron remains the governed current platform unless a future dedicated migration plan says otherwise
+
+## Desktop platform decision
+
+For this repo, the desktop plan stays on `Electron`.
+
+This is the correct move for the current architecture because:
+
+- desktop already runs as a governed shell around the existing web application
+- the repo still has higher-value work in read models, command contracts, side-effect jobs, and governance
+- switching desktop platforms now would be a product/runtime migration, not a simple refactor
+
+`Tauri` is a possible future platform decision, but only if the team later decides to re-architect desktop around a native core on purpose. It is not part of the current transformation roadmap.
 
 ## Phase 0: Compatibility Foundation
 
@@ -240,6 +433,34 @@ Make the architecture durable under continuous change.
 - security-sensitive changes emit auditable events
 - dependency drift is visible before it becomes a vulnerability
 
+## Cross-cutting mandatory stream: Desktop/runtime
+
+This stream runs in parallel with the main phases because desktop is a supported runtime and must meet the same architectural standard.
+
+### Objective
+
+Make Electron a governed product runtime instead of an implicit wrapper.
+
+### Required end state
+
+- preload and renderer trust boundaries remain minimal and explicit
+- desktop startup and packaged-runtime assumptions are documented and validated
+- packaging, signing, update, and release expectations are repo-governed
+- desktop smoke validation exists in CI or release automation
+
+### Repo direction
+
+- keep desktop on Electron for the current roadmap
+- add explicit smoke checks for `desktop:start` and packaged startup where feasible
+- define desktop release, signing, and update ownership
+- keep IPC/preload surface intentionally narrow
+
+### Acceptance criteria
+
+- desktop startup regressions are detectable before release
+- desktop release/update behavior is documented and owned
+- desktop runtime does not bypass web/application contracts
+
 ## Migration discipline
 
 ### Mandatory rules for every phase
@@ -271,6 +492,6 @@ Make the architecture durable under continuous change.
 
 ## Final position
 
-This roadmap aims at `100` as the design standard and `95+` as the expected durable operating state.
+This roadmap aims at `100` as the design standard and `97-98` as the expected durable operating state from the current repo position.
 
 The correct strategic move is not to distribute the system prematurely. It is to make the monolith disciplined enough that future extraction is optional rather than necessary.

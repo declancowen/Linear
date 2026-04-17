@@ -100,6 +100,8 @@ export function createNotification(
     readAt: null,
     archivedAt: null,
     emailedAt: null,
+    digestClaimId: null,
+    digestClaimedAt: null,
     createdAt: getNow(),
   }
 }

@@ -21,4 +21,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit:deps
+      - run: pnpm convex:codegen
+      - run: git diff --exit-code -- convex/_generated
       - run: pnpm check

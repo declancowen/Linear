@@ -2,7 +2,6 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { removeWorkspaceUserServer } from "@/lib/server/convex"
-import { sendAccessChangeEmails } from "@/lib/server/email"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -52,16 +51,6 @@ export async function DELETE(
       workspaceId,
       userId,
     })
-
-    if (result?.emailJobs?.length) {
-      try {
-        await sendAccessChangeEmails({
-          emails: result.emailJobs,
-        })
-      } catch (emailError) {
-        logProviderError("Failed to send workspace removal email", emailError)
-      }
-    }
 
     await reconcileProviderMembershipCleanup({
       label: "Failed to deactivate WorkOS membership after workspace removal",

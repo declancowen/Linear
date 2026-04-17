@@ -3,7 +3,6 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { leaveTeamServer } from "@/lib/server/convex"
-import { sendAccessChangeEmails } from "@/lib/server/email"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -40,16 +39,6 @@ export async function DELETE(
       teamId,
     })
 
-    if (result?.emailJobs?.length) {
-      try {
-        await sendAccessChangeEmails({
-          emails: result.emailJobs,
-        })
-      } catch (emailError) {
-        logProviderError("Failed to send leave-team access email", emailError)
-      }
-    }
-
     await reconcileProviderMembershipCleanup({
       label: "Failed to deactivate WorkOS membership after team leave",
       memberships: result?.providerMemberships ?? [],
@@ -61,6 +50,7 @@ export async function DELETE(
       ok: true,
       teamId: result?.teamId ?? teamId,
       workspaceId: result?.workspaceId ?? null,
+      workspaceAccessRemoved: result?.workspaceAccessRemoved === true,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

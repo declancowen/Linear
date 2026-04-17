@@ -6,7 +6,6 @@ import {
   removeTeamMemberServer,
   updateTeamMemberRoleServer,
 } from "@/lib/server/convex"
-import { sendAccessChangeEmails } from "@/lib/server/email"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -109,16 +108,6 @@ export async function DELETE(
       teamId,
       userId,
     })
-
-    if (result?.emailJobs?.length) {
-      try {
-        await sendAccessChangeEmails({
-          emails: result.emailJobs,
-        })
-      } catch (emailError) {
-        logProviderError("Failed to send team removal email", emailError)
-      }
-    }
 
     await reconcileProviderMembershipCleanup({
       label: "Failed to deactivate WorkOS membership after team removal",

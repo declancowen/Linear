@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
+import { buildAccessChangeEmailJobs } from "../../lib/email/builders"
 import {
   createDefaultTeamWorkflowSettings,
   getTeamFeatureValidationMessage,
@@ -78,6 +79,7 @@ import {
   applyWorkspaceAccessRemovalPolicy,
   finalizeCurrentAccountDeletionPolicy,
 } from "./lifecycle"
+import { queueEmailJobs } from "./email_job_handlers"
 import { getTeamSurfaceDisableMessage } from "./team_feature_guards"
 import { ensureTeamWorkViews } from "./work_helpers"
 import {
@@ -159,23 +161,27 @@ type UpdateTeamMemberRoleArgs = ServerAccessArgs & {
 
 type RemoveTeamMemberArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   teamId: string
   userId: string
 }
 
 type RemoveWorkspaceUserArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   workspaceId: string
   userId: string
 }
 
 type LeaveWorkspaceArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   workspaceId: string
 }
 
 type DeleteCurrentAccountArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
 }
 
 type PrepareCurrentAccountDeletionArgs = ServerAccessArgs & {
@@ -436,6 +442,7 @@ async function requireMutableTeamMember(
 
 type LeaveTeamArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   teamId: string
 }
 
@@ -963,9 +970,18 @@ export async function leaveTeamHandler(ctx: MutationCtx, args: LeaveTeamArgs) {
     },
   })
 
+  await queueEmailJobs(
+    ctx,
+    buildAccessChangeEmailJobs({
+      origin: args.origin,
+      emails: emailJobs,
+    })
+  )
+
   return {
     teamId: team.id,
     workspaceId: team.workspaceId,
+    workspaceAccessRemoved: !accessRemoval.hasWorkspaceAccess,
     emailJobs,
     providerMemberships: accessRemoval.providerMembershipCleanup
       ? [accessRemoval.providerMembershipCleanup]
@@ -1319,6 +1335,27 @@ export async function removeTeamMemberHandler(
     },
   })
 
+  await queueEmailJobs(
+    ctx,
+    buildAccessChangeEmailJobs({
+      origin: args.origin,
+      emails: [
+        ...adminEmailJobs,
+        ...(removedUser?.email
+          ? [
+              {
+                email: removedUser.email,
+                subject: `You were removed from ${team.name}`,
+                eyebrow: "TEAM ACCESS REMOVED",
+                headline: `You were removed from ${team.name}`,
+                body: removalMessage,
+              },
+            ]
+          : []),
+      ],
+    })
+  )
+
   return {
     teamId: team.id,
     workspaceId: team.workspaceId,
@@ -1440,6 +1477,24 @@ export async function removeWorkspaceUserHandler(
     },
   })
 
+  await queueEmailJobs(
+    ctx,
+    buildAccessChangeEmailJobs({
+      origin: args.origin,
+      emails: removedUser?.email
+        ? [
+            {
+              email: removedUser.email,
+              subject: `You were removed from ${workspaceName}`,
+              eyebrow: "WORKSPACE ACCESS REMOVED",
+              headline: `You were removed from ${workspaceName}`,
+              body: removalMessage,
+            },
+          ]
+        : [],
+    })
+  )
+
   return {
     workspaceId: workspace.id,
     userId: args.userId,
@@ -1560,6 +1615,14 @@ export async function leaveWorkspaceHandler(
       workosUserId: currentUser?.workosUserId ?? undefined,
     },
   })
+
+  await queueEmailJobs(
+    ctx,
+    buildAccessChangeEmailJobs({
+      origin: args.origin,
+      emails: emailJobs,
+    })
+  )
 
   return {
     workspaceId: workspace.id,
@@ -1793,6 +1856,14 @@ export async function deleteCurrentAccountHandler(
       workosUserId: user.workosUserId ?? undefined,
     },
   })
+
+  await queueEmailJobs(
+    ctx,
+    buildAccessChangeEmailJobs({
+      origin: args.origin,
+      emails: emailJobs,
+    })
+  )
 
   return {
     userId: user.id,

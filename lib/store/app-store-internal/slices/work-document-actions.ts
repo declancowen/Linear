@@ -266,15 +266,37 @@ export function createWorkDocumentActions({
           throw new Error("File upload failed")
         }
 
+        const storageId = uploadPayload.storageId
         const createdAttachment = await syncCreateAttachment({
           targetType,
           targetId,
-          storageId: uploadPayload.storageId,
+          storageId,
           fileName: file.name,
           contentType: file.type || "application/octet-stream",
           size: file.size,
         })
-        await runtime.refreshFromServer()
+
+        if (createdAttachment?.attachmentId) {
+          set((current) => ({
+            attachments: [
+              {
+                id: createdAttachment.attachmentId,
+                targetType,
+                targetId,
+                teamId,
+                storageId,
+                fileName: file.name,
+                contentType: file.type || "application/octet-stream",
+                size: file.size,
+                uploadedBy: current.currentUserId,
+                createdAt: getNow(),
+                fileUrl: createdAttachment.fileUrl ?? null,
+              },
+              ...current.attachments,
+            ],
+          }))
+        }
+
         toast.success(`${file.name} uploaded`)
         return {
           fileName: file.name,
@@ -282,7 +304,12 @@ export function createWorkDocumentActions({
         }
       } catch (error) {
         console.error(error)
-        await runtime.refreshFromServer()
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile attachments after upload failure",
+            refreshError
+          )
+        })
         toast.error("Failed to upload attachment")
         return null
       }
@@ -308,11 +335,16 @@ export function createWorkDocumentActions({
 
       try {
         await syncDeleteAttachment(attachmentId)
-        await runtime.refreshFromServer()
         toast.success("Attachment deleted")
       } catch (error) {
         console.error(error)
-        await runtime.refreshFromServer()
+        set((current) => ({
+          attachments: current.attachments.some(
+            (entry) => entry.id === attachment.id
+          )
+            ? current.attachments
+            : [attachment, ...current.attachments],
+        }))
         toast.error("Failed to delete attachment")
       }
     },

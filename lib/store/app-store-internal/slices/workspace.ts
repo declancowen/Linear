@@ -3,7 +3,6 @@
 import { toast } from "sonner"
 
 import {
-  fetchSnapshot,
   syncCreateTeam,
   syncDeleteCurrentWorkspace,
   syncDeleteTeam,
@@ -19,7 +18,6 @@ import {
   syncUpdateTeamWorkflowSettings,
   syncUpdateWorkspaceBranding,
 } from "@/lib/convex/client"
-import { getTeamFeatureSettings } from "@/lib/domain/selectors"
 import {
   joinCodeSchema,
   normalizeTeamFeatureSettings,
@@ -30,6 +28,11 @@ import {
   workspaceBrandingSchema,
 } from "@/lib/domain/types"
 
+import {
+  buildLocalTeamCreateState,
+  getNextStateAfterTeamRemoval,
+  getNextStateAfterWorkspaceRemoval,
+} from "../domain-updates"
 import { createStoreRuntime } from "../runtime"
 import { getTeamDetailsDisableMessage } from "../validation"
 import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
@@ -115,8 +118,13 @@ export function createWorkspaceSlice(
       }
 
       try {
-        await syncDeleteCurrentWorkspace()
-        await runtime.refreshFromServer()
+        const result = await syncDeleteCurrentWorkspace()
+        set((state) => ({
+          ...getNextStateAfterWorkspaceRemoval(
+            state,
+            result.workspaceId ?? workspace.id
+          ),
+        }))
         toast.success("Workspace deleted")
         return true
       } catch (error) {
@@ -138,8 +146,13 @@ export function createWorkspaceSlice(
       }
 
       try {
-        await syncLeaveWorkspace()
-        await runtime.refreshFromServer()
+        const result = await syncLeaveWorkspace()
+        set((state) => ({
+          ...getNextStateAfterWorkspaceRemoval(
+            state,
+            result.workspaceId ?? workspace.id
+          ),
+        }))
         toast.success("Left workspace")
         return true
       } catch (error) {
@@ -172,21 +185,19 @@ export function createWorkspaceSlice(
 
       try {
         await syncRemoveWorkspaceUser(userId)
-        await runtime.refreshFromServer()
         toast.success("Workspace user removed")
         return true
       } catch (error) {
         console.error(error)
-
-        const snapshot = await fetchSnapshot()
-
-        if (snapshot) {
-          get().replaceDomainData(snapshot)
-        } else {
-          set({
-            teamMemberships: previousMemberships,
-          })
-        }
+        set({
+          teamMemberships: previousMemberships,
+        })
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile workspace memberships after remove-user failure",
+            refreshError
+          )
+        })
 
         toast.error(
           error instanceof Error
@@ -213,8 +224,39 @@ export function createWorkspaceSlice(
           throw new Error("Failed to create team")
         }
 
-        await runtime.refreshFromServer()
-        get().setActiveTeam(result.teamId)
+        set((state) => {
+          const localTeam = buildLocalTeamCreateState({
+            currentUserId: state.currentUserId,
+            workspaceId: state.currentWorkspaceId,
+            teamId: result.teamId,
+            teamSlug: result.teamSlug,
+            joinCode: result.joinCode,
+            name: parsed.data.name,
+            icon: parsed.data.icon,
+            summary: parsed.data.summary,
+            experience: parsed.data.experience,
+            features: result.features,
+          })
+          const teams = state.teams.some((team) => team.id === result.teamId)
+            ? state.teams
+            : [localTeam.team, ...state.teams]
+          const teamMemberships = state.teamMemberships.some(
+            (membership) =>
+              membership.teamId === localTeam.membership.teamId &&
+              membership.userId === localTeam.membership.userId
+          )
+            ? state.teamMemberships
+            : [localTeam.membership, ...state.teamMemberships]
+
+          return {
+            teams,
+            teamMemberships,
+            ui: {
+              ...state.ui,
+              activeTeamId: result.teamId,
+            },
+          }
+        })
         toast.success("Team created")
 
         return {
@@ -239,8 +281,10 @@ export function createWorkspaceSlice(
       }
 
       try {
-        await syncDeleteTeam(teamId)
-        await runtime.refreshFromServer()
+        const result = await syncDeleteTeam(teamId)
+        set((state) => ({
+          ...getNextStateAfterTeamRemoval(state, result.teamId ?? teamId),
+        }))
         toast.success("Team deleted")
         return true
       } catch (error) {
@@ -260,8 +304,15 @@ export function createWorkspaceSlice(
       }
 
       try {
-        await syncLeaveTeam(teamId)
-        await runtime.refreshFromServer()
+        const result = await syncLeaveTeam(teamId)
+        set((state) => ({
+          ...(result.workspaceAccessRemoved && result.workspaceId
+            ? getNextStateAfterWorkspaceRemoval(
+                state,
+                result.workspaceId
+              )
+            : getNextStateAfterTeamRemoval(state, result.teamId ?? teamId)),
+        }))
         toast.success("Left team")
         return true
       } catch (error) {
@@ -308,21 +359,19 @@ export function createWorkspaceSlice(
 
       try {
         await syncUpdateTeamMemberRole(teamId, userId, parsed.data.role)
-        await runtime.refreshFromServer()
         toast.success("Team member updated")
         return true
       } catch (error) {
         console.error(error)
-
-        const snapshot = await fetchSnapshot()
-
-        if (snapshot) {
-          get().replaceDomainData(snapshot)
-        } else {
-          set({
-            teamMemberships: previousMemberships,
-          })
-        }
+        set({
+          teamMemberships: previousMemberships,
+        })
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile team memberships after role update failure",
+            refreshError
+          )
+        })
 
         toast.error(
           error instanceof Error
@@ -352,21 +401,19 @@ export function createWorkspaceSlice(
 
       try {
         await syncRemoveTeamMember(teamId, userId)
-        await runtime.refreshFromServer()
         toast.success("Team member removed")
         return true
       } catch (error) {
         console.error(error)
-
-        const snapshot = await fetchSnapshot()
-
-        if (snapshot) {
-          get().replaceDomainData(snapshot)
-        } else {
-          set({
-            teamMemberships: previousMemberships,
-          })
-        }
+        set({
+          teamMemberships: previousMemberships,
+        })
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile team memberships after remove-member failure",
+            refreshError
+          )
+        })
 
         toast.error(
           error instanceof Error
@@ -398,7 +445,9 @@ export function createWorkspaceSlice(
         parsed.data.experience,
         parsed.data.features
       )
-      const currentFeatures = getTeamFeatureSettings(team)
+      const shouldRefreshForNewRealtimeSurfaces =
+        (!team.settings.features.chat && nextFeatures.chat) ||
+        (!team.settings.features.channels && nextFeatures.channels)
       const disableMessage = getTeamDetailsDisableMessage(
         stateBeforeUpdate,
         teamId,
@@ -430,28 +479,31 @@ export function createWorkspaceSlice(
 
       try {
         await syncUpdateTeamDetails(teamId, parsed.data)
-        if (
-          (!currentFeatures.chat && nextFeatures.chat) ||
-          (!currentFeatures.channels && nextFeatures.channels)
-        ) {
-          await runtime.refreshFromServer()
+
+        if (shouldRefreshForNewRealtimeSurfaces) {
+          try {
+            await runtime.refreshFromServer()
+          } catch (refreshError) {
+            console.error(
+              "Failed to reconcile team conversations after enabling chat or channels",
+              refreshError
+            )
+          }
         }
+
         toast.success("Team updated")
         return true
       } catch (error) {
         console.error(error)
-
-        const snapshot = await fetchSnapshot()
-
-        if (snapshot) {
-          get().replaceDomainData(snapshot)
-        } else {
-          set((state) => ({
-            teams: state.teams.map((entry) =>
-              entry.id === teamId ? team : entry
-            ),
-          }))
-        }
+        set((state) => ({
+          teams: state.teams.map((entry) => (entry.id === teamId ? team : entry)),
+        }))
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile team details after update failure",
+            refreshError
+          )
+        })
 
         toast.error(
           error instanceof Error

@@ -2,7 +2,6 @@
 
 import { ArrowRight, X } from "@phosphor-icons/react"
 import { useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,12 +14,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  fetchSnapshotState,
   syncCreateWorkspace,
   syncGenerateSettingsImageUploadUrl,
   syncUpdateWorkspaceBranding,
 } from "@/lib/convex/client"
-import { useAppStore } from "@/lib/store/app-store"
 
 const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
 const DEFAULT_AVATAR_SIZE = 56
@@ -76,7 +73,6 @@ async function uploadWorkspaceLogo(file: File) {
 }
 
 export function OnboardingWorkspaceForm() {
-  const router = useRouter()
   const [name, setName] = useState(DEFAULT_WORKSPACE_NAME)
   const [description, setDescription] = useState(DEFAULT_WORKSPACE_DESCRIPTION)
   const [logoFile, setLogoFile] = useState<File | null>(null)
@@ -165,21 +161,6 @@ export function OnboardingWorkspaceForm() {
       }
 
       toast.success("Workspace created")
-      try {
-        const snapshotState = await fetchSnapshotState()
-
-        if (snapshotState) {
-          useAppStore.getState().replaceDomainData(snapshotState.snapshot)
-          router.replace("/workspace/projects")
-          return
-        }
-      } catch (error) {
-        console.error(
-          "Failed to refresh app snapshot after workspace creation",
-          error
-        )
-      }
-
       window.location.replace("/workspace/projects")
     } catch (error) {
       toast.error(

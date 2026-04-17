@@ -21,6 +21,7 @@ import type * as app_conversations from "../app/conversations.js";
 import type * as app_core from "../app/core.js";
 import type * as app_data from "../app/data.js";
 import type * as app_document_handlers from "../app/document_handlers.js";
+import type * as app_email_job_handlers from "../app/email_job_handlers.js";
 import type * as app_invite_handlers from "../app/invite_handlers.js";
 import type * as app_label_workspace from "../app/label_workspace.js";
 import type * as app_lifecycle from "../app/lifecycle.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   "app/core": typeof app_core;
   "app/data": typeof app_data;
   "app/document_handlers": typeof app_document_handlers;
+  "app/email_job_handlers": typeof app_email_job_handlers;
   "app/invite_handlers": typeof app_invite_handlers;
   "app/label_workspace": typeof app_label_workspace;
   "app/lifecycle": typeof app_lifecycle;

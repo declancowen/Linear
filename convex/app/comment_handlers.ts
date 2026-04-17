@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server"
 
+import { buildMentionEmailJobs } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
 import {
   createMentionIds,
@@ -20,6 +21,7 @@ import {
   requireReadableTeamAccess,
 } from "./access"
 import { getTeamMemberIds } from "./conversations"
+import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -27,6 +29,7 @@ type ServerAccessArgs = {
 
 type AddCommentArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   targetType: "workItem" | "document"
   targetId: string
   parentCommentId?: string | null
@@ -212,6 +215,14 @@ export async function addCommentHandler(
     )
     notifiedUserIds.add(followerId)
   }
+
+  await queueEmailJobs(
+    ctx,
+    buildMentionEmailJobs({
+      origin: args.origin,
+      emails: mentionEmails,
+    })
+  )
 
   return {
     mentionEmails,

@@ -3,11 +3,7 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { channelPostCommentSchema } from "@/lib/domain/types"
-import {
-  addChannelPostCommentServer,
-  markNotificationsEmailedServer,
-} from "@/lib/server/convex"
-import { sendMentionEmails } from "@/lib/server/email"
+import { addChannelPostCommentServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -66,19 +62,6 @@ export async function POST(
       currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
     })
-
-    try {
-      const emailedNotificationIds = await sendMentionEmails({
-        origin: new URL(request.url).origin,
-        emails: result?.mentionEmails ?? [],
-      })
-
-      if (emailedNotificationIds.length > 0) {
-        await markNotificationsEmailedServer(emailedNotificationIds)
-      }
-    } catch (emailError) {
-      logProviderError("Failed to send mention emails", emailError)
-    }
 
     return jsonOk({
       ok: true,

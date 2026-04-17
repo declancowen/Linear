@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { logProviderError } from "@/lib/server/provider-errors"
 import { requestWorkOSPasswordReset } from "@/lib/server/workos"
 
 function redirectTo(request: Request, path: string) {
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
   try {
     await requestWorkOSPasswordReset(email)
   } catch (error) {
-    console.error("Failed to request password reset", error)
+    logProviderError("Failed to request password reset", error)
   }
 
   return redirectTo(

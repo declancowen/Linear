@@ -12,6 +12,7 @@ import {
   conversationFields,
   documentFields,
   documentPresenceFields,
+  emailJobFields,
   inviteFields,
   labelFields,
   milestoneFields,
@@ -96,6 +97,10 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_emailed_at", ["emailedAt"])
     .index("by_entity", ["entityType", "entityId"]),
+  emailJobs: defineTable(emailJobFields)
+    .index("by_domain_id", ["id"])
+    .index("by_sent_at", ["sentAt"])
+    .index("by_notification", ["notificationId"]),
   invites: defineTable(inviteFields)
     .index("by_domain_id", ["id"])
     .index("by_token", ["token"])

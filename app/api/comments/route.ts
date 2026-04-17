@@ -2,10 +2,7 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { commentSchema } from "@/lib/domain/types"
-import {
-  addCommentServer,
-  markNotificationsEmailedServer,
-} from "@/lib/server/convex"
+import { addCommentServer } from "@/lib/server/convex"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import {
@@ -18,7 +15,6 @@ import {
   jsonError,
   jsonOk,
 } from "@/lib/server/route-response"
-import { sendMentionEmails } from "@/lib/server/email"
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -44,23 +40,10 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    const result = await addCommentServer({
+    await addCommentServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
-
-    try {
-      const emailedNotificationIds = await sendMentionEmails({
-        origin: new URL(request.url).origin,
-        emails: result?.mentionEmails ?? [],
-      })
-
-      if (emailedNotificationIds.length > 0) {
-        await markNotificationsEmailedServer(emailedNotificationIds)
-      }
-    } catch (emailError) {
-      logProviderError("Failed to send mention emails", emailError)
-    }
 
     return jsonOk({
       ok: true,

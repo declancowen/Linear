@@ -57,6 +57,29 @@ Microservices are an **optional future extraction mechanism**, not the desired e
 - `WorkOS`, `Resend`, and `100ms` remain edge integrations behind adapters.
 - `Electron` remains a shell over the web app, not an independent business surface.
 
+### Desktop platform position
+
+The current desktop target state is **Electron**, not `Tauri`.
+
+This is an intentional repo-level decision, not an accident of the current implementation.
+
+Why:
+
+- the current desktop runtime already packages and manages the Next standalone server successfully
+- the highest-value architecture work is still in read models, commands, jobs, lifecycle, and governance
+- a Tauri move would be a platform migration, not a cleanup
+
+Therefore:
+
+- desktop remains a **mandatory** architecture surface
+- Electron runtime hardening, release, update, verification, and observability are part of the target state
+- a Tauri migration is deferred unless the product later proves a strong need for:
+  - materially smaller footprint or faster startup
+  - stronger native least-privilege separation
+  - a deliberate Rust-native desktop core
+
+If that threshold is ever crossed, Tauri should be treated as a separate platform decision with its own migration plan, not folded into the current architecture stream implicitly.
+
 ### Internal shape
 
 The repo should behave like a capability-oriented modular monolith with clear dependency direction:
@@ -138,6 +161,28 @@ Instead:
    - required indexes
    - allowed row volume
 4. The shell snapshot, if retained, must be bootstrap-oriented and bounded in size.
+
+## Desktop/runtime architecture
+
+### Target state
+
+Desktop is a first-class supported runtime, even if it is not an independent business domain.
+
+The Electron shell must therefore meet the same architectural standard as the web shell:
+
+- clear trust boundaries
+- explicit runtime ownership
+- observable startup and failure behavior
+- governed packaging, signing, and update flow
+- automated smoke validation
+
+### Desktop rules
+
+1. Desktop must not bypass the same application and domain contracts used by the web app.
+2. Native capabilities exposed through preload or IPC must be minimal, versioned, and explicitly owned.
+3. Navigation, external-link handling, and renderer privileges must remain locked down by default.
+4. Desktop packaging, signing, update, and smoke-validation paths must be repo-governed.
+5. Desktop runtime assumptions must be documented and testable, not tribal knowledge.
 
 ## Write architecture
 

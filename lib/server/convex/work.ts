@@ -9,6 +9,7 @@ import type {
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
   {
@@ -180,9 +181,14 @@ export async function updateWorkItemServer(input: {
   }
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.updateWorkItem,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw (
@@ -353,9 +359,14 @@ export async function createWorkItemServer(input: {
   labelIds?: string[]
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.createWorkItem,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw (

@@ -10,6 +10,7 @@ import type {
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 const TEAM_JOIN_CODE_CONFLICT_MATCH = /join code (already exists|is already in use)/i
 
@@ -411,9 +412,14 @@ export async function leaveTeamServer(input: {
   teamId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.leaveTeam,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw coerceApplicationError(error, [...LEAVE_TEAM_ERROR_MAPPINGS]) ?? error
@@ -426,9 +432,14 @@ export async function removeTeamMemberServer(input: {
   userId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.removeTeamMember,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw (

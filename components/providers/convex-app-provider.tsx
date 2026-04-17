@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useState } from "react"
 import { useTheme } from "next-themes"
 
+import { resolveSnapshotThemePreference } from "@/lib/browser/theme-preference-sync"
 import {
   fetchSnapshotState,
   fetchSnapshotVersion,
@@ -42,7 +43,13 @@ function ConvexStateSync({
     )
 
     if (currentUser?.preferences.theme) {
-      setTheme(currentUser.preferences.theme)
+      const nextThemePreference = resolveSnapshotThemePreference(
+        currentUser.preferences.theme
+      )
+
+      if (nextThemePreference) {
+        setTheme(nextThemePreference)
+      }
     }
   })
   const redirectToLogin = useEffectEvent(() => {

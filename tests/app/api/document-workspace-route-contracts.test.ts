@@ -14,9 +14,8 @@ const validateCurrentAccountDeletionServerMock = vi.fn()
 const prepareCurrentAccountDeletionServerMock = vi.fn()
 const deleteCurrentAccountServerMock = vi.fn()
 const cancelCurrentAccountDeletionServerMock = vi.fn()
-const sendMentionEmailsMock = vi.fn()
-const sendAccessChangeEmailsMock = vi.fn()
-const markNotificationsEmailedServerMock = vi.fn()
+const enqueueEmailJobsServerMock = vi.fn()
+const enqueueMentionEmailJobsServerMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const reconcileProviderMembershipCleanupMock = vi.fn()
 const reconcileDeletedAccountProviderCleanupMock = vi.fn()
@@ -38,12 +37,13 @@ vi.mock("@/lib/server/convex", () => ({
   prepareCurrentAccountDeletionServer: prepareCurrentAccountDeletionServerMock,
   deleteCurrentAccountServer: deleteCurrentAccountServerMock,
   cancelCurrentAccountDeletionServer: cancelCurrentAccountDeletionServerMock,
-  markNotificationsEmailedServer: markNotificationsEmailedServerMock,
+  enqueueEmailJobsServer: enqueueEmailJobsServerMock,
+  enqueueMentionEmailJobsServer: enqueueMentionEmailJobsServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
-  sendMentionEmails: sendMentionEmailsMock,
-  sendAccessChangeEmails: sendAccessChangeEmailsMock,
+  buildAccessChangeEmailJobs: vi.fn(() => []),
+  buildMentionEmailJobs: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/server/authenticated-app", () => ({
@@ -78,9 +78,8 @@ describe("document and workspace route contracts", () => {
     prepareCurrentAccountDeletionServerMock.mockReset()
     deleteCurrentAccountServerMock.mockReset()
     cancelCurrentAccountDeletionServerMock.mockReset()
-    sendMentionEmailsMock.mockReset()
-    sendAccessChangeEmailsMock.mockReset()
-    markNotificationsEmailedServerMock.mockReset()
+    enqueueEmailJobsServerMock.mockReset()
+    enqueueMentionEmailJobsServerMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
     reconcileProviderMembershipCleanupMock.mockReset()
     reconcileDeletedAccountProviderCleanupMock.mockReset()
@@ -107,8 +106,9 @@ describe("document and workspace route contracts", () => {
         isWorkspaceOwner: true,
       },
     })
-    sendMentionEmailsMock.mockResolvedValue([])
-    sendAccessChangeEmailsMock.mockResolvedValue(undefined)
+    enqueueEmailJobsServerMock.mockResolvedValue({
+      queued: 0,
+    })
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
     reconcileProviderMembershipCleanupMock.mockResolvedValue(undefined)
     reconcileDeletedAccountProviderCleanupMock.mockResolvedValue(undefined)

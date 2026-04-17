@@ -77,6 +77,13 @@ const notificationTypeLiterals = [
   v.literal("status-change"),
 ] as const
 
+const emailJobKindLiterals = [
+  v.literal("mention"),
+  v.literal("assignment"),
+  v.literal("invite"),
+  v.literal("access-change"),
+] as const
+
 const viewLayoutLiterals = [
   v.literal("list"),
   v.literal("board"),
@@ -230,6 +237,7 @@ export const priorityValidator = v.union(...priorityLiterals)
 export const projectHealthValidator = v.union(...projectHealthLiterals)
 export const projectStatusValidator = v.union(...projectStatusLiterals)
 export const notificationTypeValidator = v.union(...notificationTypeLiterals)
+export const emailJobKindValidator = v.union(...emailJobKindLiterals)
 export const viewLayoutValidator = v.union(...viewLayoutLiterals)
 export const viewScopeTypeValidator = v.union(...viewScopeTypeLiterals)
 export const entityKindValidator = v.union(...entityKindLiterals)
@@ -571,6 +579,25 @@ export const notificationFields = {
   readAt: nullableString,
   archivedAt: v.optional(nullableString),
   emailedAt: nullableString,
+  digestClaimId: v.optional(nullableString),
+  digestClaimedAt: v.optional(nullableString),
+  createdAt: v.string(),
+}
+
+export const emailJobFields = {
+  id: v.string(),
+  kind: emailJobKindValidator,
+  notificationId: v.optional(v.string()),
+  toEmail: v.string(),
+  subject: v.string(),
+  text: v.string(),
+  html: v.string(),
+  sentAt: nullableString,
+  claimId: v.optional(nullableString),
+  claimedAt: v.optional(nullableString),
+  lastError: nullableString,
+  attemptCount: v.number(),
+  lastAttemptAt: nullableString,
   createdAt: v.string(),
 }
 

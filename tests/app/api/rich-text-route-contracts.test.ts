@@ -7,8 +7,7 @@ const requireAppContextMock = vi.fn()
 const sendChatMessageServerMock = vi.fn()
 const createChannelPostServerMock = vi.fn()
 const addChannelPostCommentServerMock = vi.fn()
-const markNotificationsEmailedServerMock = vi.fn()
-const sendMentionEmailsMock = vi.fn()
+const enqueueMentionEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -20,11 +19,11 @@ vi.mock("@/lib/server/convex", () => ({
   sendChatMessageServer: sendChatMessageServerMock,
   createChannelPostServer: createChannelPostServerMock,
   addChannelPostCommentServer: addChannelPostCommentServerMock,
-  markNotificationsEmailedServer: markNotificationsEmailedServerMock,
+  enqueueMentionEmailJobsServer: enqueueMentionEmailJobsServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
-  sendMentionEmails: sendMentionEmailsMock,
+  buildMentionEmailJobs: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -40,8 +39,7 @@ describe("rich-text route contracts", () => {
     sendChatMessageServerMock.mockReset()
     createChannelPostServerMock.mockReset()
     addChannelPostCommentServerMock.mockReset()
-    markNotificationsEmailedServerMock.mockReset()
-    sendMentionEmailsMock.mockReset()
+    enqueueMentionEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
@@ -56,7 +54,6 @@ describe("rich-text route contracts", () => {
         userId: "user_1",
       },
     })
-    sendMentionEmailsMock.mockResolvedValue([])
   })
 
   it("maps chat-message content validation errors to a 400 response", async () => {

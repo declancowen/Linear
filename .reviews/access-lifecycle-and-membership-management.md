@@ -96,7 +96,7 @@ Files and areas reviewed across all turns:
 ### Resolved during Turn 11
 
 #### B11-01 ~~[BUG] Low~~ → RESOLVED — Team join code was still exposed in the team-settings header card
-**How it was fixed:** [team-settings-screen.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-settings-screen.tsx:292) now shows only the member count in the header metadata row. The join code remains available in the dedicated team editor field where admins can intentionally view, copy, or regenerate it.
+**How it was fixed:** [team-settings-screen.tsx](../components/app/settings-screens/team-settings-screen.tsx:292) now shows only the member count in the header metadata row. The join code remains available in the dedicated team editor field where admins can intentionally view, copy, or regenerate it.
 **Verified:** The join code is no longer duplicated in the prominent header area, which reduces accidental exposure without removing the actual admin workflow.
 
 ### Remaining pasted notes classified
@@ -140,20 +140,20 @@ Files and areas reviewed across all turns:
 
 #### B10-01 ~~[BUG] Medium~~ → RESOLVED — New accidental ` 2` duplicate settings files reappeared in the working tree
 **How it was fixed:** The duplicate backup files were removed from the tree:
-[create-team-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/create-team-screen 2.tsx:1>),
-[team-settings-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-settings-screen 2.tsx:1>),
-[user-settings-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/user-settings-screen 2.tsx:1>),
- [team-editor-fields 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-editor-fields 2.tsx:1>),
- [index 2.ts](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/index 2.ts:1>),
-and [utils 2.ts](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/utils 2.ts:1>).
+[create-team-screen 2.tsx](<../components/app/settings-screens/create-team-screen 2.tsx:1>),
+[team-settings-screen 2.tsx](<../components/app/settings-screens/team-settings-screen 2.tsx:1>),
+[user-settings-screen 2.tsx](<../components/app/settings-screens/user-settings-screen 2.tsx:1>),
+ [team-editor-fields 2.tsx](<../components/app/settings-screens/team-editor-fields 2.tsx:1>),
+ [index 2.ts](<../components/app/settings-screens/index 2.ts:1>),
+and [utils 2.ts](<../components/app/settings-screens/utils 2.ts:1>).
 **Verified:** `git status --short` no longer reports any ` 2` duplicate files after the cleanup.
 
 #### B10-02 ~~[CODE QUALITY] Low~~ → RESOLVED — Email lifecycle checks drifted from the new `getUserByEmail` contract
-**How it was fixed:** [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:87) now exports `getAuthLifecycleError`, and [resolveActiveUserByIdentity](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:109) no longer runs a dead lifecycle check on the result of `getUserByEmail`. [bootstrapWorkspaceUserHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:888) now uses the same helper for WorkOS/preferred-user lifecycle checks and drops the unreachable `existingByEmail?.accountDeletionPendingAt` branch.
+**How it was fixed:** [data.ts](../convex/app/data.ts:87) now exports `getAuthLifecycleError`, and [resolveActiveUserByIdentity](../convex/app/data.ts:109) no longer runs a dead lifecycle check on the result of `getUserByEmail`. [bootstrapWorkspaceUserHandler](../convex/app/auth_bootstrap.ts:888) now uses the same helper for WorkOS/preferred-user lifecycle checks and drops the unreachable `existingByEmail?.accountDeletionPendingAt` branch.
 **Verified:** The remaining lifecycle checks are the load-bearing ones, which makes the auth path easier to reason about and less likely to drift.
 
 #### B10-03 ~~[CODE QUALITY] Low~~ → RESOLVED — `removeWorkspaceUser` captured `previousUsers` even though it never optimistically changed users
-**How it was fixed:** [workspace slice](/Users/declancowen/Documents/GitHub/Linear/lib/store/app-store-internal/slices/workspace.ts:153) no longer snapshots/restores `users` in the rollback path for `removeWorkspaceUser`.
+**How it was fixed:** [workspace slice](../lib/store/app-store-internal/slices/workspace.ts:153) no longer snapshots/restores `users` in the rollback path for `removeWorkspaceUser`.
 **Verified:** The optimistic update and rollback now only touch the state that actually changes (`teamMemberships`).
 
 ### Verification
@@ -182,23 +182,23 @@ and [utils 2.ts](</Users/declancowen/Documents/GitHub/Linear/components/app/sett
 ### Resolved during Turn 9
 
 #### B9-01 ~~[BUG] Medium~~ → RESOLVED — `getUserByEmail` lost the legacy case-insensitive fallback and could surface pending-deletion users
-**How it was fixed:** [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:64) now returns the indexed user only when it is active, and otherwise falls back to the full-collection normalized-email scan. That scan now excludes both `accountDeletedAt` and `accountDeletionPendingAt`.
+**How it was fixed:** [data.ts](../convex/app/data.ts:64) now returns the indexed user only when it is active, and otherwise falls back to the full-collection normalized-email scan. That scan now excludes both `accountDeletedAt` and `accountDeletionPendingAt`.
 **Verified:** Mixed-case legacy users can still be resolved by email-only lookup, and pending-deletion users are no longer returned by this helper.
 
 #### B9-02 ~~[BUG] Medium~~ → RESOLVED — Accidental ` 2` duplicate files were committed into the repository
 **How it was fixed:** The duplicate backup files were removed from the tree:
-[shell 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/shell 2.tsx:1>),
-[user-presence 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/user-presence 2.tsx:1>),
-[shared 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/shared 2.tsx:1>),
-[workspace-settings-screen 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/workspace-settings-screen 2.tsx:1>),
-[confirm-dialog 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/ui/confirm-dialog 2.tsx:1>),
-[hover-card 2.tsx](</Users/declancowen/Documents/GitHub/Linear/components/ui/hover-card 2.tsx:1>),
-[notifications route 2.ts](</Users/declancowen/Documents/GitHub/Linear/app/api/notifications/route 2.ts:1>),
-and [presence route 2.ts](</Users/declancowen/Documents/GitHub/Linear/app/api/documents/[documentId]/presence/route 2.ts:1>).
+[shell 2.tsx](<../components/app/shell 2.tsx:1>),
+[user-presence 2.tsx](<../components/app/user-presence 2.tsx:1>),
+[shared 2.tsx](<../components/app/settings-screens/shared 2.tsx:1>),
+[workspace-settings-screen 2.tsx](<../components/app/settings-screens/workspace-settings-screen 2.tsx:1>),
+[confirm-dialog 2.tsx](<../components/ui/confirm-dialog 2.tsx:1>),
+[hover-card 2.tsx](<../components/ui/hover-card 2.tsx:1>),
+[notifications route 2.ts](<../app/api/notifications/route 2.ts:1>),
+and [presence route 2.ts](<../app/api/documents/[documentId]/presence/route 2.ts:1>).
 **Verified:** These files were not part of the real feature surface and removing them eliminates several thousand lines of dead code from the branch.
 
 #### B9-03 ~~[BUG] Low~~ → RESOLVED — Workspace-user removal route lacked the same route-level owner guard as sibling workspace routes
-**How it was fixed:** [workspace user removal route](/Users/declancowen/Documents/GitHub/Linear/app/api/workspace/current/users/[userId]/route.ts:31) now checks `appContext.authContext?.isWorkspaceOwner` before calling the backend mutation.
+**How it was fixed:** [workspace user removal route](../app/api/workspace/current/users/[userId]/route.ts:31) now checks `appContext.authContext?.isWorkspaceOwner` before calling the backend mutation.
 **Verified:** Unauthorized callers now get a clean 403 response instead of falling through to the generic Convex error wrapper.
 
 ### Remaining PR-analysis notes classified
@@ -234,20 +234,20 @@ and [presence route 2.ts](</Users/declancowen/Documents/GitHub/Linear/app/api/do
 ### Resolved during Turn 8
 
 #### B8-01 ~~[BUG] Medium~~ → RESOLVED — `leaveWorkspaceHandler` notified the workspace owner but not the admins of the teams the user implicitly left
-**How it was fixed:** [leaveWorkspaceHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1314) now deduplicates the removed team IDs and calls `notifyTeamAdminsOfAccessChange` for each affected team in addition to the workspace-owner notification.
+**How it was fixed:** [leaveWorkspaceHandler](../convex/app/workspace_team_handlers.ts:1314) now deduplicates the removed team IDs and calls `notifyTeamAdminsOfAccessChange` for each affected team in addition to the workspace-owner notification.
 **Verified:** Workspace leave, team leave, remove, and delete-account now all notify the relevant team-admin audience described in the clarified requirements.
 
 #### B8-02 ~~[BUG] Low~~ → RESOLVED — Workspace `DELETE` route returned a generic 500 instead of a route-level 403 for non-owners
-**How it was fixed:** [workspace current route](/Users/declancowen/Documents/GitHub/Linear/app/api/workspace/current/route.ts:103) now mirrors the `PATCH` route and checks `authContext.isWorkspaceOwner` before calling the backend delete mutation.
+**How it was fixed:** [workspace current route](../app/api/workspace/current/route.ts:103) now mirrors the `PATCH` route and checks `authContext.isWorkspaceOwner` before calling the backend delete mutation.
 **Verified:** Non-owner callers now get a clean 403 response instead of falling through to the generic Convex error path.
 
 #### B8-03 ~~[BUG] Low~~ → RESOLVED — Team-scoped chat participant filtering used a workspace-level access check
-**How it was fixed:** [chat-thread.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/collaboration-screens/chat-thread.tsx:164) now tracks the active conversation scope ID/type and filters `messageableMembers` by team membership for team chats, while still using workspace access for workspace chats.
+**How it was fixed:** [chat-thread.tsx](../components/app/collaboration-screens/chat-thread.tsx:164) now tracks the active conversation scope ID/type and filters `messageableMembers` by team membership for team chats, while still using workspace access for workspace chats.
 **Verified:** The client-side participant gating now matches the tighter team-scoped semantics already enforced by conversation membership sync and the server-side audience guard.
 
 ### Stale or informational PR-analysis notes
 
-- The account-deletion intermediate-state note against [app/api/account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:1) is stale after Turn 7. The route now uses `accountDeletionPendingAt` plus rollback on WorkOS failure, and auth rejects pending-deletion users.
+- The account-deletion intermediate-state note against [app/api/account/route.ts](../app/api/account/route.ts:1) is stale after Turn 7. The route now uses `accountDeletionPendingAt` plus rollback on WorkOS failure, and auth rejects pending-deletion users.
 - The `ChatThread` duplication note and the team-chat server-guard note are stale; both were fixed in Turn 6.
 - The `removeWorkspaceUserHandler` no-op owner-notification note is stale; that dead call was removed in Turn 6.
 - The authorization consistency, snapshot visibility, deleted-email rewrite, solo-admin safety, and retained `workosUserId` notes are informational rather than active defects.
@@ -279,7 +279,7 @@ and [presence route 2.ts](</Users/declancowen/Documents/GitHub/Linear/app/api/do
 ### Resolved from Turn 6
 
 #### B6-01 ~~[RESILIENCE] Medium~~ → RESOLVED — Delete-account was still missing a durable local compensation state after successful WorkOS deletion
-**How it was fixed:** [prepareCurrentAccountDeletionHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1423) now marks the local user with `accountDeletionPendingAt` before WorkOS deletion, [cancelCurrentAccountDeletionHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1452) rolls that marker back if provider deletion fails, and [deleteCurrentAccountHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1481) clears the pending marker only when the final tombstone succeeds. The route in [app/api/account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:38) now drives that prepare/delete/rollback sequence, and auth resolution in [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:92) plus bootstrap checks in [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:888) reject pending-deletion users the same way they already rejected deleted users.
+**How it was fixed:** [prepareCurrentAccountDeletionHandler](../convex/app/workspace_team_handlers.ts:1423) now marks the local user with `accountDeletionPendingAt` before WorkOS deletion, [cancelCurrentAccountDeletionHandler](../convex/app/workspace_team_handlers.ts:1452) rolls that marker back if provider deletion fails, and [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1481) clears the pending marker only when the final tombstone succeeds. The route in [app/api/account/route.ts](../app/api/account/route.ts:38) now drives that prepare/delete/rollback sequence, and auth resolution in [data.ts](../convex/app/data.ts:92) plus bootstrap checks in [auth_bootstrap.ts](../convex/app/auth_bootstrap.ts:888) reject pending-deletion users the same way they already rejected deleted users.
 **Verified:** The local account no longer remains “active” after external identity deletion. If WorkOS deletion fails, the pending marker is rolled back; if WorkOS deletion succeeds but the final local delete fails, subsequent auth resolution treats the user as being deleted instead of active.
 
 ### Verification
@@ -319,32 +319,32 @@ The flow has retry but still no durable two-phase delete, outbox, reconciliation
 This is no longer the easy failure mode from Turn 4, but it remains a real operational edge case. It would leave sign-in removed at WorkOS while Convex still treats the user row as active until manual intervention or a later successful retry.
 
 **Evidence:**
-- [account route](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:37) deletes the WorkOS user before calling the final local delete.
-- [server wrapper](/Users/declancowen/Documents/GitHub/Linear/lib/server/convex/workspace.ts:69) now retries the local delete on transient Convex failures, but it still ultimately throws after exhausting retries.
+- [account route](../app/api/account/route.ts:37) deletes the WorkOS user before calling the final local delete.
+- [server wrapper](../lib/server/convex/workspace.ts:69) now retries the local delete on transient Convex failures, but it still ultimately throws after exhausting retries.
 
 ### Resolved during Turn 6
 
 #### B6-02 ~~[BUG] Low~~ → RESOLVED — `ChatComposer` send button remained focusable/clickable in read-only mode
-**How it was fixed:** [chat-thread.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/collaboration-screens/chat-thread.tsx:112) now disables the send button when `editable` is false as well as when the content is empty.
+**How it was fixed:** [chat-thread.tsx](../components/app/collaboration-screens/chat-thread.tsx:112) now disables the send button when `editable` is false as well as when the content is empty.
 **Verified:** The DOM disabled state now matches the visual state and the `handleSend` guard.
 
 #### B6-03 ~~[CODE QUALITY] Low~~ → RESOLVED — `ChatThread` duplicated workspace-access logic inline
-**How it was fixed:** [selectors-internal/core.ts](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/core.ts:61) now exposes `hasWorkspaceAccessInCollections`, and [chat-thread.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/collaboration-screens/chat-thread.tsx:201) uses that shared helper with `useMemo` instead of reimplementing the same membership check inline.
+**How it was fixed:** [selectors-internal/core.ts](../lib/domain/selectors-internal/core.ts:61) now exposes `hasWorkspaceAccessInCollections`, and [chat-thread.tsx](../components/app/collaboration-screens/chat-thread.tsx:201) uses that shared helper with `useMemo` instead of reimplementing the same membership check inline.
 **Verified:** The duplicated logic is removed and the derived member list/count are now memoized in the component.
 
 #### B6-04 ~~[DEFENSE-IN-DEPTH] Low~~ → RESOLVED — Server-side read-only guard did not apply to team-scoped chats
-**How it was fixed:** [collaboration_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/collaboration_handlers.ts:480) now blocks sends whenever no other audience user remains, regardless of workspace-vs-team scope. The mirrored optimistic client path in [collaboration-conversation-actions.ts](/Users/declancowen/Documents/GitHub/Linear/lib/store/app-store-internal/slices/collaboration-conversation-actions.ts:473) now uses the same rule and a scope-appropriate message.
+**How it was fixed:** [collaboration_handlers.ts](../convex/app/collaboration_handlers.ts:480) now blocks sends whenever no other audience user remains, regardless of workspace-vs-team scope. The mirrored optimistic client path in [collaboration-conversation-actions.ts](../lib/store/app-store-internal/slices/collaboration-conversation-actions.ts:473) now uses the same rule and a scope-appropriate message.
 **Verified:** Direct API calls can no longer bypass the client-side read-only rule for one-person team chats after participant loss.
 
 #### B6-05 ~~[CODE QUALITY] Low~~ → RESOLVED — `removeWorkspaceUserHandler` still called a notification helper that was guaranteed to no-op
-**How it was fixed:** [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1277) no longer calls `notifyWorkspaceOwnerOfAccessChange` on workspace removal, since owner-only authorization means the actor is always the owner and therefore always excluded.
+**How it was fixed:** [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1277) no longer calls `notifyWorkspaceOwnerOfAccessChange` on workspace removal, since owner-only authorization means the actor is always the owner and therefore always excluded.
 **Verified:** The behavior is unchanged, but the dead call and misleading `ownerEmailJobs` plumbing are gone.
 
 ### Informational notes validated
 
 - The owner-only workspace / team-admin authorization model is consistent across UI, route, and mutation layers.
-- The expanded snapshot user-visibility sweep in [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:503) is functionally correct for historical rendering; the remaining question there is scale/performance, not correctness.
-- [getUserByEmail](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:57) handles the deleted-account email rewrite correctly.
+- The expanded snapshot user-visibility sweep in [auth_bootstrap.ts](../convex/app/auth_bootstrap.ts:503) is functionally correct for historical rendering; the remaining question there is scale/performance, not correctness.
+- [getUserByEmail](../convex/app/data.ts:57) handles the deleted-account email rewrite correctly.
 - Leaving `workosUserId` on tombstoned rows is still intentional to reject stale sessions that present the deleted WorkOS identity.
 
 ### Verification
@@ -373,17 +373,17 @@ This is no longer the easy failure mode from Turn 4, but it remains a real opera
 ### Resolved from Turn 4
 
 #### B4-01 ~~[BUG] Medium~~ → RESOLVED — Manual remove flows still did not notify workspace/team owners about the access change
-**How it was fixed:** [removeTeamMemberHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1128) now notifies team admins in addition to the removed user, and [removeWorkspaceUserHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1210) now sends the owner-facing access-change email jobs alongside the removed-user email. The route layer in [team member removal](/Users/declancowen/Documents/GitHub/Linear/app/api/teams/[teamId]/members/[userId]/route.ts:78) and [workspace user removal](/Users/declancowen/Documents/GitHub/Linear/app/api/workspace/current/users/[userId]/route.ts:33) now forwards those jobs through the shared transactional email sender.
+**How it was fixed:** [removeTeamMemberHandler](../convex/app/workspace_team_handlers.ts:1128) now notifies team admins in addition to the removed user, and [removeWorkspaceUserHandler](../convex/app/workspace_team_handlers.ts:1210) now sends the owner-facing access-change email jobs alongside the removed-user email. The route layer in [team member removal](../app/api/teams/[teamId]/members/[userId]/route.ts:78) and [workspace user removal](../app/api/workspace/current/users/[userId]/route.ts:33) now forwards those jobs through the shared transactional email sender.
 **Verified:** Manual remove, self-leave, and delete-account now all use the same owner/admin notification pattern, while team removal still notifies the removed user and workspace removal remains email-only for the removed user.
 
 #### B4-02 ~~[BUG] Medium~~ → RESOLVED — Account deletion could succeed locally while leaving the WorkOS sign-in identity alive
-**How it was fixed:** [account route](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:25) now validates deletion eligibility first, then deletes the WorkOS user, then runs the final Convex delete. The validation preflight now lives in [validateCurrentAccountDeletion](/Users/declancowen/Documents/GitHub/Linear/convex/app.ts:378) and [validateCurrentAccountDeletionHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1414) with the shared server wrapper in [lib/server/convex/workspace.ts](/Users/declancowen/Documents/GitHub/Linear/lib/server/convex/workspace.ts:79).
+**How it was fixed:** [account route](../app/api/account/route.ts:25) now validates deletion eligibility first, then deletes the WorkOS user, then runs the final Convex delete. The validation preflight now lives in [validateCurrentAccountDeletion](../convex/app.ts:378) and [validateCurrentAccountDeletionHandler](../convex/app/workspace_team_handlers.ts:1414) with the shared server wrapper in [lib/server/convex/workspace.ts](../lib/server/convex/workspace.ts:79).
 **Verified:** The route no longer reports success after a failed WorkOS delete, and the preflight no longer uses a dry-run mutation that would bump the global snapshot version without changing data.
 
 ### Additional alignment verified on this rerun
 
-- [deleteWorkspaceHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:442) now returns `deletedUserIds: []` and no longer invokes user cleanup at the workspace-delete level.
-- [cascadeDeleteTeamData](/Users/declancowen/Documents/GitHub/Linear/convex/app/cleanup.ts:663) is already called with `cleanupGlobalState: false` from workspace deletion, so team cascades in that path also avoid deleting Convex user rows.
+- [deleteWorkspaceHandler](../convex/app/workspace_team_handlers.ts:442) now returns `deletedUserIds: []` and no longer invokes user cleanup at the workspace-delete level.
+- [cascadeDeleteTeamData](../convex/app/cleanup.ts:663) is already called with `cleanupGlobalState: false` from workspace deletion, so team cascades in that path also avoid deleting Convex user rows.
 
 ### Verification
 
@@ -426,8 +426,8 @@ The access-change side effects were centralized for leave/delete-account, but th
 This still falls short of the clarified requirement that remove, leave, and delete-account should all surface access-loss events to the responsible workspace/team leadership. Operationally, owners/admins still do not get a durable inbox/email trail when a member is manually removed.
 
 **Evidence:**
-- [removeTeamMemberHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1164) inserts a notification only for `removedUser.id` and returns email jobs only for `removedUser.email`.
-- [removeWorkspaceUserHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1277) returns email jobs only for the removed user and never calls `notifyWorkspaceOwnerOfAccessChange`.
+- [removeTeamMemberHandler](../convex/app/workspace_team_handlers.ts:1164) inserts a notification only for `removedUser.id` and returns email jobs only for `removedUser.email`.
+- [removeWorkspaceUserHandler](../convex/app/workspace_team_handlers.ts:1277) returns email jobs only for the removed user and never calls `notifyWorkspaceOwnerOfAccessChange`.
 
 #### B4-02 [BUG] Medium — `app/api/account/route.ts:49` and `convex/app/data.ts:100` — Account deletion can succeed locally while leaving the WorkOS sign-in identity alive
 
@@ -441,9 +441,9 @@ The route treats provider-side deletion as non-blocking even though the requirem
 You can end up with a partially deleted account: the app reports success, the local account is unusable, but the external WorkOS identity still exists and remains linked to that deleted row. That is an operationally confusing failure mode and violates the intended lifecycle contract.
 
 **Evidence:**
-- [account route](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:49) logs WorkOS deletion failures and still returns `ok: true`.
-- [local tombstone](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1482) preserves the row with `accountDeletedAt`.
-- [identity resolution](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:100) still hard-fails if that same `workosUserId` appears again.
+- [account route](../app/api/account/route.ts:49) logs WorkOS deletion failures and still returns `ok: true`.
+- [local tombstone](../convex/app/workspace_team_handlers.ts:1482) preserves the row with `accountDeletedAt`.
+- [identity resolution](../convex/app/data.ts:100) still hard-fails if that same `workosUserId` appears again.
 
 ### Recommendations
 
@@ -457,7 +457,7 @@ You can end up with a partially deleted account: the app reports success, the lo
 - If an admin removes a user from a team, the removed user should also be notified.
 - If an admin removes a user from a workspace, the removed user should receive email only.
 - Deleting a workspace should delete workspace-scoped data in Convex only. It should not delete WorkOS auth identities, and it should not delete Convex user records. User/auth deletion happens only at the delete-account level.
-- Current implementation note for the next rerun: [deleteWorkspaceHandler](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:592) still calls `cleanupUnreferencedUsers`, so this requirement change is likely to produce another open finding unless that path is changed.
+- Current implementation note for the next rerun: [deleteWorkspaceHandler](../convex/app/workspace_team_handlers.ts:592) still calls `cleanupUnreferencedUsers`, so this requirement change is likely to produce another open finding unless that path is changed.
 
 ---
 
@@ -479,9 +479,9 @@ You can end up with a partially deleted account: the app reports success, the lo
 
 ### Architecture Alignment Notes
 
-- **Policy centralized inward:** [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:93) now owns the “active user by WorkOS/email identity” rule instead of repeating deleted-account checks across auth entrypoints.
-- **Canonical input at the boundary:** [core.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/core.ts:248) and [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:121) normalize auth-bound email values before lookup or persistence, which keeps the indexed identity path consistent with future writes.
-- **Data-layer access patterns tightened:** [schema.ts](/Users/declancowen/Documents/GitHub/Linear/convex/schema.ts:37) now exposes `teams.by_workspace` and `workspaces.by_created_by`, and [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:119), [conversations.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/conversations.ts:29), and [cleanup.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/cleanup.ts:265) use those helpers instead of embedding new full-scan workspace ownership/workspace-team lookups in feature code.
+- **Policy centralized inward:** [data.ts](../convex/app/data.ts:93) now owns the “active user by WorkOS/email identity” rule instead of repeating deleted-account checks across auth entrypoints.
+- **Canonical input at the boundary:** [core.ts](../convex/app/core.ts:248) and [auth_bootstrap.ts](../convex/app/auth_bootstrap.ts:121) normalize auth-bound email values before lookup or persistence, which keeps the indexed identity path consistent with future writes.
+- **Data-layer access patterns tightened:** [schema.ts](../convex/schema.ts:37) now exposes `teams.by_workspace` and `workspaces.by_created_by`, and [data.ts](../convex/app/data.ts:119), [conversations.ts](../convex/app/conversations.ts:29), and [cleanup.ts](../convex/app/cleanup.ts:265) use those helpers instead of embedding new full-scan workspace ownership/workspace-team lookups in feature code.
 - **Residual risk:** There are still broader full-collection snapshot/cleanup reads elsewhere in this codebase, but they predate this feature and were not expanded on the hot path by the access-lifecycle work after this pass.
 
 ---
@@ -505,23 +505,23 @@ You can end up with a partially deleted account: the app reports success, the lo
 ### Resolved from Turn 1
 
 #### B1-01 ~~[BUG] Critical~~ → RESOLVED — Settings pages fall into an infinite render loop
-**How it was fixed:** [team-settings-screen.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/team-settings-screen.tsx:55) and [workspace-settings-screen.tsx](/Users/declancowen/Documents/GitHub/Linear/components/app/settings-screens/workspace-settings-screen.tsx:84) now subscribe only to stable raw store slices and derive `teamMembers` / `workspaceUsers` with `useMemo` in the component layer.
+**How it was fixed:** [team-settings-screen.tsx](../components/app/settings-screens/team-settings-screen.tsx:55) and [workspace-settings-screen.tsx](../components/app/settings-screens/workspace-settings-screen.tsx:84) now subscribe only to stable raw store slices and derive `teamMembers` / `workspaceUsers` with `useMemo` in the component layer.
 **Verified:** This removes the fresh-object store snapshot churn that triggered the `getSnapshot should be cached` / maximum update depth loop.
 
 #### S1-02 ~~[SECURITY] High~~ → RESOLVED — Workspace membership removal was authorized for workspace admins instead of owner-only
-**How it was fixed:** [access.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/access.ts:61) now defines `requireWorkspaceOwnerAccess`, and [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1228), [workspace/current/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/workspace/current/route.ts:48), and [settings-images/upload-url/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/settings-images/upload-url/route.ts:46) all enforce owner-only workspace settings behavior consistently.
+**How it was fixed:** [access.ts](../convex/app/access.ts:61) now defines `requireWorkspaceOwnerAccess`, and [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1228), [workspace/current/route.ts](../app/api/workspace/current/route.ts:48), and [settings-images/upload-url/route.ts](../app/api/settings-images/upload-url/route.ts:46) all enforce owner-only workspace settings behavior consistently.
 **Verified:** The UI, Next routes, and Convex mutation layer now agree on the same owner-only workspace policy.
 
 #### S1-03 ~~[SECURITY] High~~ → RESOLVED — Team deletion was authorized at workspace level instead of target-team level
-**How it was fixed:** [access.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/access.ts:41) now defines `requireTeamAdminAccess`, and [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:817) uses it for team deletion. The same helper also consolidates other team-admin operations.
+**How it was fixed:** [access.ts](../convex/app/access.ts:41) now defines `requireTeamAdminAccess`, and [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:817) uses it for team deletion. The same helper also consolidates other team-admin operations.
 **Verified:** Team delete now follows the same team-admin rule as team settings, workflow updates, join-code regeneration, and member management.
 
 #### B1-04 ~~[BUG] High~~ → RESOLVED — Deleted accounts could not sign back up as a new customer record
-**How it was fixed:** [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:62) now ignores deleted users for email-based active-user resolution, while [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1461) tombstones deleted identities by rewriting their email and handle instead of leaving active identifiers in place.
+**How it was fixed:** [data.ts](../convex/app/data.ts:62) now ignores deleted users for email-based active-user resolution, while [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1461) tombstones deleted identities by rewriting their email and handle instead of leaving active identifiers in place.
 **Verified:** Historical deleted rows remain addressable by ID for content/history, existing stale WorkOS sessions still resolve to the deleted record by WorkOS user ID, and a future fresh OAuth identity can create a new active user with the original email.
 
 #### B1-05 ~~[BUG] Medium~~ → RESOLVED — Account deletion did not notify impacted workspace/team owners about the access loss
-**How it was fixed:** [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:205) now centralizes owner/admin access-change notifications, [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:1430) emits those notifications during account deletion, and [account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:24) sends the resulting transactional emails.
+**How it was fixed:** [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:205) now centralizes owner/admin access-change notifications, [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1430) emits those notifications during account deletion, and [account/route.ts](../app/api/account/route.ts:24) sends the resulting transactional emails.
 **Verified:** Leave-team, leave-workspace, and delete-account now share the same notification/email orchestration pattern for owner-facing access-loss events.
 
 ### Recommendations

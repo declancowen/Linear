@@ -174,6 +174,7 @@ export const createTeamResultFixture = {
   ok: true as const,
   teamId: "team_2",
   teamSlug: "platform",
+  joinCode: "JOIN1234",
   features: createDefaultTeamFeatureSettings("software-development"),
 }
 
@@ -195,6 +196,7 @@ export const leaveTeamResultFixture = {
   ok: true as const,
   teamId: "team_1",
   workspaceId: "workspace_1",
+  workspaceAccessRemoved: false,
 }
 
 export const regenerateTeamJoinCodeResultFixture = {

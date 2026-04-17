@@ -2,12 +2,7 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import {
-  deleteWorkItemServer,
-  markNotificationsEmailedServer,
-  updateWorkItemServer,
-} from "@/lib/server/convex"
-import { sendAssignmentEmails } from "@/lib/server/email"
+import { deleteWorkItemServer, updateWorkItemServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -77,19 +72,11 @@ export async function PATCH(
       return appContext
     }
 
-    const result = await updateWorkItemServer({
+    await updateWorkItemServer({
       currentUserId: appContext.ensuredUser.userId,
       itemId,
       patch: parsed,
     })
-    const emailedNotificationIds = await sendAssignmentEmails({
-      origin: new URL(request.url).origin,
-      emails: result?.assignmentEmails ?? [],
-    })
-
-    if (emailedNotificationIds.length > 0) {
-      await markNotificationsEmailedServer(emailedNotificationIds)
-    }
 
     return jsonOk({
       ok: true,

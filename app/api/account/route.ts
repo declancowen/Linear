@@ -5,7 +5,6 @@ import {
   prepareCurrentAccountDeletionServer,
   validateCurrentAccountDeletionServer,
 } from "@/lib/server/convex"
-import { sendAccessChangeEmails } from "@/lib/server/email"
 import { reconcileDeletedAccountProviderCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -107,19 +106,6 @@ export async function DELETE() {
     workosUserId: appContext.authenticatedUser.workosUserId,
     memberships: result?.providerMemberships ?? [],
   })
-
-  if (result?.emailJobs?.length) {
-    try {
-      await sendAccessChangeEmails({
-        emails: result.emailJobs,
-      })
-    } catch (emailError) {
-      logProviderError(
-        "Failed to send account-deletion access change emails",
-        emailError
-      )
-    }
-  }
 
   return jsonOk({
     ok: true,

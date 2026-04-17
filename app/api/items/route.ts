@@ -2,11 +2,7 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { workItemSchema } from "@/lib/domain/types"
-import {
-  createWorkItemServer,
-  markNotificationsEmailedServer,
-} from "@/lib/server/convex"
-import { sendAssignmentEmails } from "@/lib/server/email"
+import { createWorkItemServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -48,14 +44,6 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
-    const emailedNotificationIds = await sendAssignmentEmails({
-      origin: new URL(request.url).origin,
-      emails: result?.assignmentEmails ?? [],
-    })
-
-    if (emailedNotificationIds.length > 0) {
-      await markNotificationsEmailedServer(emailedNotificationIds)
-    }
 
     return jsonOk({
       ok: true,

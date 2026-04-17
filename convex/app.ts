@@ -11,6 +11,7 @@ import {
   auditEventTypeValidator,
   attachmentTargetTypeValidator,
   commentTargetTypeValidator,
+  emailJobKindValidator,
   displayPropertyValidator,
   groupFieldValidator,
   nullableStringValidator,
@@ -50,13 +51,22 @@ import {
 } from "./app/auth_bootstrap"
 import {
   archiveNotificationHandler,
+  claimPendingNotificationDigestsHandler,
   deleteNotificationHandler,
   listPendingNotificationDigestsHandler,
   markNotificationReadHandler,
   markNotificationsEmailedHandler,
+  releaseNotificationDigestClaimHandler,
   toggleNotificationReadHandler,
   unarchiveNotificationHandler,
 } from "./app/notification_handlers"
+import {
+  claimPendingEmailJobsHandler,
+  enqueueEmailJobsHandler,
+  listPendingEmailJobsHandler,
+  markEmailJobsSentHandler,
+  releaseEmailJobClaimHandler,
+} from "./app/email_job_handlers"
 import {
   addChannelPostCommentHandler,
   createChannelHandler,
@@ -64,6 +74,8 @@ import {
   createWorkspaceChatHandler,
   deleteChannelPostHandler,
   ensureTeamChatHandler,
+  finalizeCallJoinHandler,
+  getCallJoinContextHandler,
   markCallJoinedHandler,
   sendChatMessageHandler,
   setCallRoomHandler,
@@ -292,6 +304,77 @@ export const listPendingNotificationDigests = query({
   handler: listPendingNotificationDigestsHandler,
 })
 
+export const listPendingEmailJobs = query({
+  args: {
+    ...serverAccessArgs,
+    limit: v.optional(v.number()),
+  },
+  handler: listPendingEmailJobsHandler,
+})
+
+export const enqueueEmailJobs = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    jobs: v.array(
+      v.object({
+        kind: emailJobKindValidator,
+        notificationId: v.optional(v.string()),
+        toEmail: v.string(),
+        subject: v.string(),
+        text: v.string(),
+        html: v.string(),
+      })
+    ),
+  },
+  handler: enqueueEmailJobsHandler,
+})
+
+export const claimPendingEmailJobs = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: claimPendingEmailJobsHandler,
+})
+
+export const markEmailJobsSent = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    jobIds: v.array(v.string()),
+  },
+  handler: markEmailJobsSentHandler,
+})
+
+export const releaseEmailJobClaim = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    jobIds: v.array(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: releaseEmailJobClaimHandler,
+})
+
+export const getCallJoinContext = query({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    callId: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+  },
+  handler: getCallJoinContextHandler,
+})
+
+export const claimPendingNotificationDigests = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+  },
+  handler: claimPendingNotificationDigestsHandler,
+})
+
 export const markNotificationRead = mutation({
   args: {
     ...serverAccessArgs,
@@ -301,12 +384,34 @@ export const markNotificationRead = mutation({
   handler: markNotificationReadHandler,
 })
 
-export const markNotificationsEmailed = mutation({
+export const markNotificationsEmailed = operationalMutation({
   args: {
     ...serverAccessArgs,
+    claimId: v.optional(v.string()),
     notificationIds: v.array(v.string()),
   },
   handler: markNotificationsEmailedHandler,
+})
+
+export const releaseNotificationDigestClaim = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    notificationIds: v.array(v.string()),
+  },
+  handler: releaseNotificationDigestClaimHandler,
+})
+
+export const finalizeCallJoin = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    callId: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+    roomId: v.string(),
+    roomName: v.string(),
+  },
+  handler: finalizeCallJoinHandler,
 })
 
 export const toggleNotificationRead = mutation({
@@ -417,6 +522,7 @@ export const deleteCurrentAccount = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.string(),
   },
   handler: deleteCurrentAccountHandler,
 })
@@ -483,6 +589,7 @@ export const leaveTeam = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
+    origin: v.string(),
   },
   handler: leaveTeamHandler,
 })
@@ -492,6 +599,7 @@ export const leaveWorkspace = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     workspaceId: v.string(),
+    origin: v.string(),
   },
   handler: leaveWorkspaceHandler,
 })
@@ -502,6 +610,7 @@ export const removeTeamMember = mutation({
     currentUserId: v.string(),
     teamId: v.string(),
     userId: v.string(),
+    origin: v.string(),
   },
   handler: removeTeamMemberHandler,
 })
@@ -512,6 +621,7 @@ export const removeWorkspaceUser = mutation({
     currentUserId: v.string(),
     workspaceId: v.string(),
     userId: v.string(),
+    origin: v.string(),
   },
   handler: removeWorkspaceUserHandler,
 })
@@ -642,6 +752,7 @@ export const updateWorkItem = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
+    origin: v.string(),
     patch: v.object({
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),
@@ -798,6 +909,7 @@ export const addComment = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.string(),
     targetType: commentTargetTypeValidator,
     targetId: v.string(),
     parentCommentId: v.optional(nullableStringValidator),
@@ -823,6 +935,7 @@ export const createInvite = mutation({
     teamId: v.string(),
     email: v.string(),
     role: roleValidator,
+    origin: v.string(),
   },
   handler: createInviteHandler,
 })
@@ -911,6 +1024,7 @@ export const createWorkItem = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.string(),
     teamId: v.string(),
     type: workItemTypeValidator,
     title: v.string(),
@@ -1007,6 +1121,7 @@ export const sendChatMessage = mutation({
     currentUserId: v.string(),
     conversationId: v.string(),
     content: v.string(),
+    origin: v.string(),
   },
   handler: sendChatMessageHandler,
 })
@@ -1018,6 +1133,7 @@ export const createChannelPost = mutation({
     conversationId: v.string(),
     title: v.string(),
     content: v.string(),
+    origin: v.string(),
   },
   handler: createChannelPostHandler,
 })
@@ -1028,6 +1144,7 @@ export const addChannelPostComment = mutation({
     currentUserId: v.string(),
     postId: v.string(),
     content: v.string(),
+    origin: v.string(),
   },
   handler: addChannelPostCommentHandler,
 })

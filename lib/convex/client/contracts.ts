@@ -275,11 +275,13 @@ export function normalizeCreateTeamResult(payload: unknown): {
   ok?: true
   teamId: string
   teamSlug: string
+  joinCode: string
   features: TeamFeatureSettings
 } {
   assertRouteContract(isRecord(payload), "Invalid create-team payload")
   assertRouteContract(isString(payload.teamId), "Invalid create-team payload")
   assertRouteContract(isString(payload.teamSlug), "Invalid create-team payload")
+  assertRouteContract(isString(payload.joinCode), "Invalid create-team payload")
   assertRouteContract(
     isTeamFeatureSettingsRecord(payload.features),
     "Invalid create-team payload"
@@ -289,6 +291,7 @@ export function normalizeCreateTeamResult(payload: unknown): {
     ok?: true
     teamId: string
     teamSlug: string
+    joinCode: string
     features: TeamFeatureSettings
   }
 }
@@ -322,6 +325,7 @@ export function normalizeLeaveTeamResult(payload: unknown): {
   ok?: true
   teamId: string
   workspaceId: string | null
+  workspaceAccessRemoved?: boolean
 } {
   assertRouteContract(isRecord(payload), "Invalid leave-team payload")
   assertRouteContract(isString(payload.teamId), "Invalid leave-team payload")
@@ -329,11 +333,17 @@ export function normalizeLeaveTeamResult(payload: unknown): {
     isStringOrNull(payload.workspaceId),
     "Invalid leave-team payload"
   )
+  assertRouteContract(
+    payload.workspaceAccessRemoved === undefined ||
+      typeof payload.workspaceAccessRemoved === "boolean",
+    "Invalid leave-team payload"
+  )
 
   return payload as {
     ok?: true
     teamId: string
     workspaceId: string | null
+    workspaceAccessRemoved?: boolean
   }
 }
 

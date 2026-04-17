@@ -147,8 +147,11 @@ pnpm desktop:start
 These scripts require a correctly configured `.env.local` and usually talk to live services:
 
 - `pnpm bootstrap:workspace`: create/bootstrap a workspace for a user
+- `pnpm emails:send-jobs`: send queued outbound email jobs from the durable email outbox
 - `pnpm notifications:send-digests`: send notification digest emails
 - `pnpm sync:workos:workspaces`: sync Convex workspaces to WorkOS organizations
+
+Operational expectations for deploys, backfills, sync jobs, and desktop smoke checks are documented in [docs/architecture/deployment-migration-runbook.md](docs/architecture/deployment-migration-runbook.md).
 
 ## Desktop app
 

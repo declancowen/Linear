@@ -6,6 +6,7 @@ import {
   runConvexRequestWithRetry,
   withServerToken,
 } from "./core"
+import { resolveServerOrigin } from "../request-origin"
 
 const INVITE_MUTATION_ERROR_MAPPINGS = [
   {
@@ -55,9 +56,14 @@ export async function createInviteServer(input: {
   role: "admin" | "member" | "viewer" | "guest"
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.createInvite,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw coerceApplicationError(error, [...INVITE_MUTATION_ERROR_MAPPINGS]) ?? error
@@ -99,6 +105,43 @@ export async function markNotificationsEmailedServer(
     api.app.markNotificationsEmailed,
     withServerToken({
       notificationIds,
+    })
+  )
+}
+
+export async function enqueueMentionEmailJobsServer(
+  jobs: Array<{
+    kind: "mention"
+    notificationId: string
+    toEmail: string
+    subject: string
+    text: string
+    html: string
+  }>
+) {
+  return enqueueEmailJobsServer(jobs)
+}
+
+export async function enqueueEmailJobsServer(
+  jobs: Array<{
+    kind: "mention" | "assignment" | "invite" | "access-change"
+    notificationId?: string
+    toEmail: string
+    subject: string
+    text: string
+    html: string
+  }>
+) {
+  if (jobs.length === 0) {
+    return {
+      queued: 0,
+    }
+  }
+
+  return getConvexServerClient().mutation(
+    api.app.enqueueEmailJobs,
+    withServerToken({
+      jobs,
     })
   )
 }

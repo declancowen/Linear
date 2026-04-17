@@ -2,6 +2,7 @@ import { addDays, differenceInCalendarDays } from "date-fns"
 
 import type { MutationCtx } from "../_generated/server"
 
+import { buildAssignmentEmailJobs } from "../../lib/email/builders"
 import {
   getAllowedWorkItemTypesForTemplate,
   getWorkSurfaceCopy,
@@ -33,6 +34,7 @@ import {
   validateWorkItemParent,
 } from "./work_helpers"
 import { requireEditableTeamAccess } from "./access"
+import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -58,6 +60,7 @@ type WorkItemPatch = {
 
 type UpdateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   itemId: string
   patch: WorkItemPatch
 }
@@ -75,6 +78,7 @@ type ShiftTimelineItemArgs = ServerAccessArgs & {
 
 type CreateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
+  origin: string
   teamId: string
   type: WorkItemType
   title: string
@@ -301,6 +305,14 @@ export async function updateWorkItemHandler(
       )
     )
   }
+
+  await queueEmailJobs(
+    ctx,
+    buildAssignmentEmailJobs({
+      origin: args.origin,
+      emails: assignmentEmails,
+    })
+  )
 
   return {
     assignmentEmails,
@@ -633,6 +645,14 @@ export async function createWorkItemHandler(
       })
     }
   }
+
+  await queueEmailJobs(
+    ctx,
+    buildAssignmentEmailJobs({
+      origin: args.origin,
+      emails: assignmentEmails,
+    })
+  )
 
   return {
     itemId: workItem.id,
