@@ -15,8 +15,7 @@ const toggleViewDisplayPropertyServerMock = vi.fn()
 const toggleViewHiddenValueServerMock = vi.fn()
 const toggleViewFilterValueServerMock = vi.fn()
 const clearViewFiltersServerMock = vi.fn()
-const markNotificationsEmailedServerMock = vi.fn()
-const sendAssignmentEmailsMock = vi.fn()
+const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -36,11 +35,11 @@ vi.mock("@/lib/server/convex", () => ({
   toggleViewHiddenValueServer: toggleViewHiddenValueServerMock,
   toggleViewFilterValueServer: toggleViewFilterValueServerMock,
   clearViewFiltersServer: clearViewFiltersServerMock,
-  markNotificationsEmailedServer: markNotificationsEmailedServerMock,
+  enqueueEmailJobsServer: enqueueEmailJobsServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
-  sendAssignmentEmails: sendAssignmentEmailsMock,
+  buildAssignmentEmailJobs: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -64,8 +63,7 @@ describe("work route contracts", () => {
     toggleViewHiddenValueServerMock.mockReset()
     toggleViewFilterValueServerMock.mockReset()
     clearViewFiltersServerMock.mockReset()
-    markNotificationsEmailedServerMock.mockReset()
-    sendAssignmentEmailsMock.mockReset()
+    enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
@@ -80,7 +78,9 @@ describe("work route contracts", () => {
         userId: "user_1",
       },
     })
-    sendAssignmentEmailsMock.mockResolvedValue([])
+    enqueueEmailJobsServerMock.mockResolvedValue({
+      queued: 0,
+    })
   })
 
   it("maps work-item creation failures to typed error responses", async () => {

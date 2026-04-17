@@ -1,4 +1,4 @@
-import type { MutationCtx } from "../_generated/server"
+import type { MutationCtx, QueryCtx } from "../_generated/server"
 
 import { getPlainTextContent } from "../../lib/utils"
 import {
@@ -32,10 +32,14 @@ import {
   getCallDoc,
   getChannelPostDoc,
   getConversationDoc,
+  getTeamMembershipDoc,
   getTeamDoc,
+  getWorkspaceRoleMapForUser,
   listUsersByIds,
   getWorkspaceDoc,
+  isWorkspaceOwner,
   listNotificationsByEntity,
+  type AppCtx,
 } from "./data"
 import {
   getChannelConversationPath,
@@ -96,6 +100,20 @@ type MarkCallJoinedArgs = ServerAccessArgs & {
   callId: string
 }
 
+type GetCallJoinContextArgs = ServerAccessArgs & {
+  currentUserId: string
+  callId?: string
+  conversationId?: string
+}
+
+type FinalizeCallJoinArgs = ServerAccessArgs & {
+  currentUserId: string
+  callId?: string
+  conversationId?: string
+  roomId: string
+  roomName: string
+}
+
 type SendChatMessageArgs = ServerAccessArgs & {
   currentUserId: string
   conversationId: string
@@ -124,6 +142,87 @@ type ToggleChannelPostReactionArgs = ServerAccessArgs & {
   currentUserId: string
   postId: string
   emoji: string
+}
+
+function toMeetingRole(role: "admin" | "member" | "viewer" | "guest" | null) {
+  return role === "admin" || role === "member" ? "host" : "guest"
+}
+
+async function resolveConversationMeetingRole(
+  ctx: AppCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>,
+  currentUserId: string
+) {
+  if (!conversation) {
+    throw new Error("Conversation not found")
+  }
+
+  if (conversation.scopeType === "workspace") {
+    if (await isWorkspaceOwner(ctx, conversation.scopeId, currentUserId)) {
+      return "host" as const
+    }
+
+    const workspaceRoles =
+      (await getWorkspaceRoleMapForUser(ctx, currentUserId))[
+        conversation.scopeId
+      ] ?? []
+
+    return workspaceRoles.some((role) => role === "admin" || role === "member")
+      ? ("host" as const)
+      : ("guest" as const)
+  }
+
+  const membership = await getTeamMembershipDoc(
+    ctx,
+    conversation.scopeId,
+    currentUserId
+  )
+
+  return toMeetingRole(membership?.role ?? null)
+}
+
+function buildConversationRoomDefaults(
+  conversation: NonNullable<Awaited<ReturnType<typeof getConversationDoc>>>
+) {
+  const roomKey = `chat-${conversation.id}`
+  const roomDescription =
+    conversation.scopeType === "workspace"
+      ? `Persistent video room for workspace chat ${conversation.id}`
+      : `Persistent video room for team chat ${conversation.id}`
+
+  return {
+    roomKey,
+    roomDescription,
+  }
+}
+
+async function buildConversationJoinContext(
+  ctx: AppCtx,
+  conversation: Awaited<ReturnType<typeof getConversationDoc>>,
+  currentUserId: string
+) {
+  const accessibleConversation = await requireConversationAccess(
+    ctx,
+    conversation,
+    currentUserId
+  )
+
+  if (accessibleConversation.kind !== "chat") {
+    throw new Error("Calls can only be joined from chats")
+  }
+
+  return {
+    callId: null,
+    conversationId: accessibleConversation.id,
+    roomId: accessibleConversation.roomId ?? null,
+    roomName: accessibleConversation.roomName ?? null,
+    ...buildConversationRoomDefaults(accessibleConversation),
+    role: await resolveConversationMeetingRole(
+      ctx,
+      accessibleConversation,
+      currentUserId
+    ),
+  }
 }
 
 export async function createWorkspaceChatHandler(
@@ -456,6 +555,131 @@ export async function markCallJoinedHandler(
   return {
     ok: true,
     callId: call.id,
+  }
+}
+
+export async function getCallJoinContextHandler(
+  ctx: QueryCtx,
+  args: GetCallJoinContextArgs
+) {
+  assertServerToken(args.serverToken)
+
+  if (!args.callId && !args.conversationId) {
+    throw new Error("callId or conversationId is required")
+  }
+
+  if (args.callId) {
+    const call = await getCallDoc(ctx, args.callId)
+
+    if (!call) {
+      throw new Error("Call not found")
+    }
+
+    const conversationContext = await buildConversationJoinContext(
+      ctx,
+      await getConversationDoc(ctx, call.conversationId),
+      args.currentUserId
+    )
+
+    return {
+      ...conversationContext,
+      callId: call.id,
+      roomId: call.roomId ?? null,
+      roomName: call.roomName ?? null,
+      roomKey: call.roomKey,
+      roomDescription: call.roomDescription,
+    }
+  }
+
+  return buildConversationJoinContext(
+    ctx,
+    await getConversationDoc(ctx, args.conversationId ?? ""),
+    args.currentUserId
+  )
+}
+
+export async function finalizeCallJoinHandler(
+  ctx: MutationCtx,
+  args: FinalizeCallJoinArgs
+) {
+  assertServerToken(args.serverToken)
+
+  if (!args.callId && !args.conversationId) {
+    throw new Error("callId or conversationId is required")
+  }
+
+  if (args.callId) {
+    const call = await getCallDoc(ctx, args.callId)
+
+    if (!call) {
+      throw new Error("Call not found")
+    }
+
+    const conversation = await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, call.conversationId),
+      args.currentUserId
+    )
+
+    if (conversation.kind !== "chat") {
+      throw new Error("Calls can only be joined from chats")
+    }
+
+    if (call.endedAt) {
+      throw new Error("Call has already ended")
+    }
+
+    const now = getNow()
+    const roomId = call.roomId ?? args.roomId
+    const roomName = call.roomName ?? args.roomName
+    const participantUserIds = [
+      ...new Set([...(call.participantUserIds ?? []), args.currentUserId]),
+    ]
+
+    await ctx.db.patch(call._id, {
+      roomId,
+      roomName,
+      participantUserIds,
+      lastJoinedAt: now,
+      lastJoinedBy: args.currentUserId,
+      joinCount: (call.joinCount ?? 0) + 1,
+      updatedAt: now,
+    })
+
+    return {
+      callId: call.id,
+      conversationId: call.conversationId,
+      roomId,
+      roomName,
+    }
+  }
+
+  const conversation = await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, args.conversationId ?? ""),
+    args.currentUserId
+  )
+
+  if (conversation.kind !== "chat") {
+    throw new Error("Calls can only be joined from chats")
+  }
+
+  const roomId = conversation.roomId ?? args.roomId
+  const roomName = conversation.roomName ?? args.roomName
+
+  if (!conversation.roomId || !conversation.roomName) {
+    await ctx.db.patch(conversation._id, {
+      roomId,
+      roomName,
+      updatedAt: getNow(),
+    })
+  }
+
+  return {
+    callId: null,
+    conversationId: conversation.id,
+    roomId,
+    roomName,
   }
 }
 

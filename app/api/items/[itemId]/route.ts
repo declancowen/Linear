@@ -4,10 +4,10 @@ import { z } from "zod"
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
   deleteWorkItemServer,
-  markNotificationsEmailedServer,
+  enqueueEmailJobsServer,
   updateWorkItemServer,
 } from "@/lib/server/convex"
-import { sendAssignmentEmails } from "@/lib/server/email"
+import { buildAssignmentEmailJobs } from "@/lib/server/email"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -82,13 +82,16 @@ export async function PATCH(
       itemId,
       patch: parsed,
     })
-    const emailedNotificationIds = await sendAssignmentEmails({
-      origin: new URL(request.url).origin,
-      emails: result?.assignmentEmails ?? [],
-    })
 
-    if (emailedNotificationIds.length > 0) {
-      await markNotificationsEmailedServer(emailedNotificationIds)
+    try {
+      await enqueueEmailJobsServer(
+        buildAssignmentEmailJobs({
+          origin: new URL(request.url).origin,
+          emails: result?.assignmentEmails ?? [],
+        })
+      )
+    } catch (emailError) {
+      logProviderError("Failed to enqueue assignment emails", emailError)
     }
 
     return jsonOk({

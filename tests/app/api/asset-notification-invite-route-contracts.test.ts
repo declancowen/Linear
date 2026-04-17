@@ -19,7 +19,7 @@ const markNotificationReadServerMock = vi.fn()
 const toggleNotificationReadServerMock = vi.fn()
 const deleteNotificationServerMock = vi.fn()
 const createDocumentServerMock = vi.fn()
-const sendTeamInviteEmailsMock = vi.fn()
+const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 
@@ -44,10 +44,11 @@ vi.mock("@/lib/server/convex", () => ({
   toggleNotificationReadServer: toggleNotificationReadServerMock,
   deleteNotificationServer: deleteNotificationServerMock,
   createDocumentServer: createDocumentServerMock,
+  enqueueEmailJobsServer: enqueueEmailJobsServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
-  sendTeamInviteEmails: sendTeamInviteEmailsMock,
+  buildTeamInviteEmailJobs: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -79,7 +80,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     toggleNotificationReadServerMock.mockReset()
     deleteNotificationServerMock.mockReset()
     createDocumentServerMock.mockReset()
-    sendTeamInviteEmailsMock.mockReset()
+    enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
 
@@ -105,7 +106,9 @@ describe("asset, notification, invite, and document route contracts", () => {
         id: "user_1",
       },
     })
-    sendTeamInviteEmailsMock.mockResolvedValue(undefined)
+    enqueueEmailJobsServerMock.mockResolvedValue({
+      queued: 0,
+    })
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
   })
 

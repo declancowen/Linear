@@ -20,7 +20,7 @@ const createChannelServerMock = vi.fn()
 const withGeneratedJoinCodeMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const reconcileProviderMembershipCleanupMock = vi.fn()
-const sendAccessChangeEmailsMock = vi.fn()
+const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -41,6 +41,7 @@ vi.mock("@/lib/server/convex", () => ({
   createWorkspaceChatServer: createWorkspaceChatServerMock,
   ensureTeamChatServer: ensureTeamChatServerMock,
   createChannelServer: createChannelServerMock,
+  enqueueEmailJobsServer: enqueueEmailJobsServerMock,
 }))
 
 vi.mock("@/lib/server/join-codes", () => ({
@@ -56,7 +57,7 @@ vi.mock("@/lib/server/lifecycle", () => ({
 }))
 
 vi.mock("@/lib/server/email", () => ({
-  sendAccessChangeEmails: sendAccessChangeEmailsMock,
+  buildAccessChangeEmailJobs: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -84,7 +85,7 @@ describe("team and collaboration route contracts", () => {
     withGeneratedJoinCodeMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
     reconcileProviderMembershipCleanupMock.mockReset()
-    sendAccessChangeEmailsMock.mockReset()
+    enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
@@ -110,7 +111,9 @@ describe("team and collaboration route contracts", () => {
     )
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
     reconcileProviderMembershipCleanupMock.mockResolvedValue(undefined)
-    sendAccessChangeEmailsMock.mockResolvedValue(undefined)
+    enqueueEmailJobsServerMock.mockResolvedValue({
+      queued: 0,
+    })
   })
 
   it("maps team creation failures to typed error responses", async () => {
@@ -152,6 +155,63 @@ describe("team and collaboration route contracts", () => {
       message: "Unable to generate a unique join code",
       code: "TEAM_JOIN_CODE_GENERATION_FAILED",
       retryable: true,
+    })
+  })
+
+  it("returns the create-team contract with the generated join code", async () => {
+    const { POST } = await import("@/app/api/teams/route")
+
+    createTeamServerMock.mockResolvedValue({
+      teamId: "team_2",
+      teamSlug: "platform",
+      joinCode: "JOIN1234",
+      features: {
+        issues: true,
+        projects: true,
+        views: true,
+        docs: true,
+        chat: true,
+        channels: true,
+      },
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/teams", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Platform",
+          icon: "robot",
+          summary: "Platform summary",
+          experience: "software-development",
+          features: {
+            issues: true,
+            projects: true,
+            views: true,
+            docs: true,
+            chat: true,
+            channels: true,
+          },
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      teamId: "team_2",
+      teamSlug: "platform",
+      joinCode: "JOIN1234",
+      features: {
+        issues: true,
+        projects: true,
+        views: true,
+        docs: true,
+        chat: true,
+        channels: true,
+      },
     })
   })
 

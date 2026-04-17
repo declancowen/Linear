@@ -4,7 +4,7 @@ import { ApplicationError } from "@/lib/server/application-errors"
 import { commentSchema } from "@/lib/domain/types"
 import {
   addCommentServer,
-  markNotificationsEmailedServer,
+  enqueueMentionEmailJobsServer,
 } from "@/lib/server/convex"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
@@ -18,7 +18,7 @@ import {
   jsonError,
   jsonOk,
 } from "@/lib/server/route-response"
-import { sendMentionEmails } from "@/lib/server/email"
+import { buildMentionEmailJobs } from "@/lib/server/email"
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -50,16 +50,14 @@ export async function POST(request: NextRequest) {
     })
 
     try {
-      const emailedNotificationIds = await sendMentionEmails({
-        origin: new URL(request.url).origin,
-        emails: result?.mentionEmails ?? [],
-      })
-
-      if (emailedNotificationIds.length > 0) {
-        await markNotificationsEmailedServer(emailedNotificationIds)
-      }
+      await enqueueMentionEmailJobsServer(
+        buildMentionEmailJobs({
+          origin: new URL(request.url).origin,
+          emails: result?.mentionEmails ?? [],
+        })
+      )
     } catch (emailError) {
-      logProviderError("Failed to send mention emails", emailError)
+      logProviderError("Failed to enqueue mention emails", emailError)
     }
 
     return jsonOk({

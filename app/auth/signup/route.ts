@@ -13,6 +13,7 @@ import {
   buildPostAuthPath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
+import { logProviderError } from "@/lib/server/provider-errors"
 import {
   getWorkOSAuthErrorCode,
   getWorkOSAuthErrorMessage,
@@ -173,7 +174,7 @@ export async function POST(request: Request) {
       )
     }
 
-    console.error("WorkOS signup failed", error)
+    logProviderError("WorkOS signup failed", error)
     return redirectTo(
       request,
       withSignupProfileParams(
@@ -236,7 +237,7 @@ export async function POST(request: Request) {
       return response
     }
 
-    console.error("WorkOS signup authentication failed", error)
+    logProviderError("WorkOS signup authentication failed", error)
 
     return redirectTo(
       request,

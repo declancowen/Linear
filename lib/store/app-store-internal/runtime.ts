@@ -28,7 +28,9 @@ export function createStoreRuntime(get: AppStoreGet) {
 
   async function handleSyncFailure(error: unknown, fallbackMessage: string) {
     console.error(error)
-    await refreshFromServer()
+    void refreshFromServer().catch((refreshError) => {
+      console.error("Failed to reconcile store state after sync failure", refreshError)
+    })
     toast.error(fallbackMessage)
   }
 

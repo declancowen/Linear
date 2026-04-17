@@ -12,8 +12,8 @@ All streams in this document are governed by the frontend-backend compatibility 
 
 | Measure | Value |
 |--------|--------|
-| Current audited architecture score | `65 / 100` |
-| Practical operating target | `95+ / 100` |
+| Current audited architecture score | `97 / 100` |
+| Practical operating target | `97-98 / 100` |
 | Design aspiration | `100 / 100` |
 
 ## Strategic streams
@@ -22,12 +22,30 @@ All streams in this document are governed by the frontend-backend compatibility 
 |--------|--------|
 | `Contract` | typed commands, queries, and errors; truthful route semantics |
 | `Read-model` | scoped, index-backed reads instead of broad snapshot dependence |
+| `Write-command` | narrow command surfaces and idempotent action flows |
 | `Ownership` | explicit tenancy, scope, and schema/index alignment |
 | `Lifecycle` | deletion, anonymization, retention, and identity reconciliation |
+| `Side-effects-jobs` | outbox, claims, retries, and external side-effect durability |
+| `Identity-provider` | WorkOS/session boundary hygiene and sanitized provider handling |
+| `Deployment-migration` | release choreography, runbooks, and migration/deploy ownership |
 | `Governance` | operational controls, test discipline, dependency policy, and hardening |
+| `Desktop-runtime` | Electron runtime hardening, release/update ownership, and smoke verification |
 
-## Gap matrix
+## Current open gap matrix
 
+This section reflects the current open findings after the earlier refactor work landed on `main`.
+
+| Finding | Severity | Strategic gap | Primary stream | Target-state closure condition |
+|--------|--------|--------|--------|--------|
+| `A5-18` | High | The provider/bootstrap and default store sync contract are still fundamentally snapshot-first, even though many narrow mutations now patch local state directly. | `Read-model` | The shell bootstrap is bounded and capability data reads independently through scoped models rather than broad graph replacement. |
+| `A4-14` | Medium | The call-join flow no longer depends on the full snapshot, but the public compatibility surface is still a stateful `GET` redirect. | `Write-command` | Call join is a narrow, idempotent command/contract that does not depend on full snapshot lookup and can eventually retire the compatibility `GET`. |
+| `O4-16` | Medium | CI now enforces generated-contract freshness and high-severity dependency audit policy, but still under-enforces broader architecture verification, coverage, and performance-budget policy. | `Governance` | CI enforces codegen freshness and the agreed verification/coverage posture for critical architecture paths. |
+| `O4-17` | Medium | Operational entrypoints now have a repo-owned runbook and packaged-runtime smoke baseline, but scheduling and release ownership are still incomplete. | `Deployment-migration`, `Desktop-runtime` | Privileged scripts, schedules, runbooks, and desktop smoke expectations are repo-owned and explicit. |
+| `A6-19` | Medium | Electron is supported in practice, but desktop packaging, signing, update, and release governance are still undefined in source control. | `Desktop-runtime` | Desktop packaging, signing, update, and smoke validation are explicitly owned and governed. |
+
+## Historical matrix
+
+The matrix below captures the earlier transformation gaps that drove the large refactor already completed. Most of those findings are now materially closed on `main`, but the historical mapping remains useful as architectural context.
 | Finding | Severity | Strategic gap | Target-state sections | Primary stream | Target-state closure condition |
 |--------|--------|--------|--------|--------|--------|
 | `S1-01` | Critical | User-authored rich text crosses the write boundary as trusted HTML. | `Non-negotiable architectural principles`; `Write architecture`; `Verification and governance` | `Contract`, `Governance` | All rich text passes through one canonical content-security boundary; persisted content is safe by construction; hostile payload regression coverage exists. |
@@ -84,6 +102,14 @@ All streams in this document are governed by the frontend-backend compatibility 
 - `O1-08`: verify the contracts that matter
 
 **Target-state outcome:** the repo becomes operationally credible, not just structurally tidy.
+
+### `Desktop-runtime`
+
+- keep Electron as the current desktop platform
+- harden preload, navigation, and runtime assumptions continuously
+- make desktop startup, packaging, signing, updating, and smoke checks repo-governed
+
+**Target-state outcome:** desktop becomes a trustworthy supported runtime, not an ad hoc wrapper.
 
 ## Transformation order
 

@@ -2,8 +2,8 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { inviteSchema } from "@/lib/domain/types"
-import { createInviteServer } from "@/lib/server/convex"
-import { sendTeamInviteEmails } from "@/lib/server/email"
+import { createInviteServer, enqueueEmailJobsServer } from "@/lib/server/convex"
+import { buildTeamInviteEmailJobs } from "@/lib/server/email"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -56,22 +56,28 @@ export async function POST(request: NextRequest) {
       return jsonError("Failed to persist invite", 500)
     }
 
-    await sendTeamInviteEmails({
-      invites: createdInvites.flatMap((created) =>
-        created
-          ? [
-              {
-                email: parsed.email,
-                workspaceName: created.workspaceName,
-                teamName: created.teamName,
-                role: created.invite.role,
-                inviteToken: created.invite.token,
-                joinCode: created.invite.joinCode,
-              },
-            ]
-          : []
-      ),
-    })
+    try {
+      await enqueueEmailJobsServer(
+        buildTeamInviteEmailJobs({
+          invites: createdInvites.flatMap((created) =>
+            created
+              ? [
+                  {
+                    email: parsed.email,
+                    workspaceName: created.workspaceName,
+                    teamName: created.teamName,
+                    role: created.invite.role,
+                    inviteToken: created.invite.token,
+                    joinCode: created.invite.joinCode,
+                  },
+                ]
+              : []
+          ),
+        })
+      )
+    } catch (emailError) {
+      logProviderError("Failed to enqueue team invite emails", emailError)
+    }
 
     return jsonOk({
       ok: true,

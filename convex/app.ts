@@ -11,6 +11,7 @@ import {
   auditEventTypeValidator,
   attachmentTargetTypeValidator,
   commentTargetTypeValidator,
+  emailJobKindValidator,
   displayPropertyValidator,
   groupFieldValidator,
   nullableStringValidator,
@@ -50,13 +51,22 @@ import {
 } from "./app/auth_bootstrap"
 import {
   archiveNotificationHandler,
+  claimPendingNotificationDigestsHandler,
   deleteNotificationHandler,
   listPendingNotificationDigestsHandler,
   markNotificationReadHandler,
   markNotificationsEmailedHandler,
+  releaseNotificationDigestClaimHandler,
   toggleNotificationReadHandler,
   unarchiveNotificationHandler,
 } from "./app/notification_handlers"
+import {
+  claimPendingEmailJobsHandler,
+  enqueueEmailJobsHandler,
+  listPendingEmailJobsHandler,
+  markEmailJobsSentHandler,
+  releaseEmailJobClaimHandler,
+} from "./app/email_job_handlers"
 import {
   addChannelPostCommentHandler,
   createChannelHandler,
@@ -64,6 +74,8 @@ import {
   createWorkspaceChatHandler,
   deleteChannelPostHandler,
   ensureTeamChatHandler,
+  finalizeCallJoinHandler,
+  getCallJoinContextHandler,
   markCallJoinedHandler,
   sendChatMessageHandler,
   setCallRoomHandler,
@@ -292,6 +304,74 @@ export const listPendingNotificationDigests = query({
   handler: listPendingNotificationDigestsHandler,
 })
 
+export const listPendingEmailJobs = query({
+  args: serverAccessArgs,
+  handler: listPendingEmailJobsHandler,
+})
+
+export const enqueueEmailJobs = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    jobs: v.array(
+      v.object({
+        kind: emailJobKindValidator,
+        notificationId: v.optional(v.string()),
+        toEmail: v.string(),
+        subject: v.string(),
+        text: v.string(),
+        html: v.string(),
+      })
+    ),
+  },
+  handler: enqueueEmailJobsHandler,
+})
+
+export const claimPendingEmailJobs = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: claimPendingEmailJobsHandler,
+})
+
+export const markEmailJobsSent = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    jobIds: v.array(v.string()),
+  },
+  handler: markEmailJobsSentHandler,
+})
+
+export const releaseEmailJobClaim = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    jobIds: v.array(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: releaseEmailJobClaimHandler,
+})
+
+export const getCallJoinContext = query({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    callId: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+  },
+  handler: getCallJoinContextHandler,
+})
+
+export const claimPendingNotificationDigests = mutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+  },
+  handler: claimPendingNotificationDigestsHandler,
+})
+
 export const markNotificationRead = mutation({
   args: {
     ...serverAccessArgs,
@@ -304,9 +384,31 @@ export const markNotificationRead = mutation({
 export const markNotificationsEmailed = mutation({
   args: {
     ...serverAccessArgs,
+    claimId: v.optional(v.string()),
     notificationIds: v.array(v.string()),
   },
   handler: markNotificationsEmailedHandler,
+})
+
+export const releaseNotificationDigestClaim = mutation({
+  args: {
+    ...serverAccessArgs,
+    claimId: v.string(),
+    notificationIds: v.array(v.string()),
+  },
+  handler: releaseNotificationDigestClaimHandler,
+})
+
+export const finalizeCallJoin = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    callId: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+    roomId: v.string(),
+    roomName: v.string(),
+  },
+  handler: finalizeCallJoinHandler,
 })
 
 export const toggleNotificationRead = mutation({

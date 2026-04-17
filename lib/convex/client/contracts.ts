@@ -275,11 +275,13 @@ export function normalizeCreateTeamResult(payload: unknown): {
   ok?: true
   teamId: string
   teamSlug: string
+  joinCode: string
   features: TeamFeatureSettings
 } {
   assertRouteContract(isRecord(payload), "Invalid create-team payload")
   assertRouteContract(isString(payload.teamId), "Invalid create-team payload")
   assertRouteContract(isString(payload.teamSlug), "Invalid create-team payload")
+  assertRouteContract(isString(payload.joinCode), "Invalid create-team payload")
   assertRouteContract(
     isTeamFeatureSettingsRecord(payload.features),
     "Invalid create-team payload"
@@ -289,6 +291,7 @@ export function normalizeCreateTeamResult(payload: unknown): {
     ok?: true
     teamId: string
     teamSlug: string
+    joinCode: string
     features: TeamFeatureSettings
   }
 }

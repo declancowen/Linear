@@ -302,7 +302,6 @@ export function createWorkItemActions({
 
       try {
         await syncDeleteWorkItem(itemId)
-        await runtime.refreshFromServer()
         toast.success(
           deletionPlan.deletedItemIds.size > 1
             ? `Deleted ${deletionPlan.deletedItemIds.size} items`
@@ -315,7 +314,12 @@ export function createWorkItemActions({
           ...current,
           ...previousState,
         }))
-        await runtime.refreshFromServer()
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile work item state after delete failure",
+            refreshError
+          )
+        })
         toast.error("Failed to delete item")
         return false
       }

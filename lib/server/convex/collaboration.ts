@@ -282,6 +282,43 @@ const MARK_CALL_JOINED_ERROR_MAPPINGS = [
   },
 ] as const
 
+const GET_CALL_JOIN_CONTEXT_ERROR_MAPPINGS = [
+  {
+    match: "callId or conversationId is required",
+    status: 400,
+    code: "CHAT_CALL_JOIN_TARGET_REQUIRED",
+  },
+  {
+    match: "Call not found",
+    status: 404,
+    code: "CHAT_CALL_NOT_FOUND",
+  },
+  {
+    match: "Conversation not found",
+    status: 404,
+    code: "CHAT_CONVERSATION_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHAT_ACCESS_DENIED",
+  },
+  {
+    match: "Calls can only be joined from chats",
+    status: 400,
+    code: "CHAT_CALL_JOIN_INVALID_CONVERSATION_KIND",
+  },
+] as const
+
+const FINALIZE_CALL_JOIN_ERROR_MAPPINGS = [
+  ...GET_CALL_JOIN_CONTEXT_ERROR_MAPPINGS,
+  {
+    match: "Call has already ended",
+    status: 409,
+    code: "CHAT_CALL_ENDED",
+  },
+] as const
+
 export async function createWorkspaceChatServer(input: {
   currentUserId: string
   workspaceId: string
@@ -490,6 +527,44 @@ export async function startChatCallServer(input: {
     )
   } catch (error) {
     throw coerceApplicationError(error, [...START_CHAT_CALL_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function getCallJoinContextServer(input: {
+  currentUserId: string
+  callId?: string
+  conversationId?: string
+}) {
+  try {
+    return await getConvexServerClient().query(
+      api.app.getCallJoinContext,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...GET_CALL_JOIN_CONTEXT_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function finalizeCallJoinServer(input: {
+  currentUserId: string
+  callId?: string
+  conversationId?: string
+  roomId: string
+  roomName: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.finalizeCallJoin,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...FINALIZE_CALL_JOIN_ERROR_MAPPINGS]) ??
+      error
+    )
   }
 }
 

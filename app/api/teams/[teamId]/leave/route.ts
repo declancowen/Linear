@@ -2,8 +2,8 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { leaveTeamServer } from "@/lib/server/convex"
-import { sendAccessChangeEmails } from "@/lib/server/email"
+import { enqueueEmailJobsServer, leaveTeamServer } from "@/lib/server/convex"
+import { buildAccessChangeEmailJobs } from "@/lib/server/email"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -42,9 +42,11 @@ export async function DELETE(
 
     if (result?.emailJobs?.length) {
       try {
-        await sendAccessChangeEmails({
-          emails: result.emailJobs,
-        })
+        await enqueueEmailJobsServer(
+          buildAccessChangeEmailJobs({
+            emails: result.emailJobs,
+          })
+        )
       } catch (emailError) {
         logProviderError("Failed to send leave-team access email", emailError)
       }

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mutationMock = vi.fn()
+const queryMock = vi.fn()
 
 vi.mock("@/lib/server/convex/core", () => ({
   getConvexServerClient: () => ({
     mutation: mutationMock,
+    query: queryMock,
   }),
   withServerToken: <T extends Record<string, unknown>>(input: T) => input,
 }))
@@ -12,6 +14,7 @@ vi.mock("@/lib/server/convex/core", () => ({
 describe("convex collaboration server wrappers", () => {
   beforeEach(() => {
     mutationMock.mockReset()
+    queryMock.mockReset()
   })
 
   it("maps known start-call domain failures to typed application errors", async () => {
@@ -302,6 +305,40 @@ describe("convex collaboration server wrappers", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "CHAT_ROOM_INVALID_CONVERSATION_KIND",
+    })
+  })
+
+  it("maps call-join lookup and finalize failures to typed application errors", async () => {
+    const { finalizeCallJoinServer, getCallJoinContextServer } = await import(
+      "@/lib/server/convex/collaboration"
+    )
+
+    queryMock.mockRejectedValueOnce(
+      new Error("Calls can only be joined from chats")
+    )
+    mutationMock.mockRejectedValueOnce(new Error("Call has already ended"))
+
+    await expect(
+      getCallJoinContextServer({
+        currentUserId: "user_1",
+        callId: "call_1",
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "CHAT_CALL_JOIN_INVALID_CONVERSATION_KIND",
+    })
+
+    await expect(
+      finalizeCallJoinServer({
+        currentUserId: "user_1",
+        callId: "call_1",
+        conversationId: "conversation_1",
+        roomId: "room_1",
+        roomName: "Launch",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CHAT_CALL_ENDED",
     })
   })
 })

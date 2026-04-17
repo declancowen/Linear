@@ -174,6 +174,7 @@ export const createTeamResultFixture = {
   ok: true as const,
   teamId: "team_2",
   teamSlug: "platform",
+  joinCode: "JOIN1234",
   features: createDefaultTeamFeatureSettings("software-development"),
 }
 

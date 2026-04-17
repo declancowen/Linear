@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import { ConvexHttpClient } from "convex/browser"
 import { Resend } from "resend"
 
@@ -221,10 +223,16 @@ function renderNotificationDigestEmail(input) {
   }
 }
 
+const claimId = randomUUID()
 const digests =
-  (await client.query(api.app.listPendingNotificationDigests, {
-    serverToken,
-  })) ?? []
+  (await (dryRun
+    ? client.query(api.app.listPendingNotificationDigests, {
+        serverToken,
+      })
+    : client.mutation(api.app.claimPendingNotificationDigests, {
+        serverToken,
+        claimId,
+      }))) ?? []
 const emailedNotificationIds = []
 
 for (const digest of digests) {
@@ -234,18 +242,29 @@ for (const digest of digests) {
   })
 
   if (!dryRun) {
-    await resend.emails.send({
-      from: resendFromEmail,
-      to: digest.user.email,
-      subject: message.subject,
-      text: message.text,
-      html: message.html,
-    })
+    try {
+      await resend.emails.send({
+        from: resendFromEmail,
+        to: digest.user.email,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+      })
 
-    await client.mutation(api.app.markNotificationsEmailed, {
-      serverToken,
-      notificationIds: digest.notifications.map((notification) => notification.id),
-    })
+      await client.mutation(api.app.markNotificationsEmailed, {
+        serverToken,
+        claimId,
+        notificationIds: digest.notifications.map((notification) => notification.id),
+      })
+    } catch (error) {
+      await client.mutation(api.app.releaseNotificationDigestClaim, {
+        serverToken,
+        claimId,
+        notificationIds: digest.notifications.map((notification) => notification.id),
+      })
+
+      throw error
+    }
   }
 
   emailedNotificationIds.push(...digest.notifications.map((notification) => notification.id))

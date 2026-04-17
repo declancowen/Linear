@@ -103,6 +103,45 @@ export async function markNotificationsEmailedServer(
   )
 }
 
+export async function enqueueMentionEmailJobsServer(
+  jobs: Array<{
+    kind: "mention"
+    notificationId: string
+    toEmail: string
+    subject: string
+    text: string
+    html: string
+  }>
+) {
+  return enqueueEmailJobsServer(jobs)
+}
+
+export async function enqueueEmailJobsServer(
+  jobs: Array<{
+    kind: "mention" | "assignment" | "invite" | "access-change"
+    notificationId?: string
+    toEmail: string
+    subject: string
+    text: string
+    html: string
+  }>
+) {
+  if (jobs.length === 0) {
+    return {
+      queued: 0,
+    }
+  }
+
+  return runConvexRequestWithRetry("enqueueEmailJobsServer", () =>
+    getConvexServerClient().mutation(
+      api.app.enqueueEmailJobs,
+      withServerToken({
+        jobs,
+      })
+    )
+  )
+}
+
 export async function markNotificationReadServer(input: {
   currentUserId: string
   notificationId: string

@@ -4,10 +4,10 @@ import { z } from "zod"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { chatMessageSchema } from "@/lib/domain/types"
 import {
-  markNotificationsEmailedServer,
+  enqueueMentionEmailJobsServer,
   sendChatMessageServer,
 } from "@/lib/server/convex"
-import { sendMentionEmails } from "@/lib/server/email"
+import { buildMentionEmailJobs } from "@/lib/server/email"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -68,16 +68,14 @@ export async function POST(
     })
 
     try {
-      const emailedNotificationIds = await sendMentionEmails({
-        origin: new URL(request.url).origin,
-        emails: result?.mentionEmails ?? [],
-      })
-
-      if (emailedNotificationIds.length > 0) {
-        await markNotificationsEmailedServer(emailedNotificationIds)
-      }
+      await enqueueMentionEmailJobsServer(
+        buildMentionEmailJobs({
+          origin: new URL(request.url).origin,
+          emails: result?.mentionEmails ?? [],
+        })
+      )
     } catch (emailError) {
-      logProviderError("Failed to send mention emails", emailError)
+      logProviderError("Failed to enqueue mention emails", emailError)
     }
 
     return jsonOk({

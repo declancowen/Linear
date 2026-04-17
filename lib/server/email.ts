@@ -19,7 +19,7 @@ const EMAIL_COLORS = {
 } as const
 const EMAIL_SETTINGS_PATH = "/settings/profile"
 
-type AssignmentEmail = {
+export type AssignmentEmail = {
   notificationId: string
   email: string
   name: string
@@ -28,7 +28,7 @@ type AssignmentEmail = {
   actorName: string
 }
 
-type MentionEmail = {
+export type MentionEmail = {
   notificationId: string
   email: string
   name: string
@@ -41,7 +41,7 @@ type MentionEmail = {
   entityLabel?: string
 }
 
-type TeamInviteEmail = {
+export type TeamInviteEmail = {
   email: string
   workspaceName: string
   teamName: string
@@ -58,7 +58,7 @@ type TeamRemovalEmail = {
   actorName: string
 }
 
-type AccessChangeEmail = {
+export type AccessChangeEmail = {
   email: string
   subject: string
   eyebrow: string
@@ -70,6 +70,36 @@ type EmailMessage = {
   subject: string
   text: string
   html: string
+}
+
+export type QueuedEmailJob = {
+  kind: "mention" | "assignment" | "invite" | "access-change"
+  notificationId?: string
+  toEmail: string
+  subject: string
+  text: string
+  html: string
+}
+
+export type QueuedMentionEmailJob = Omit<QueuedEmailJob, "kind" | "notificationId"> & {
+  kind: "mention"
+  notificationId: string
+}
+
+export type QueuedAssignmentEmailJob = Omit<
+  QueuedEmailJob,
+  "kind" | "notificationId"
+> & {
+  kind: "assignment"
+  notificationId: string
+}
+
+export type QueuedInviteEmailJob = Omit<QueuedEmailJob, "kind"> & {
+  kind: "invite"
+}
+
+export type QueuedAccessChangeEmailJob = Omit<QueuedEmailJob, "kind"> & {
+  kind: "access-change"
 }
 
 let resendClient: Resend | null | undefined
@@ -521,177 +551,125 @@ function renderMentionEmail(input: {
   }
 }
 
-async function sendEmail(input: {
-  to: string
-  subject: string
-  text: string
-  html: string
-}) {
-  const resend = getResendClient()
-
-  if (!resend) {
-    return false
-  }
-
-  await resend.client.emails.send({
-    from: resend.from,
-    to: input.to,
-    subject: input.subject,
-    text: input.text,
-    html: input.html,
-  })
-
-  return true
-}
-
-export async function sendAssignmentEmails(input: {
-  origin: string
-  emails: AssignmentEmail[]
-}) {
-  const emailedNotificationIds: string[] = []
-
-  for (const email of input.emails) {
-    try {
-      const message = renderAssignmentEmail({
-        origin: input.origin,
-        name: email.name,
-        itemTitle: email.itemTitle,
-        itemId: email.itemId,
-        actorName: email.actorName,
-      })
-      const sent = await sendEmail({
-        to: email.email,
-        subject: message.subject,
-        text: message.text,
-        html: message.html,
-      })
-
-      if (sent) {
-        emailedNotificationIds.push(email.notificationId)
-      }
-    } catch (error) {
-      console.error("Failed to send assignment email", error)
-    }
-  }
-
-  return emailedNotificationIds
-}
-
-export async function sendMentionEmails(input: {
+export function buildMentionEmailJobs(input: {
   origin: string
   emails: MentionEmail[]
-}) {
-  const emailedNotificationIds: string[] = []
+}): QueuedMentionEmailJob[] {
+  return input.emails.map((email) => {
+    const message = renderMentionEmail({
+      origin: input.origin,
+      name: email.name,
+      entityTitle: email.entityTitle,
+      entityType: email.entityType,
+      entityId: email.entityId,
+      entityPath: email.entityPath,
+      entityLabel: email.entityLabel,
+      actorName: email.actorName,
+      commentText: email.commentText,
+    })
 
-  for (const email of input.emails) {
-    try {
-      const message = renderMentionEmail({
-        origin: input.origin,
-        name: email.name,
-        entityTitle: email.entityTitle,
-        entityType: email.entityType,
-        entityId: email.entityId,
-        entityPath: email.entityPath,
-        entityLabel: email.entityLabel,
-        actorName: email.actorName,
-        commentText: email.commentText,
-      })
-      const sent = await sendEmail({
-        to: email.email,
-        subject: message.subject,
-        text: message.text,
-        html: message.html,
-      })
-
-      if (sent) {
-        emailedNotificationIds.push(email.notificationId)
-      }
-    } catch (error) {
-      console.error("Failed to send mention email", error)
+    return {
+      kind: "mention",
+      notificationId: email.notificationId,
+      toEmail: email.email,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
     }
-  }
-
-  return emailedNotificationIds
+  })
 }
 
-export async function sendTeamInviteEmails(input: {
+export function buildAssignmentEmailJobs(input: {
+  origin: string
+  emails: AssignmentEmail[]
+}): QueuedAssignmentEmailJob[] {
+  return input.emails.map((email) => {
+    const message = renderAssignmentEmail({
+      origin: input.origin,
+      name: email.name,
+      itemTitle: email.itemTitle,
+      itemId: email.itemId,
+      actorName: email.actorName,
+    })
+
+    return {
+      kind: "assignment",
+      notificationId: email.notificationId,
+      toEmail: email.email,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    }
+  })
+}
+
+export function buildTeamInviteEmailJobs(input: {
   invites: TeamInviteEmail[]
-}) {
+}): QueuedInviteEmailJob[] {
   const origin = getAppOrigin()
 
-  await Promise.all(
-    input.invites.map(async (invite) => {
-      const acceptUrl = buildAbsoluteUrl(
-        origin,
-        `/join/${encodeURIComponent(invite.inviteToken)}`
-      )
-      const joinCodeUrl = buildAbsoluteUrl(
-        origin,
-        `/onboarding?code=${encodeURIComponent(invite.joinCode)}`
-      )
-      const logoUrl = buildAbsoluteUrl(origin, "/app-icon.png")
+  return input.invites.map((invite) => {
+    const acceptUrl = buildAbsoluteUrl(
+      origin,
+      `/join/${encodeURIComponent(invite.inviteToken)}`
+    )
+    const joinCodeUrl = buildAbsoluteUrl(
+      origin,
+      `/onboarding?code=${encodeURIComponent(invite.joinCode)}`
+    )
+    const logoUrl = buildAbsoluteUrl(origin, "/app-icon.png")
+    const message = {
+      subject: `Join ${invite.teamName} in ${invite.workspaceName}`,
+      text: renderInviteEmailText({
+        workspaceName: invite.workspaceName,
+        teamName: invite.teamName,
+        role: invite.role,
+        acceptUrl,
+        joinCode: invite.joinCode,
+        joinCodeUrl,
+      }),
+      html: renderInviteEmailHtml({
+        workspaceName: invite.workspaceName,
+        teamName: invite.teamName,
+        role: invite.role,
+        acceptUrl,
+        joinCode: invite.joinCode,
+        joinCodeUrl,
+        logoUrl,
+      }),
+    }
 
-      try {
-        const message = {
-          subject: `Join ${invite.teamName} in ${invite.workspaceName}`,
-          text: renderInviteEmailText({
-            workspaceName: invite.workspaceName,
-            teamName: invite.teamName,
-            role: invite.role,
-            acceptUrl,
-            joinCode: invite.joinCode,
-            joinCodeUrl,
-          }),
-          html: renderInviteEmailHtml({
-            workspaceName: invite.workspaceName,
-            teamName: invite.teamName,
-            role: invite.role,
-            acceptUrl,
-            joinCode: invite.joinCode,
-            joinCodeUrl,
-            logoUrl,
-          }),
-        }
-
-        await sendEmail({
-          to: invite.email,
-          subject: message.subject,
-          text: message.text,
-          html: message.html,
-        })
-      } catch (error) {
-        console.error("Failed to send team invite email", error)
-      }
-    })
-  )
+    return {
+      kind: "invite",
+      toEmail: invite.email,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    }
+  })
 }
 
-export async function sendAccessChangeEmails(input: {
+export function buildAccessChangeEmailJobs(input: {
   emails: AccessChangeEmail[]
-}) {
+}): QueuedAccessChangeEmailJob[] {
   const origin = getAppOrigin()
 
-  await Promise.all(
-    input.emails.map(async (email) => {
-      try {
-        const message = renderAccessChangeEmail({
-          origin,
-          eyebrow: email.eyebrow,
-          headline: email.headline,
-          body: email.body,
-        })
-
-        await sendEmail({
-          to: email.email,
-          subject: email.subject,
-          text: message.text,
-          html: message.html,
-        })
-      } catch (error) {
-        console.error("Failed to send access change email", error)
-      }
+  return input.emails.map((email) => {
+    const message = renderAccessChangeEmail({
+      origin,
+      eyebrow: email.eyebrow,
+      headline: email.headline,
+      body: email.body,
     })
-  )
+
+    return {
+      kind: "access-change",
+      toEmail: email.email,
+      subject: email.subject,
+      text: message.text,
+      html: message.html,
+    }
+  })
 }
 
 export async function sendTeamRemovalEmails(input: {
@@ -710,7 +688,14 @@ export async function sendTeamRemovalEmails(input: {
           actorName: removal.actorName,
         })
 
-        await sendEmail({
+        const resend = getResendClient()
+
+        if (!resend) {
+          return
+        }
+
+        await resend.client.emails.send({
+          from: resend.from,
           to: removal.email,
           subject: message.subject,
           text: message.text,

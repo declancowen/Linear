@@ -2,10 +2,11 @@ import { ApplicationError } from "@/lib/server/application-errors"
 import {
   cancelCurrentAccountDeletionServer,
   deleteCurrentAccountServer,
+  enqueueEmailJobsServer,
   prepareCurrentAccountDeletionServer,
   validateCurrentAccountDeletionServer,
 } from "@/lib/server/convex"
-import { sendAccessChangeEmails } from "@/lib/server/email"
+import { buildAccessChangeEmailJobs } from "@/lib/server/email"
 import { reconcileDeletedAccountProviderCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -110,9 +111,11 @@ export async function DELETE() {
 
   if (result?.emailJobs?.length) {
     try {
-      await sendAccessChangeEmails({
-        emails: result.emailJobs,
-      })
+      await enqueueEmailJobsServer(
+        buildAccessChangeEmailJobs({
+          emails: result.emailJobs,
+        })
+      )
     } catch (emailError) {
       logProviderError(
         "Failed to send account-deletion access change emails",

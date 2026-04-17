@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       teamId: result?.teamId ?? null,
       teamSlug: result?.teamSlug ?? null,
+      joinCode: result?.joinCode ?? null,
       features: result?.features ?? parsed.features,
     })
   } catch (error) {
