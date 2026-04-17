@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This document maps the open findings in [full-codebase-audit-2026-04-16.md](/Users/declancowen/Documents/GitHub/Linear/.audits/full-codebase-audit-2026-04-16.md) onto the target state defined in [target-state-architecture.md](/Users/declancowen/Documents/GitHub/Linear/docs/architecture/target-state-architecture.md).
+This document maps the open findings in [full-codebase-audit-2026-04-16.md](../../.audits/full-codebase-audit-2026-04-16.md) onto the target state defined in [target-state-architecture.md](../../docs/architecture/target-state-architecture.md).
 
 It is not a tactical bug list. It is a strategic gap map from the current repo shape to the target architecture standard.
 
-All streams in this document are governed by the frontend-backend compatibility contract in [target-state-architecture.md](/Users/declancowen/Documents/GitHub/Linear/docs/architecture/target-state-architecture.md): additive first, parallel migration where needed, stable selectors and gateways, and removal last.
+All streams in this document are governed by the frontend-backend compatibility contract in [target-state-architecture.md](../../docs/architecture/target-state-architecture.md): additive first, parallel migration where needed, stable selectors and gateways, and removal last.
 
 ## Score position
 

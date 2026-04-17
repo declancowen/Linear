@@ -43,6 +43,8 @@ type ReleaseEmailJobClaimArgs = ServerAccessArgs & {
 
 const EMAIL_JOB_CLAIM_TTL_MS = 15 * 60 * 1000
 const DEFAULT_EMAIL_JOB_CLAIM_LIMIT = 25
+const EMAIL_JOB_RETRY_BACKOFF_BASE_MS = 60 * 1000
+const EMAIL_JOB_RETRY_BACKOFF_MAX_MS = 60 * 60 * 1000
 
 function isActiveClaim(
   job: {
@@ -62,6 +64,44 @@ function isActiveClaim(
   }
 
   return nowMs - claimedAtMs < EMAIL_JOB_CLAIM_TTL_MS
+}
+
+function getRetryBackoffMs(attemptCount: number) {
+  if (attemptCount <= 0) {
+    return 0
+  }
+
+  return Math.min(
+    EMAIL_JOB_RETRY_BACKOFF_BASE_MS * 2 ** (attemptCount - 1),
+    EMAIL_JOB_RETRY_BACKOFF_MAX_MS
+  )
+}
+
+function isRetryCoolingDown(
+  job: {
+    attemptCount?: number | null
+    lastAttemptAt?: string | null
+    sentAt?: string | null
+  },
+  nowMs: number
+) {
+  if (job.sentAt) {
+    return false
+  }
+
+  const attemptCount = job.attemptCount ?? 0
+
+  if (attemptCount <= 0 || !job.lastAttemptAt) {
+    return false
+  }
+
+  const lastAttemptAtMs = Date.parse(job.lastAttemptAt)
+
+  if (Number.isNaN(lastAttemptAtMs)) {
+    return false
+  }
+
+  return nowMs - lastAttemptAtMs < getRetryBackoffMs(attemptCount)
 }
 
 function getRetiredNotificationTimestamp(
@@ -150,6 +190,10 @@ export async function claimPendingEmailJobsHandler(
     }
 
     if (isActiveClaim(job, nowMs)) {
+      continue
+    }
+
+    if (isRetryCoolingDown(job, nowMs)) {
       continue
     }
 

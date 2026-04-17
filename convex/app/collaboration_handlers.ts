@@ -635,8 +635,9 @@ export async function finalizeCallJoinHandler(
     }
 
     const now = getNow()
-    const roomId = call.roomId ?? args.roomId
-    const roomName = call.roomName ?? args.roomName
+    const shouldUseProvisionedRoom = !call.roomId || !call.roomName
+    const roomId = shouldUseProvisionedRoom ? args.roomId : call.roomId
+    const roomName = shouldUseProvisionedRoom ? args.roomName : call.roomName
     const participantUserIds = [
       ...new Set([...(call.participantUserIds ?? []), args.currentUserId]),
     ]

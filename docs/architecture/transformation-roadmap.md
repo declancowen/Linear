@@ -8,7 +8,7 @@ It is designed to move `Linear` from the current `97 / 100` architecture score t
 
 ## Guiding rule
 
-The roadmap is governed by the compatibility contract in [target-state-architecture.md](/Users/declancowen/Documents/GitHub/Linear/docs/architecture/target-state-architecture.md):
+The roadmap is governed by the compatibility contract in [target-state-architecture.md](../../docs/architecture/target-state-architecture.md):
 
 - additive before subtractive
 - old and new paths can coexist during migration

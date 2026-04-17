@@ -512,6 +512,66 @@ describe("email job handlers", () => {
     })
   })
 
+  it("does not immediately reclaim failed jobs before retry backoff expires", async () => {
+    const { claimPendingEmailJobsHandler } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const ctx = createCtx({
+      emailJobs: [
+        {
+          _id: "job_1_doc",
+          id: "job_1",
+          kind: "invite",
+          toEmail: "alex@example.com",
+          subject: "Cooling down",
+          text: "cooling down",
+          html: "<p>cooling down</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: "Mailbox unavailable",
+          attemptCount: 1,
+          lastAttemptAt: "2026-04-17T10:59:30.000Z",
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+        {
+          _id: "job_2_doc",
+          id: "job_2",
+          kind: "invite",
+          toEmail: "jamie@example.com",
+          subject: "Ready",
+          text: "ready",
+          html: "<p>ready</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: "Mailbox unavailable",
+          attemptCount: 1,
+          lastAttemptAt: "2026-04-17T10:58:00.000Z",
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+    })
+
+    const result = await claimPendingEmailJobsHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        claimId: "claim_1",
+      }
+    )
+
+    expect(result.map((job) => job.id)).toEqual(["job_2"])
+    expect(ctx.tables.emailJobs[0]).toMatchObject({
+      claimId: null,
+      claimedAt: null,
+    })
+    expect(ctx.tables.emailJobs[1]).toMatchObject({
+      claimId: "claim_1",
+      claimedAt: "2026-04-17T11:00:00.000Z",
+    })
+  })
+
   it("marks sent jobs and their notifications as emailed", async () => {
     const { markEmailJobsSentHandler } = await import(
       "@/convex/app/email_job_handlers"

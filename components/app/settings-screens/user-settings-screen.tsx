@@ -63,6 +63,19 @@ const themePreferenceOptions: Array<{
 
 type ThemePreviewTone = "light" | "dark"
 
+type PersistedProfileSnapshot = {
+  id: string
+  name: string
+  title: string
+  avatarUrl: string
+  preferences: {
+    emailMentions: boolean
+    emailAssignments: boolean
+    emailDigest: boolean
+    theme: ThemePreference
+  }
+}
+
 const themePreviewToneStyles: Record<
   ThemePreviewTone,
   {
@@ -245,7 +258,7 @@ export function UserSettingsScreen() {
   const router = useRouter()
   const { setTheme } = useTheme()
   const currentUser = useAppStore(getCurrentUser)
-  const themeSaveQueueRef = useRef(Promise.resolve())
+  const profileSaveQueueRef = useRef(Promise.resolve())
   const latestThemeRequestIdRef = useRef(0)
   const currentUserId = currentUser?.id ?? null
   const currentUserName = currentUser?.name ?? ""
@@ -265,6 +278,22 @@ export function UserSettingsScreen() {
   const currentUserThemePreference = currentUser?.preferences.theme ?? "system"
   const committedThemePreferenceRef = useRef<ThemePreference>(
     currentUserThemePreference
+  )
+  const committedProfileRef = useRef<PersistedProfileSnapshot | null>(
+    currentUserId
+      ? {
+          id: currentUserId,
+          name: currentUserName,
+          title: currentUserTitle,
+          avatarUrl: currentUserAvatarUrl,
+          preferences: {
+            emailMentions: currentUserEmailMentions,
+            emailAssignments: currentUserEmailAssignments,
+            emailDigest: currentUserEmailDigest,
+            theme: currentUserThemePreference,
+          },
+        }
+      : null
   )
   const avatarImageSrc = resolveImageAssetSource(
     currentUser?.avatarImageUrl,
@@ -332,6 +361,21 @@ export function UserSettingsScreen() {
   }, [avatarPreviewUrl])
 
   useEffect(() => {
+    committedProfileRef.current = currentUserId
+      ? {
+          id: currentUserId,
+          name: currentUserName,
+          title: currentUserTitle,
+          avatarUrl: currentUserAvatarUrl,
+          preferences: {
+            emailMentions: currentUserEmailMentions,
+            emailAssignments: currentUserEmailAssignments,
+            emailDigest: currentUserEmailDigest,
+            theme: currentUserThemePreference,
+          },
+        }
+      : null
+
     if (!currentUserId) {
       return
     }
@@ -355,6 +399,7 @@ export function UserSettingsScreen() {
     currentUserEmailMentions,
     currentUserId,
     currentUserName,
+    currentUserThemePreference,
     currentUserTitle,
   ])
 
@@ -454,6 +499,17 @@ export function UserSettingsScreen() {
     }))
   }
 
+  function queueProfileSave<T>(task: () => Promise<T>) {
+    const nextSave = profileSaveQueueRef.current
+      .catch(() => undefined)
+      .then(task)
+    profileSaveQueueRef.current = nextSave.then(
+      () => undefined,
+      () => undefined
+    )
+    return nextSave
+  }
+
   function handleThemePreferenceChange(nextTheme: ThemePreference) {
     if (!currentUser || nextTheme === themePreference) {
       return
@@ -467,46 +523,48 @@ export function UserSettingsScreen() {
     setTheme(nextTheme)
     updateStoredThemePreference(nextTheme)
 
-    const persistedProfile = {
-      id: currentUser.id,
-      name: currentUser.name,
-      title: currentUser.title,
-      avatarUrl: currentUser.avatarUrl,
-      preferences: currentUser.preferences,
-    }
+    void queueProfileSave(async () => {
+      const rollbackTheme = committedThemePreferenceRef.current
+      const persistedProfile = committedProfileRef.current
 
-    themeSaveQueueRef.current = themeSaveQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const rollbackTheme = committedThemePreferenceRef.current
+      if (!persistedProfile) {
+        return
+      }
 
-        try {
-          await syncUpdateCurrentUserProfile(
-            persistedProfile.id,
-            persistedProfile.name,
-            persistedProfile.title,
-            persistedProfile.avatarUrl,
-            {
-              ...persistedProfile.preferences,
-              theme: nextTheme,
-            }
-          )
-          committedThemePreferenceRef.current = nextTheme
-        } catch (error) {
-          console.error(error)
-
-          if (latestThemeRequestIdRef.current === requestId) {
-            clearPendingThemePreference(nextTheme)
-            setThemePreference(rollbackTheme)
-            setTheme(rollbackTheme)
-            updateStoredThemePreference(rollbackTheme)
+      try {
+        await syncUpdateCurrentUserProfile(
+          persistedProfile.id,
+          persistedProfile.name,
+          persistedProfile.title,
+          persistedProfile.avatarUrl,
+          {
+            ...persistedProfile.preferences,
+            theme: nextTheme,
           }
-
-          toast.error(
-            error instanceof Error ? error.message : "Failed to update theme"
-          )
+        )
+        committedThemePreferenceRef.current = nextTheme
+        committedProfileRef.current = {
+          ...persistedProfile,
+          preferences: {
+            ...persistedProfile.preferences,
+            theme: nextTheme,
+          },
         }
-      })
+      } catch (error) {
+        console.error(error)
+
+        if (latestThemeRequestIdRef.current === requestId) {
+          clearPendingThemePreference(nextTheme)
+          setThemePreference(rollbackTheme)
+          setTheme(rollbackTheme)
+          updateStoredThemePreference(rollbackTheme)
+        }
+
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update theme"
+        )
+      }
+    })
   }
 
   async function handleSave() {
@@ -516,25 +574,42 @@ export function UserSettingsScreen() {
 
     try {
       setSaving(true)
-      await syncUpdateCurrentUserProfile(
-        currentUser.id,
+      const savedProfile: PersistedProfileSnapshot = {
+        id: currentUser.id,
         name,
         title,
         avatarUrl,
-        {
+        preferences: {
           emailMentions,
           emailAssignments,
           emailDigest,
           theme: themePreference,
         },
-        {
-          ...(avatarImageStorageId ? { avatarImageStorageId } : {}),
-          ...(clearAvatarImage ? { clearAvatarImage: true } : {}),
-        }
-      )
+      }
+
+      await queueProfileSave(async () => {
+        await syncUpdateCurrentUserProfile(
+          currentUser.id,
+          name,
+          title,
+          avatarUrl,
+          {
+            emailMentions,
+            emailAssignments,
+            emailDigest,
+            theme: themePreference,
+          },
+          {
+            ...(avatarImageStorageId ? { avatarImageStorageId } : {}),
+            ...(clearAvatarImage ? { clearAvatarImage: true } : {}),
+          }
+        )
+
+        committedProfileRef.current = savedProfile
+        committedThemePreferenceRef.current = themePreference
+      })
 
       toast.success("Profile updated")
-      committedThemePreferenceRef.current = themePreference
       setTheme(themePreference)
       useAppStore.setState((state) => ({
         users: state.users.map((user) =>

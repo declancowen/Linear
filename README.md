@@ -151,7 +151,7 @@ These scripts require a correctly configured `.env.local` and usually talk to li
 - `pnpm notifications:send-digests`: send notification digest emails
 - `pnpm sync:workos:workspaces`: sync Convex workspaces to WorkOS organizations
 
-Operational expectations for deploys, backfills, sync jobs, and desktop smoke checks are documented in [docs/architecture/deployment-migration-runbook.md](/Users/declancowen/Documents/GitHub/Linear/docs/architecture/deployment-migration-runbook.md).
+Operational expectations for deploys, backfills, sync jobs, and desktop smoke checks are documented in [docs/architecture/deployment-migration-runbook.md](docs/architecture/deployment-migration-runbook.md).
 
 ## Desktop app
 
