@@ -12,6 +12,7 @@ import {
   getConversationDoc,
   getTeamDoc,
   getWorkspaceDoc,
+  listWorkspaceMembershipsByWorkspace,
   listWorkspaceTeams,
   type AppCtx,
 } from "./data"
@@ -29,10 +30,18 @@ export async function getTeamMemberIds(ctx: AppCtx, teamId: string) {
 export async function getWorkspaceUserIds(ctx: AppCtx, workspaceId: string) {
   const workspace = await getWorkspaceDoc(ctx, workspaceId)
   const teams = await listWorkspaceTeams(ctx, workspaceId)
+  const workspaceMemberships = await listWorkspaceMembershipsByWorkspace(
+    ctx,
+    workspaceId
+  )
   const userIds = new Set<string>()
 
   if (workspace?.createdBy) {
     userIds.add(workspace.createdBy)
+  }
+
+  for (const membership of workspaceMemberships) {
+    userIds.add(membership.userId)
   }
 
   for (const team of teams) {
@@ -351,16 +360,23 @@ export async function syncTeamConversationMemberships(
     ctx,
     team.workspaceId
   )
-  const workspaceParticipantIds = await getWorkspaceUserIds(
-    ctx,
-    team.workspaceId
-  )
 
-  await syncConversationParticipants(
-    ctx,
-    workspaceChannel,
-    workspaceParticipantIds
-  )
+  await syncWorkspaceChannelMemberships(ctx, team.workspaceId, workspaceChannel)
+}
+
+export async function syncWorkspaceChannelMemberships(
+  ctx: MutationCtx,
+  workspaceId: string,
+  existingConversation?: Awaited<
+    ReturnType<typeof findPrimaryWorkspaceChannelConversation>
+  >
+) {
+  const workspaceChannel =
+    existingConversation ??
+    (await findPrimaryWorkspaceChannelConversation(ctx, workspaceId))
+  const workspaceParticipantIds = await getWorkspaceUserIds(ctx, workspaceId)
+
+  await syncConversationParticipants(ctx, workspaceChannel, workspaceParticipantIds)
 }
 
 export async function updateConversationRoom(

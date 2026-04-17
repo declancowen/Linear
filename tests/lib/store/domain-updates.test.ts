@@ -373,6 +373,98 @@ describe("store domain updates", () => {
     expect(nextState.ui.selectedViewByRoute).toEqual({})
   })
 
+  it("recomputes affected workspace memberships after team removal", () => {
+    const baseState = createEmptyState()
+    const nextState = getNextStateAfterTeamRemoval(
+      {
+        ...baseState,
+        currentUserId: "user_owner",
+        currentWorkspaceId: "workspace_1",
+        workspaces: [
+          {
+            id: "workspace_1",
+            slug: "alpha",
+            name: "Alpha",
+            logoUrl: "",
+            logoImageUrl: null,
+            createdBy: "user_owner",
+            workosOrganizationId: "org_1",
+            settings: {
+              accent: "emerald",
+              description: "Alpha workspace",
+            },
+          },
+        ],
+        teams: [
+          buildLocalTeamCreateState({
+            currentUserId: "user_owner",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            teamSlug: "platform",
+            joinCode: "JOIN1234",
+            name: "Platform",
+            icon: "robot",
+            summary: "Platform",
+            experience: "software-development",
+            features: createDefaultTeamFeatureSettings("software-development"),
+          }).team,
+          buildLocalTeamCreateState({
+            currentUserId: "user_owner",
+            workspaceId: "workspace_1",
+            teamId: "team_2",
+            teamSlug: "design",
+            joinCode: "JOIN5678",
+            name: "Design",
+            icon: "users",
+            summary: "Design",
+            experience: "project-management",
+            features: createDefaultTeamFeatureSettings("project-management"),
+          }).team,
+        ],
+        teamMemberships: [
+          {
+            teamId: "team_1",
+            userId: "user_2",
+            role: "admin",
+          },
+          {
+            teamId: "team_2",
+            userId: "user_2",
+            role: "member",
+          },
+          {
+            teamId: "team_1",
+            userId: "user_3",
+            role: "member",
+          },
+        ],
+        workspaceMemberships: [
+          {
+            workspaceId: "workspace_1",
+            userId: "user_2",
+            role: "admin",
+          },
+        ],
+      },
+      "team_1"
+    )
+
+    expect(nextState.workspaceMemberships).toEqual(
+      expect.arrayContaining([
+        {
+          workspaceId: "workspace_1",
+          userId: "user_2",
+          role: "member",
+        },
+        {
+          workspaceId: "workspace_1",
+          userId: "user_3",
+          role: "viewer",
+        },
+      ])
+    )
+  })
+
   it("removes workspace-scoped entities and falls back to the next workspace", () => {
     const baseState = createEmptyState()
     const nextState = getNextStateAfterWorkspaceRemoval(

@@ -100,6 +100,7 @@ export function selectAppDataSnapshot(state: AppStore): AppData {
     currentWorkspaceId: state.currentWorkspaceId,
     workspaces: state.workspaces,
     teams: state.teams,
+    workspaceMemberships: state.workspaceMemberships,
     teamMemberships: state.teamMemberships,
     users: state.users,
     labels: state.labels,

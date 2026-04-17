@@ -517,6 +517,7 @@ export function MentionMenu({
   placement = "below",
   state,
   onComplete,
+  onSelectCandidate,
 }: {
   activeIndex: number
   candidates: MentionCandidate[]
@@ -525,6 +526,7 @@ export function MentionMenu({
   placement?: "above" | "below"
   state: MenuState
   onComplete: () => void
+  onSelectCandidate?: (candidate: MentionCandidate) => void
 }) {
   const itemRefs = useActiveItemScroll(activeIndex, candidates.length)
 
@@ -562,6 +564,7 @@ export function MentionMenu({
                 value={candidate.id}
                 onSelect={() => {
                   insertMention(editor, state, candidate)
+                  onSelectCandidate?.(candidate)
                   onComplete()
                 }}
               >

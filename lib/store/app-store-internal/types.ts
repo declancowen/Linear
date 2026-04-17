@@ -251,6 +251,7 @@ export type AppStore = AppData & {
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
+  flushDocumentSync: (documentId: string) => Promise<void>
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>
   updateItemDescription: (itemId: string, content: string) => void
@@ -294,6 +295,7 @@ export type ConversationAudienceState = Pick<
   AppData,
   | "currentUserId"
   | "workspaces"
+  | "workspaceMemberships"
   | "teams"
   | "teamMemberships"
   | "conversations"
@@ -326,6 +328,7 @@ export type WorkspaceStateAccess = Pick<
   | "currentUserId"
   | "currentWorkspaceId"
   | "workspaces"
+  | "workspaceMemberships"
   | "teams"
   | "teamMemberships"
   | "users"

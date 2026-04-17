@@ -41,6 +41,7 @@ function isSnapshotRecord(value: unknown): value is AppSnapshot {
     isString(value.currentUserId) &&
     isString(value.currentWorkspaceId) &&
     Array.isArray(value.workspaces) &&
+    Array.isArray(value.workspaceMemberships) &&
     Array.isArray(value.teams) &&
     Array.isArray(value.teamMemberships) &&
     Array.isArray(value.users) &&

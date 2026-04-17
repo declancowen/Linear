@@ -2,11 +2,7 @@
 
 import type { ReactElement } from "react"
 import { useRouter } from "next/navigation"
-import {
-  ChatCircle,
-  CopySimple,
-  EnvelopeSimple,
-} from "@phosphor-icons/react"
+import { ChatCircle, CopySimple, EnvelopeSimple } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
@@ -14,6 +10,11 @@ import {
   resolveUserStatus,
   userStatusMeta,
 } from "@/lib/domain/types"
+import {
+  buildWorkspaceUserPresenceView,
+  type WorkspaceUserMembershipState,
+  type WorkspaceUserPresenceData,
+} from "@/lib/domain/workspace-user-presence"
 import { hasWorkspaceAccess } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
@@ -31,17 +32,8 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 
-type UserPresenceData = {
-  name?: string | null
+type UserPresenceData = WorkspaceUserPresenceData & {
   handle?: string | null
-  email?: string | null
-  title?: string | null
-  avatarUrl?: string | null
-  avatarImageUrl?: string | null
-  status?: UserStatus | null
-  statusMessage?: string | null
-  hasExplicitStatus?: boolean
-  accountDeletedAt?: string | null
 }
 
 function getUserInitials(name: string | null | undefined) {
@@ -150,17 +142,21 @@ export function UserHoverCard({
     return <>{children}</>
   }
 
-  const resolvedStatus = resolveUserStatus(user.status)
-  const hasExplicitStatus = user.hasExplicitStatus ?? user.status != null
-  const normalizedStatusMessage = user.statusMessage?.trim() ?? ""
-  const hasStatusMessage = normalizedStatusMessage.length > 0
-  const normalizedTitle = user.title?.trim() ?? ""
-  const hasDeletedAccount = Boolean(user.accountDeletedAt)
-  const email = hasDeletedAccount ? "" : (user.email?.trim() ?? "")
-  const hasLeftCurrentWorkspace =
-    Boolean(userId && workspaceId) &&
-    !hasDeletedAccount &&
-    !hasActiveWorkspaceAccess
+  const membershipState: WorkspaceUserMembershipState =
+    !userId || !workspaceId
+      ? "unknown"
+      : hasActiveWorkspaceAccess
+        ? "active"
+        : "former"
+  const displayUser = buildWorkspaceUserPresenceView(user, membershipState)
+
+  if (!displayUser?.name) {
+    return <>{children}</>
+  }
+
+  const resolvedDisplayUser = displayUser
+  const resolvedStatus = resolveUserStatus(resolvedDisplayUser.status)
+  const hasStatusMessage = resolvedDisplayUser.statusMessage.length > 0
   const isSelf =
     userId != null && currentUserId != null && userId === currentUserId
   const canMessage =
@@ -168,17 +164,17 @@ export function UserHoverCard({
     currentUserId != null &&
     workspaceId != null &&
     userId !== currentUserId &&
-    !hasDeletedAccount &&
+    !resolvedDisplayUser.isDeletedAccount &&
     hasActiveWorkspaceAccess
-  const canEmail = Boolean(email) && !isSelf
+  const canEmail = Boolean(resolvedDisplayUser.email) && !isSelf
 
   async function handleCopyEmail() {
-    if (!email) {
+    if (!resolvedDisplayUser.email) {
       return
     }
 
     try {
-      await navigator.clipboard.writeText(email)
+      await navigator.clipboard.writeText(resolvedDisplayUser.email)
       toast.success("Email copied")
     } catch (error) {
       toast.error(
@@ -209,34 +205,44 @@ export function UserHoverCard({
   return (
     <HoverCard>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
-      <HoverCardContent align={align} side={side} className={cn("w-[22rem]", className)}>
+      <HoverCardContent
+        align={align}
+        side={side}
+        className={cn("w-[22rem]", className)}
+      >
         <div className="flex items-start gap-3">
           <UserAvatar
-            name={user.name}
-            avatarImageUrl={user.avatarImageUrl}
-            avatarUrl={user.avatarUrl}
-            status={user.status}
+            name={resolvedDisplayUser.name}
+            avatarImageUrl={resolvedDisplayUser.avatarImageUrl}
+            avatarUrl={resolvedDisplayUser.avatarUrl}
+            status={resolvedDisplayUser.status ?? undefined}
             size="default"
-            showStatus={hasExplicitStatus}
+            showStatus={
+              !resolvedDisplayUser.isFormerMember &&
+              resolvedDisplayUser.hasExplicitStatus
+            }
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="truncate text-sm font-semibold">{user.name}</div>
-              {hasDeletedAccount ? (
-                <Badge variant="outline">Deleted account</Badge>
-              ) : hasLeftCurrentWorkspace ? (
-                <Badge variant="outline">Left workspace</Badge>
+              <div className="truncate text-sm font-semibold">
+                {resolvedDisplayUser.name}
+              </div>
+              {resolvedDisplayUser.badgeLabel ? (
+                <Badge variant="outline">
+                  {resolvedDisplayUser.badgeLabel}
+                </Badge>
               ) : null}
             </div>
-            {normalizedTitle ? (
+            {resolvedDisplayUser.secondaryText &&
+            !resolvedDisplayUser.badgeLabel ? (
               <div className="truncate text-xs text-muted-foreground">
-                {normalizedTitle}
+                {resolvedDisplayUser.secondaryText}
               </div>
             ) : null}
-            {email ? (
+            {resolvedDisplayUser.email ? (
               <div className="mt-1 flex items-center gap-1.5">
                 <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {email}
+                  {resolvedDisplayUser.email}
                 </div>
                 <Button
                   type="button"
@@ -251,32 +257,34 @@ export function UserHoverCard({
                 </Button>
               </div>
             ) : null}
-            {hasExplicitStatus ? (
-              <>
-                <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <UserStatusDot status={resolvedStatus} />
-                  <span>{userStatusMeta[resolvedStatus].label}</span>
-                </div>
-                {hasStatusMessage ? (
-                  <div className="mt-3 border-l-2 border-foreground/15 pl-2.5 text-xs text-foreground">
-                    {normalizedStatusMessage}
+            {resolvedDisplayUser.showPresenceDetails ? (
+              resolvedDisplayUser.hasExplicitStatus ? (
+                <>
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <UserStatusDot status={resolvedStatus} />
+                    <span>{userStatusMeta[resolvedStatus].label}</span>
                   </div>
-                ) : (
+                  {hasStatusMessage ? (
+                    <div className="mt-3 border-l-2 border-foreground/15 pl-2.5 text-xs text-foreground">
+                      {resolvedDisplayUser.statusMessage}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-muted-foreground/60">
+                      No status message
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="mt-2 text-xs text-muted-foreground/60">
+                    No status set
+                  </div>
                   <div className="mt-3 text-xs text-muted-foreground/60">
                     No status message
                   </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="mt-2 text-xs text-muted-foreground/60">
-                  No status set
-                </div>
-                <div className="mt-3 text-xs text-muted-foreground/60">
-                  No status message
-                </div>
-              </>
-            )}
+                </>
+              )
+            ) : null}
             {canEmail || canMessage ? (
               <div className="mt-4 flex gap-2">
                 {canEmail ? (
@@ -289,7 +297,7 @@ export function UserHoverCard({
                       canMessage ? "flex-1" : "w-full"
                     )}
                   >
-                    <a href={`mailto:${email}`}>
+                    <a href={`mailto:${resolvedDisplayUser.email}`}>
                       <EnvelopeSimple className="size-3.5" />
                       Email
                     </a>
@@ -301,7 +309,7 @@ export function UserHoverCard({
                     size="sm"
                     className={cn(
                       "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
-                      email ? "flex-1" : "w-full"
+                      resolvedDisplayUser.email ? "flex-1" : "w-full"
                     )}
                     onClick={handleMessage}
                   >

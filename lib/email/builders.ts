@@ -35,6 +35,9 @@ export type MentionEmail = {
   commentText: string
   entityPath?: string
   entityLabel?: string
+  detailLabel?: string
+  detailText?: string
+  mentionCount?: number
 }
 
 export type TeamInviteEmail = {
@@ -402,10 +405,20 @@ function renderMentionEmail(input: {
   entityLabel?: string
   actorName: string
   commentText: string
+  detailLabel?: string
+  detailText?: string
+  mentionCount?: number
 }): EmailMessage {
   const entityPath =
     input.entityPath ?? getEntityPath(input.entityType, input.entityId)
   const entityUrl = buildAbsoluteUrl(input.origin, entityPath)
+  const mentionCount = Math.max(1, input.mentionCount ?? 1)
+  const detailLabel = input.detailLabel ?? "Comment"
+  const detailText = input.detailText ?? input.commentText
+  const mentionSummary =
+    mentionCount > 1
+      ? `${input.actorName} mentioned you ${mentionCount} times in ${input.entityTitle}.`
+      : `${input.actorName} mentioned you in ${input.entityTitle}.`
   const entityLabel =
     input.entityLabel ??
     getEntityLabel({
@@ -417,18 +430,24 @@ function renderMentionEmail(input: {
       entityId: input.entityId,
       actorName: input.actorName,
       commentText: input.commentText,
+      detailLabel: input.detailLabel,
+      detailText: input.detailText,
+      mentionCount: input.mentionCount,
     })
   const openLabel = `Open ${toTitleCase(entityLabel)}`
 
   return {
-    subject: `${input.actorName} mentioned you in ${input.entityTitle}`,
+    subject:
+      mentionCount > 1
+        ? `${input.actorName} mentioned you ${mentionCount} times in ${input.entityTitle}`
+        : `${input.actorName} mentioned you in ${input.entityTitle}`,
     text: [
       `Hi ${input.name},`,
       "",
-      `${input.actorName} mentioned you in ${input.entityTitle}.`,
+      mentionSummary,
       "",
-      "Comment:",
-      input.commentText,
+      `${detailLabel}:`,
+      detailText,
       "",
       `${openLabel}: ${entityUrl}`,
     ].join("\n"),
@@ -437,14 +456,18 @@ function renderMentionEmail(input: {
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
       eyebrow: "MENTION",
       content: [
-        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(input.actorName)} mentioned you</h1>`,
+        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(
+          mentionCount > 1
+            ? `${input.actorName} mentioned you ${mentionCount} times`
+            : `${input.actorName} mentioned you`
+        )}</h1>`,
         `<p style="margin: 8px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">in ${escapeHtml(input.entityTitle)}</p>`,
         '<div style="margin-top: 24px;">',
         `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
         "<tr>",
         '<td style="padding: 16px 18px;">',
-        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Comment</div>`,
-        `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">${toHtmlWithLineBreaks(input.commentText)}</div>`,
+        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">${escapeHtml(detailLabel)}</div>`,
+        `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">${toHtmlWithLineBreaks(detailText)}</div>`,
         "</td>",
         "</tr>",
         "</table>",
@@ -485,6 +508,9 @@ export function buildMentionEmailJobs(input: {
       entityLabel: email.entityLabel,
       actorName: email.actorName,
       commentText: email.commentText,
+      detailLabel: email.detailLabel,
+      detailText: email.detailText,
+      mentionCount: email.mentionCount,
     })
 
     return {

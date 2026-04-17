@@ -51,6 +51,13 @@ export const snapshotFixture: AppSnapshot = {
       role: "admin",
     },
   ],
+  workspaceMemberships: [
+    {
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      role: "admin",
+    },
+  ],
   users: [
     {
       id: "user_1",

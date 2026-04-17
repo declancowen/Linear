@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mutationMock = vi.fn()
 const queryMock = vi.fn()
+const resolveServerOriginMock = vi.fn()
 
 vi.mock("@/lib/server/convex/core", () => ({
   getConvexServerClient: () => ({
@@ -15,10 +16,17 @@ vi.mock("@/lib/server/convex/core", () => ({
   ) => request(),
 }))
 
+vi.mock("@/lib/server/request-origin", () => ({
+  resolveServerOrigin: resolveServerOriginMock,
+}))
+
 describe("convex workspace server wrappers", () => {
   beforeEach(() => {
     mutationMock.mockReset()
     queryMock.mockReset()
+    resolveServerOriginMock.mockReset()
+
+    resolveServerOriginMock.mockResolvedValue("https://app.example.com")
   })
 
   it("maps workspace membership lifecycle failures to application errors", async () => {
@@ -150,5 +158,30 @@ describe("convex workspace server wrappers", () => {
       status: 404,
       code: "WORKSPACE_NOT_FOUND",
     })
+  })
+
+  it("threads origin through workspace deletion for transactional email delivery", async () => {
+    const { deleteWorkspaceServer } = await import(
+      "@/lib/server/convex/workspace"
+    )
+
+    mutationMock.mockResolvedValue({
+      workspaceId: "workspace_1",
+    })
+
+    await deleteWorkspaceServer({
+      currentUserId: "user_1",
+      workspaceId: "workspace_1",
+    })
+
+    expect(resolveServerOriginMock).toHaveBeenCalledTimes(1)
+    expect(mutationMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        currentUserId: "user_1",
+        workspaceId: "workspace_1",
+        origin: "https://app.example.com",
+      })
+    )
   })
 })

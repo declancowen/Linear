@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser"
 import { Resend } from "resend"
 
 import { api } from "../convex/_generated/api.js"
+import { normalizeResendFrom } from "./resend-from.mjs"
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error)
@@ -13,12 +14,13 @@ function toErrorMessage(error) {
 export async function processEmailJobsBatch(input) {
   let sentCount = 0
   let failedCount = 0
+  const resendFrom = normalizeResendFrom(input.resendFromEmail)
 
   for (const job of input.jobs) {
     try {
       await input.resend.emails.send(
         {
-          from: input.resendFromEmail,
+          from: resendFrom,
           to: job.toEmail,
           subject: job.subject,
           text: job.text,

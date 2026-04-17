@@ -77,10 +77,12 @@ export function WorkspaceSettingsScreen() {
       ? isWorkspaceOwner(state, currentWorkspace.id)
       : false
   })
-  const { teams, teamMemberships, users, currentUserId } = useAppStore(
+  const { teams, workspaceMemberships, teamMemberships, users, currentUserId } =
+    useAppStore(
     useShallow((state) => {
       return {
         teams: state.teams,
+        workspaceMemberships: state.workspaceMemberships,
         teamMemberships: state.teamMemberships,
         users: state.users,
         currentUserId: state.currentUserId,
@@ -100,9 +102,14 @@ export function WorkspaceSettingsScreen() {
     )
     const workspaceTeamIds = new Set(workspaceTeams.map((team) => team.id))
     const workspaceUserIds = new Set(
-      teamMemberships
-        .filter((membership) => workspaceTeamIds.has(membership.teamId))
-        .map((membership) => membership.userId)
+      [
+        ...workspaceMemberships
+          .filter((membership) => membership.workspaceId === workspace.id)
+          .map((membership) => membership.userId),
+        ...teamMemberships
+          .filter((membership) => workspaceTeamIds.has(membership.teamId))
+          .map((membership) => membership.userId),
+      ]
     )
 
     if (workspace.createdBy) {
@@ -112,6 +119,20 @@ export function WorkspaceSettingsScreen() {
     return users
       .filter((user) => workspaceUserIds.has(user.id))
       .map((user) => {
+        const hasWorkspaceAdminRole =
+          workspace.createdBy === user.id ||
+          workspaceMemberships.some(
+            (membership) =>
+              membership.workspaceId === workspace.id &&
+              membership.userId === user.id &&
+              membership.role === "admin"
+          )
+        const hasTeamAdminRole = teamMemberships.some(
+          (membership) =>
+            membership.userId === user.id &&
+            workspaceTeamIds.has(membership.teamId) &&
+            membership.role === "admin"
+        )
         const teamNames = teamMemberships
           .filter(
             (membership) =>
@@ -131,12 +152,8 @@ export function WorkspaceSettingsScreen() {
           avatarImageUrl: user.avatarImageUrl,
           status: user.status,
           isOwner: workspace.createdBy === user.id,
-          isWorkspaceAdmin: teamMemberships.some(
-            (membership) =>
-              membership.userId === user.id &&
-              membership.role === "admin" &&
-              teamNameMap.has(membership.teamId)
-          ),
+          isWorkspaceAdmin: hasWorkspaceAdminRole,
+          isTeamAdmin: !hasWorkspaceAdminRole && hasTeamAdminRole,
           isCurrentUser: currentUserId === user.id,
           teamNames,
         }
@@ -148,7 +165,7 @@ export function WorkspaceSettingsScreen() {
 
         return left.name.localeCompare(right.name)
       })
-  }, [currentUserId, teamMemberships, teams, users, workspace])
+  }, [currentUserId, teamMemberships, teams, users, workspace, workspaceMemberships])
   const canDeleteWorkspace = canManageWorkspace
   const workspaceTeamsCount = useAppStore((state) => {
     if (!state.currentWorkspaceId) {

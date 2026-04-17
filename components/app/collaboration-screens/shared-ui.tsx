@@ -4,7 +4,11 @@ import { type ReactNode } from "react"
 import { Hash, UsersThree } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
-import { getConversationParticipants } from "@/lib/domain/selectors"
+import {
+  getConversationParticipants,
+  hasWorkspaceAccessInCollections,
+} from "@/lib/domain/selectors"
+import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
@@ -85,10 +89,21 @@ export function SurfaceSidebarContent({
   description: string
   members: ReturnType<typeof getConversationParticipants>
 }) {
-  const { currentUserId, currentWorkspaceId } = useAppStore(
+  const {
+    currentUserId,
+    currentWorkspaceId,
+    workspaces,
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+  } = useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
       currentWorkspaceId: state.currentWorkspaceId,
+      workspaces: state.workspaces,
+      workspaceMemberships: state.workspaceMemberships,
+      teams: state.teams,
+      teamMemberships: state.teamMemberships,
     }))
   )
 
@@ -111,35 +126,56 @@ export function SurfaceSidebarContent({
           Members · {members.length}
         </h3>
         <div className="mt-3 flex flex-col gap-0.5">
-          {members.map((member) => (
-            <UserHoverCard
-              key={member.id}
-              user={member}
-              side="left"
-              userId={member.id}
-              currentUserId={currentUserId}
-              workspaceId={currentWorkspaceId}
-            >
-              <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50">
-                <div className="shrink-0">
-                  <UserAvatar
-                    name={member.name}
-                    avatarImageUrl={member.avatarImageUrl}
-                    avatarUrl={member.avatarUrl}
-                    status={member.status}
-                  />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm">{member.name}</div>
-                  {member.title ? (
-                    <div className="truncate text-[11px] text-muted-foreground">
-                      {member.title}
+          {members.map((member) => {
+            const displayMember = buildWorkspaceUserPresenceView(
+              member,
+              !currentWorkspaceId
+                ? "unknown"
+                : hasWorkspaceAccessInCollections(
+                      workspaces,
+                      workspaceMemberships,
+                      teams,
+                      teamMemberships,
+                      currentWorkspaceId,
+                      member.id
+                    )
+                  ? "active"
+                  : "former"
+            )
+
+            return (
+              <UserHoverCard
+                key={member.id}
+                user={member}
+                side="left"
+                userId={member.id}
+                currentUserId={currentUserId}
+                workspaceId={currentWorkspaceId}
+              >
+                <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50">
+                  <div className="shrink-0">
+                    <UserAvatar
+                      name={displayMember?.name ?? member.name}
+                      avatarImageUrl={displayMember?.avatarImageUrl}
+                      avatarUrl={displayMember?.avatarUrl}
+                      status={displayMember?.status ?? undefined}
+                      showStatus={!displayMember?.isFormerMember}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">
+                      {displayMember?.name ?? member.name}
                     </div>
-                  ) : null}
+                    {displayMember?.secondaryText ? (
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {displayMember.secondaryText}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            </UserHoverCard>
-          ))}
+              </UserHoverCard>
+            )
+          })}
         </div>
       </div>
     </div>

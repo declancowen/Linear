@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react"
 import {
   EditorContent,
   type Editor,
@@ -22,6 +28,7 @@ import Typography from "@tiptap/extension-typography"
 import Underline from "@tiptap/extension-underline"
 import StarterKit from "@tiptap/starter-kit"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import type { RichTextMentionCounts } from "@/lib/content/rich-text-mentions"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
@@ -57,6 +64,8 @@ export type RichTextEditorStats = {
   characters: number
 }
 
+export type RichTextMentionCountsChangeSource = "initial" | "local" | "external"
+
 type RichTextEditorProps = {
   content: string | JSONContent
   onChange: (content: string) => void
@@ -74,8 +83,13 @@ type RichTextEditorProps = {
   onSubmitShortcut?: () => void
   submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
+  onMentionCountsChange?: (
+    counts: RichTextMentionCounts,
+    source: RichTextMentionCountsChangeSource
+  ) => void
   mentionMenuPlacement?: "above" | "below"
   editorInstanceRef?: MutableRefObject<Editor | null>
+  onMentionInserted?: (candidate: MentionCandidate) => void
   mentionCandidates?: Array<
     Pick<
       UserProfile,
@@ -96,6 +110,26 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;")
 }
 
+function getEditorMentionCounts(currentEditor: Editor): RichTextMentionCounts {
+  const mentionCounts: RichTextMentionCounts = {}
+
+  currentEditor.state.doc.descendants((node) => {
+    if (node.type.name !== "mention") {
+      return
+    }
+
+    const mentionId = node.attrs.id
+
+    if (typeof mentionId !== "string" || mentionId.length === 0) {
+      return
+    }
+
+    mentionCounts[mentionId] = (mentionCounts[mentionId] ?? 0) + 1
+  })
+
+  return mentionCounts
+}
+
 export function RichTextEditor({
   content,
   onChange,
@@ -112,8 +146,10 @@ export function RichTextEditor({
   onSubmitShortcut,
   submitOnEnter = false,
   onStatsChange,
+  onMentionCountsChange,
   mentionMenuPlacement = "below",
   editorInstanceRef,
+  onMentionInserted,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -122,6 +158,9 @@ export function RichTextEditor({
   const editorRef = useRef<Editor | null>(null)
   const previousSlashQueryRef = useRef<string | null>(null)
   const previousMentionQueryRef = useRef<string | null>(null)
+  const onChangeRef = useRef(onChange)
+  const onMentionCountsChangeRef = useRef(onMentionCountsChange)
+  const onMentionInsertedRef = useRef(onMentionInserted)
 
   const [slashState, setSlashState] = useState<MenuState | null>(null)
   const [mentionState, setMentionState] = useState<MenuState | null>(null)
@@ -137,6 +176,18 @@ export function RichTextEditor({
     useState<EmojiPickerAnchor | null>(null)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [containerWidth, setContainerWidth] = useState(256)
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  useEffect(() => {
+    onMentionCountsChangeRef.current = onMentionCountsChange
+  }, [onMentionCountsChange])
+
+  useEffect(() => {
+    onMentionInsertedRef.current = onMentionInserted
+  }, [onMentionInserted])
   const [fullPageCanvasWidth, setFullPageCanvasWidth] =
     useState<FullPageCanvasWidth>("narrow")
   const [fullPageCanvasWidthReady, setFullPageCanvasWidthReady] =
@@ -261,6 +312,13 @@ export function RichTextEditor({
     syncMentionState(buildMentionState(currentEditor, containerRef.current))
   }
 
+  function syncMentionCounts(currentEditor: Editor) {
+    onMentionCountsChangeRef.current?.(
+      getEditorMentionCounts(currentEditor),
+      "local"
+    )
+  }
+
   // Build editor class based on mode
   const editorClass = fullPage
     ? "min-h-[calc(100svh-12rem)] text-base outline-none [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
@@ -269,7 +327,8 @@ export function RichTextEditor({
       : "min-h-24 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
 
   const sanitizedStringContent = useMemo(
-    () => (typeof content === "string" ? sanitizeRichTextContent(content) : null),
+    () =>
+      typeof content === "string" ? sanitizeRichTextContent(content) : null,
     [content]
   )
 
@@ -478,6 +537,7 @@ export function RichTextEditor({
 
             event.preventDefault()
             insertMention(currentEditor, currentMentionState, selected)
+            onMentionInsertedRef.current?.(selected)
             setMentionState(null)
             setMentionIndex(0)
             return true
@@ -518,8 +578,16 @@ export function RichTextEditor({
         return false
       },
     },
+    onCreate({ editor: currentEditor }) {
+      onMentionCountsChangeRef.current?.(
+        getEditorMentionCounts(currentEditor),
+        "initial"
+      )
+      syncCommandMenus(currentEditor)
+    },
     onUpdate({ editor: currentEditor }) {
-      onChange(sanitizeRichTextContent(currentEditor.getHTML()))
+      onChangeRef.current(sanitizeRichTextContent(currentEditor.getHTML()))
+      syncMentionCounts(currentEditor)
       syncCommandMenus(currentEditor)
     },
     onSelectionUpdate({ editor: currentEditor }) {
@@ -565,6 +633,10 @@ export function RichTextEditor({
       editor.commands.setContent(sanitizedStringContent, {
         emitUpdate: false,
       })
+      onMentionCountsChangeRef.current?.(
+        getEditorMentionCounts(editor),
+        "external"
+      )
     }
   }, [editor, sanitizedStringContent])
 
@@ -734,7 +806,9 @@ export function RichTextEditor({
         showStats={showStats}
         statsCharacters={statsCharacters}
         statsWords={statsWords}
-        toolbarWidthClassName={FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]}
+        toolbarWidthClassName={
+          FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
+        }
         uploadsEnabled={Boolean(onUploadAttachment)}
         uploadingAttachment={uploadingAttachment}
       />
@@ -770,27 +844,28 @@ export function RichTextEditor({
               type="button"
               aria-hidden="true"
               tabIndex={-1}
-              className="size-px opacity-0 pointer-events-none"
+              className="pointer-events-none size-px opacity-0"
             />
           }
         />
       </div>
     ) : null
 
-  const slashMenu = allowSlashCommands && slashState ? (
-    <SlashCommandMenu
-      activeIndex={activeSlashIndex}
-      commands={filteredSlashCommands}
-      containerWidth={containerWidth}
-      editor={currentEditor}
-      state={slashState}
-      onComplete={() => {
-        setSlashState(null)
-        setSlashIndex(0)
-        previousSlashQueryRef.current = null
-      }}
-    />
-  ) : null
+  const slashMenu =
+    allowSlashCommands && slashState ? (
+      <SlashCommandMenu
+        activeIndex={activeSlashIndex}
+        commands={filteredSlashCommands}
+        containerWidth={containerWidth}
+        editor={currentEditor}
+        state={slashState}
+        onComplete={() => {
+          setSlashState(null)
+          setSlashIndex(0)
+          previousSlashQueryRef.current = null
+        }}
+      />
+    ) : null
 
   const mentionMenu = mentionState ? (
     <MentionMenu
@@ -800,6 +875,7 @@ export function RichTextEditor({
       editor={currentEditor}
       placement={mentionMenuPlacement}
       state={mentionState}
+      onSelectCandidate={onMentionInserted}
       onComplete={() => {
         setMentionState(null)
         setMentionIndex(0)

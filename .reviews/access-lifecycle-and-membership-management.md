@@ -43,6 +43,7 @@ Files and areas reviewed across all turns:
 - `convex/app/access.ts` — centralized owner-only and team-admin-only authorization helpers
 - `convex/app/cleanup.ts` — cleanup after workspace/team access removal
 - `convex/app/collaboration_handlers.ts` — server-side read-only guard for workspace chats
+- `convex/app/conversations.ts` — workspace/team conversation participant synchronization
 - `convex/app/collaboration_utils.ts` — notification entity support for team/workspace access events
 - `convex/app/data.ts` — membership lookup helpers and role lookup reuse
 - `convex/app/normalization.ts` — `accountDeletedAt` normalization
@@ -69,13 +70,300 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-16 20:03:24 BST` |
-| **Total turns** | `11` |
+| **Last reviewed** | `2026-04-17 20:44:55 BST` |
+| **Total turns** | `20` |
 | **Open findings** | `0` |
-| **Resolved findings** | `22` |
+| **Resolved findings** | `27` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 20 — 2026-04-17 20:44:55 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `7c146f2` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the remaining direct-membership workspace-channel sync gap in the other lifecycle paths. `leaveWorkspaceHandler()` and `deleteCurrentAccountHandler()` now mirror the direct-member workspace-channel resync that was already added to `removeWorkspaceUserHandler()`, so direct-workspace-only departures no longer leave stale workspace-channel participants behind.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 20 | 1 |
+| Carried from Turn 19 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 20
+
+#### B20-01 ~~[BUG] Medium~~ → RESOLVED — Direct-membership-only workspace departures still skipped workspace-channel participant resync in leave/account-deletion flows
+**How it was fixed:** [leaveWorkspaceHandler](../convex/app/workspace_team_handlers.ts:1691) now calls [syncWorkspaceChannelMemberships](../convex/app/conversations.ts:367) when the leaving user had no workspace team memberships, and [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1940) now does the same for workspaces whose `removedTeamIdsByWorkspace[workspaceId]` is empty. That keeps workspace-channel participant lists consistent across remove, leave, and delete-account flows for direct-workspace-only members.
+
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:577), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/lib/server/convex-documents.test.ts`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts lib/server/convex/documents.ts tests/convex/workspace-team-handlers.test.ts tests/lib/server/convex-documents.test.ts --max-warnings 0`
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+- Team creation granting workspace admin and the pre-cascade team-deletion notification ordering still match the current product model.
+
+## Turn 19 — 2026-04-17 20:34:22 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `301e0fe` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `B18-01`. Removing a workspace user now resynchronizes the workspace channel even when that user only had a direct workspace membership and no workspace team memberships to drive the existing team-conversation resync path.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 19 | 1 |
+| Carried from Turn 18 | 1 |
+| Accepted | 0 |
+
+### Resolved during Turn 19
+
+#### B18-01 ~~[BUG] Medium~~ → RESOLVED — Removing a direct workspace member does not resync the workspace channel participant list
+**How it was fixed:** Added [syncWorkspaceChannelMemberships](../convex/app/conversations.ts:372) as an explicit workspace-level participant sync helper. [removeWorkspaceUserHandler](../convex/app/workspace_team_handlers.ts:1541) now calls it when a user was removed via a direct workspace membership path with no removed team memberships, so the workspace channel no longer relies on team-level syncs to shed removed direct members.
+
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:577), then ran:
+- `pnpm test -- tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx`
+- `pnpm exec eslint convex/app/document_handlers.ts convex/app/conversations.ts convex/app/workspace_team_handlers.ts lib/store/app-store-internal/runtime.ts lib/store/app-store-internal/types.ts lib/store/app-store-internal/slices/work-shared.ts lib/store/app-store-internal/slices/work-document-actions.ts components/app/screens/document-detail-screen.tsx tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx --max-warnings 0`
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+- Team creation granting workspace admin and the pre-cascade team-deletion notification ordering still match the current product model.
+
+## Turn 18 — 2026-04-17 20:24:45 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `301e0fe` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest provider notes found one new live membership-lifecycle bug in the current branch. Removing a workspace user who only has a direct workspace membership updates access and provider cleanup correctly, but it does not resynchronize the workspace channel participant list, so the removed user can remain in that channel’s cached participants until some unrelated team/workspace sync happens later.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 18 | 0 |
+| Carried from Turn 17 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B18-01 [BUG] Medium — Removing a direct workspace member does not resync the workspace channel participant list
+**Where:** [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1541), [conversations.ts](../convex/app/conversations.ts:343)
+
+**What’s wrong:** `removeWorkspaceUserHandler()` deletes the direct `workspaceMembership`, deletes any team memberships, applies the workspace-access removal policy, and then only calls `syncTeamConversationMemberships()` for teams that actually lost a `teamMembership`. If the removed user only had a direct workspace membership, that loop never runs. The workspace channel conversation therefore keeps the stale `participantIds` snapshot even though `getWorkspaceUserIds()` would no longer include the removed user.
+
+**Why it matters:** The removed user can linger in workspace-channel participant lists and related UI until another path happens to resync that conversation. Server-side access checks still enforce removal, so this is not a privilege-escalation bug, but it is still a real data-integrity and UX inconsistency in the membership lifecycle.
+
+**Root cause:** Workspace-channel synchronization is currently piggybacked on team-conversation resyncs. The direct-workspace-membership removal path does not have an unconditional workspace-level participant resync even though workspace membership is now a first-class access source.
+
+**What to change:** After removing a workspace user, resynchronize the workspace channel participants regardless of whether any team memberships were removed. The cleanest fix is a dedicated workspace-channel sync helper in `conversations.ts`, or an unconditional workspace-channel sync call from `removeWorkspaceUserHandler()` after membership deletion.
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+- Team creation granting workspace admin and the pre-cascade team-deletion notification ordering both still match the current product model.
+
+## Turn 17 — 2026-04-17 20:08:07 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `85a3836` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the follow-up account-deletion guard gap. Direct workspace admins are now blocked from deleting their account until they leave or transfer that admin access, matching the same admin-removal safety invariant enforced elsewhere in the workspace lifecycle handlers.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 17 | 1 |
+| Carried from Turn 16 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B17-01 ~~[BUG] Medium~~ → RESOLVED — Account deletion allowed direct workspace admins to bypass the admin-removal safeguard
+**Where:** [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1814)
+
+**What was wrong:** `assertCurrentAccountDeletionAllowed()` had been extended to load direct workspace memberships, but it still only rejected `teamMemberships` with `role === "admin"`. A user who retained direct workspace-admin access could therefore pass validation and delete their account, unlike the leave/remove workspace flows which already block workspace admins.
+
+**How it was fixed:** [assertCurrentAccountDeletionAllowed](../convex/app/workspace_team_handlers.ts:1814) now also rejects direct `workspaceMemberships` with `role === "admin"` and returns a specific error message for that case.
+
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:607), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts components/app/screens/document-detail-screen.tsx components/app/rich-text-editor.tsx lib/content/document-mention-queue.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts --max-warnings 0`
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+
+## Turn 16 — 2026-04-17 19:53:09 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `beca264` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Rechecked the remaining access-adjacent notes from the latest provider output. No new lifecycle bug was confirmed. The old `canAdminWorkspace` / `getWorkspaceRoleMapForUser` findings remain stale on this branch, and the exported direct-or-fallback workspace-role helper has now been internalized to reduce future misuse. I also memoized per-user workspace membership state in chat-thread rendering to avoid repeating workspace-access scans per message.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 16 | 0 |
+| Carried from Turn 15 | 0 |
+| Accepted | 0 |
+
+### Remaining access-related notes classified
+
+- The `canAdminWorkspace` and `getWorkspaceRoleMapForUser` notes are still stale. The current branch already uses merged effective workspace roles for admin gating on both the client and server paths.
+- [selectors-internal/core.ts](../lib/domain/selectors-internal/core.ts:87) no longer exports the direct-or-fallback workspace-role helper, so the subtle non-merging behavior is now confined to internal selector composition rather than exposed as a reusable API.
+- The `cleanup.ts` viewer-membership note remains an intentional policy decision: deleting a team can leave former members as workspace viewers until explicitly removed from the workspace.
+- The workspace-deletion email/provider-cleanup asymmetry, team-creation workspace-admin promotion, and pre-cascade team-deletion notifications remain intentional and match the current product model.
+
+## Turn 15 — 2026-04-17 19:26:52 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `db08913` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `B14-01`. Account deletion now removes direct workspace memberships before the lifecycle cleanup runs and includes workspaces reached only through direct workspace access, so workspace-scope cleanup and WorkOS membership deactivation are no longer skipped after the backfill.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 15 | 1 |
+| Carried from Turn 14 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 15
+
+#### B14-01 ~~[BUG] High~~ → RESOLVED — Account deletion now skipped workspace-scope cleanup and WorkOS deactivation when a direct workspace membership row remained
+**How it was fixed:** [assertCurrentAccountDeletionAllowed](../convex/app/workspace_team_handlers.ts:1814) now loads both team memberships and direct workspace memberships. [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1928) deletes both sets before finalization and seeds `removedTeamIdsByWorkspace` with workspaces that were reachable only through direct workspace membership. That restores the intended lifecycle invariant for `finalizeCurrentAccountDeletionPolicy()` and `cleanupUserAccessRemoval()`.
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:610), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/lib/content/rich-text-mentions.test.ts tests/components/document-detail-screen.test.tsx`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts components/app/screens/document-detail-screen.tsx lib/content/rich-text-mentions.ts tests/convex/workspace-team-handlers.test.ts tests/lib/content/rich-text-mentions.test.ts tests/components/document-detail-screen.test.tsx --max-warnings 0`
+- `git diff --check`
+
+## Turn 14 — 2026-04-17 19:10:46 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `db08913` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest provider findings found one new real regression in the current branch: account deletion now leaves direct workspace memberships in place while evaluating workspace access removal, so workspace-scope cleanup and provider deactivation can be skipped entirely. The rest of the access-lifecycle notes in this round are stale relative to the current branch or are intentional policy choices rather than active bugs.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 14 | 0 |
+| Carried from Turn 13 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B14-01 [BUG] High — Account deletion now skips workspace-scope cleanup and WorkOS deactivation when a direct workspace membership row remains
+**Where:** [deleteCurrentAccountHandler](../convex/app/workspace_team_handlers.ts:1924), [cleanupUserAccessRemoval](../convex/app/cleanup.ts:404), [getWorkspaceUserIds](../convex/app/conversations.ts:30)
+
+**What’s wrong:** `deleteCurrentAccountHandler()` deletes only the user’s `teamMemberships` before calling `finalizeCurrentAccountDeletionPolicy()`. That policy eventually calls `cleanupUserAccessRemoval()`, which determines `hasWorkspaceAccess` from `getWorkspaceUserIds()`. `getWorkspaceUserIds()` now includes direct `workspaceMemberships`, so any leftover workspace row makes the just-deleted user still look present in the workspace. That suppresses workspace-scope cleanup and causes `resolveProviderMembershipCleanup()` to skip the WorkOS deactivation path.
+
+**Why it matters:** After the workspace-membership backfill, this is no longer an edge case. A normal non-owner user can delete their account, have all team memberships removed, and still retain stale workspace references plus stale IdP organization access because the direct workspace row was never removed before the access-removal check.
+
+**Root cause:** The account-deletion flow still models access removal as “delete team memberships, then infer workspace removal from remaining team access,” but the branch introduced first-class direct workspace memberships without updating this flow to remove or account for them.
+
+**What to change:** Remove the user’s direct workspace membership for each affected workspace before calling `finalizeCurrentAccountDeletionPolicy()`, or teach `cleanupUserAccessRemoval()` / `getWorkspaceUserIds()` to exclude the subject user’s direct workspace row when evaluating an in-progress account deletion. Also handle the case where a user has workspace memberships but no team memberships, because `removedTeamIdsByWorkspace` is currently derived only from `teamMemberships`.
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` note about `syncWorkspaceMembershipRoleFromTeams(..., fallbackRole: "viewer")` creating persistent viewer memberships after last-team deletion is still an intentional policy choice, not a correctness regression. The branch is modeling workspace membership as durable access rather than auto-pruning the user when their final team disappears.
+- The `canAdminWorkspace` and `getWorkspaceRoleMapForUser` notes are stale on the current branch. Turn 13 already restored merged team-admin fallback for workspace-admin capability in both the client selector path and the server role-map path.
+- The workspace-deletion email/provider-cleanup asymmetry and the team-deletion notification ordering note remain intentional and acceptable.
+
+## Turn 13 — 2026-04-17 18:55:33 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `84699d1` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `B12-01`. Workspace-admin capability now merges team-admin fallback again in both the server role map and the client selector path, so a stale direct `viewer` row no longer hides a real team-admin role for admin-gated flows like team creation.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 13 | 1 |
+| Carried from Turn 12 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 13
+
+#### B12-01 ~~[BUG] Medium~~ → RESOLVED — Workspace admin gating still dropped team-admin fallback when a direct workspace membership row exists
+**How it was fixed:** [buildWorkspaceRoleMapForUser](../convex/app/data.ts:1133) now merges direct workspace roles with team-derived roles instead of suppressing team roles whenever a direct membership row exists. On the client, [canAdminWorkspace](../lib/domain/selectors-internal/core.ts:254) now uses the merged effective workspace role rather than the direct-only role. This restores the pre-membership fallback behavior for admin capability while keeping the current direct-membership model.
+**Verified:** Added regression coverage in [workspace-role-map.test.ts](../tests/convex/workspace-role-map.test.ts:1) and [workspace-access.test.ts](../tests/lib/domain/workspace-access.test.ts:10), then ran:
+- `pnpm test -- tests/lib/domain/workspace-access.test.ts tests/convex/workspace-role-map.test.ts`
+- `pnpm exec eslint convex/app/data.ts lib/domain/selectors-internal/core.ts tests/lib/domain/workspace-access.test.ts tests/convex/workspace-role-map.test.ts --max-warnings 0`
+
+## Turn 12 — 2026-04-17 18:50:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `84699d1` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Follow-up review of the latest pasted provider findings found one real remaining regression in the current branch: workspace-admin capability still falls back to the direct workspace-membership row only, so a stale direct role can hide a real team-admin role in both client and server admin gates. The other new notes are either already fixed in the current branch, intentionally asymmetric behavior, or acceptable tradeoffs rather than active bugs.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 12 | 0 |
+| Carried from Turn 11 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B12-01 [BUG] Medium — Workspace admin gating still drops team-admin fallback when a direct workspace membership row exists
+**Where:** [convex/app/data.ts](../convex/app/data.ts:1133), [convex/app/access.ts](../convex/app/access.ts:168), [lib/domain/selectors-internal/core.ts](../lib/domain/selectors-internal/core.ts:237), [components/app/settings-screens/create-team-screen.tsx](../components/app/settings-screens/create-team-screen.tsx:31), [components/app/shell.tsx](../components/app/shell.tsx:254), [convex/app/auth_bootstrap.ts](../convex/app/auth_bootstrap.ts:896)
+
+**What’s wrong:** `getWorkspaceRoleMapForUser()` now suppresses team-derived roles for any workspace that already has a direct `workspaceMembership` row. `requireWorkspaceAdminAccess()` and `auth_bootstrap` consume that role map, while `canAdminWorkspace()` still uses the direct-first `getWorkspaceRoleInCollections()` path. As a result, a user with a stale direct `viewer` membership but a real team-admin role is treated as non-admin for admin-gated flows like team creation.
+
+**Why it matters:** This is the same cache-staleness class we already hardened for editable workspace access, but it still exists for admin capability. It regresses the pre-workspace-membership behavior on `main`, where workspace admin capability was derived from team-admin roles. If membership sync ever drifts again, legitimate admins lose access to admin-only actions in both client and server paths.
+
+**Root cause:** Admin capability is still modeled as “direct workspace role is authoritative if present” even though the direct workspace row is a denormalized projection of underlying team memberships for most non-owner users.
+
+**What to change:** Introduce a merged workspace-admin role path, parallel to the merged editable-role path:
+- either make `getWorkspaceRoleMapForUser()` merge direct and team-derived roles instead of skipping team roles when a direct row exists
+- or add a dedicated helper for effective workspace admin capability and use it consistently in `requireWorkspaceAdminAccess()`, `canAdminWorkspace()`, and bootstrap/UI admin flags
+
+### Remaining pasted notes classified
+
+- The two provider findings are the same underlying issue as `B12-01`, not separate bugs.
+- The `syncWorkspaceMembershipRoleFromTeams` / `cleanup.ts` viewer-accumulation note is still an intentional policy choice, not a correctness regression. The current design keeps workspace membership as persistent access rather than auto-removing the user when their last team is deleted.
+- The Electron-artifact note is stale. [`.gitignore`](../.gitignore:18) now ignores `dist/electron/`, [`.gitattributes`](../.gitattributes:1) no longer LFS-tracks it, and `git ls-files` now only shows `dist/electron-stage/*`.
+- The maintenance key-splitting note is stale. [maintenance.ts](../convex/app/maintenance.ts:86) now stores full membership records in the backfill map rather than reconstructing ids from `split(":")`.
+- The `mergeRole` duplication note is stale. Shared role precedence now lives in [lib/domain/roles.ts](../lib/domain/roles.ts:1), and [convex/app/core.ts](../convex/app/core.ts:7) delegates to it.
+- The document click interceptor in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:275) is still broad, but it reads as intentional UX policy while pending mention notifications exist.
+- The Resend sender-normalization note in [scripts/resend-from.mjs](../scripts/resend-from.mjs:1) is cosmetic. The current `email <email>` fallback is unusual but valid and covered by tests; this is not a blocking bug.
+- The rich-text mention fallback note is an acceptable parser tradeoff, not an active defect. The fallback in [rich-text-mentions.ts](../lib/content/rich-text-mentions.ts:9) now matches the mention-only semantics of the DOM path for the supported quoted-attribute cases we actually generate.
+- The workspace-deletion email/provider-cleanup asymmetry is intentional. Active users get emails; all memberships still get WorkOS cleanup.
+- The `Promise.all` indentation note is cosmetic only.
+- The team-deletion notification ordering note is intentional and already documented inline in the handler.
 
 ## Turn 11 — 2026-04-16 20:03:24 BST
 

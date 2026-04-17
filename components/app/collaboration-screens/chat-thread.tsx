@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
@@ -24,6 +18,7 @@ import {
   getUser,
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
+import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
@@ -133,7 +128,9 @@ function ChatComposer({
         </div>
       </div>
       {!editable && disabledReason ? (
-        <div className="mt-2 text-xs text-muted-foreground">{disabledReason}</div>
+        <div className="mt-2 text-xs text-muted-foreground">
+          {disabledReason}
+        </div>
       ) : null}
     </div>
   )
@@ -163,43 +160,44 @@ export function ChatThread({
   )
   const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
     useAppStore(
-    useShallow((state) => {
-      const conversation = state.conversations.find(
-        (entry) => entry.id === conversationId
-      )
+      useShallow((state) => {
+        const conversation = state.conversations.find(
+          (entry) => entry.id === conversationId
+        )
 
-      if (!conversation || conversation.kind !== "chat") {
-        return {
-          canCurrentUserSend: false,
-          conversationScopeType: null,
-          conversationScopeId: null,
+        if (!conversation || conversation.kind !== "chat") {
+          return {
+            canCurrentUserSend: false,
+            conversationScopeType: null,
+            conversationScopeId: null,
+          }
         }
-      }
 
-      if (conversation.scopeType === "workspace") {
+        if (conversation.scopeType === "workspace") {
+          return {
+            canCurrentUserSend:
+              conversation.participantIds.includes(state.currentUserId) &&
+              canEditWorkspace(state, conversation.scopeId),
+            conversationScopeType: conversation.scopeType,
+            conversationScopeId: conversation.scopeId,
+          }
+        }
+
+        const role = getTeamRole(state, conversation.scopeId)
+
         return {
-          canCurrentUserSend:
-            conversation.participantIds.includes(state.currentUserId) &&
-            canEditWorkspace(state, conversation.scopeId),
+          canCurrentUserSend: role === "admin" || role === "member",
           conversationScopeType: conversation.scopeType,
           conversationScopeId: conversation.scopeId,
         }
-      }
-
-      const role = getTeamRole(state, conversation.scopeId)
-
-      return {
-        canCurrentUserSend: role === "admin" || role === "member",
-        conversationScopeType: conversation.scopeType,
-        conversationScopeId: conversation.scopeId,
-      }
-    })
-  )
+      })
+    )
   const {
     currentUserId,
     currentWorkspaceId,
     users,
     workspaces,
+    workspaceMemberships,
     teams,
     teamMemberships,
   } = useAppStore(
@@ -208,6 +206,7 @@ export function ChatThread({
       currentWorkspaceId: state.currentWorkspaceId,
       users: state.users,
       workspaces: state.workspaces,
+      workspaceMemberships: state.workspaceMemberships,
       teams: state.teams,
       teamMemberships: state.teamMemberships,
     }))
@@ -241,6 +240,7 @@ export function ChatThread({
 
         return hasWorkspaceAccessInCollections(
           workspaces,
+          workspaceMemberships,
           teams,
           teamMemberships,
           conversationScopeId,
@@ -255,6 +255,7 @@ export function ChatThread({
       teamMemberships,
       teams,
       workspaces,
+      workspaceMemberships,
     ]
   )
   const activeOtherMemberCount = useMemo(
@@ -263,15 +264,85 @@ export function ChatThread({
     [currentUserId, messageableMembers]
   )
   const hasMessageableMembers = activeOtherMemberCount > 0
+  const hideComposer = !hasMessageableMembers
   const composerEditable = canCurrentUserSend && hasMessageableMembers
-  const composerDisabledReason =
-    !canCurrentUserSend
-      ? "Messaging is read-only for your current role."
-      : !hasMessageableMembers
-        ? conversationScopeType === "team"
-          ? "This chat is read-only because the other participants have left the team or deleted their account."
-          : "This chat is read-only because the other participants have left the workspace or deleted their account."
-        : null
+  const composerDisabledReason = !canCurrentUserSend
+    ? "Messaging is read-only for your current role."
+    : !hasMessageableMembers
+      ? conversationScopeType === "team"
+        ? "This chat is read-only because the other participants have left the team or deleted their account."
+        : "This chat is read-only because the other participants have left the workspace or deleted their account."
+      : null
+  const emptyStateDescription =
+    messages.length === 0 && hideComposer && composerDisabledReason
+      ? composerDisabledReason
+      : "Start the conversation below."
+  const messageAuthorIdsKey = useMemo(() => {
+    return [...new Set(messages.map((message) => message.createdBy))]
+      .sort()
+      .join("\u001f")
+  }, [messages])
+  const workspaceMembershipStateByUserId = useMemo(() => {
+    const membershipStates = new Map<
+      string,
+      "active" | "former" | "unknown"
+    >()
+
+    if (!currentWorkspaceId) {
+      return membershipStates
+    }
+
+    const relevantUserIds = new Set<string>()
+
+    if (welcomeParticipant?.id) {
+      relevantUserIds.add(welcomeParticipant.id)
+    }
+
+    for (const member of members) {
+      relevantUserIds.add(member.id)
+    }
+
+    if (messageAuthorIdsKey.length > 0) {
+      for (const userId of messageAuthorIdsKey.split("\u001f")) {
+        relevantUserIds.add(userId)
+      }
+    }
+
+    for (const userId of relevantUserIds) {
+      membershipStates.set(
+        userId,
+        hasWorkspaceAccessInCollections(
+          workspaces,
+          workspaceMemberships,
+          teams,
+          teamMemberships,
+          currentWorkspaceId,
+          userId
+        )
+          ? "active"
+          : "former"
+      )
+    }
+
+    return membershipStates
+  }, [
+    currentWorkspaceId,
+    members,
+    messageAuthorIdsKey,
+    teamMemberships,
+    teams,
+    welcomeParticipant,
+    workspaces,
+    workspaceMemberships,
+  ])
+
+  function getWorkspaceMembershipState(userId: string | null | undefined) {
+    if (!userId || !currentWorkspaceId) {
+      return "unknown" as const
+    }
+
+    return workspaceMembershipStateByUserId.get(userId) ?? ("unknown" as const)
+  }
 
   useEffect(() => {
     const el = scrollRef.current
@@ -309,45 +380,69 @@ export function ChatThread({
           <div className="mt-auto px-4 py-3">
             <EmptyState
               title="No messages yet"
-              description="Start the conversation below."
+              description={emptyStateDescription}
               icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
               className="flex-none px-0 py-6"
             />
           </div>
         ) : (
           <>
-            {showWelcomeIntro ? (
-              <div className="px-4 pt-6">
-                <div className="mx-auto flex max-w-sm flex-col items-center text-center">
-                  <UserAvatar
-                    name={welcomeParticipant.name}
-                    avatarImageUrl={welcomeParticipant.avatarImageUrl}
-                    avatarUrl={welcomeParticipant.avatarUrl}
-                    status={welcomeParticipant.status}
-                    size="lg"
-                    className="size-12"
-                  />
-                  <UserHoverCard
-                    user={welcomeParticipant}
-                    userId={welcomeParticipant.id}
-                    currentUserId={currentUserId}
-                    workspaceId={currentWorkspaceId}
-                  >
-                    <p className="mt-3 text-sm font-medium">
-                      {welcomeParticipant.name ?? title}
-                    </p>
-                  </UserHoverCard>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    This is the beginning of your conversation with{" "}
-                    {welcomeParticipant.name ?? title}.
-                  </p>
-                </div>
-              </div>
-            ) : null}
+            {showWelcomeIntro
+              ? (() => {
+                  const welcomeParticipantView = buildWorkspaceUserPresenceView(
+                    welcomeParticipant,
+                    getWorkspaceMembershipState(welcomeParticipant.id)
+                  )
+
+                  return (
+                    <div className="px-4 pt-6">
+                      <div className="mx-auto flex max-w-sm flex-col items-center text-center">
+                        <UserAvatar
+                          name={
+                            welcomeParticipantView?.name ??
+                            welcomeParticipant.name
+                          }
+                          avatarImageUrl={
+                            welcomeParticipantView?.avatarImageUrl
+                          }
+                          avatarUrl={welcomeParticipantView?.avatarUrl}
+                          status={welcomeParticipantView?.status ?? undefined}
+                          showStatus={!welcomeParticipantView?.isFormerMember}
+                          size="lg"
+                          className="size-12"
+                        />
+                        <UserHoverCard
+                          user={welcomeParticipant}
+                          userId={welcomeParticipant.id}
+                          currentUserId={currentUserId}
+                          workspaceId={currentWorkspaceId}
+                        >
+                          <p className="mt-3 text-sm font-medium">
+                            {welcomeParticipantView?.name ??
+                              welcomeParticipant.name ??
+                              title}
+                          </p>
+                        </UserHoverCard>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          This is the beginning of your conversation with{" "}
+                          {welcomeParticipantView?.name ??
+                            welcomeParticipant.name ??
+                            title}
+                          .
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()
+              : null}
             <div className="mt-auto" />
             <div className="flex flex-col gap-0.5 px-4 py-3">
               {messages.map((message, idx) => {
                 const author = usersById.get(message.createdBy)
+                const authorView = buildWorkspaceUserPresenceView(
+                  author,
+                  getWorkspaceMembershipState(author?.id)
+                )
                 const prevMessage = messages[idx - 1]
                 const nextMessage = messages[idx + 1]
                 const isCurrentUser = message.createdBy === currentUserId
@@ -364,15 +459,15 @@ export function ChatThread({
                   Boolean(legacyCallInvite)
                 const prevIsCall = Boolean(
                   prevMessage &&
-                    (prevMessage.kind === "call" ||
-                      prevMessage.callId ||
-                      parseCallInviteMessage(prevMessage.content))
+                  (prevMessage.kind === "call" ||
+                    prevMessage.callId ||
+                    parseCallInviteMessage(prevMessage.content))
                 )
                 const nextIsCall = Boolean(
                   nextMessage &&
-                    (nextMessage.kind === "call" ||
-                      nextMessage.callId ||
-                      parseCallInviteMessage(nextMessage.content))
+                  (nextMessage.kind === "call" ||
+                    nextMessage.callId ||
+                    parseCallInviteMessage(nextMessage.content))
                 )
                 const groupedWithPrev =
                   !isCallMessage &&
@@ -400,7 +495,7 @@ export function ChatThread({
                   >
                     <div
                       className={cn(
-                        "flex min-w-0 w-fit max-w-[min(100%,42rem)] items-end gap-2",
+                        "flex w-fit max-w-[min(100%,42rem)] min-w-0 items-end gap-2",
                         isCurrentUser && "flex-row-reverse"
                       )}
                     >
@@ -409,17 +504,18 @@ export function ChatThread({
                           <div className="size-8 shrink-0" />
                         ) : (
                           <UserAvatar
-                            name={author?.name}
-                            avatarImageUrl={author?.avatarImageUrl}
-                            avatarUrl={author?.avatarUrl}
-                            status={author?.status}
+                            name={authorView?.name ?? author?.name}
+                            avatarImageUrl={authorView?.avatarImageUrl}
+                            avatarUrl={authorView?.avatarUrl}
+                            status={authorView?.status ?? undefined}
+                            showStatus={!authorView?.isFormerMember}
                             size="default"
                           />
                         )
                       ) : null}
                       <div
                         className={cn(
-                          "flex min-w-0 max-w-full flex-col",
+                          "flex max-w-full min-w-0 flex-col",
                           isCurrentUser ? "items-end" : "items-start"
                         )}
                       >
@@ -438,7 +534,9 @@ export function ChatThread({
                                 workspaceId={currentWorkspaceId}
                               >
                                 <span className="text-[11px] font-medium">
-                                  {author?.name ?? "Unknown"}
+                                  {authorView?.name ??
+                                    author?.name ??
+                                    "Unknown"}
                                 </span>
                               </UserHoverCard>
                             ) : null}
@@ -462,7 +560,7 @@ export function ChatThread({
                           )}
                         >
                           {callJoinHref ? (
-                            <div className="max-w-full space-y-2 whitespace-normal break-words [overflow-wrap:anywhere]">
+                            <div className="max-w-full space-y-2 [overflow-wrap:anywhere] break-words whitespace-normal">
                               <p className="text-[13px] leading-5">
                                 Started a call
                               </p>
@@ -488,7 +586,7 @@ export function ChatThread({
                             <RichTextContent
                               content={getChatMessageMarkup(message.content)}
                               className={cn(
-                                "max-w-full break-words text-[13px] leading-5 [overflow-wrap:anywhere] [&_.editor-mention]:max-w-full [&_.editor-mention]:whitespace-normal [&_.editor-mention]:[overflow-wrap:anywhere] [&_a]:break-all [&_p]:leading-5 [&_p+p]:mt-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre_code]:whitespace-pre-wrap",
+                                "max-w-full text-[13px] leading-5 [overflow-wrap:anywhere] break-words [&_.editor-mention]:max-w-full [&_.editor-mention]:[overflow-wrap:anywhere] [&_.editor-mention]:whitespace-normal [&_a]:break-all [&_p]:leading-5 [&_p+p]:mt-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre_code]:whitespace-pre-wrap",
                                 isCurrentUser &&
                                   "[&_a]:text-primary-foreground hover:[&_a]:text-primary-foreground/90"
                               )}
@@ -505,19 +603,29 @@ export function ChatThread({
         )}
       </div>
 
-      <div className="shrink-0 border-t bg-background/95 backdrop-blur">
-        <ChatComposer
-          placeholder={`Message ${title}…`}
-          mentionCandidates={messageableMembers}
-          currentUserId={currentUserId}
-          action={videoAction}
-          editable={composerEditable}
-          disabledReason={composerDisabledReason}
-          onSend={(content) => {
-            useAppStore.getState().sendChatMessage({ conversationId, content })
-          }}
-        />
-      </div>
+      {hideComposer ? (
+        messages.length > 0 && composerDisabledReason ? (
+          <div className="shrink-0 border-t bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur">
+            {composerDisabledReason}
+          </div>
+        ) : null
+      ) : (
+        <div className="shrink-0 border-t bg-background/95 backdrop-blur">
+          <ChatComposer
+            placeholder={`Message ${title}…`}
+            mentionCandidates={messageableMembers}
+            currentUserId={currentUserId}
+            action={videoAction}
+            editable={composerEditable}
+            disabledReason={composerDisabledReason}
+            onSend={(content) => {
+              useAppStore
+                .getState()
+                .sendChatMessage({ conversationId, content })
+            }}
+          />
+        </div>
+      )}
     </div>
   )
 }

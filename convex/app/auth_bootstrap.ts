@@ -58,12 +58,15 @@ import {
   listViewsByScopes,
   listWorkItemsByTeams,
   listWorkspacesByIds,
+  listWorkspaceMembershipsByUser,
+  listWorkspaceMembershipsByWorkspaces,
   listWorkspacesOwnedByUser,
   listWorkspaceDocumentsByWorkspaces,
   listWorkspaceTeams,
   resolveActiveUserByIdentity,
   resolvePreferredWorkspaceId,
   setCurrentWorkspaceForUser,
+  syncWorkspaceMembershipRoleFromTeams,
 } from "./data"
 import { resolveUserFromServerArgs } from "./server_users"
 import { syncTeamConversationMemberships } from "./conversations"
@@ -318,6 +321,20 @@ export async function bootstrapAppWorkspaceHandler(
     })
   }
 
+  const persistedWorkspace = await getWorkspaceDoc(ctx, workspaceId)
+
+  if (persistedWorkspace && !persistedWorkspace.createdBy) {
+    await ctx.db.patch(persistedWorkspace._id, {
+      createdBy: userId,
+    })
+  }
+
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId,
+    userId,
+    fallbackRole: role,
+  })
+
   await syncTeamConversationMemberships(ctx, teamId)
 
   await setCurrentWorkspaceForUser(ctx, userId, workspaceId)
@@ -346,10 +363,11 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const currentUserId = authenticatedUser.id
   const currentUserEmail = authenticatedUser.email
   const normalizedCurrentUserEmail = normalizeEmailAddress(currentUserEmail)
-  const accessibleMemberships = await listTeamMembershipsByUser(
-    ctx,
-    currentUserId
-  )
+  const [accessibleWorkspaceMemberships, accessibleMemberships] =
+    await Promise.all([
+      listWorkspaceMembershipsByUser(ctx, currentUserId),
+      listTeamMembershipsByUser(ctx, currentUserId),
+    ])
   const accessibleTeamIdList = [
     ...new Set(accessibleMemberships.map((membership) => membership.teamId)),
   ]
@@ -358,13 +376,19 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, currentUserId)
   const accessibleWorkspaceIds = new Set<string>(
     [
+      ...accessibleWorkspaceMemberships.map(
+        (membership) => membership.workspaceId
+      ),
       ...visibleTeams.map((team) => team.workspaceId),
       ...ownedWorkspaces.map((workspace) => workspace.id),
     ].filter(Boolean)
   )
   const accessibleWorkspaceIdList = [...accessibleWorkspaceIds]
   const normalizedVisibleTeams = visibleTeams.map(normalizeTeam)
-  const membershipWorkspaceId = visibleTeams[0]?.workspaceId ?? null
+  const membershipWorkspaceId =
+    accessibleWorkspaceMemberships[0]?.workspaceId ??
+    visibleTeams[0]?.workspaceId ??
+    null
   const currentWorkspaceId =
     resolvePreferredWorkspaceId({
       selectedWorkspaceId: userAppState?.currentWorkspaceId ?? null,
@@ -382,12 +406,16 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       ].map((workspace) => [workspace.id, workspace] as const)
     ).values(),
   ]
-  const visibleTeamMemberships = await listTeamMembershipsByTeams(
-    ctx,
-    accessibleTeamIdList
-  )
+  const [visibleWorkspaceMemberships, visibleTeamMemberships] =
+    await Promise.all([
+      listWorkspaceMembershipsByWorkspaces(ctx, accessibleWorkspaceIdList),
+      listTeamMembershipsByTeams(ctx, accessibleTeamIdList),
+    ])
   const visibleUserIds = new Set(
-    visibleTeamMemberships.map((membership) => membership.userId)
+    [
+      ...visibleWorkspaceMemberships.map((membership) => membership.userId),
+      ...visibleTeamMemberships.map((membership) => membership.userId),
+    ]
   )
 
   if (currentUserId) {
@@ -693,6 +721,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         resolveWorkspaceSnapshot(ctx, workspace)
       )
     ),
+    workspaceMemberships: visibleWorkspaceMemberships,
     teams: normalizedVisibleTeams,
     teamMemberships: visibleTeamMemberships,
     users: await Promise.all(
@@ -765,7 +794,10 @@ export async function getAuthContextHandler(
   }
 
   const userAppState = await getUserAppState(ctx, user.id)
-  const memberships = await listTeamMembershipsByUser(ctx, user.id)
+  const [workspaceMemberships, memberships] = await Promise.all([
+    listWorkspaceMembershipsByUser(ctx, user.id),
+    listTeamMembershipsByUser(ctx, user.id),
+  ])
   const teams = await listTeamsByIds(
     ctx,
     memberships.map((membership) => membership.teamId)
@@ -785,6 +817,7 @@ export async function getAuthContextHandler(
   ]
   const accessibleWorkspaceIds: string[] = [
     ...new Set([
+      ...workspaceMemberships.map((membership) => membership.workspaceId),
       ...membershipWorkspaceIds,
       ...ownedWorkspaces.map((workspace) => workspace.id),
     ]),
@@ -1027,6 +1060,12 @@ export async function bootstrapWorkspaceUserHandler(
       role,
     })
   }
+
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: workspace.id,
+    userId,
+    fallbackRole: role,
+  })
 
   await syncTeamConversationMemberships(ctx, team.id)
 

@@ -8,6 +8,7 @@ import type {
   UserProfile,
   WorkStatus,
 } from "@/lib/domain/types"
+import { canEditRole, mergeRole } from "@/lib/domain/roles"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
@@ -58,8 +59,114 @@ export function isWorkspaceOwner(data: AppData, workspaceId: string) {
   )
 }
 
+function getHighestWorkspaceTeamRoleInCollections(
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
+  workspaceId: string,
+  userId: string
+) {
+  const workspaceTeamIds = new Set(
+    teams
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => team.id)
+  )
+
+  return (
+    teamMemberships
+      .filter(
+        (membership) =>
+          membership.userId === userId && workspaceTeamIds.has(membership.teamId)
+      )
+      .reduce<AppData["teamMemberships"][number]["role"] | null>(
+        (currentRole, membership) => mergeRole(currentRole, membership.role),
+        null
+      ) ?? null
+  )
+}
+
+function getDirectOrFallbackWorkspaceRoleInCollections(
+  workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
+  workspaceId: string,
+  userId: string
+) {
+  const workspace = workspaces.find((entry) => entry.id === workspaceId)
+
+  if (!workspace) {
+    return null
+  }
+
+  if (workspace.createdBy === userId) {
+    return "admin"
+  }
+
+  const directMembership =
+    workspaceMemberships.find(
+      (membership) =>
+        membership.workspaceId === workspaceId && membership.userId === userId
+    ) ?? null
+
+  if (directMembership) {
+    return directMembership.role
+  }
+
+  return getHighestWorkspaceTeamRoleInCollections(
+    teams,
+    teamMemberships,
+    workspaceId,
+    userId
+  )
+}
+
+export function getWorkspaceEditableRoleInCollections(
+  workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
+  workspaceId: string,
+  userId: string
+) {
+  const workspaceRole = getDirectOrFallbackWorkspaceRoleInCollections(
+    workspaces,
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+    workspaceId,
+    userId
+  )
+  const teamRole = getHighestWorkspaceTeamRoleInCollections(
+    teams,
+    teamMemberships,
+    workspaceId,
+    userId
+  )
+
+  return teamRole ? mergeRole(workspaceRole, teamRole) : workspaceRole
+}
+
+export function getWorkspaceEffectiveRoleInCollections(
+  workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
+  workspaceId: string,
+  userId: string
+) {
+  return getWorkspaceEditableRoleInCollections(
+    workspaces,
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+    workspaceId,
+    userId
+  )
+}
+
 export function hasWorkspaceAccessInCollections(
   workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
   teams: AppData["teams"],
   teamMemberships: AppData["teamMemberships"],
   workspaceId: string,
@@ -72,6 +179,15 @@ export function hasWorkspaceAccessInCollections(
   }
 
   if (workspace.createdBy === userId) {
+    return true
+  }
+
+  if (
+    workspaceMemberships.some(
+      (membership) =>
+        membership.workspaceId === workspaceId && membership.userId === userId
+    )
+  ) {
     return true
   }
 
@@ -94,6 +210,7 @@ export function hasWorkspaceAccess(
 ) {
   return hasWorkspaceAccessInCollections(
     data.workspaces,
+    data.workspaceMemberships,
     data.teams,
     data.teamMemberships,
     workspaceId,
@@ -111,21 +228,20 @@ export function hasLeftWorkspace(
 
 export function canEditTeam(data: AppData, teamId: string) {
   const role = getTeamRole(data, teamId)
-  return role === "admin" || role === "member"
+  return canEditRole(role)
 }
 
 export function canEditWorkspace(data: AppData, workspaceId: string) {
-  if (isWorkspaceOwner(data, workspaceId)) {
-    return true
-  }
+  const role = getWorkspaceEffectiveRoleInCollections(
+    data.workspaces,
+    data.workspaceMemberships,
+    data.teams,
+    data.teamMemberships,
+    workspaceId,
+    data.currentUserId
+  )
 
-  return data.teams.some((team) => {
-    if (team.workspaceId !== workspaceId) {
-      return false
-    }
-
-    return canEditTeam(data, team.id)
-  })
+  return canEditRole(role)
 }
 
 export function canInviteToTeam(data: AppData, teamId: string) {
@@ -137,17 +253,16 @@ export function canAdminTeam(data: AppData, teamId: string) {
 }
 
 export function canAdminWorkspace(data: AppData, workspaceId: string) {
-  if (isWorkspaceOwner(data, workspaceId)) {
-    return true
-  }
-
-  return data.teams.some((team) => {
-    if (team.workspaceId !== workspaceId) {
-      return false
-    }
-
-    return canAdminTeam(data, team.id)
-  })
+  return (
+    getWorkspaceEffectiveRoleInCollections(
+      data.workspaces,
+      data.workspaceMemberships,
+      data.teams,
+      data.teamMemberships,
+      workspaceId,
+      data.currentUserId
+    ) === "admin"
+  )
 }
 
 export function canCreateWorkspace(data: AppData) {
@@ -257,9 +372,14 @@ export function getWorkspaceUsers(data: AppData, workspaceId: string) {
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
   const userIds = new Set(
-    data.teamMemberships
+    [
+      ...data.workspaceMemberships
+        .filter((membership) => membership.workspaceId === workspaceId)
+        .map((membership) => membership.userId),
+      ...data.teamMemberships
       .filter((membership) => teamIds.includes(membership.teamId))
-      .map((membership) => membership.userId)
+      .map((membership) => membership.userId),
+    ]
   )
 
   if (workspaceOwnerId) {

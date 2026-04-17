@@ -1,11 +1,17 @@
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
 
+import {
+  buildMentionEmailJobs,
+  type MentionEmail,
+} from "../../lib/email/builders"
+import { extractRichTextMentionCounts } from "../../lib/content/rich-text-mentions"
 import { assertServerToken, getNow } from "./core"
 import {
   getDocumentDoc,
   getUserDoc,
   getWorkItemDoc,
+  listActiveUsersByIds,
 } from "./data"
 import { resolveAttachmentTarget } from "./assets"
 import {
@@ -15,6 +21,9 @@ import {
   requireEditableWorkspaceAccess,
   requireWorkspaceAdminAccess,
 } from "./access"
+import { createNotification } from "./collaboration_utils"
+import { getTeamMemberIds, getWorkspaceUserIds } from "./conversations"
+import { queueEmailJobs } from "./email_job_handlers"
 import { deleteDocumentCascade } from "./lifecycle"
 import { listDocumentPresenceViewers } from "./normalization"
 import { getAttachmentDoc } from "./data"
@@ -39,6 +48,16 @@ type UpdateDocumentArgs = ServerAccessArgs & {
   documentId: string
   title?: string
   content?: string
+}
+
+type SendDocumentMentionNotificationsArgs = ServerAccessArgs & {
+  currentUserId: string
+  origin: string
+  documentId: string
+  mentions: Array<{
+    userId: string
+    count: number
+  }>
 }
 
 type DocumentPresenceArgs = ServerAccessArgs & {
@@ -125,6 +144,10 @@ export async function updateDocumentContentHandler(
 
   await ctx.db.patch(document._id, {
     content: args.content,
+    notifiedMentionCounts: getClampedNotifiedMentionCounts(
+      args.content,
+      document.notifiedMentionCounts
+    ),
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })
@@ -150,10 +173,305 @@ export async function updateDocumentHandler(
 
   await ctx.db.patch(document._id, {
     ...(args.title !== undefined ? { title: args.title } : {}),
-    ...(args.content !== undefined ? { content: args.content } : {}),
+    ...(args.content !== undefined
+      ? {
+          content: args.content,
+          notifiedMentionCounts: getClampedNotifiedMentionCounts(
+            args.content,
+            document.notifiedMentionCounts
+          ),
+        }
+      : {}),
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })
+}
+
+function normalizeMentionNotificationCount(count: number) {
+  if (!Number.isFinite(count) || count <= 0) {
+    return 0
+  }
+
+  return Math.floor(count)
+}
+
+function normalizeStoredMentionCounts(
+  mentionCounts?: Record<string, number> | null
+) {
+  const normalizedCounts: Record<string, number> = {}
+
+  for (const [userId, count] of Object.entries(mentionCounts ?? {})) {
+    const normalizedUserId = userId.trim()
+    const normalizedCount = normalizeMentionNotificationCount(count)
+
+    if (normalizedUserId.length === 0 || normalizedCount === 0) {
+      continue
+    }
+
+    normalizedCounts[normalizedUserId] = normalizedCount
+  }
+
+  return normalizedCounts
+}
+
+function clampStoredMentionCountsToContentCounts(
+  storedCounts: Record<string, number>,
+  contentCounts: Record<string, number>
+) {
+  const clampedCounts: Record<string, number> = {}
+
+  for (const [userId, contentCount] of Object.entries(contentCounts)) {
+    const normalizedContentCount = normalizeMentionNotificationCount(contentCount)
+
+    if (normalizedContentCount === 0) {
+      continue
+    }
+
+    const normalizedCount = Math.min(
+      normalizedContentCount,
+      normalizeMentionNotificationCount(storedCounts[userId] ?? 0)
+    )
+
+    if (normalizedCount > 0) {
+      clampedCounts[userId] = normalizedCount
+    }
+  }
+
+  return clampedCounts
+}
+
+function getClampedNotifiedMentionCounts(
+  content: string,
+  notifiedMentionCounts?: Record<string, number> | null
+) {
+  return clampStoredMentionCountsToContentCounts(
+    normalizeStoredMentionCounts(notifiedMentionCounts),
+    extractRichTextMentionCounts(content)
+  )
+}
+
+function buildAdvancedNotifiedMentionCounts(
+  persistedMentionCounts: Record<string, number>,
+  notifiedMentionCounts: Record<string, number>,
+  deliveredMentionCounts: Map<string, number>
+) {
+  const nextNotifiedMentionCounts = {
+    ...notifiedMentionCounts,
+  }
+
+  for (const [userId, deliveredCount] of deliveredMentionCounts.entries()) {
+    const normalizedDeliveredCount = normalizeMentionNotificationCount(deliveredCount)
+
+    if (normalizedDeliveredCount === 0) {
+      continue
+    }
+
+    const persistedCount = normalizeMentionNotificationCount(
+      persistedMentionCounts[userId] ?? 0
+    )
+
+    if (persistedCount === 0) {
+      continue
+    }
+
+    nextNotifiedMentionCounts[userId] = Math.min(
+      persistedCount,
+      (nextNotifiedMentionCounts[userId] ?? 0) + normalizedDeliveredCount
+    )
+  }
+
+  return nextNotifiedMentionCounts
+}
+
+function buildDocumentMentionNotificationMessage(
+  actorName: string,
+  documentTitle: string,
+  mentionCount: number
+) {
+  if (mentionCount > 1) {
+    return `${actorName} mentioned you ${mentionCount} times in ${documentTitle}`
+  }
+
+  return `${actorName} mentioned you in ${documentTitle}`
+}
+
+function buildDocumentMentionDetailText(mentionCount: number) {
+  if (mentionCount > 1) {
+    return `You were mentioned ${mentionCount} times in this live document before notifications were sent.`
+  }
+
+  return "You were mentioned in this live document."
+}
+
+export async function sendDocumentMentionNotificationsHandler(
+  ctx: MutationCtx,
+  args: SendDocumentMentionNotificationsArgs
+) {
+  assertServerToken(args.serverToken)
+
+  if (args.mentions.length === 0) {
+    return {
+      recipientCount: 0,
+      mentionCount: 0,
+    }
+  }
+
+  const document = await getDocumentDoc(ctx, args.documentId)
+
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+
+  if (document.kind === "private-document") {
+    throw new Error("Private documents do not support mention notifications")
+  }
+
+  const audienceUserIds = new Set(
+    document.teamId
+      ? await getTeamMemberIds(ctx, document.teamId)
+      : document.workspaceId
+        ? await getWorkspaceUserIds(ctx, document.workspaceId)
+        : []
+  )
+  const persistedMentionCounts = extractRichTextMentionCounts(document.content)
+  const notifiedMentionCounts = clampStoredMentionCountsToContentCounts(
+    normalizeStoredMentionCounts(document.notifiedMentionCounts),
+    persistedMentionCounts
+  )
+  const mentionCounts = new Map<string, number>()
+
+  for (const mention of args.mentions) {
+    const normalizedUserId = mention.userId.trim()
+    const normalizedCount = normalizeMentionNotificationCount(mention.count)
+
+    if (normalizedUserId.length === 0 || normalizedCount === 0) {
+      continue
+    }
+
+    mentionCounts.set(
+      normalizedUserId,
+      (mentionCounts.get(normalizedUserId) ?? 0) + normalizedCount
+    )
+  }
+
+  if (mentionCounts.size === 0) {
+    return {
+      recipientCount: 0,
+      mentionCount: 0,
+    }
+  }
+
+  for (const userId of mentionCounts.keys()) {
+    if (userId === args.currentUserId) {
+      continue
+    }
+
+    if (!audienceUserIds.has(userId)) {
+      throw new Error(
+        "One or more mentioned users are invalid for this document"
+      )
+    }
+
+    if ((persistedMentionCounts[userId] ?? 0) < (mentionCounts.get(userId) ?? 0)) {
+      throw new Error(
+        "One or more mentioned users are not present in the document"
+      )
+    }
+
+    if (
+      (persistedMentionCounts[userId] ?? 0) - (notifiedMentionCounts[userId] ?? 0) <
+      (mentionCounts.get(userId) ?? 0)
+    ) {
+      throw new Error(
+        "One or more mentioned users were already notified for this document"
+      )
+    }
+  }
+
+  const users = await listActiveUsersByIds(ctx, [
+    args.currentUserId,
+    ...mentionCounts.keys(),
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
+  const actorName = usersById.get(args.currentUserId)?.name ?? "Someone"
+  const mentionEmails: MentionEmail[] = []
+  const documentTitle = document.title.trim() || "Untitled document"
+  const deliveredMentionCounts = new Map<string, number>()
+  let mentionCount = 0
+  let recipientCount = 0
+
+  for (const [
+    mentionedUserId,
+    recipientMentionCount,
+  ] of mentionCounts.entries()) {
+    if (mentionedUserId === args.currentUserId) {
+      continue
+    }
+
+    const mentionedUser = usersById.get(mentionedUserId)
+
+    if (!mentionedUser) {
+      continue
+    }
+
+    const notification = createNotification(
+      mentionedUserId,
+      args.currentUserId,
+      buildDocumentMentionNotificationMessage(
+        actorName,
+        documentTitle,
+        recipientMentionCount
+      ),
+      "document",
+      args.documentId,
+      "mention"
+    )
+
+    await ctx.db.insert("notifications", notification)
+
+    if (mentionedUser.preferences.emailMentions) {
+      mentionEmails.push({
+        notificationId: notification.id,
+        email: mentionedUser.email,
+        name: mentionedUser.name,
+        entityTitle: documentTitle,
+        entityType: "document",
+        entityId: args.documentId,
+        actorName,
+        commentText: "",
+        detailLabel: "Summary",
+        detailText: buildDocumentMentionDetailText(recipientMentionCount),
+        mentionCount: recipientMentionCount,
+      })
+    }
+
+    deliveredMentionCounts.set(mentionedUserId, recipientMentionCount)
+    mentionCount += recipientMentionCount
+    recipientCount += 1
+  }
+
+  await ctx.db.patch(document._id, {
+    notifiedMentionCounts: buildAdvancedNotifiedMentionCounts(
+      persistedMentionCounts,
+      notifiedMentionCounts,
+      deliveredMentionCounts
+    ),
+  })
+
+  await queueEmailJobs(
+    ctx,
+    buildMentionEmailJobs({
+      origin: args.origin,
+      emails: mentionEmails,
+    })
+  )
+
+  return {
+    recipientCount,
+    mentionCount,
+  }
 }
 
 export async function heartbeatDocumentPresenceHandler(
@@ -333,6 +651,10 @@ export async function updateItemDescriptionHandler(
 
   await ctx.db.patch(descriptionDocument._id, {
     content: args.content,
+    notifiedMentionCounts: getClampedNotifiedMentionCounts(
+      args.content,
+      descriptionDocument.notifiedMentionCounts
+    ),
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })
@@ -370,11 +692,7 @@ export async function generateSettingsImageUploadUrlHandler(
       throw new Error("Workspace not found")
     }
 
-    await requireWorkspaceAdminAccess(
-      ctx,
-      args.workspaceId,
-      args.currentUserId
-    )
+    await requireWorkspaceAdminAccess(ctx, args.workspaceId, args.currentUserId)
   } else {
     const user = await getUserDoc(ctx, args.currentUserId)
 

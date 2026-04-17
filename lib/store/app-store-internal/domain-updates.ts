@@ -6,6 +6,7 @@ import {
   type TeamExperienceType,
   type TeamFeatureSettings,
 } from "@/lib/domain/types"
+import { mergeRole } from "@/lib/domain/roles"
 
 function filterDeletedIds(ids: string[], deletedIds: Set<string>) {
   return ids.filter((id) => !deletedIds.has(id))
@@ -48,6 +49,127 @@ type RemovalSets = RemovalScope & {
   deletedChannelPostIds: Set<string>
   deletedViewIds: Set<string>
   deletedNotificationIds: Set<string>
+}
+
+function getWorkspaceMembershipKey(workspaceId: string, userId: string) {
+  return `${workspaceId}:${userId}`
+}
+
+function resolveWorkspaceMembershipRoleAfterTeamRemoval(input: {
+  workspaces: AppData["workspaces"]
+  teams: AppData["teams"]
+  teamMemberships: AppData["teamMemberships"]
+  workspaceId: string
+  userId: string
+}) {
+  const workspace = input.workspaces.find(
+    (entry) => entry.id === input.workspaceId
+  )
+
+  if (workspace?.createdBy === input.userId) {
+    return "admin" as const
+  }
+
+  const workspaceTeamIds = new Set(
+    input.teams
+      .filter((team) => team.workspaceId === input.workspaceId)
+      .map((team) => team.id)
+  )
+  const highestTeamRole =
+    input.teamMemberships
+      .filter(
+        (membership) =>
+          membership.userId === input.userId &&
+          workspaceTeamIds.has(membership.teamId)
+      )
+      .reduce<AppData["teamMemberships"][number]["role"] | null>(
+        (currentRole, membership) => mergeRole(currentRole, membership.role),
+        null
+      ) ?? null
+
+  return highestTeamRole ?? ("viewer" as const)
+}
+
+function syncWorkspaceMembershipsAfterTeamRemoval(input: {
+  state: AppData
+  workspaces: AppData["workspaces"]
+  teams: AppData["teams"]
+  teamMemberships: AppData["teamMemberships"]
+  workspaceMemberships: AppData["workspaceMemberships"]
+  deletedTeamIds: Set<string>
+}) {
+  if (input.deletedTeamIds.size === 0) {
+    return input.workspaceMemberships
+  }
+
+  const workspaceIdByDeletedTeamId = new Map(
+    input.state.teams
+      .filter((team) => input.deletedTeamIds.has(team.id))
+      .map((team) => [team.id, team.workspaceId] as const)
+  )
+
+  if (workspaceIdByDeletedTeamId.size === 0) {
+    return input.workspaceMemberships
+  }
+
+  const affectedUserIdsByWorkspace = new Map<string, Set<string>>()
+
+  for (const membership of input.state.teamMemberships) {
+    const workspaceId = workspaceIdByDeletedTeamId.get(membership.teamId)
+
+    if (!workspaceId) {
+      continue
+    }
+
+    const affectedUserIds =
+      affectedUserIdsByWorkspace.get(workspaceId) ?? new Set<string>()
+
+    affectedUserIds.add(membership.userId)
+    affectedUserIdsByWorkspace.set(workspaceId, affectedUserIds)
+  }
+
+  const nextWorkspaceMemberships = [...input.workspaceMemberships]
+  const membershipIndexByKey = new Map(
+    nextWorkspaceMemberships.map((membership, index) => [
+      getWorkspaceMembershipKey(membership.workspaceId, membership.userId),
+      index,
+    ])
+  )
+
+  for (const [workspaceId, userIds] of affectedUserIdsByWorkspace.entries()) {
+    if (!input.workspaces.some((workspace) => workspace.id === workspaceId)) {
+      continue
+    }
+
+    for (const userId of userIds) {
+      const nextRole = resolveWorkspaceMembershipRoleAfterTeamRemoval({
+        workspaces: input.workspaces,
+        teams: input.teams,
+        teamMemberships: input.teamMemberships,
+        workspaceId,
+        userId,
+      })
+      const membershipKey = getWorkspaceMembershipKey(workspaceId, userId)
+      const existingIndex = membershipIndexByKey.get(membershipKey)
+
+      if (existingIndex === undefined) {
+        membershipIndexByKey.set(membershipKey, nextWorkspaceMemberships.length)
+        nextWorkspaceMemberships.push({
+          workspaceId,
+          userId,
+          role: nextRole,
+        })
+        continue
+      }
+
+      nextWorkspaceMemberships[existingIndex] = {
+        ...nextWorkspaceMemberships[existingIndex],
+        role: nextRole,
+      }
+    }
+  }
+
+  return nextWorkspaceMemberships
 }
 
 function buildRemovalSets(state: AppData, scope: RemovalScope): RemovalSets {
@@ -194,6 +316,18 @@ function buildNextStateAfterRemoval(
       : state.workspaces.filter(
           (workspace) => !removal.deletedWorkspaceIds.has(workspace.id)
         )
+  const workspaceMemberships = syncWorkspaceMembershipsAfterTeamRemoval({
+    state,
+    workspaces,
+    teams: state.teams.filter((team) => !removal.deletedTeamIds.has(team.id)),
+    teamMemberships: state.teamMemberships.filter(
+      (membership) => !removal.deletedTeamIds.has(membership.teamId)
+    ),
+    workspaceMemberships: state.workspaceMemberships.filter(
+      (membership) => !removal.deletedWorkspaceIds.has(membership.workspaceId)
+    ),
+    deletedTeamIds: removal.deletedTeamIds,
+  })
   const teams = state.teams.filter((team) => !removal.deletedTeamIds.has(team.id))
   const teamMemberships = state.teamMemberships.filter(
     (membership) => !removal.deletedTeamIds.has(membership.teamId)
@@ -312,6 +446,7 @@ function buildNextStateAfterRemoval(
   return {
     currentWorkspaceId,
     workspaces,
+    workspaceMemberships,
     teams,
     teamMemberships,
     labels,

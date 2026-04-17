@@ -68,6 +68,7 @@ export function getRoleLabel(role: Role) {
 export type WorkspaceSettingsUser = MemberIdentity & {
   isOwner: boolean
   isWorkspaceAdmin: boolean
+  isTeamAdmin: boolean
   isCurrentUser: boolean
   teamNames: string[]
 }
@@ -254,6 +255,7 @@ export function WorkspaceUsersList({
           canManage &&
           !member.isOwner &&
           !member.isWorkspaceAdmin &&
+          !member.isTeamAdmin &&
           !member.isCurrentUser &&
           onRemove
         const isBusy = pendingMemberId === member.id
@@ -269,6 +271,8 @@ export function WorkspaceUsersList({
                     <Badge>Owner</Badge>
                   ) : member.isWorkspaceAdmin ? (
                     <Badge>Admin</Badge>
+                  ) : member.isTeamAdmin ? (
+                    <Badge variant="secondary">Team admin</Badge>
                   ) : member.isCurrentUser ? (
                     <Badge variant="outline">You</Badge>
                   ) : null

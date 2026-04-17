@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { workspaceBrandingSchema } from "@/lib/domain/types"
+import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   deleteWorkspaceServer,
   setWorkspaceWorkosOrganizationServer,
@@ -132,6 +133,11 @@ export async function DELETE() {
     const result = await deleteWorkspaceServer({
       currentUserId: authContext.currentUser.id,
       workspaceId: authContext.currentWorkspace.id,
+    })
+
+    await reconcileProviderMembershipCleanup({
+      label: "Failed to deactivate WorkOS membership after workspace deletion",
+      memberships: result?.providerMemberships ?? [],
     })
 
     return jsonOk({

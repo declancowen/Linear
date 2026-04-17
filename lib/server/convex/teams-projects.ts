@@ -398,9 +398,14 @@ export async function deleteTeamServer(input: {
   teamId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.deleteTeam,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw coerceApplicationError(error, [...DELETE_TEAM_ERROR_MAPPINGS]) ?? error

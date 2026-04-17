@@ -11,6 +11,7 @@ const RICH_TEXT_SYNC_DELAY_MS = 350
 type QueuedSyncEntry = {
   fallbackMessage: string
   inFlight: boolean
+  idleWaiters: Array<() => void>
   latestTask: RichTextSyncTask | null
   timeoutId: ReturnType<typeof setTimeout> | null
 }
@@ -18,6 +19,20 @@ type QueuedSyncEntry = {
 const queuedRichTextSyncs = new Map<string, QueuedSyncEntry>()
 
 export function createStoreRuntime(get: AppStoreGet) {
+  function resolveRichTextSyncIdle(key: string) {
+    const entry = queuedRichTextSyncs.get(key)
+
+    if (!entry || entry.inFlight || entry.latestTask || entry.timeoutId) {
+      return
+    }
+
+    queuedRichTextSyncs.delete(key)
+
+    for (const resolve of entry.idleWaiters.splice(0)) {
+      resolve()
+    }
+  }
+
   async function refreshFromServer() {
     const snapshot = await fetchSnapshot()
 
@@ -38,6 +53,7 @@ export function createStoreRuntime(get: AppStoreGet) {
     const entry = queuedRichTextSyncs.get(key)
 
     if (!entry || entry.inFlight || !entry.latestTask) {
+      resolveRichTextSyncIdle(key)
       return
     }
 
@@ -57,9 +73,7 @@ export function createStoreRuntime(get: AppStoreGet) {
         return
       }
 
-      if (!entry.timeoutId) {
-        queuedRichTextSyncs.delete(key)
-      }
+      resolveRichTextSyncIdle(key)
     }
   }
 
@@ -77,6 +91,7 @@ export function createStoreRuntime(get: AppStoreGet) {
     const entry: QueuedSyncEntry = existingEntry ?? {
       fallbackMessage,
       inFlight: false,
+      idleWaiters: [],
       latestTask: null,
       timeoutId: null,
     }
@@ -91,6 +106,38 @@ export function createStoreRuntime(get: AppStoreGet) {
     queuedRichTextSyncs.set(key, entry)
   }
 
+  async function flushRichTextSync(key: string) {
+    const entry = queuedRichTextSyncs.get(key)
+
+    if (!entry) {
+      return
+    }
+
+    if (entry.timeoutId) {
+      clearTimeout(entry.timeoutId)
+      entry.timeoutId = null
+    }
+
+    void flushQueuedRichTextSync(key)
+
+    const latestEntry = queuedRichTextSyncs.get(key)
+
+    if (
+      !latestEntry ||
+      (!latestEntry.inFlight &&
+        !latestEntry.latestTask &&
+        !latestEntry.timeoutId)
+    ) {
+      resolveRichTextSyncIdle(key)
+      return
+    }
+
+    await new Promise<void>((resolve) => {
+      latestEntry.idleWaiters.push(resolve)
+      void flushQueuedRichTextSync(key)
+    })
+  }
+
   function syncInBackground(task: Promise<unknown> | null, fallbackMessage: string) {
     if (!task) {
       return
@@ -100,6 +147,7 @@ export function createStoreRuntime(get: AppStoreGet) {
   }
 
   return {
+    flushRichTextSync,
     handleSyncFailure,
     queueRichTextSync,
     refreshFromServer,

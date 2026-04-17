@@ -1,6 +1,7 @@
 import {
   getDocumentDoc,
   getEffectiveRole,
+  getWorkspaceEditRole,
   getWorkspaceRoleMapForUser,
   isWorkspaceOwner,
   type AppCtx,
@@ -58,17 +59,9 @@ export async function requireEditableWorkspaceAccess(
   workspaceId: string,
   userId: string
 ) {
-  if (await isWorkspaceOwner(ctx, workspaceId, userId)) {
-    return
-  }
+  const role = await getWorkspaceEditRole(ctx, workspaceId, userId)
 
-  const workspaceRoles =
-    (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
-  const canEdit = workspaceRoles.some(
-    (role) => role === "admin" || role === "member"
-  )
-
-  if (!canEdit) {
+  if (role !== "admin" && role !== "member") {
     throw new Error("Your current role is read-only")
   }
 }
