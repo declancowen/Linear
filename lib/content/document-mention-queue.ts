@@ -130,7 +130,7 @@ export function reduceDocumentMentionQueue(
     case "clear-all":
       return {
         baselineCounts: cloneMentionCounts(state.currentCounts),
-        currentCounts: state.currentCounts,
+        currentCounts: cloneMentionCounts(state.currentCounts),
         trackedUserIds: {},
       }
 

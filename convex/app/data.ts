@@ -1213,6 +1213,25 @@ export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
   })
 }
 
+export function resolveWorkspaceEditRole(input: {
+  directRole: "admin" | "member" | "viewer" | "guest" | null
+  teamRoles: Array<"admin" | "member" | "viewer" | "guest">
+}) {
+  if (input.directRole === "admin") {
+    return input.directRole
+  }
+
+  const highestTeamRole =
+    input.teamRoles.reduce<(typeof input.teamRoles)[number] | null>(
+      (currentRole, role) => mergeMembershipRole(currentRole, role),
+      null
+    ) ?? null
+
+  return highestTeamRole
+    ? mergeMembershipRole(input.directRole, highestTeamRole)
+    : input.directRole
+}
+
 export async function getWorkspaceEditRole(
   ctx: AppCtx,
   workspaceId: string,
@@ -1235,7 +1254,7 @@ export async function getWorkspaceEditRole(
 
   const directRole = workspaceMembership?.role ?? null
 
-  if (directRole === "admin" || directRole === "member") {
+  if (directRole === "admin") {
     return directRole
   }
 
@@ -1255,15 +1274,12 @@ export async function getWorkspaceEditRole(
   const highestTeamRole =
     memberships
       .filter((membership) => workspaceTeamIds.has(membership.teamId))
-      .reduce<(typeof memberships)[number]["role"] | null>(
-        (currentRole, membership) =>
-          mergeMembershipRole(currentRole, membership.role),
-        null
-      ) ?? null
+      .map((membership) => membership.role)
 
-  return highestTeamRole
-    ? mergeMembershipRole(directRole, highestTeamRole)
-    : directRole
+  return resolveWorkspaceEditRole({
+    directRole,
+    teamRoles: highestTeamRole,
+  })
 }
 
 export async function ensureWorkspaceMembership(

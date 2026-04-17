@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { buildWorkspaceRoleMapForUser } from "@/convex/app/data"
+import {
+  buildWorkspaceRoleMapForUser,
+  resolveWorkspaceEditRole,
+} from "@/convex/app/data"
 
 describe("workspace role map", () => {
   it("keeps team-admin roles even when a direct workspace membership exists", () => {
@@ -35,5 +38,14 @@ describe("workspace role map", () => {
     expect(workspaceRoleMap.workspace_1).toEqual(
       expect.arrayContaining(["viewer", "admin"])
     )
+  })
+
+  it("upgrades editable workspace role to admin when team roles outrank a direct member role", () => {
+    expect(
+      resolveWorkspaceEditRole({
+        directRole: "member",
+        teamRoles: ["admin"],
+      })
+    ).toBe("admin")
   })
 })

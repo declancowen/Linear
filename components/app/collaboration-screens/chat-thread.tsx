@@ -277,6 +277,11 @@ export function ChatThread({
     messages.length === 0 && hideComposer && composerDisabledReason
       ? composerDisabledReason
       : "Start the conversation below."
+  const messageAuthorIdsKey = useMemo(() => {
+    return [...new Set(messages.map((message) => message.createdBy))]
+      .sort()
+      .join("\u001f")
+  }, [messages])
   const workspaceMembershipStateByUserId = useMemo(() => {
     const membershipStates = new Map<
       string,
@@ -297,8 +302,10 @@ export function ChatThread({
       relevantUserIds.add(member.id)
     }
 
-    for (const message of messages) {
-      relevantUserIds.add(message.createdBy)
+    if (messageAuthorIdsKey.length > 0) {
+      for (const userId of messageAuthorIdsKey.split("\u001f")) {
+        relevantUserIds.add(userId)
+      }
     }
 
     for (const userId of relevantUserIds) {
@@ -321,7 +328,7 @@ export function ChatThread({
   }, [
     currentWorkspaceId,
     members,
-    messages,
+    messageAuthorIdsKey,
     teamMemberships,
     teams,
     welcomeParticipant,

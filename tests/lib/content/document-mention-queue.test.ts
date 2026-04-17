@@ -93,6 +93,24 @@ describe("document mention queue", () => {
     ])
   })
 
+  it("resets baseline and current counts as separate objects after clear-all", () => {
+    let state = createDocumentMentionQueueState({
+      user_1: 2,
+    })
+
+    state = reduceDocumentMentionQueue(state, {
+      type: "clear-all",
+    })
+
+    expect(state.baselineCounts).toEqual({
+      user_1: 2,
+    })
+    expect(state.currentCounts).toEqual({
+      user_1: 2,
+    })
+    expect(state.baselineCounts).not.toBe(state.currentCounts)
+  })
+
   it("tracks mention count increases introduced without mention-selection callbacks", () => {
     let state = createDocumentMentionQueueState({})
 
