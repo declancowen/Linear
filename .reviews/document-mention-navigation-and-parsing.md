@@ -22,8 +22,10 @@ Files and areas reviewed across all turns:
 - `components/app/screens/document-detail-screen.tsx` — pending mention exit protection, navigation interception, pending mention batching
 - `components/app/rich-text-editor.tsx` — editor-driven mention count synchronization
 - `convex/app/document_handlers.ts` — server-side document mention notification validation
+- `convex/validators.ts` — document schema contract for mention-notification state
 - `lib/content/document-mention-queue.ts` — reducer-backed pending mention queue semantics
 - `lib/content/rich-text-mentions.ts` — mention extraction and fallback parsing
+- `lib/domain/types-internal/models.ts` — document model shape for mention-notification state
 - `lib/server/convex/documents.ts` — server wrapper for document mention notification mutation
 
 ## Review status (updated every turn)
@@ -31,13 +33,44 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 19:10:46 BST` |
-| **Last reviewed** | `2026-04-17 20:44:55 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-04-17 21:04:02 BST` |
+| **Total turns** | `8` |
 | **Open findings** | `0` |
-| **Resolved findings** | `5` |
+| **Resolved findings** | `6` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 8 — 2026-04-17 21:04:02 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `6515c0e` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the remaining replay hole in document mention delivery. The document mutation now treats persisted mention counts and already-notified counts as separate invariants, so unchanged content can’t be replayed to spam users, while content edits clamp the sent-count ledger so delete-and-readd flows still work.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 8 | 1 |
+| Carried from Turn 7 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 8
+
+#### F8-01 ~~[BUG] High~~ → RESOLVED — Mention notifications could be replayed indefinitely without changing document content
+**How it was fixed:** [sendDocumentMentionNotificationsHandler](../convex/app/document_handlers.ts:286) now validates each requested mention count against both the persisted document mention counts and a per-document `notifiedMentionCounts` ledger, rejecting replays with `"One or more mentioned users were already notified for this document"`. That ledger is stored in the document schema via [documentFields](../convex/validators.ts:495) and the [Document](../lib/domain/types-internal/models.ts:146) model, advanced only for successfully delivered recipients, and clamped during content writes in [updateDocumentContentHandler](../convex/app/document_handlers.ts:132), [updateDocumentHandler](../convex/app/document_handlers.ts:156), and [updateItemDescriptionHandler](../convex/app/document_handlers.ts:607) so removing mentions reopens headroom for later legitimate re-mentions.
+
+**Verified:** Added regression coverage in [document-handlers.test.ts](../tests/convex/document-handlers.test.ts:1) and [convex-documents.test.ts](../tests/lib/server/convex-documents.test.ts:1), then ran:
+- `pnpm test -- tests/convex/document-handlers.test.ts tests/lib/server/convex-documents.test.ts tests/app/api/document-workspace-route-contracts.test.ts`
+- `pnpm exec eslint convex/app/document_handlers.ts convex/validators.ts lib/domain/types-internal/models.ts lib/server/convex/documents.ts tests/convex/document-handlers.test.ts tests/lib/server/convex-documents.test.ts --max-warnings 0`
+
+### Remaining notes classified
+
+- The server-side mention validation still uses the regex extractor path under the Convex runtime; that remains acceptable as long as editor mention markup changes keep both extraction paths in sync.
+- The broad same-origin anchor interception in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:294) still reads as intentional while pending mention notifications exist.
+- Mention counting on editor `onUpdate` remains a performance watchpoint for very large documents, not an active correctness bug from this review pass.
 
 ## Turn 7 — 2026-04-17 20:44:55 BST
 

@@ -165,6 +165,7 @@ export interface Document {
   teamId: string | null
   title: string
   content: string
+  notifiedMentionCounts?: Record<string, number>
   linkedProjectIds: string[]
   linkedWorkItemIds: string[]
   createdBy: string

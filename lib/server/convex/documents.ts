@@ -63,6 +63,11 @@ const DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
     status: 409,
     code: "DOCUMENT_MENTION_STATE_STALE",
   },
+  {
+    match: "One or more mentioned users were already notified for this document",
+    status: 409,
+    code: "DOCUMENT_MENTION_ALREADY_SENT",
+  },
 ] as const
 
 const ITEM_DESCRIPTION_ERROR_MAPPINGS = [

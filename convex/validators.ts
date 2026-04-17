@@ -499,6 +499,7 @@ export const documentFields = {
   teamId: nullableString,
   title: v.string(),
   content: v.string(),
+  notifiedMentionCounts: v.optional(v.record(v.string(), v.number())),
   linkedProjectIds: v.array(v.string()),
   linkedWorkItemIds: v.array(v.string()),
   createdBy: v.string(),

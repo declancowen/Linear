@@ -118,6 +118,11 @@ describe("convex document server wrappers", () => {
       .mockRejectedValueOnce(
         new Error("One or more mentioned users are not present in the document")
       )
+      .mockRejectedValueOnce(
+        new Error(
+          "One or more mentioned users were already notified for this document"
+        )
+      )
 
     await expect(
       addCommentServer({
@@ -182,6 +187,23 @@ describe("convex document server wrappers", () => {
       name: "ApplicationError",
       status: 409,
       code: "DOCUMENT_MENTION_STATE_STALE",
+    })
+
+    await expect(
+      sendDocumentMentionNotificationsServer({
+        currentUserId: "user_1",
+        documentId: "document_1",
+        mentions: [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 409,
+      code: "DOCUMENT_MENTION_ALREADY_SENT",
     })
   })
 

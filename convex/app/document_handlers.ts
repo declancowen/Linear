@@ -144,6 +144,10 @@ export async function updateDocumentContentHandler(
 
   await ctx.db.patch(document._id, {
     content: args.content,
+    notifiedMentionCounts: getClampedNotifiedMentionCounts(
+      args.content,
+      document.notifiedMentionCounts
+    ),
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })
@@ -169,7 +173,15 @@ export async function updateDocumentHandler(
 
   await ctx.db.patch(document._id, {
     ...(args.title !== undefined ? { title: args.title } : {}),
-    ...(args.content !== undefined ? { content: args.content } : {}),
+    ...(args.content !== undefined
+      ? {
+          content: args.content,
+          notifiedMentionCounts: getClampedNotifiedMentionCounts(
+            args.content,
+            document.notifiedMentionCounts
+          ),
+        }
+      : {}),
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })
@@ -181,6 +193,94 @@ function normalizeMentionNotificationCount(count: number) {
   }
 
   return Math.floor(count)
+}
+
+function normalizeStoredMentionCounts(
+  mentionCounts?: Record<string, number> | null
+) {
+  const normalizedCounts: Record<string, number> = {}
+
+  for (const [userId, count] of Object.entries(mentionCounts ?? {})) {
+    const normalizedUserId = userId.trim()
+    const normalizedCount = normalizeMentionNotificationCount(count)
+
+    if (normalizedUserId.length === 0 || normalizedCount === 0) {
+      continue
+    }
+
+    normalizedCounts[normalizedUserId] = normalizedCount
+  }
+
+  return normalizedCounts
+}
+
+function clampMentionCountsToPersistedCounts(
+  mentionCounts: Record<string, number>,
+  persistedMentionCounts: Record<string, number>
+) {
+  const clampedCounts: Record<string, number> = {}
+
+  for (const [userId, persistedCount] of Object.entries(persistedMentionCounts)) {
+    const normalizedPersistedCount = normalizeMentionNotificationCount(persistedCount)
+
+    if (normalizedPersistedCount === 0) {
+      continue
+    }
+
+    const normalizedCount = Math.min(
+      normalizedPersistedCount,
+      normalizeMentionNotificationCount(mentionCounts[userId] ?? 0)
+    )
+
+    if (normalizedCount > 0) {
+      clampedCounts[userId] = normalizedCount
+    }
+  }
+
+  return clampedCounts
+}
+
+function getClampedNotifiedMentionCounts(
+  content: string,
+  notifiedMentionCounts?: Record<string, number> | null
+) {
+  return clampMentionCountsToPersistedCounts(
+    normalizeStoredMentionCounts(notifiedMentionCounts),
+    extractRichTextMentionCounts(content)
+  )
+}
+
+function buildAdvancedNotifiedMentionCounts(
+  persistedMentionCounts: Record<string, number>,
+  notifiedMentionCounts: Record<string, number>,
+  deliveredMentionCounts: Map<string, number>
+) {
+  const nextNotifiedMentionCounts = {
+    ...notifiedMentionCounts,
+  }
+
+  for (const [userId, deliveredCount] of deliveredMentionCounts.entries()) {
+    const normalizedDeliveredCount = normalizeMentionNotificationCount(deliveredCount)
+
+    if (normalizedDeliveredCount === 0) {
+      continue
+    }
+
+    const persistedCount = normalizeMentionNotificationCount(
+      persistedMentionCounts[userId] ?? 0
+    )
+
+    if (persistedCount === 0) {
+      continue
+    }
+
+    nextNotifiedMentionCounts[userId] = Math.min(
+      persistedCount,
+      (nextNotifiedMentionCounts[userId] ?? 0) + normalizedDeliveredCount
+    )
+  }
+
+  return nextNotifiedMentionCounts
 }
 
 function buildDocumentMentionNotificationMessage(
@@ -236,6 +336,10 @@ export async function sendDocumentMentionNotificationsHandler(
         : []
   )
   const persistedMentionCounts = extractRichTextMentionCounts(document.content)
+  const notifiedMentionCounts = clampMentionCountsToPersistedCounts(
+    normalizeStoredMentionCounts(document.notifiedMentionCounts),
+    persistedMentionCounts
+  )
   const mentionCounts = new Map<string, number>()
 
   for (const mention of args.mentions) {
@@ -275,6 +379,15 @@ export async function sendDocumentMentionNotificationsHandler(
         "One or more mentioned users are not present in the document"
       )
     }
+
+    if (
+      (persistedMentionCounts[userId] ?? 0) - (notifiedMentionCounts[userId] ?? 0) <
+      (mentionCounts.get(userId) ?? 0)
+    ) {
+      throw new Error(
+        "One or more mentioned users were already notified for this document"
+      )
+    }
   }
 
   const users = await listActiveUsersByIds(ctx, [
@@ -285,6 +398,7 @@ export async function sendDocumentMentionNotificationsHandler(
   const actorName = usersById.get(args.currentUserId)?.name ?? "Someone"
   const mentionEmails: MentionEmail[] = []
   const documentTitle = document.title.trim() || "Untitled document"
+  const deliveredMentionCounts = new Map<string, number>()
   let mentionCount = 0
   let recipientCount = 0
 
@@ -333,9 +447,18 @@ export async function sendDocumentMentionNotificationsHandler(
       })
     }
 
+    deliveredMentionCounts.set(mentionedUserId, recipientMentionCount)
     mentionCount += recipientMentionCount
     recipientCount += 1
   }
+
+  await ctx.db.patch(document._id, {
+    notifiedMentionCounts: buildAdvancedNotifiedMentionCounts(
+      persistedMentionCounts,
+      notifiedMentionCounts,
+      deliveredMentionCounts
+    ),
+  })
 
   await queueEmailJobs(
     ctx,
@@ -528,6 +651,10 @@ export async function updateItemDescriptionHandler(
 
   await ctx.db.patch(descriptionDocument._id, {
     content: args.content,
+    notifiedMentionCounts: getClampedNotifiedMentionCounts(
+      args.content,
+      descriptionDocument.notifiedMentionCounts
+    ),
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })

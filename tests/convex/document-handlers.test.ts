@@ -9,6 +9,13 @@ const getTeamMemberIdsMock = vi.fn()
 const getWorkspaceUserIdsMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
 const createNotificationMock = vi.fn()
+type MockDocumentRecord = {
+  _id: string
+  notifiedMentionCounts?: Record<string, number>
+  [key: string]: unknown
+}
+
+let documentRecord: MockDocumentRecord
 
 vi.mock("@/lib/email/builders", () => ({
   buildMentionEmailJobs: buildMentionEmailJobsMock,
@@ -67,7 +74,14 @@ function createCtx() {
   return {
     db: {
       insert: vi.fn(),
-      patch: vi.fn(),
+      patch: vi.fn(async (id: string, value: Record<string, unknown>) => {
+        if (id === documentRecord._id) {
+          documentRecord = {
+            ...documentRecord,
+            ...value,
+          }
+        }
+      }),
       delete: vi.fn(),
       query: vi.fn(),
     },
@@ -105,7 +119,7 @@ describe("document mention notifications", () => {
         type,
       })
     )
-    getDocumentDocMock.mockResolvedValue({
+    documentRecord = {
       _id: "document_1_db",
       id: "document_1",
       kind: "workspace-document",
@@ -116,7 +130,8 @@ describe("document mention notifications", () => {
         '<p><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span></p>',
       createdBy: "user_1",
       updatedBy: "user_1",
-    })
+    }
+    getDocumentDocMock.mockImplementation(async () => documentRecord)
     getWorkspaceUserIdsMock.mockResolvedValue(["user_1", "user_2", "user_3"])
     listActiveUsersByIdsMock.mockResolvedValue([
       {
@@ -193,6 +208,11 @@ describe("document mention notifications", () => {
         }),
       ])
     )
+    expect(ctx.db.patch).toHaveBeenCalledWith("document_1_db", {
+      notifiedMentionCounts: {
+        user_2: 1,
+      },
+    })
   })
 
   it("rejects recipients who are not present in persisted document mentions", async () => {
@@ -243,5 +263,84 @@ describe("document mention notifications", () => {
 
     expect(ctx.db.insert).not.toHaveBeenCalled()
     expect(queueEmailJobsMock).not.toHaveBeenCalled()
+  })
+
+  it("blocks replaying the same mention batch after the remaining unsent count is exhausted", async () => {
+    const { sendDocumentMentionNotificationsHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const ctx = createCtx()
+    documentRecord = {
+      ...documentRecord,
+      notifiedMentionCounts: {
+        user_2: 1,
+      },
+    }
+
+    await expect(
+      sendDocumentMentionNotificationsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        documentId: "document_1",
+        mentions: [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ],
+      })
+    ).resolves.toEqual({
+      recipientCount: 1,
+      mentionCount: 1,
+    })
+
+    expect(documentRecord.notifiedMentionCounts).toEqual({
+      user_2: 2,
+    })
+
+    await expect(
+      sendDocumentMentionNotificationsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        documentId: "document_1",
+        mentions: [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ],
+      })
+    ).rejects.toThrow(
+      "One or more mentioned users were already notified for this document"
+    )
+  })
+
+  it("clamps notified mention counts when content updates remove sent mentions", async () => {
+    const { updateDocumentContentHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const ctx = createCtx()
+    documentRecord = {
+      ...documentRecord,
+      notifiedMentionCounts: {
+        user_2: 2,
+      },
+    }
+
+    await updateDocumentContentHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      documentId: "document_1",
+      content: "<p>No mentions remain.</p>",
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith("document_1_db", {
+      content: "<p>No mentions remain.</p>",
+      notifiedMentionCounts: {},
+      updatedAt: "2026-04-17T20:24:45.000Z",
+      updatedBy: "user_1",
+    })
   })
 })
