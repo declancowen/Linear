@@ -29,7 +29,7 @@ type ServerAccessArgs = {
 
 type AddCommentArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   targetType: "workItem" | "document"
   targetId: string
   parentCommentId?: string | null

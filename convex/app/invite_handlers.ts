@@ -37,7 +37,7 @@ type InviteRole = "admin" | "member" | "viewer" | "guest"
 
 type CreateInviteArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   teamId: string
   email: string
   role: InviteRole

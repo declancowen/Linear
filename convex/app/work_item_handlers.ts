@@ -60,7 +60,7 @@ type WorkItemPatch = {
 
 type UpdateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   itemId: string
   patch: WorkItemPatch
 }
@@ -78,7 +78,7 @@ type ShiftTimelineItemArgs = ServerAccessArgs & {
 
 type CreateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   teamId: string
   type: WorkItemType
   title: string

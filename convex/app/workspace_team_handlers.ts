@@ -161,27 +161,27 @@ type UpdateTeamMemberRoleArgs = ServerAccessArgs & {
 
 type RemoveTeamMemberArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   teamId: string
   userId: string
 }
 
 type RemoveWorkspaceUserArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   workspaceId: string
   userId: string
 }
 
 type LeaveWorkspaceArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   workspaceId: string
 }
 
 type DeleteCurrentAccountArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
 }
 
 type PrepareCurrentAccountDeletionArgs = ServerAccessArgs & {
@@ -442,7 +442,7 @@ async function requireMutableTeamMember(
 
 type LeaveTeamArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   teamId: string
 }
 

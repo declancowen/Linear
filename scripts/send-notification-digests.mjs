@@ -221,6 +221,34 @@ function getDigestNotificationIds(digests) {
   )
 }
 
+const DIGEST_CLAIM_RELEASE_RETRY_ATTEMPTS = 3
+
+async function releaseDigestClaimsWithRetry(input, notificationIds) {
+  if (notificationIds.length === 0) {
+    return
+  }
+
+  let lastError = null
+
+  for (let attempt = 1; attempt <= DIGEST_CLAIM_RELEASE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await input.releaseNotificationDigestClaim({
+        claimId: input.claimId,
+        notificationIds,
+      })
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  console.error("Failed to release notification digest claims", {
+    claimId: input.claimId,
+    notificationIds,
+    error: lastError,
+  })
+}
+
 export async function processNotificationDigestsBatch(input) {
   const emailedNotificationIds = []
   const pendingDigests = [...input.digests]
@@ -253,13 +281,10 @@ export async function processNotificationDigestsBatch(input) {
           }
         )
       } catch (error) {
-        await input.releaseNotificationDigestClaim({
-          claimId: input.claimId,
-          notificationIds: [
-            ...notificationIds,
-            ...getDigestNotificationIds(pendingDigests),
-          ],
-        })
+        await releaseDigestClaimsWithRetry(input, [
+          ...notificationIds,
+          ...getDigestNotificationIds(pendingDigests),
+        ])
 
         throw error
       }
@@ -272,12 +297,7 @@ export async function processNotificationDigestsBatch(input) {
       } catch (error) {
         const remainingNotificationIds = getDigestNotificationIds(pendingDigests)
 
-        if (remainingNotificationIds.length > 0) {
-          await input.releaseNotificationDigestClaim({
-            claimId: input.claimId,
-            notificationIds: remainingNotificationIds,
-          })
-        }
+        await releaseDigestClaimsWithRetry(input, remainingNotificationIds)
 
         throw error
       }

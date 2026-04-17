@@ -2,6 +2,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { QueuedEmailJob } from "../../lib/email/builders"
 
 import { assertServerToken, createId, getNow } from "./core"
+import { isActiveDigestClaim } from "./claim_utils"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -172,6 +173,10 @@ export async function claimPendingEmailJobsHandler(
           claimedAt: null,
           lastError: null,
         })
+        continue
+      }
+
+      if (isActiveDigestClaim(notification, nowMs)) {
         continue
       }
     }

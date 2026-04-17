@@ -459,6 +459,59 @@ describe("email job handlers", () => {
     })
   })
 
+  it("leaves jobs pending while the linked notification is actively claimed for a digest", async () => {
+    const { claimPendingEmailJobsHandler } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const ctx = createCtx({
+      emailJobs: [
+        {
+          _id: "job_1_doc",
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_1",
+          toEmail: "alex@example.com",
+          subject: "One",
+          text: "one",
+          html: "<p>one</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+      notifications: [
+        {
+          _id: "notification_1_doc",
+          id: "notification_1",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: null,
+          digestClaimId: "digest_claim_1",
+          digestClaimedAt: "2026-04-17T10:55:00.000Z",
+        },
+      ],
+    })
+
+    const result = await claimPendingEmailJobsHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        claimId: "claim_1",
+      }
+    )
+
+    expect(result).toEqual([])
+    expect(ctx.tables.emailJobs[0]).toMatchObject({
+      sentAt: null,
+      claimId: null,
+      claimedAt: null,
+    })
+  })
+
   it("marks sent jobs and their notifications as emailed", async () => {
     const { markEmailJobsSentHandler } = await import(
       "@/convex/app/email_job_handlers"

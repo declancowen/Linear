@@ -1,5 +1,3 @@
-import { getAppOrigin } from "@/lib/auth-routing"
-
 const APP_NAME = "Recipe Room"
 const EMAIL_FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -471,10 +469,10 @@ function renderMentionEmail(input: {
 }
 
 export function buildMentionEmailJobs(input: {
-  origin?: string
+  origin: string
   emails: MentionEmail[]
 }): QueuedMentionEmailJob[] {
-  const origin = input.origin ?? getAppOrigin()
+  const origin = input.origin
 
   return input.emails.map((email) => {
     const message = renderMentionEmail({
@@ -501,10 +499,10 @@ export function buildMentionEmailJobs(input: {
 }
 
 export function buildAssignmentEmailJobs(input: {
-  origin?: string
+  origin: string
   emails: AssignmentEmail[]
 }): QueuedAssignmentEmailJob[] {
-  const origin = input.origin ?? getAppOrigin()
+  const origin = input.origin
 
   return input.emails.map((email) => {
     const message = renderAssignmentEmail({
@@ -527,10 +525,10 @@ export function buildAssignmentEmailJobs(input: {
 }
 
 export function buildTeamInviteEmailJobs(input: {
-  origin?: string
+  origin: string
   invites: TeamInviteEmail[]
 }): QueuedInviteEmailJob[] {
-  const origin = input.origin ?? getAppOrigin()
+  const origin = input.origin
 
   return input.invites.map((invite) => {
     const acceptUrl = buildAbsoluteUrl(
@@ -575,10 +573,10 @@ export function buildTeamInviteEmailJobs(input: {
 }
 
 export function buildAccessChangeEmailJobs(input: {
-  origin?: string
+  origin: string
   emails: AccessChangeEmail[]
 }): QueuedAccessChangeEmailJob[] {
-  const origin = input.origin ?? getAppOrigin()
+  const origin = input.origin
 
   return input.emails.map((email) => {
     const message = renderAccessChangeEmail({

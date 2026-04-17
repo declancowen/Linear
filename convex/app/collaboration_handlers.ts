@@ -118,14 +118,14 @@ type FinalizeCallJoinArgs = ServerAccessArgs & {
 
 type SendChatMessageArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   conversationId: string
   content: string
 }
 
 type CreateChannelPostArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   conversationId: string
   title: string
   content: string
@@ -133,7 +133,7 @@ type CreateChannelPostArgs = ServerAccessArgs & {
 
 type AddChannelPostCommentArgs = ServerAccessArgs & {
   currentUserId: string
-  origin?: string
+  origin: string
   postId: string
   content: string
 }
