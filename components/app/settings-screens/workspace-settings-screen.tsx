@@ -7,10 +7,7 @@ import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
 import { syncUpdateWorkspaceBranding } from "@/lib/convex/client"
-import {
-  getCurrentWorkspace,
-  isWorkspaceOwner,
-} from "@/lib/domain/selectors"
+import { getCurrentWorkspace, isWorkspaceOwner } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -32,7 +29,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 
-import { WorkspaceUsersCard } from "./member-management"
+import { WorkspaceUsersList } from "./member-management"
 import { ImageUploadControl, SettingsScaffold, SettingsSection } from "./shared"
 import { getUserInitials, uploadSettingsImage } from "./utils"
 
@@ -98,7 +95,9 @@ export function WorkspaceSettingsScreen() {
     const workspaceTeams = teams.filter(
       (team) => team.workspaceId === workspace.id
     )
-    const teamNameMap = new Map(workspaceTeams.map((team) => [team.id, team.name]))
+    const teamNameMap = new Map(
+      workspaceTeams.map((team) => [team.id, team.name])
+    )
     const workspaceTeamIds = new Set(workspaceTeams.map((team) => team.id))
     const workspaceUserIds = new Set(
       teamMemberships
@@ -116,7 +115,8 @@ export function WorkspaceSettingsScreen() {
         const teamNames = teamMemberships
           .filter(
             (membership) =>
-              membership.userId === user.id && teamNameMap.has(membership.teamId)
+              membership.userId === user.id &&
+              teamNameMap.has(membership.teamId)
           )
           .map((membership) => teamNameMap.get(membership.teamId) ?? "")
           .filter(Boolean)
@@ -367,12 +367,13 @@ export function WorkspaceSettingsScreen() {
     >
       <div className="max-w-3xl space-y-10">
         <Tabs
+          className="gap-6"
           value={activeTab}
           onValueChange={(value) =>
             setActiveTab(value as "workspace" | "users")
           }
         >
-          <Card className="overflow-hidden shadow-none">
+          <Card className="shadow-none">
             <div className="flex items-start gap-4 px-5 py-5">
               <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-muted/40">
                 {currentLogoImageSrc ? (
@@ -403,28 +404,29 @@ export function WorkspaceSettingsScreen() {
                 </div>
               </div>
             </div>
-            <div className="border-t px-3">
-              <TabsList
-                variant="line"
-                className="h-10 justify-start gap-1 rounded-none border-0 px-0"
-              >
-                <TabsTrigger
-                  value="workspace"
-                  className="rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  Workspace
-                </TabsTrigger>
-                <TabsTrigger
-                  value="users"
-                  className="rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  Users
-                </TabsTrigger>
-              </TabsList>
-            </div>
           </Card>
 
-          <TabsContent value="workspace" className="mt-6 space-y-10">
+          <div className="border-b">
+            <TabsList
+              variant="line"
+              className="h-9 justify-start gap-1 rounded-none border-0 px-0"
+            >
+              <TabsTrigger
+                value="workspace"
+                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                Workspace
+              </TabsTrigger>
+              <TabsTrigger
+                value="users"
+                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                Users
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <TabsContent value="workspace" className="space-y-10">
             <SettingsSection
               title="Branding"
               description="Name, logo, and description for your workspace."
@@ -559,12 +561,12 @@ export function WorkspaceSettingsScreen() {
             </section>
           </TabsContent>
 
-          <TabsContent value="users" className="mt-6">
+          <TabsContent value="users">
             <SettingsSection
-              title="Workspace users"
-              description="Workspace access is derived from team memberships. Roles can be changed from the relevant team settings."
+              title={`Workspace users · ${workspaceUsersCount}`}
+              description="People with access to this workspace through team memberships."
             >
-              <WorkspaceUsersCard
+              <WorkspaceUsersList
                 members={workspaceUsers}
                 canManage={canManageWorkspace}
                 pendingMemberId={removingWorkspaceUserId}
