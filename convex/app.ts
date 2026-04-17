@@ -853,6 +853,7 @@ export const heartbeatDocumentPresence = convexMutation({
     email: v.string(),
     name: v.string(),
     avatarUrl: v.string(),
+    avatarImageUrl: v.optional(v.union(v.string(), v.null())),
     sessionId: v.string(),
   },
   handler: heartbeatDocumentPresenceHandler,

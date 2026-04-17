@@ -142,7 +142,11 @@ vi.mock("@/components/app/screens/helpers", () => ({
 }))
 
 vi.mock("@/components/app/screens/document-ui", () => ({
-  DocumentPresenceAvatarGroup: () => null,
+  DocumentPresenceAvatarGroup: ({
+    viewers,
+  }: {
+    viewers: Array<{ name: string }>
+  }) => <div>{viewers.map((viewer) => viewer.name).join(",")}</div>,
 }))
 
 vi.mock("@/components/app/screens/shared", () => ({
@@ -507,6 +511,64 @@ describe("DocumentDetailScreen", () => {
       })
 
       expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
+  it("does not show stale viewers when a hidden in-flight heartbeat resolves", async () => {
+    let resolveHeartbeat:
+      | ((viewers: Array<{ name: string; userId: string; avatarUrl: string; lastSeenAt: string }>) => void)
+      | null = null
+    syncHeartbeatDocumentPresenceMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHeartbeat = resolve as typeof resolveHeartbeat
+        })
+    )
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      await act(async () => {
+        resolveHeartbeat?.([
+          {
+            userId: "workos_2",
+            name: "Sam",
+            avatarUrl: "SS",
+            lastSeenAt: new Date().toISOString(),
+          },
+        ])
+        await Promise.resolve()
+      })
+
+      expect(screen.queryByText("Sam")).not.toBeInTheDocument()
     } finally {
       if (visibilityStateDescriptor) {
         Object.defineProperty(

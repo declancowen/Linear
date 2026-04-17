@@ -388,6 +388,7 @@ export async function heartbeatDocumentPresenceServer(input: {
   email: string
   name: string
   avatarUrl: string
+  avatarImageUrl?: string | null
   sessionId: string
 }): Promise<DocumentPresenceViewer[]> {
   try {

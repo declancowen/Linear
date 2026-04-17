@@ -396,6 +396,7 @@ describe("document presence handlers", () => {
       email: "alex@example.com",
       name: "Alex",
       avatarUrl: "https://example.com/alex.png",
+      avatarImageUrl: "https://example.com/alex-photo.png",
       sessionId: "session_12345",
     })
 
@@ -416,6 +417,7 @@ describe("document presence handlers", () => {
         email: "alex@example.com",
         name: "Alex",
         avatarUrl: "https://example.com/alex.png",
+        avatarImageUrl: "https://example.com/alex-photo.png",
         createdAt: "2026-04-17T20:24:45.000Z",
         lastSeenAt: "2026-04-17T20:24:45.000Z",
       })
@@ -473,11 +475,13 @@ describe("document presence handlers", () => {
       email: "alex@example.com",
       name: "Alex",
       avatarUrl: "https://example.com/alex.png",
+      avatarImageUrl: "https://example.com/alex-photo.png",
       sessionId: "session_12345",
     })
 
     expect(ctx.db.patch).toHaveBeenCalledWith("presence_newest", {
       avatarUrl: "https://example.com/alex.png",
+      avatarImageUrl: "https://example.com/alex-photo.png",
       documentId: "document_1",
       email: "alex@example.com",
       lastSeenAt: "2026-04-17T20:24:45.000Z",

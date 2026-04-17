@@ -225,6 +225,7 @@ describe("convex document server wrappers", () => {
         email: "alex@example.com",
         name: "Alex",
         avatarUrl: "https://example.com/avatar.png",
+        avatarImageUrl: "https://example.com/avatar-photo.png",
         sessionId: "session_12345",
       })
     ).rejects.toMatchObject({

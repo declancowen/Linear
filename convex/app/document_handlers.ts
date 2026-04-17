@@ -67,6 +67,7 @@ type DocumentPresenceArgs = ServerAccessArgs & {
   email: string
   name: string
   avatarUrl: string
+  avatarImageUrl?: string | null
   sessionId: string
 }
 
@@ -512,6 +513,7 @@ export async function heartbeatDocumentPresenceHandler(
   if (existingPresence) {
     await ctx.db.patch(existingPresence._id, {
       avatarUrl: args.avatarUrl,
+      avatarImageUrl: args.avatarImageUrl ?? null,
       documentId: args.documentId,
       email: args.email,
       lastSeenAt: currentTime,
@@ -533,6 +535,7 @@ export async function heartbeatDocumentPresenceHandler(
   } else {
     await ctx.db.insert("documentPresence", {
       avatarUrl: args.avatarUrl,
+      avatarImageUrl: args.avatarImageUrl ?? null,
       documentId: args.documentId,
       userId: args.currentUserId,
       email: args.email,

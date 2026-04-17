@@ -231,7 +231,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
           sessionId
         )
 
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          presenceActive &&
+          window.document.visibilityState === "visible"
+        ) {
           setDocumentPresenceViewers(viewers)
         }
       } catch (error) {
