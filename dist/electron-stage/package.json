@@ -1,0 +1,33 @@
+{
+  "name": "recipe-room-desktop",
+  "version": "0.0.1",
+  "description": "Recipe Room desktop shell",
+  "author": "Recipe Room",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "build": {
+    "appId": "io.reciperoom.desktop",
+    "productName": "Recipe Room",
+    "electronVersion": "41.2.0",
+    "asar": true,
+    "directories": {
+      "output": "../electron",
+      "buildResources": "electron"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "icon": "electron/app-icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
+  }
+}

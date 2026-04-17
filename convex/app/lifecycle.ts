@@ -16,6 +16,7 @@ import {
   getUserAppState,
   getWorkspaceDoc,
   listCommentsByTarget,
+  listDocumentPresenceByDocument,
   listDocumentPresenceByUser,
   listDocumentsByCreator,
   listNotificationsByEntity,
@@ -124,6 +125,10 @@ export async function deleteDocumentCascade(
     "document",
     input.document.id
   )
+  const presenceEntries = await listDocumentPresenceByDocument(
+    ctx,
+    input.document.id
+  )
 
   await cleanupRemainingLinksAfterDelete(ctx, {
     currentUserId: input.currentUserId,
@@ -135,6 +140,7 @@ export async function deleteDocumentCascade(
   )
   await deleteDocs(ctx, comments)
   await deleteDocs(ctx, attachments)
+  await deleteDocs(ctx, presenceEntries)
   await deleteDocs(ctx, notifications)
   await ctx.db.delete(input.document._id)
 }

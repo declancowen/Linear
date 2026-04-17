@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser"
 import { Resend } from "resend"
 
 import { api } from "../convex/_generated/api.js"
+import { normalizeResendFrom } from "./resend-from.mjs"
 
 const APP_NAME = "Recipe Room"
 const EMAIL_FONT_STACK =
@@ -252,6 +253,7 @@ async function releaseDigestClaimsWithRetry(input, notificationIds) {
 export async function processNotificationDigestsBatch(input) {
   const emailedNotificationIds = []
   const pendingDigests = [...input.digests]
+  const resendFrom = normalizeResendFrom(input.resendFromEmail)
 
   while (pendingDigests.length > 0) {
     const digest = pendingDigests.shift()
@@ -270,7 +272,7 @@ export async function processNotificationDigestsBatch(input) {
       try {
         await input.resend.emails.send(
           {
-            from: input.resendFromEmail,
+            from: resendFrom,
             to: digest.user.email,
             subject: message.subject,
             text: message.text,

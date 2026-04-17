@@ -5,6 +5,7 @@ export function createEmptyState(): AppData {
     currentUserId: "",
     currentWorkspaceId: "",
     workspaces: [],
+    workspaceMemberships: [],
     teams: [],
     teamMemberships: [],
     users: [],

@@ -2,20 +2,38 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Trash } from "@phosphor-icons/react"
+import { toast } from "sonner"
 
 import {
   syncClearDocumentPresence,
   syncHeartbeatDocumentPresence,
+  syncSendDocumentMentionNotifications,
 } from "@/lib/convex/client"
+import {
+  filterPendingDocumentMentionsByContent,
+  summarizePendingDocumentMentions,
+  type PendingDocumentMention,
+} from "@/lib/content/rich-text-mentions"
+import {
+  getTeam,
+  getTeamMembers,
+  getWorkspaceUsers,
+} from "@/lib/domain/selectors"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
-import { getTeam, getTeamMembers, getWorkspaceUsers } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
@@ -25,15 +43,30 @@ import { MissingState } from "./shared"
 
 const DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
 
+type DocumentMentionNotificationsResponse = {
+  ok: boolean
+  recipientCount: number
+  mentionCount: number
+}
+
+function formatMentionCountLabel(count: number) {
+  return `${count} ${count === 1 ? "mention" : "mentions"}`
+}
+
+function formatRecipientCountLabel(count: number) {
+  return `${count} ${count === 1 ? "person" : "people"}`
+}
+
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const router = useRouter()
-  const { currentWorkspaceId, document, team } = useAppStore(
+  const { currentWorkspaceId, currentUserId, document, team } = useAppStore(
     useShallow((state) => {
       const document =
         state.documents.find((entry) => entry.id === documentId) ?? null
 
       return {
         currentWorkspaceId: state.currentWorkspaceId,
+        currentUserId: state.currentUserId,
         document,
         team: document?.teamId ? getTeam(state, document.teamId) : null,
       }
@@ -62,6 +95,13 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
+  const [pendingMentionCounts, setPendingMentionCounts] = useState<
+    Record<string, number>
+  >({})
+  const [sendingMentionNotifications, setSendingMentionNotifications] =
+    useState(false)
+  const [pendingExitHref, setPendingExitHref] = useState<string | null>(null)
+  const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -71,6 +111,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
   useEffect(() => {
     setIsEditingTitle(false)
+    setPendingMentionCounts({})
+    setPendingExitHref(null)
+    setExitDialogOpen(false)
   }, [currentDocumentId])
 
   useEffect(() => {
@@ -190,6 +233,118 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       }).catch(() => {})
     }
   }, [currentDocumentId, resolvedDocumentKind])
+  const pendingMentionEntries = useMemo<PendingDocumentMention[]>(
+    () =>
+      Object.entries(pendingMentionCounts).map(([userId, count]) => ({
+        userId,
+        count,
+      })),
+    [pendingMentionCounts]
+  )
+  const activePendingMentionEntries = useMemo(
+    () =>
+      filterPendingDocumentMentionsByContent(
+        pendingMentionEntries,
+        document?.content ?? ""
+      ),
+    [document?.content, pendingMentionEntries]
+  )
+  const pendingMentionSummary = useMemo(
+    () => summarizePendingDocumentMentions(activePendingMentionEntries),
+    [activePendingMentionEntries]
+  )
+  const hasPendingMentionNotifications =
+    pendingMentionSummary.recipientCount > 0 &&
+    document?.kind !== "private-document"
+
+  useEffect(() => {
+    if (!hasPendingMentionNotifications) {
+      return
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault()
+      event.returnValue = ""
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+    }
+  }, [hasPendingMentionNotifications])
+
+  useEffect(() => {
+    if (!hasPendingMentionNotifications) {
+      return
+    }
+
+    function handleClick(event: MouseEvent) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return
+      }
+
+      const target = event.target
+
+      if (!(target instanceof Element)) {
+        return
+      }
+
+      const anchor = target.closest("a[href]")
+
+      if (
+        !(anchor instanceof HTMLAnchorElement) ||
+        anchor.hasAttribute("download")
+      ) {
+        return
+      }
+
+      if (anchor.target && anchor.target !== "_self") {
+        return
+      }
+
+      const href = anchor.getAttribute("href")
+
+      if (
+        !href ||
+        href.startsWith("#") ||
+        href.startsWith("mailto:") ||
+        href.startsWith("tel:")
+      ) {
+        return
+      }
+
+      const nextUrl = new URL(anchor.href, window.location.href)
+
+      if (nextUrl.origin !== window.location.origin) {
+        return
+      }
+
+      const nextHref = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`
+      const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+      if (nextHref === currentHref) {
+        return
+      }
+
+      event.preventDefault()
+      setPendingExitHref(nextHref)
+      setExitDialogOpen(true)
+    }
+
+    window.document.addEventListener("click", handleClick, true)
+
+    return () => {
+      window.document.removeEventListener("click", handleClick, true)
+    }
+  }, [hasPendingMentionNotifications])
 
   if (!document || document.kind === "item-description") {
     if (deletingDocument) {
@@ -203,6 +358,57 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
   const loadedDocumentId = loadedDocument.id
 
+  function clearPendingMentionBatch() {
+    setPendingMentionCounts({})
+  }
+
+  function closeExitDialog() {
+    setExitDialogOpen(false)
+    setPendingExitHref(null)
+  }
+
+  function completePendingExit() {
+    const nextHref = pendingExitHref
+    closeExitDialog()
+
+    if (nextHref) {
+      router.push(nextHref)
+    }
+  }
+
+  async function sendPendingMentionNotifications() {
+    if (activePendingMentionEntries.length === 0) {
+      clearPendingMentionBatch()
+      return true
+    }
+
+    setSendingMentionNotifications(true)
+
+    try {
+      const result = (await syncSendDocumentMentionNotifications(
+        loadedDocumentId,
+        activePendingMentionEntries
+      )) as DocumentMentionNotificationsResponse
+
+      clearPendingMentionBatch()
+      toast.success(
+        `Sent notifications for ${formatMentionCountLabel(
+          result.mentionCount
+        )} across ${formatRecipientCountLabel(result.recipientCount)}.`
+      )
+      return true
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to send mention notifications"
+      )
+      return false
+    } finally {
+      setSendingMentionNotifications(false)
+    }
+  }
+
   function saveTitle() {
     const normalizedTitle = draftTitle.trim() || "Untitled document"
     setIsEditingTitle(false)
@@ -215,6 +421,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
   async function handleDeleteDocument() {
     setDeletingDocument(true)
+    clearPendingMentionBatch()
+    closeExitDialog()
 
     try {
       await useAppStore.getState().deleteDocument(loadedDocumentId)
@@ -223,6 +431,21 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     } finally {
       setDeletingDocument(false)
     }
+  }
+
+  async function handleSendAndExit() {
+    const sent = await sendPendingMentionNotifications()
+
+    if (!sent) {
+      return
+    }
+
+    completePendingExit()
+  }
+
+  function handleSkipAndExit() {
+    clearPendingMentionBatch()
+    completePendingExit()
   }
 
   return (
@@ -272,7 +495,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>
-              {documentStats.words} words · {documentStats.characters} characters
+              {documentStats.words} words · {documentStats.characters}{" "}
+              characters
             </span>
             <DocumentPresenceAvatarGroup viewers={documentPresenceViewers} />
             {editable ? (
@@ -295,8 +519,21 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
             editable={editable}
             fullPage
             showStats={false}
-            placeholder="Start writing…"
+            placeholder="Start writing..."
             mentionCandidates={mentionCandidates}
+            onMentionInserted={(candidate) => {
+              if (
+                candidate.id === currentUserId ||
+                loadedDocument.kind === "private-document"
+              ) {
+                return
+              }
+
+              setPendingMentionCounts((current) => ({
+                ...current,
+                [candidate.id]: (current[candidate.id] ?? 0) + 1,
+              }))
+            }}
             onStatsChange={setDocumentStats}
             onChange={(content) =>
               useAppStore.getState().updateDocumentContent(document.id, content)
@@ -312,6 +549,93 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
           />
         </div>
       </div>
+
+      {hasPendingMentionNotifications ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+          <div className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-4 rounded-2xl border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">
+                Send mention notifications
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {formatMentionCountLabel(pendingMentionSummary.mentionCount)}{" "}
+                across{" "}
+                {formatRecipientCountLabel(
+                  pendingMentionSummary.recipientCount
+                )}{" "}
+                are ready to send for this document.
+              </div>
+            </div>
+            <Button
+              size="sm"
+              disabled={sendingMentionNotifications}
+              onClick={() => {
+                void sendPendingMentionNotifications()
+              }}
+            >
+              {sendingMentionNotifications
+                ? "Sending..."
+                : "Send notifications"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <Dialog
+        open={exitDialogOpen}
+        onOpenChange={(open) => {
+          if (sendingMentionNotifications) {
+            return
+          }
+
+          setExitDialogOpen(open)
+
+          if (!open) {
+            setPendingExitHref(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
+          <div className="px-5 pt-5 pb-3">
+            <DialogHeader className="p-0">
+              <DialogTitle className="text-base font-semibold">
+                Exit before sending notifications?
+              </DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                This document has{" "}
+                {formatMentionCountLabel(pendingMentionSummary.mentionCount)}{" "}
+                queued for{" "}
+                {formatRecipientCountLabel(
+                  pendingMentionSummary.recipientCount
+                )}
+                . Skip them or send them before leaving.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={sendingMentionNotifications}
+              onClick={handleSkipAndExit}
+            >
+              Skip notifications
+            </Button>
+            <Button
+              size="sm"
+              disabled={sendingMentionNotifications}
+              onClick={() => {
+                void handleSendAndExit()
+              }}
+            >
+              {sendingMentionNotifications
+                ? "Sending..."
+                : "Send notifications"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

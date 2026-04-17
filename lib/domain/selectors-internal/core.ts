@@ -2,6 +2,7 @@ import type {
   AppData,
   Conversation,
   Project,
+  Role,
   Team,
   TeamFeatureSettings,
   TeamWorkflowSettings,
@@ -58,8 +59,72 @@ export function isWorkspaceOwner(data: AppData, workspaceId: string) {
   )
 }
 
+function mergeRole(currentRole: Role | null, nextRole: Role) {
+  if (currentRole === "admin" || nextRole === "admin") {
+    return "admin"
+  }
+
+  if (currentRole === "member" || nextRole === "member") {
+    return "member"
+  }
+
+  if (currentRole === "viewer" || nextRole === "viewer") {
+    return "viewer"
+  }
+
+  return nextRole
+}
+
+export function getWorkspaceRoleInCollections(
+  workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
+  teams: AppData["teams"],
+  teamMemberships: AppData["teamMemberships"],
+  workspaceId: string,
+  userId: string
+) {
+  const workspace = workspaces.find((entry) => entry.id === workspaceId)
+
+  if (!workspace) {
+    return null
+  }
+
+  if (workspace.createdBy === userId) {
+    return "admin"
+  }
+
+  const directMembership =
+    workspaceMemberships.find(
+      (membership) =>
+        membership.workspaceId === workspaceId && membership.userId === userId
+    ) ?? null
+
+  if (directMembership) {
+    return directMembership.role
+  }
+
+  const workspaceTeamIds = new Set(
+    teams
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => team.id)
+  )
+
+  return (
+    teamMemberships
+      .filter(
+        (membership) =>
+          membership.userId === userId && workspaceTeamIds.has(membership.teamId)
+      )
+      .reduce<Role | null>(
+        (currentRole, membership) => mergeRole(currentRole, membership.role),
+        null
+      ) ?? null
+  )
+}
+
 export function hasWorkspaceAccessInCollections(
   workspaces: AppData["workspaces"],
+  workspaceMemberships: AppData["workspaceMemberships"],
   teams: AppData["teams"],
   teamMemberships: AppData["teamMemberships"],
   workspaceId: string,
@@ -72,6 +137,15 @@ export function hasWorkspaceAccessInCollections(
   }
 
   if (workspace.createdBy === userId) {
+    return true
+  }
+
+  if (
+    workspaceMemberships.some(
+      (membership) =>
+        membership.workspaceId === workspaceId && membership.userId === userId
+    )
+  ) {
     return true
   }
 
@@ -94,6 +168,7 @@ export function hasWorkspaceAccess(
 ) {
   return hasWorkspaceAccessInCollections(
     data.workspaces,
+    data.workspaceMemberships,
     data.teams,
     data.teamMemberships,
     workspaceId,
@@ -115,17 +190,16 @@ export function canEditTeam(data: AppData, teamId: string) {
 }
 
 export function canEditWorkspace(data: AppData, workspaceId: string) {
-  if (isWorkspaceOwner(data, workspaceId)) {
-    return true
-  }
+  const role = getWorkspaceRoleInCollections(
+    data.workspaces,
+    data.workspaceMemberships,
+    data.teams,
+    data.teamMemberships,
+    workspaceId,
+    data.currentUserId
+  )
 
-  return data.teams.some((team) => {
-    if (team.workspaceId !== workspaceId) {
-      return false
-    }
-
-    return canEditTeam(data, team.id)
-  })
+  return role === "admin" || role === "member"
 }
 
 export function canInviteToTeam(data: AppData, teamId: string) {
@@ -137,17 +211,16 @@ export function canAdminTeam(data: AppData, teamId: string) {
 }
 
 export function canAdminWorkspace(data: AppData, workspaceId: string) {
-  if (isWorkspaceOwner(data, workspaceId)) {
-    return true
-  }
-
-  return data.teams.some((team) => {
-    if (team.workspaceId !== workspaceId) {
-      return false
-    }
-
-    return canAdminTeam(data, team.id)
-  })
+  return (
+    getWorkspaceRoleInCollections(
+      data.workspaces,
+      data.workspaceMemberships,
+      data.teams,
+      data.teamMemberships,
+      workspaceId,
+      data.currentUserId
+    ) === "admin"
+  )
 }
 
 export function canCreateWorkspace(data: AppData) {
@@ -257,9 +330,14 @@ export function getWorkspaceUsers(data: AppData, workspaceId: string) {
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
   const userIds = new Set(
-    data.teamMemberships
+    [
+      ...data.workspaceMemberships
+        .filter((membership) => membership.workspaceId === workspaceId)
+        .map((membership) => membership.userId),
+      ...data.teamMemberships
       .filter((membership) => teamIds.includes(membership.teamId))
-      .map((membership) => membership.userId)
+      .map((membership) => membership.userId),
+    ]
   )
 
   if (workspaceOwnerId) {

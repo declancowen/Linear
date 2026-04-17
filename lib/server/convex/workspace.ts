@@ -247,9 +247,14 @@ export async function deleteWorkspaceServer(input: {
   workspaceId: string
 }) {
   try {
+    const origin = await resolveServerOrigin()
+
     return await getConvexServerClient().mutation(
       api.app.deleteWorkspace,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        origin,
+      })
     )
   } catch (error) {
     throw (

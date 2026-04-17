@@ -16,6 +16,7 @@ import {
   listChatMessagesByConversations,
   listCommentsByTargets,
   listConversationsByScope,
+  listDocumentPresenceByDocuments,
   listDocumentsByIds,
   listDocumentPresenceByUser,
   listLabelsByWorkspace,
@@ -31,9 +32,11 @@ import {
   listViewsByScopes,
   listViewsByScope,
   listWorkItemsByTeam,
+  listWorkspaceMembershipsByUser,
   listWorkspacesOwnedByUser,
   listWorkspaceTeams,
   resolvePreferredWorkspaceId,
+  syncWorkspaceMembershipRoleFromTeams,
 } from "./data"
 
 function filterOutUserId(ids: string[], userId: string) {
@@ -94,17 +97,21 @@ async function getAccessibleWorkspaceIdsForUser(
   ctx: MutationCtx,
   userId: string
 ) {
-  const memberships = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect()
+  const [workspaceMemberships, memberships, ownedWorkspaces] = await Promise.all([
+    listWorkspaceMembershipsByUser(ctx, userId),
+    ctx.db
+      .query("teamMemberships")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect(),
+    listWorkspacesOwnedByUser(ctx, userId),
+  ])
   const teams = await listTeamsByIds(
     ctx,
     memberships.map((membership) => membership.teamId)
   )
-  const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, userId)
 
   return new Set<string>([
+    ...workspaceMemberships.map((membership) => membership.workspaceId),
     ...teams.map((team) => team.workspaceId),
     ...ownedWorkspaces.map((workspace) => workspace.id),
   ])
@@ -650,6 +657,7 @@ export async function cleanupUnreferencedUsers(
   }
 
   const workspaces = await ctx.db.query("workspaces").collect()
+  const workspaceMemberships = await ctx.db.query("workspaceMemberships").collect()
   const teamMemberships = await ctx.db.query("teamMemberships").collect()
   const userAppStates = await ctx.db.query("userAppStates").collect()
   const projects = await ctx.db.query("projects").collect()
@@ -679,6 +687,7 @@ export async function cleanupUnreferencedUsers(
 
     const hasReference =
       workspaces.some((workspace) => workspace.createdBy === userId) ||
+      workspaceMemberships.some((membership) => membership.userId === userId) ||
       teamMemberships.some((membership) => membership.userId === userId) ||
       projects.some(
         (project) =>
@@ -827,6 +836,7 @@ export async function cascadeDeleteTeamData(
     documentAttachments,
     workItemComments,
     documentComments,
+    documentPresence,
     invites,
   ] = await Promise.all([
     listChannelPostCommentsByPosts(ctx, deletedChannelPostIds),
@@ -846,6 +856,7 @@ export async function cascadeDeleteTeamData(
       targetType: "document",
       targetIds: deletedDocumentIds,
     }),
+    listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
     listInvitesByTeam(ctx, team.id),
   ])
   const attachments = [...workItemAttachments, ...documentAttachments]
@@ -902,6 +913,7 @@ export async function cascadeDeleteTeamData(
   await deleteDocs(ctx, calls)
   await deleteDocs(ctx, comments)
   await deleteDocs(ctx, attachments)
+  await deleteDocs(ctx, documentPresence)
   await deleteDocs(ctx, notifications)
   await deleteDocs(ctx, projectUpdates)
   await deleteDocs(ctx, invites)
@@ -929,6 +941,16 @@ export async function cascadeDeleteTeamData(
       workspaceChannel,
       workspaceParticipantIds
     )
+  }
+
+  if (input.cleanupGlobalState !== false) {
+    for (const userId of membershipUserIds) {
+      await syncWorkspaceMembershipRoleFromTeams(ctx, {
+        workspaceId: team.workspaceId,
+        userId,
+        fallbackRole: "viewer",
+      })
+    }
   }
 
   const deletedLabelIds =

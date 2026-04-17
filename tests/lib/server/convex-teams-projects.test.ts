@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mutationMock = vi.fn()
+const resolveServerOriginMock = vi.fn()
 
 vi.mock("@/lib/server/convex/core", () => ({
   getConvexServerClient: () => ({
@@ -9,9 +10,16 @@ vi.mock("@/lib/server/convex/core", () => ({
   withServerToken: <T extends Record<string, unknown>>(input: T) => input,
 }))
 
+vi.mock("@/lib/server/request-origin", () => ({
+  resolveServerOrigin: resolveServerOriginMock,
+}))
+
 describe("convex team-project server wrappers", () => {
   beforeEach(() => {
     mutationMock.mockReset()
+    resolveServerOriginMock.mockReset()
+
+    resolveServerOriginMock.mockResolvedValue("https://app.example.com")
   })
 
   it("maps regenerate-join-code authorization failures to typed application errors", async () => {
@@ -306,5 +314,30 @@ describe("convex team-project server wrappers", () => {
       status: 403,
       code: "TEAM_ADMIN_REQUIRED",
     })
+  })
+
+  it("threads origin through team deletion for transactional email delivery", async () => {
+    const { deleteTeamServer } = await import(
+      "@/lib/server/convex/teams-projects"
+    )
+
+    mutationMock.mockResolvedValue({
+      teamId: "team_1",
+    })
+
+    await deleteTeamServer({
+      currentUserId: "user_1",
+      teamId: "team_1",
+    })
+
+    expect(resolveServerOriginMock).toHaveBeenCalledTimes(1)
+    expect(mutationMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        currentUserId: "user_1",
+        teamId: "team_1",
+        origin: "https://app.example.com",
+      })
+    )
   })
 })

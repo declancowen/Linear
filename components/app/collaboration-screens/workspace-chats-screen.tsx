@@ -16,7 +16,9 @@ import {
   getConversationParticipants,
   getCurrentWorkspace,
   getWorkspaceChats,
+  hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
+import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
@@ -52,10 +54,21 @@ import {
 export function WorkspaceChatsScreen() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { currentUserId, workspace } = useAppStore(
+  const {
+    currentUserId,
+    workspace,
+    workspaces,
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+  } = useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
       workspace: getCurrentWorkspace(state),
+      workspaces: state.workspaces,
+      workspaceMemberships: state.workspaceMemberships,
+      teams: state.teams,
+      teamMemberships: state.teamMemberships,
     }))
   )
   const chats = useAppStore(
@@ -239,17 +252,38 @@ export function WorkspaceChatsScreen() {
         (participant): participant is NonNullable<(typeof users)[number]> =>
           Boolean(participant)
       )
+    const getParticipantView = (
+      participant: NonNullable<(typeof users)[number]> | undefined
+    ) =>
+      buildWorkspaceUserPresenceView(
+        participant,
+        !workspace || !participant
+          ? "unknown"
+          : hasWorkspaceAccessInCollections(
+                workspaces,
+                workspaceMemberships,
+                teams,
+                teamMemberships,
+                workspace.id,
+                participant.id
+              )
+            ? "active"
+            : "former"
+      )
 
     if (participants.length <= 1) {
       const participant = participants[0]
+      const participantView = getParticipantView(participant)
 
       return (
         <UserAvatar
-          name={participant?.name ?? conversation.title}
-          avatarImageUrl={participant?.avatarImageUrl}
-          avatarUrl={participant?.avatarUrl}
-          status={participant?.status}
-          showStatus={Boolean(participant)}
+          name={
+            participantView?.name ?? participant?.name ?? conversation.title
+          }
+          avatarImageUrl={participantView?.avatarImageUrl}
+          avatarUrl={participantView?.avatarUrl}
+          status={participantView?.status ?? undefined}
+          showStatus={Boolean(participant) && !participantView?.isFormerMember}
           size="default"
         />
       )
@@ -260,16 +294,21 @@ export function WorkspaceChatsScreen() {
 
     return (
       <AvatarGroup>
-        {visibleParticipants.map((participant) => (
-          <UserAvatar
-            key={participant.id}
-            name={participant.name}
-            avatarImageUrl={participant.avatarImageUrl}
-            avatarUrl={participant.avatarUrl}
-            status={participant.status}
-            size="default"
-          />
-        ))}
+        {visibleParticipants.map((participant) => {
+          const participantView = getParticipantView(participant)
+
+          return (
+            <UserAvatar
+              key={participant.id}
+              name={participantView?.name ?? participant.name}
+              avatarImageUrl={participantView?.avatarImageUrl}
+              avatarUrl={participantView?.avatarUrl}
+              status={participantView?.status ?? undefined}
+              showStatus={!participantView?.isFormerMember}
+              size="default"
+            />
+          )
+        })}
         {overflowCount > 0 ? (
           <AvatarGroupCount className="text-[10px] font-medium">
             +{overflowCount}
@@ -405,7 +444,9 @@ export function WorkspaceChatsScreen() {
                 title={activeChat.title}
                 description=""
                 members={members}
-                videoAction={<CallInviteLauncher conversationId={activeChat.id} />}
+                videoAction={
+                  <CallInviteLauncher conversationId={activeChat.id} />
+                }
                 welcomeParticipant={welcomeParticipant}
               />
             ) : null}

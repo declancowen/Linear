@@ -70,6 +70,12 @@ export interface TeamMembership {
   role: Role
 }
 
+export interface WorkspaceMembership {
+  workspaceId: string
+  userId: string
+  role: Role
+}
+
 export interface UserProfile {
   id: string
   name: string
@@ -341,6 +347,7 @@ export interface AppData {
   currentUserId: string
   currentWorkspaceId: string
   workspaces: Workspace[]
+  workspaceMemberships: WorkspaceMembership[]
   teams: Team[]
   teamMemberships: TeamMembership[]
   users: UserProfile[]

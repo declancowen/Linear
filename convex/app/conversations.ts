@@ -12,6 +12,7 @@ import {
   getConversationDoc,
   getTeamDoc,
   getWorkspaceDoc,
+  listWorkspaceMembershipsByWorkspace,
   listWorkspaceTeams,
   type AppCtx,
 } from "./data"
@@ -29,10 +30,18 @@ export async function getTeamMemberIds(ctx: AppCtx, teamId: string) {
 export async function getWorkspaceUserIds(ctx: AppCtx, workspaceId: string) {
   const workspace = await getWorkspaceDoc(ctx, workspaceId)
   const teams = await listWorkspaceTeams(ctx, workspaceId)
+  const workspaceMemberships = await listWorkspaceMembershipsByWorkspace(
+    ctx,
+    workspaceId
+  )
   const userIds = new Set<string>()
 
   if (workspace?.createdBy) {
     userIds.add(workspace.createdBy)
+  }
+
+  for (const membership of workspaceMemberships) {
+    userIds.add(membership.userId)
   }
 
   for (const team of teams) {

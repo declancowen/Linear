@@ -35,8 +35,10 @@ import { serverAccessArgs } from "./app/core"
 import { recordAuditEventHandler } from "./app/audit"
 import { getOrCreateAppConfig } from "./app/data"
 import {
+  backfillWorkspaceMembershipsHandler,
   backfillLegacyLookupFieldsHandler,
   getLegacyLookupBackfillStatusHandler,
+  getWorkspaceMembershipBackfillStatusHandler,
 } from "./app/maintenance"
 import {
   bootstrapAppWorkspaceHandler,
@@ -93,6 +95,7 @@ import {
   generateSettingsImageUploadUrlHandler,
   heartbeatDocumentPresenceHandler,
   renameDocumentHandler,
+  sendDocumentMentionNotificationsHandler,
   updateDocumentContentHandler,
   updateDocumentHandler,
   updateItemDescriptionHandler,
@@ -223,6 +226,21 @@ export const backfillLegacyLookupFields = operationalMutation({
     limit: v.optional(v.number()),
   },
   handler: backfillLegacyLookupFieldsHandler,
+})
+
+export const getWorkspaceMembershipBackfillStatus = query({
+  args: {
+    ...serverAccessArgs,
+  },
+  handler: getWorkspaceMembershipBackfillStatusHandler,
+})
+
+export const backfillWorkspaceMemberships = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    limit: v.optional(v.number()),
+  },
+  handler: backfillWorkspaceMembershipsHandler,
 })
 
 export const getSnapshot = query({
@@ -481,6 +499,7 @@ export const deleteWorkspace = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.string(),
     workspaceId: v.string(),
   },
   handler: deleteWorkspaceHandler,
@@ -579,6 +598,7 @@ export const deleteTeam = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    origin: v.string(),
     teamId: v.string(),
   },
   handler: deleteTeamHandler,
@@ -806,6 +826,22 @@ export const updateDocument = mutation({
     content: v.optional(v.string()),
   },
   handler: updateDocumentHandler,
+})
+
+export const sendDocumentMentionNotifications = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    origin: v.string(),
+    documentId: v.string(),
+    mentions: v.array(
+      v.object({
+        userId: v.string(),
+        count: v.number(),
+      })
+    ),
+  },
+  handler: sendDocumentMentionNotificationsHandler,
 })
 
 export const heartbeatDocumentPresence = convexMutation({

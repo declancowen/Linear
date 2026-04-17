@@ -1,11 +1,16 @@
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
 
+import {
+  buildMentionEmailJobs,
+  type MentionEmail,
+} from "../../lib/email/builders"
 import { assertServerToken, getNow } from "./core"
 import {
   getDocumentDoc,
   getUserDoc,
   getWorkItemDoc,
+  listActiveUsersByIds,
 } from "./data"
 import { resolveAttachmentTarget } from "./assets"
 import {
@@ -15,6 +20,9 @@ import {
   requireEditableWorkspaceAccess,
   requireWorkspaceAdminAccess,
 } from "./access"
+import { createNotification } from "./collaboration_utils"
+import { getTeamMemberIds, getWorkspaceUserIds } from "./conversations"
+import { queueEmailJobs } from "./email_job_handlers"
 import { deleteDocumentCascade } from "./lifecycle"
 import { listDocumentPresenceViewers } from "./normalization"
 import { getAttachmentDoc } from "./data"
@@ -39,6 +47,16 @@ type UpdateDocumentArgs = ServerAccessArgs & {
   documentId: string
   title?: string
   content?: string
+}
+
+type SendDocumentMentionNotificationsArgs = ServerAccessArgs & {
+  currentUserId: string
+  origin: string
+  documentId: string
+  mentions: Array<{
+    userId: string
+    count: number
+  }>
 }
 
 type DocumentPresenceArgs = ServerAccessArgs & {
@@ -154,6 +172,175 @@ export async function updateDocumentHandler(
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
   })
+}
+
+function normalizeMentionNotificationCount(count: number) {
+  if (!Number.isFinite(count) || count <= 0) {
+    return 0
+  }
+
+  return Math.floor(count)
+}
+
+function buildDocumentMentionNotificationMessage(
+  actorName: string,
+  documentTitle: string,
+  mentionCount: number
+) {
+  if (mentionCount > 1) {
+    return `${actorName} mentioned you ${mentionCount} times in ${documentTitle}`
+  }
+
+  return `${actorName} mentioned you in ${documentTitle}`
+}
+
+function buildDocumentMentionDetailText(mentionCount: number) {
+  if (mentionCount > 1) {
+    return `You were mentioned ${mentionCount} times in this live document before notifications were sent.`
+  }
+
+  return "You were mentioned in this live document."
+}
+
+export async function sendDocumentMentionNotificationsHandler(
+  ctx: MutationCtx,
+  args: SendDocumentMentionNotificationsArgs
+) {
+  assertServerToken(args.serverToken)
+
+  if (args.mentions.length === 0) {
+    return {
+      recipientCount: 0,
+      mentionCount: 0,
+    }
+  }
+
+  const document = await getDocumentDoc(ctx, args.documentId)
+
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+
+  if (document.kind === "private-document") {
+    throw new Error("Private documents do not support mention notifications")
+  }
+
+  const audienceUserIds = new Set(
+    document.teamId
+      ? await getTeamMemberIds(ctx, document.teamId)
+      : document.workspaceId
+        ? await getWorkspaceUserIds(ctx, document.workspaceId)
+        : []
+  )
+  const mentionCounts = new Map<string, number>()
+
+  for (const mention of args.mentions) {
+    const normalizedUserId = mention.userId.trim()
+    const normalizedCount = normalizeMentionNotificationCount(mention.count)
+
+    if (normalizedUserId.length === 0 || normalizedCount === 0) {
+      continue
+    }
+
+    mentionCounts.set(
+      normalizedUserId,
+      (mentionCounts.get(normalizedUserId) ?? 0) + normalizedCount
+    )
+  }
+
+  if (mentionCounts.size === 0) {
+    return {
+      recipientCount: 0,
+      mentionCount: 0,
+    }
+  }
+
+  for (const userId of mentionCounts.keys()) {
+    if (userId === args.currentUserId) {
+      continue
+    }
+
+    if (!audienceUserIds.has(userId)) {
+      throw new Error(
+        "One or more mentioned users are invalid for this document"
+      )
+    }
+  }
+
+  const users = await listActiveUsersByIds(ctx, [
+    args.currentUserId,
+    ...mentionCounts.keys(),
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
+  const actorName = usersById.get(args.currentUserId)?.name ?? "Someone"
+  const mentionEmails: MentionEmail[] = []
+  const documentTitle = document.title.trim() || "Untitled document"
+  let mentionCount = 0
+  let recipientCount = 0
+
+  for (const [
+    mentionedUserId,
+    recipientMentionCount,
+  ] of mentionCounts.entries()) {
+    if (mentionedUserId === args.currentUserId) {
+      continue
+    }
+
+    const mentionedUser = usersById.get(mentionedUserId)
+
+    if (!mentionedUser) {
+      continue
+    }
+
+    const notification = createNotification(
+      mentionedUserId,
+      args.currentUserId,
+      buildDocumentMentionNotificationMessage(
+        actorName,
+        documentTitle,
+        recipientMentionCount
+      ),
+      "document",
+      args.documentId,
+      "mention"
+    )
+
+    await ctx.db.insert("notifications", notification)
+
+    if (mentionedUser.preferences.emailMentions) {
+      mentionEmails.push({
+        notificationId: notification.id,
+        email: mentionedUser.email,
+        name: mentionedUser.name,
+        entityTitle: documentTitle,
+        entityType: "document",
+        entityId: args.documentId,
+        actorName,
+        commentText: "",
+        detailLabel: "Summary",
+        detailText: buildDocumentMentionDetailText(recipientMentionCount),
+        mentionCount: recipientMentionCount,
+      })
+    }
+
+    mentionCount += recipientMentionCount
+    recipientCount += 1
+  }
+
+  await queueEmailJobs(
+    ctx,
+    buildMentionEmailJobs({
+      origin: args.origin,
+      emails: mentionEmails,
+    })
+  )
+
+  return {
+    recipientCount,
+    mentionCount,
+  }
 }
 
 export async function heartbeatDocumentPresenceHandler(
@@ -370,11 +557,7 @@ export async function generateSettingsImageUploadUrlHandler(
       throw new Error("Workspace not found")
     }
 
-    await requireWorkspaceAdminAccess(
-      ctx,
-      args.workspaceId,
-      args.currentUserId
-    )
+    await requireWorkspaceAdminAccess(ctx, args.workspaceId, args.currentUserId)
   } else {
     const user = await getUserDoc(ctx, args.currentUserId)
 

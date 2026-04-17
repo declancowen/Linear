@@ -46,6 +46,20 @@ const DELETE_DOCUMENT_ERROR_MAPPINGS = [
   },
 ] as const
 
+const DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
+  ...DOCUMENT_MUTATION_ERROR_MAPPINGS,
+  {
+    match: "Private documents do not support mention notifications",
+    status: 400,
+    code: "DOCUMENT_MENTION_NOTIFICATIONS_UNSUPPORTED",
+  },
+  {
+    match: "One or more mentioned users are invalid for this document",
+    status: 400,
+    code: "DOCUMENT_MENTION_USERS_INVALID",
+  },
+] as const
+
 const ITEM_DESCRIPTION_ERROR_MAPPINGS = [
   {
     match: "Work item not found",
@@ -293,6 +307,33 @@ export async function updateDocumentServer(input: {
   }
 }
 
+export async function sendDocumentMentionNotificationsServer(input: {
+  currentUserId: string
+  documentId: string
+  mentions: Array<{
+    userId: string
+    count: number
+  }>
+}) {
+  try {
+    const origin = await resolveServerOrigin()
+
+    return await getConvexServerClient().mutation(
+      api.app.sendDocumentMentionNotifications,
+      withServerToken({
+        ...input,
+        origin,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
 export async function renameDocumentServer(input: {
   currentUserId: string
   documentId: string
@@ -324,7 +365,8 @@ export async function deleteDocumentServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...DELETE_DOCUMENT_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...DELETE_DOCUMENT_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -414,7 +456,9 @@ export async function addCommentServer(input: {
       })
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...ADD_COMMENT_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...ADD_COMMENT_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -430,8 +474,9 @@ export async function toggleCommentReactionServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -509,6 +554,9 @@ export async function createDocumentServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...CREATE_DOCUMENT_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...CREATE_DOCUMENT_ERROR_MAPPINGS]) ??
+      error
+    )
   }
 }

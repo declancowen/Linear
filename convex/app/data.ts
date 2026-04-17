@@ -1,6 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
-import { normalizeEmailAddress, normalizeJoinCode } from "./core"
+import { mergeMembershipRole, normalizeEmailAddress, normalizeJoinCode } from "./core"
 
 export type AppCtx = MutationCtx | QueryCtx
 const QUERY_BATCH_SIZE = 20
@@ -106,6 +106,25 @@ export async function listUsersByIds(ctx: AppCtx, userIds: Iterable<string>) {
   ).filter((user) => user != null)
 }
 
+function isActiveUser(
+  user:
+    | {
+        accountDeletedAt?: string | null
+        accountDeletionPendingAt?: string | null
+      }
+    | null
+    | undefined
+) {
+  return Boolean(user && !user.accountDeletedAt && !user.accountDeletionPendingAt)
+}
+
+export async function listActiveUsersByIds(
+  ctx: AppCtx,
+  userIds: Iterable<string>
+) {
+  return (await listUsersByIds(ctx, userIds)).filter((user) => isActiveUser(user))
+}
+
 export async function getTeamMembershipDoc(
   ctx: AppCtx,
   teamId: string,
@@ -117,6 +136,48 @@ export async function getTeamMembershipDoc(
       q.eq("teamId", teamId).eq("userId", userId)
     )
     .unique()
+}
+
+export async function getWorkspaceMembershipDoc(
+  ctx: AppCtx,
+  workspaceId: string,
+  userId: string
+) {
+  return ctx.db
+    .query("workspaceMemberships")
+    .withIndex("by_workspace_and_user", (q) =>
+      q.eq("workspaceId", workspaceId).eq("userId", userId)
+    )
+    .unique()
+}
+
+export async function listWorkspaceMembershipsByUser(
+  ctx: AppCtx,
+  userId: string
+) {
+  return ctx.db
+    .query("workspaceMemberships")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()
+}
+
+export async function listWorkspaceMembershipsByWorkspace(
+  ctx: AppCtx,
+  workspaceId: string
+) {
+  return ctx.db
+    .query("workspaceMemberships")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect()
+}
+
+export async function listWorkspaceMembershipsByWorkspaces(
+  ctx: AppCtx,
+  workspaceIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(workspaceIds)], (workspaceId) =>
+    listWorkspaceMembershipsByWorkspace(ctx, workspaceId)
+  )
 }
 
 export async function listTeamMembershipsByUser(ctx: AppCtx, userId: string) {
@@ -298,6 +359,39 @@ export async function listWorkspaceTeams(ctx: AppCtx, workspaceId: string) {
     .collect()
 }
 
+export async function listActiveTeamUsers(ctx: AppCtx, teamId: string) {
+  const memberships = await listTeamMembershipsByTeam(ctx, teamId)
+
+  return listActiveUsersByIds(
+    ctx,
+    memberships.map((membership) => membership.userId)
+  )
+}
+
+export async function listActiveWorkspaceUsers(ctx: AppCtx, workspaceId: string) {
+  const [workspace, workspaceTeams] = await Promise.all([
+    getWorkspaceDoc(ctx, workspaceId),
+    listWorkspaceTeams(ctx, workspaceId),
+  ])
+  const [workspaceMemberships, teamMemberships] = await Promise.all([
+    listWorkspaceMembershipsByWorkspace(ctx, workspaceId),
+    listTeamMembershipsByTeams(
+      ctx,
+      workspaceTeams.map((team) => team.id)
+    ),
+  ])
+  const userIds = new Set([
+    ...workspaceMemberships.map((membership) => membership.userId),
+    ...teamMemberships.map((membership) => membership.userId),
+  ])
+
+  if (workspace?.createdBy) {
+    userIds.add(workspace.createdBy)
+  }
+
+  return listActiveUsersByIds(ctx, userIds)
+}
+
 export async function listTeamsByIds(ctx: AppCtx, teamIds: Iterable<string>) {
   return (
     await mapInBatches([...new Set(teamIds)], (teamId) => getTeamDoc(ctx, teamId))
@@ -461,6 +555,25 @@ export async function listDocumentPresenceByUser(ctx: AppCtx, userId: string) {
     .query("documentPresence")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect()
+}
+
+export async function listDocumentPresenceByDocument(
+  ctx: AppCtx,
+  documentId: string
+) {
+  return ctx.db
+    .query("documentPresence")
+    .withIndex("by_document", (q) => q.eq("documentId", documentId))
+    .collect()
+}
+
+export async function listDocumentPresenceByDocuments(
+  ctx: AppCtx,
+  documentIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(documentIds)], (documentId) =>
+    listDocumentPresenceByDocument(ctx, documentId)
+  )
 }
 
 export async function getConversationDoc(ctx: AppCtx, id: string) {
@@ -1018,17 +1131,33 @@ export function isDefinedString(
 }
 
 export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
-  const memberships = await listTeamMembershipsByUser(ctx, userId)
+  const [workspaceMemberships, memberships] = await Promise.all([
+    listWorkspaceMembershipsByUser(ctx, userId),
+    listTeamMembershipsByUser(ctx, userId),
+  ])
   const teams = await listTeamsByIds(
     ctx,
     memberships.map((membership) => membership.teamId)
   )
   const workspaces = await listWorkspacesOwnedByUser(ctx, userId)
-  const workspaceRoleMap = memberships.reduce<
+  const directWorkspaceIds = new Set(
+    workspaceMemberships.map((membership) => membership.workspaceId)
+  )
+  const workspaceRoleMap = workspaceMemberships.reduce<
+    Record<string, Array<(typeof memberships)[number]["role"]>>
+  >((accumulator, membership) => {
+    accumulator[membership.workspaceId] = [membership.role]
+    return accumulator
+  }, {})
+  const fallbackWorkspaceRoleMap = memberships.reduce<
     Record<string, Array<(typeof memberships)[number]["role"]>>
   >((accumulator, membership) => {
     const team = teams.find((entry) => entry.id === membership.teamId)
     if (!team) {
+      return accumulator
+    }
+
+    if (directWorkspaceIds.has(team.workspaceId)) {
       return accumulator
     }
 
@@ -1039,6 +1168,10 @@ export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
 
     return accumulator
   }, {})
+
+  for (const [workspaceId, roles] of Object.entries(fallbackWorkspaceRoleMap)) {
+    workspaceRoleMap[workspaceId] = roles
+  }
 
   for (const workspace of workspaces) {
     if (workspace.createdBy !== userId) {
@@ -1054,6 +1187,89 @@ export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
   }
 
   return workspaceRoleMap
+}
+
+export async function ensureWorkspaceMembership(
+  ctx: MutationCtx,
+  input: {
+    workspaceId: string
+    userId: string
+    role: "admin" | "member" | "viewer" | "guest"
+  }
+) {
+  const existingMembership = await getWorkspaceMembershipDoc(
+    ctx,
+    input.workspaceId,
+    input.userId
+  )
+
+  if (existingMembership) {
+    if (existingMembership.role !== input.role) {
+      await ctx.db.patch(existingMembership._id, {
+        role: input.role,
+      })
+    }
+
+    return input.role
+  }
+
+  await ctx.db.insert("workspaceMemberships", {
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    role: input.role,
+  })
+
+  return input.role
+}
+
+export async function syncWorkspaceMembershipRoleFromTeams(
+  ctx: MutationCtx,
+  input: {
+    workspaceId: string
+    userId: string
+    fallbackRole?: "admin" | "member" | "viewer" | "guest"
+  }
+) {
+  const workspace = await getWorkspaceDoc(ctx, input.workspaceId)
+
+  if (!workspace) {
+    throw new Error("Workspace not found")
+  }
+
+  if (workspace.createdBy === input.userId) {
+    return ensureWorkspaceMembership(ctx, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      role: "admin",
+    })
+  }
+
+  const memberships = await listTeamMembershipsByUser(ctx, input.userId)
+  const teams = await listTeamsByIds(
+    ctx,
+    memberships.map((membership) => membership.teamId)
+  )
+
+  const highestTeamRole =
+    memberships
+      .filter((membership) =>
+        teams.some(
+          (team) =>
+            team.id === membership.teamId &&
+            team.workspaceId === input.workspaceId
+        )
+      )
+      .reduce<(typeof memberships)[number]["role"] | null>(
+        (currentRole, membership) =>
+          mergeMembershipRole(currentRole, membership.role),
+        null
+      ) ?? null
+
+  return ensureWorkspaceMembership(ctx, {
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    role: highestTeamRole ?? (input.fallbackRole ?? "viewer"),
+  })
 }
 
 export async function bootstrapFirstAuthenticatedUser(

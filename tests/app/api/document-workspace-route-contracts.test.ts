@@ -7,6 +7,7 @@ const requireAppContextMock = vi.fn()
 const addCommentServerMock = vi.fn()
 const toggleCommentReactionServerMock = vi.fn()
 const updateDocumentServerMock = vi.fn()
+const sendDocumentMentionNotificationsServerMock = vi.fn()
 const updateItemDescriptionServerMock = vi.fn()
 const leaveWorkspaceServerMock = vi.fn()
 const removeWorkspaceUserServerMock = vi.fn()
@@ -30,10 +31,13 @@ vi.mock("@/lib/server/convex", () => ({
   addCommentServer: addCommentServerMock,
   toggleCommentReactionServer: toggleCommentReactionServerMock,
   updateDocumentServer: updateDocumentServerMock,
+  sendDocumentMentionNotificationsServer:
+    sendDocumentMentionNotificationsServerMock,
   updateItemDescriptionServer: updateItemDescriptionServerMock,
   leaveWorkspaceServer: leaveWorkspaceServerMock,
   removeWorkspaceUserServer: removeWorkspaceUserServerMock,
-  validateCurrentAccountDeletionServer: validateCurrentAccountDeletionServerMock,
+  validateCurrentAccountDeletionServer:
+    validateCurrentAccountDeletionServerMock,
   prepareCurrentAccountDeletionServer: prepareCurrentAccountDeletionServerMock,
   deleteCurrentAccountServer: deleteCurrentAccountServerMock,
   cancelCurrentAccountDeletionServer: cancelCurrentAccountDeletionServerMock,
@@ -71,6 +75,7 @@ describe("document and workspace route contracts", () => {
     addCommentServerMock.mockReset()
     toggleCommentReactionServerMock.mockReset()
     updateDocumentServerMock.mockReset()
+    sendDocumentMentionNotificationsServerMock.mockReset()
     updateItemDescriptionServerMock.mockReset()
     leaveWorkspaceServerMock.mockReset()
     removeWorkspaceUserServerMock.mockReset()
@@ -146,7 +151,8 @@ describe("document and workspace route contracts", () => {
   })
 
   it("maps comment reaction domain failures to typed error responses", async () => {
-    const { POST } = await import("@/app/api/comments/[commentId]/reactions/route")
+    const { POST } =
+      await import("@/app/api/comments/[commentId]/reactions/route")
 
     toggleCommentReactionServerMock.mockRejectedValue(
       new ApplicationError("Comment not found", 404, {
@@ -213,6 +219,50 @@ describe("document and workspace route contracts", () => {
     })
   })
 
+  it("maps document mention notification failures to typed error responses", async () => {
+    const { POST } =
+      await import("@/app/api/documents/[documentId]/mentions/route")
+
+    sendDocumentMentionNotificationsServerMock.mockRejectedValue(
+      new ApplicationError(
+        "One or more mentioned users are invalid for this document",
+        400,
+        {
+          code: "DOCUMENT_MENTION_USERS_INVALID",
+        }
+      )
+    )
+
+    const response = await POST(
+      new Request("http://localhost/api/documents/document_1/mentions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mentions: [
+            {
+              userId: "user_2",
+              count: 2,
+            },
+          ],
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          documentId: "document_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "One or more mentioned users are invalid for this document",
+      message: "One or more mentioned users are invalid for this document",
+      code: "DOCUMENT_MENTION_USERS_INVALID",
+    })
+  })
+
   it("maps item-description domain failures to typed error responses", async () => {
     const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
 
@@ -267,9 +317,8 @@ describe("document and workspace route contracts", () => {
   })
 
   it("maps workspace-user removal failures to typed error responses", async () => {
-    const { DELETE } = await import(
-      "@/app/api/workspace/current/users/[userId]/route"
-    )
+    const { DELETE } =
+      await import("@/app/api/workspace/current/users/[userId]/route")
 
     removeWorkspaceUserServerMock.mockRejectedValue(
       new ApplicationError(
@@ -317,7 +366,8 @@ describe("document and workspace route contracts", () => {
 
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({
-      error: "Transfer or delete your owned workspace before deleting your account",
+      error:
+        "Transfer or delete your owned workspace before deleting your account",
       message:
         "Transfer or delete your owned workspace before deleting your account",
       code: "ACCOUNT_DELETE_WORKSPACE_TRANSFER_REQUIRED",
@@ -390,9 +440,8 @@ describe("document and workspace route contracts", () => {
   })
 
   it("reconciles provider memberships after workspace removal commits", async () => {
-    const { DELETE } = await import(
-      "@/app/api/workspace/current/users/[userId]/route"
-    )
+    const { DELETE } =
+      await import("@/app/api/workspace/current/users/[userId]/route")
 
     removeWorkspaceUserServerMock.mockResolvedValue({
       workspaceId: "workspace_1",

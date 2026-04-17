@@ -24,6 +24,7 @@ import {
   getUserDoc,
   getWorkspaceDoc,
   setCurrentWorkspaceForUser,
+  syncWorkspaceMembershipRoleFromTeams,
 } from "./data"
 import { archiveInviteNotifications } from "./notifications"
 import { syncTeamConversationMemberships } from "./conversations"
@@ -195,6 +196,12 @@ export async function acceptInviteHandler(
     })
   }
 
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: invite.workspaceId,
+    userId: args.currentUserId,
+    fallbackRole: resolvedRole,
+  })
+
   await syncTeamConversationMemberships(ctx, invite.teamId)
 
   await ctx.db.patch(invite._id, {
@@ -332,6 +339,12 @@ export async function joinTeamByCodeHandler(
       role: resolvedRole,
     })
   }
+
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: team.workspaceId,
+    userId: args.currentUserId,
+    fallbackRole: resolvedRole,
+  })
 
   await syncTeamConversationMemberships(ctx, team.id)
 

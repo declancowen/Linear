@@ -165,6 +165,7 @@ export function createWorkspaceSlice(
     },
     async removeWorkspaceUser(userId) {
       const currentWorkspaceId = get().currentWorkspaceId
+      const previousWorkspaceMemberships = get().workspaceMemberships
       const previousMemberships = get().teamMemberships
 
       set((state) => {
@@ -175,6 +176,13 @@ export function createWorkspaceSlice(
         )
 
         return {
+          workspaceMemberships: state.workspaceMemberships.filter(
+            (membership) =>
+              !(
+                membership.workspaceId === currentWorkspaceId &&
+                membership.userId === userId
+              )
+          ),
           teamMemberships: state.teamMemberships.filter(
             (membership) =>
               membership.userId !== userId ||
@@ -190,6 +198,7 @@ export function createWorkspaceSlice(
       } catch (error) {
         console.error(error)
         set({
+          workspaceMemberships: previousWorkspaceMemberships,
           teamMemberships: previousMemberships,
         })
         void runtime.refreshFromServer().catch((refreshError) => {

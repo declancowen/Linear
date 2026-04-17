@@ -378,9 +378,14 @@ export function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
     .map((team) => team.id)
 
   const userIds = new Set(
-    state.teamMemberships
-      .filter((membership) => workspaceTeamIds.includes(membership.teamId))
-      .map((membership) => membership.userId)
+    [
+      ...state.workspaceMemberships
+        .filter((membership) => membership.workspaceId === workspaceId)
+        .map((membership) => membership.userId),
+      ...state.teamMemberships
+        .filter((membership) => workspaceTeamIds.includes(membership.teamId))
+        .map((membership) => membership.userId),
+    ]
   )
 
   if (workspaceOwnerId) {

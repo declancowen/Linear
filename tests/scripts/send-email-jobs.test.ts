@@ -82,7 +82,7 @@ describe("send-email-jobs worker", () => {
 
     expect(sendMock).toHaveBeenCalledWith(
       {
-        from: "noreply@example.com",
+        from: "noreply@example.com <noreply@example.com>",
         to: "alex@example.com",
         subject: "Mention",
         text: "text",
@@ -102,5 +102,45 @@ describe("send-email-jobs worker", () => {
       sentCount: 0,
       failedCount: 1,
     })
+  })
+
+  it("preserves an explicit formatted sender", async () => {
+    const { processEmailJobsBatch } = await import(
+      "../../scripts/send-email-jobs.mjs"
+    )
+
+    const sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } })
+
+    await processEmailJobsBatch({
+      jobs: [
+        {
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_1",
+          toEmail: "alex@example.com",
+          subject: "Mention",
+          text: "text",
+          html: "<p>text</p>",
+        },
+      ],
+      claimId: "claim_1",
+      resend: {
+        emails: {
+          send: sendMock,
+        },
+      },
+      resendFromEmail: "Recipe Room <noreply@example.com>",
+      markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
+      releaseEmailJobClaim: vi.fn().mockResolvedValue(undefined),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "Recipe Room <noreply@example.com>",
+      }),
+      {
+        idempotencyKey: "job_1",
+      }
+    )
   })
 })

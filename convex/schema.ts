@@ -24,6 +24,7 @@ import {
   userFields,
   viewDefinitionFields,
   workItemFields,
+  workspaceMembershipFields,
   workspaceFields,
 } from "./validators"
 
@@ -46,6 +47,10 @@ export default defineSchema({
     .index("by_domain_id", ["id"])
     .index("by_slug", ["slug"])
     .index("by_created_by", ["createdBy"]),
+  workspaceMemberships: defineTable(workspaceMembershipFields)
+    .index("by_workspace_and_user", ["workspaceId", "userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"]),
   teams: defineTable(teamFields)
     .index("by_domain_id", ["id"])
     .index("by_slug", ["slug"])

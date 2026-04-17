@@ -63,6 +63,7 @@ export {
   syncRegenerateTeamJoinCode,
   syncRemoveTeamMember,
   syncRenameDocument,
+  syncSendDocumentMentionNotifications,
   syncSendInvite,
   syncShiftTimelineItem,
   syncToggleCommentReaction,

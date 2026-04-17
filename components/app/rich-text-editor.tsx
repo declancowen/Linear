@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react"
 import {
   EditorContent,
   type Editor,
@@ -76,6 +82,7 @@ type RichTextEditorProps = {
   onStatsChange?: (stats: RichTextEditorStats) => void
   mentionMenuPlacement?: "above" | "below"
   editorInstanceRef?: MutableRefObject<Editor | null>
+  onMentionInserted?: (candidate: MentionCandidate) => void
   mentionCandidates?: Array<
     Pick<
       UserProfile,
@@ -114,6 +121,7 @@ export function RichTextEditor({
   onStatsChange,
   mentionMenuPlacement = "below",
   editorInstanceRef,
+  onMentionInserted,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -269,7 +277,8 @@ export function RichTextEditor({
       : "min-h-24 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
 
   const sanitizedStringContent = useMemo(
-    () => (typeof content === "string" ? sanitizeRichTextContent(content) : null),
+    () =>
+      typeof content === "string" ? sanitizeRichTextContent(content) : null,
     [content]
   )
 
@@ -478,6 +487,7 @@ export function RichTextEditor({
 
             event.preventDefault()
             insertMention(currentEditor, currentMentionState, selected)
+            onMentionInserted?.(selected)
             setMentionState(null)
             setMentionIndex(0)
             return true
@@ -734,7 +744,9 @@ export function RichTextEditor({
         showStats={showStats}
         statsCharacters={statsCharacters}
         statsWords={statsWords}
-        toolbarWidthClassName={FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]}
+        toolbarWidthClassName={
+          FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
+        }
         uploadsEnabled={Boolean(onUploadAttachment)}
         uploadingAttachment={uploadingAttachment}
       />
@@ -770,27 +782,28 @@ export function RichTextEditor({
               type="button"
               aria-hidden="true"
               tabIndex={-1}
-              className="size-px opacity-0 pointer-events-none"
+              className="pointer-events-none size-px opacity-0"
             />
           }
         />
       </div>
     ) : null
 
-  const slashMenu = allowSlashCommands && slashState ? (
-    <SlashCommandMenu
-      activeIndex={activeSlashIndex}
-      commands={filteredSlashCommands}
-      containerWidth={containerWidth}
-      editor={currentEditor}
-      state={slashState}
-      onComplete={() => {
-        setSlashState(null)
-        setSlashIndex(0)
-        previousSlashQueryRef.current = null
-      }}
-    />
-  ) : null
+  const slashMenu =
+    allowSlashCommands && slashState ? (
+      <SlashCommandMenu
+        activeIndex={activeSlashIndex}
+        commands={filteredSlashCommands}
+        containerWidth={containerWidth}
+        editor={currentEditor}
+        state={slashState}
+        onComplete={() => {
+          setSlashState(null)
+          setSlashIndex(0)
+          previousSlashQueryRef.current = null
+        }}
+      />
+    ) : null
 
   const mentionMenu = mentionState ? (
     <MentionMenu
@@ -800,6 +813,7 @@ export function RichTextEditor({
       editor={currentEditor}
       placement={mentionMenuPlacement}
       state={mentionState}
+      onSelectCandidate={onMentionInserted}
       onComplete={() => {
         setMentionState(null)
         setMentionIndex(0)

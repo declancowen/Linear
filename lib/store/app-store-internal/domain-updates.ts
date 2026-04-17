@@ -194,6 +194,9 @@ function buildNextStateAfterRemoval(
       : state.workspaces.filter(
           (workspace) => !removal.deletedWorkspaceIds.has(workspace.id)
         )
+  const workspaceMemberships = state.workspaceMemberships.filter(
+    (membership) => !removal.deletedWorkspaceIds.has(membership.workspaceId)
+  )
   const teams = state.teams.filter((team) => !removal.deletedTeamIds.has(team.id))
   const teamMemberships = state.teamMemberships.filter(
     (membership) => !removal.deletedTeamIds.has(membership.teamId)
@@ -312,6 +315,7 @@ function buildNextStateAfterRemoval(
   return {
     currentWorkspaceId,
     workspaces,
+    workspaceMemberships,
     teams,
     teamMemberships,
     labels,

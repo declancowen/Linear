@@ -294,6 +294,7 @@ export type ConversationAudienceState = Pick<
   AppData,
   | "currentUserId"
   | "workspaces"
+  | "workspaceMemberships"
   | "teams"
   | "teamMemberships"
   | "conversations"
@@ -326,6 +327,7 @@ export type WorkspaceStateAccess = Pick<
   | "currentUserId"
   | "currentWorkspaceId"
   | "workspaces"
+  | "workspaceMemberships"
   | "teams"
   | "teamMemberships"
   | "users"

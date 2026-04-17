@@ -358,6 +358,12 @@ export const teamFields = {
   }),
 }
 
+export const workspaceMembershipFields = {
+  workspaceId: v.string(),
+  userId: v.string(),
+  role: roleValidator,
+}
+
 export const teamMembershipFields = {
   teamId: v.string(),
   userId: v.string(),

@@ -276,6 +276,28 @@ export function syncUpdateDocument(
   })
 }
 
+export function syncSendDocumentMentionNotifications(
+  documentId: string,
+  mentions: Array<{
+    userId: string
+    count: number
+  }>
+): Promise<{
+  ok: boolean
+  recipientCount: number
+  mentionCount: number
+}> {
+  return runRouteMutation(`/api/documents/${documentId}/mentions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mentions,
+    }),
+  })
+}
+
 export function syncDeleteDocument(documentId: string) {
   return runRouteMutation(`/api/documents/${documentId}`, {
     method: "DELETE",
@@ -345,19 +367,16 @@ export function syncGenerateAttachmentUploadUrl(
   targetType: AttachmentTargetType,
   targetId: string
 ) {
-  return runRouteMutation<unknown>(
-    "/api/attachments/upload-url",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        targetType,
-        targetId,
-      }),
-    }
-  ).then(normalizeGenerateAttachmentUploadUrlResult)
+  return runRouteMutation<unknown>("/api/attachments/upload-url", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      targetType,
+      targetId,
+    }),
+  }).then(normalizeGenerateAttachmentUploadUrlResult)
 }
 
 export function syncCreateAttachment(input: {
@@ -368,16 +387,13 @@ export function syncCreateAttachment(input: {
   contentType: string
   size: number
 }) {
-  return runRouteMutation<unknown>(
-    "/api/attachments",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(input),
-    }
-  ).then(normalizeCreateAttachmentResult)
+  return runRouteMutation<unknown>("/api/attachments", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  }).then(normalizeCreateAttachmentResult)
 }
 
 export function syncDeleteAttachment(attachmentId: string) {
@@ -555,15 +571,12 @@ export function syncRemoveTeamMember(teamId: string, userId: string) {
 }
 
 export function syncRegenerateTeamJoinCode(teamId: string) {
-  return runRouteMutation<unknown>(
-    `/api/teams/${teamId}/join-code`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  ).then(normalizeRegenerateTeamJoinCodeResult)
+  return runRouteMutation<unknown>(`/api/teams/${teamId}/join-code`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  }).then(normalizeRegenerateTeamJoinCodeResult)
 }
 
 export function syncCreateDocument(

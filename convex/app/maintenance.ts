@@ -2,6 +2,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 
 import {
   assertServerToken,
+  mergeMembershipRole,
   normalizeEmailAddress,
   normalizeJoinCode,
 } from "./core"
@@ -38,6 +39,162 @@ type LegacyLookupStatus = {
   }
   remaining: {
     total: number
+  }
+}
+
+type MembershipRole = "admin" | "member" | "viewer" | "guest"
+
+type WorkspaceMembershipBackfillInput = {
+  workspaces: Array<{
+    id: string
+    createdBy?: string | null
+  }>
+  teams: Array<{
+    id: string
+    workspaceId: string
+  }>
+  teamMemberships: Array<{
+    teamId: string
+    userId: string
+    role: MembershipRole
+  }>
+  workspaceMemberships: Array<{
+    workspaceId: string
+    userId: string
+    role: MembershipRole
+  }>
+}
+
+type WorkspaceMembershipRecord = {
+  workspaceId: string
+  userId: string
+  role: MembershipRole
+}
+
+type WorkspaceMembershipBackfillStatus = {
+  memberships: {
+    expected: number
+    existing: number
+    missing: number
+    staleRole: number
+    remaining: number
+  }
+  remaining: {
+    total: number
+  }
+}
+
+function getWorkspaceMembershipKey(workspaceId: string, userId: string) {
+  return `${workspaceId}:${userId}`
+}
+
+function compareWorkspaceMemberships(
+  left: WorkspaceMembershipRecord,
+  right: WorkspaceMembershipRecord
+) {
+  if (left.workspaceId !== right.workspaceId) {
+    return left.workspaceId.localeCompare(right.workspaceId)
+  }
+
+  return left.userId.localeCompare(right.userId)
+}
+
+export function buildWorkspaceMembershipBackfillPlan(
+  input: WorkspaceMembershipBackfillInput
+) {
+  const workspaceByTeamId = new Map(
+    input.teams.map((team) => [team.id, team.workspaceId] as const)
+  )
+  const expectedRoleByMembershipKey = new Map<string, MembershipRole>()
+
+  for (const workspace of input.workspaces) {
+    const ownerUserId = workspace.createdBy ?? null
+
+    if (!ownerUserId) {
+      continue
+    }
+
+    expectedRoleByMembershipKey.set(
+      getWorkspaceMembershipKey(workspace.id, ownerUserId),
+      "admin"
+    )
+  }
+
+  for (const membership of input.teamMemberships) {
+    const workspaceId = workspaceByTeamId.get(membership.teamId)
+
+    if (!workspaceId) {
+      continue
+    }
+
+    const membershipKey = getWorkspaceMembershipKey(
+      workspaceId,
+      membership.userId
+    )
+    const currentRole = expectedRoleByMembershipKey.get(membershipKey) ?? null
+
+    expectedRoleByMembershipKey.set(
+      membershipKey,
+      mergeMembershipRole(currentRole, membership.role)
+    )
+  }
+
+  const expectedMemberships = [...expectedRoleByMembershipKey.entries()]
+    .map(([membershipKey, role]) => {
+      const [workspaceId, userId] = membershipKey.split(":")
+
+      return {
+        workspaceId,
+        userId,
+        role,
+      }
+    })
+    .sort(compareWorkspaceMemberships)
+
+  const actualRoleByMembershipKey = new Map(
+    input.workspaceMemberships.map((membership) => [
+      getWorkspaceMembershipKey(membership.workspaceId, membership.userId),
+      membership.role,
+    ])
+  )
+
+  const missingMemberships: WorkspaceMembershipRecord[] = []
+  const staleRoleMemberships: WorkspaceMembershipRecord[] = []
+
+  for (const membership of expectedMemberships) {
+    const actualRole =
+      actualRoleByMembershipKey.get(
+        getWorkspaceMembershipKey(membership.workspaceId, membership.userId)
+      ) ?? null
+
+    if (!actualRole) {
+      missingMemberships.push(membership)
+      continue
+    }
+
+    if (actualRole !== membership.role) {
+      staleRoleMemberships.push(membership)
+    }
+  }
+
+  const status: WorkspaceMembershipBackfillStatus = {
+    memberships: {
+      expected: expectedMemberships.length,
+      existing: input.workspaceMemberships.length,
+      missing: missingMemberships.length,
+      staleRole: staleRoleMemberships.length,
+      remaining: missingMemberships.length + staleRoleMemberships.length,
+    },
+    remaining: {
+      total: missingMemberships.length + staleRoleMemberships.length,
+    },
+  }
+
+  return {
+    expectedMemberships,
+    missingMemberships,
+    staleRoleMemberships,
+    status,
   }
 }
 
@@ -179,6 +336,23 @@ async function loadLookupTables(ctx: MutationCtx | QueryCtx) {
   }
 }
 
+async function loadWorkspaceMembershipTables(ctx: MutationCtx | QueryCtx) {
+  const [workspaces, teams, teamMemberships, workspaceMemberships] =
+    await Promise.all([
+      ctx.db.query("workspaces").collect(),
+      ctx.db.query("teams").collect(),
+      ctx.db.query("teamMemberships").collect(),
+      ctx.db.query("workspaceMemberships").collect(),
+    ])
+
+  return {
+    workspaces,
+    teams,
+    teamMemberships,
+    workspaceMemberships,
+  }
+}
+
 export async function getLegacyLookupBackfillStatusHandler(
   ctx: QueryCtx,
   args: ServerAccessArgs
@@ -186,6 +360,17 @@ export async function getLegacyLookupBackfillStatusHandler(
   assertServerToken(args.serverToken)
 
   return getNormalizedLookupStatus(await loadLookupTables(ctx))
+}
+
+export async function getWorkspaceMembershipBackfillStatusHandler(
+  ctx: QueryCtx,
+  args: ServerAccessArgs
+) {
+  assertServerToken(args.serverToken)
+
+  return buildWorkspaceMembershipBackfillPlan(
+    await loadWorkspaceMembershipTables(ctx)
+  ).status
 }
 
 export async function backfillLegacyLookupFieldsHandler(
@@ -321,6 +506,71 @@ export async function backfillLegacyLookupFieldsHandler(
       ...patched,
       total:
         patched.teams + patched.users + patched.invites + patched.labels,
+    },
+    remaining: status.remaining,
+    status,
+  }
+}
+
+export async function backfillWorkspaceMembershipsHandler(
+  ctx: MutationCtx,
+  args: BackfillArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const batchLimit = Math.max(1, Math.min(args.limit ?? 250, 1000))
+  const tables = await loadWorkspaceMembershipTables(ctx)
+  const plan = buildWorkspaceMembershipBackfillPlan(tables)
+  const workspaceMembershipDocsByKey = new Map(
+    tables.workspaceMemberships.map((membership) => [
+      getWorkspaceMembershipKey(membership.workspaceId, membership.userId),
+      membership,
+    ])
+  )
+  let remainingCapacity = batchLimit
+  const patched = {
+    inserted: 0,
+    updated: 0,
+  }
+
+  for (const membership of plan.missingMemberships) {
+    if (remainingCapacity <= 0) {
+      break
+    }
+
+    await ctx.db.insert("workspaceMemberships", membership)
+    patched.inserted += 1
+    remainingCapacity -= 1
+  }
+
+  for (const membership of plan.staleRoleMemberships) {
+    if (remainingCapacity <= 0) {
+      break
+    }
+
+    const existingMembership = workspaceMembershipDocsByKey.get(
+      getWorkspaceMembershipKey(membership.workspaceId, membership.userId)
+    )
+
+    if (!existingMembership) {
+      continue
+    }
+
+    await ctx.db.patch(existingMembership._id, {
+      role: membership.role,
+    })
+    patched.updated += 1
+    remainingCapacity -= 1
+  }
+
+  const status = buildWorkspaceMembershipBackfillPlan(
+    await loadWorkspaceMembershipTables(ctx)
+  ).status
+
+  return {
+    patched: {
+      ...patched,
+      total: patched.inserted + patched.updated,
     },
     remaining: status.remaining,
     status,

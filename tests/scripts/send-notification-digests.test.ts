@@ -127,6 +127,12 @@ describe("send-notification-digests worker", () => {
     ).rejects.toThrow("Convex unavailable")
 
     expect(sendMock).toHaveBeenCalledTimes(1)
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "noreply@example.com <noreply@example.com>",
+      }),
+      expect.any(Object)
+    )
     expect(releaseNotificationDigestClaimMock).toHaveBeenCalledWith({
       claimId: "claim_1",
       notificationIds: ["notification_2"],
