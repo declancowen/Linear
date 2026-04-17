@@ -214,22 +214,22 @@ function normalizeStoredMentionCounts(
   return normalizedCounts
 }
 
-function clampMentionCountsToPersistedCounts(
-  mentionCounts: Record<string, number>,
-  persistedMentionCounts: Record<string, number>
+function clampStoredMentionCountsToContentCounts(
+  storedCounts: Record<string, number>,
+  contentCounts: Record<string, number>
 ) {
   const clampedCounts: Record<string, number> = {}
 
-  for (const [userId, persistedCount] of Object.entries(persistedMentionCounts)) {
-    const normalizedPersistedCount = normalizeMentionNotificationCount(persistedCount)
+  for (const [userId, contentCount] of Object.entries(contentCounts)) {
+    const normalizedContentCount = normalizeMentionNotificationCount(contentCount)
 
-    if (normalizedPersistedCount === 0) {
+    if (normalizedContentCount === 0) {
       continue
     }
 
     const normalizedCount = Math.min(
-      normalizedPersistedCount,
-      normalizeMentionNotificationCount(mentionCounts[userId] ?? 0)
+      normalizedContentCount,
+      normalizeMentionNotificationCount(storedCounts[userId] ?? 0)
     )
 
     if (normalizedCount > 0) {
@@ -244,7 +244,7 @@ function getClampedNotifiedMentionCounts(
   content: string,
   notifiedMentionCounts?: Record<string, number> | null
 ) {
-  return clampMentionCountsToPersistedCounts(
+  return clampStoredMentionCountsToContentCounts(
     normalizeStoredMentionCounts(notifiedMentionCounts),
     extractRichTextMentionCounts(content)
   )
@@ -336,7 +336,7 @@ export async function sendDocumentMentionNotificationsHandler(
         : []
   )
   const persistedMentionCounts = extractRichTextMentionCounts(document.content)
-  const notifiedMentionCounts = clampMentionCountsToPersistedCounts(
+  const notifiedMentionCounts = clampStoredMentionCountsToContentCounts(
     normalizeStoredMentionCounts(document.notifiedMentionCounts),
     persistedMentionCounts
   )

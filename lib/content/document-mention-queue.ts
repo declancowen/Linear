@@ -91,7 +91,7 @@ export function createDocumentMentionQueueState(
 
   return {
     baselineCounts: initialCounts,
-    currentCounts: initialCounts,
+    currentCounts: cloneMentionCounts(initialCounts),
     trackedUserIds: {},
   }
 }

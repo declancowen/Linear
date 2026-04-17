@@ -158,6 +158,9 @@ export function RichTextEditor({
   const editorRef = useRef<Editor | null>(null)
   const previousSlashQueryRef = useRef<string | null>(null)
   const previousMentionQueryRef = useRef<string | null>(null)
+  const onChangeRef = useRef(onChange)
+  const onMentionCountsChangeRef = useRef(onMentionCountsChange)
+  const onMentionInsertedRef = useRef(onMentionInserted)
 
   const [slashState, setSlashState] = useState<MenuState | null>(null)
   const [mentionState, setMentionState] = useState<MenuState | null>(null)
@@ -173,6 +176,18 @@ export function RichTextEditor({
     useState<EmojiPickerAnchor | null>(null)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [containerWidth, setContainerWidth] = useState(256)
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  useEffect(() => {
+    onMentionCountsChangeRef.current = onMentionCountsChange
+  }, [onMentionCountsChange])
+
+  useEffect(() => {
+    onMentionInsertedRef.current = onMentionInserted
+  }, [onMentionInserted])
   const [fullPageCanvasWidth, setFullPageCanvasWidth] =
     useState<FullPageCanvasWidth>("narrow")
   const [fullPageCanvasWidthReady, setFullPageCanvasWidthReady] =
@@ -298,7 +313,10 @@ export function RichTextEditor({
   }
 
   function syncMentionCounts(currentEditor: Editor) {
-    onMentionCountsChange?.(getEditorMentionCounts(currentEditor), "local")
+    onMentionCountsChangeRef.current?.(
+      getEditorMentionCounts(currentEditor),
+      "local"
+    )
   }
 
   // Build editor class based on mode
@@ -519,7 +537,7 @@ export function RichTextEditor({
 
             event.preventDefault()
             insertMention(currentEditor, currentMentionState, selected)
-            onMentionInserted?.(selected)
+            onMentionInsertedRef.current?.(selected)
             setMentionState(null)
             setMentionIndex(0)
             return true
@@ -561,11 +579,14 @@ export function RichTextEditor({
       },
     },
     onCreate({ editor: currentEditor }) {
-      onMentionCountsChange?.(getEditorMentionCounts(currentEditor), "initial")
+      onMentionCountsChangeRef.current?.(
+        getEditorMentionCounts(currentEditor),
+        "initial"
+      )
       syncCommandMenus(currentEditor)
     },
     onUpdate({ editor: currentEditor }) {
-      onChange(sanitizeRichTextContent(currentEditor.getHTML()))
+      onChangeRef.current(sanitizeRichTextContent(currentEditor.getHTML()))
       syncMentionCounts(currentEditor)
       syncCommandMenus(currentEditor)
     },
@@ -612,9 +633,12 @@ export function RichTextEditor({
       editor.commands.setContent(sanitizedStringContent, {
         emitUpdate: false,
       })
-      onMentionCountsChange?.(getEditorMentionCounts(editor), "external")
+      onMentionCountsChangeRef.current?.(
+        getEditorMentionCounts(editor),
+        "external"
+      )
     }
-  }, [editor, onMentionCountsChange, sanitizedStringContent])
+  }, [editor, sanitizedStringContent])
 
   useEffect(() => {
     if (!editor) {

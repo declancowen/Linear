@@ -7,6 +7,20 @@ import {
 } from "@/lib/content/document-mention-queue"
 
 describe("document mention queue", () => {
+  it("initializes baseline and current counts as separate objects", () => {
+    const state = createDocumentMentionQueueState({
+      user_1: 1,
+    })
+
+    expect(state.baselineCounts).toEqual({
+      user_1: 1,
+    })
+    expect(state.currentCounts).toEqual({
+      user_1: 1,
+    })
+    expect(state.baselineCounts).not.toBe(state.currentCounts)
+  })
+
   it("drops pending users immediately when their mentions are deleted", () => {
     let state = createDocumentMentionQueueState({})
 

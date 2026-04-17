@@ -33,13 +33,47 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 19:10:46 BST` |
-| **Last reviewed** | `2026-04-17 21:04:02 BST` |
-| **Total turns** | `8` |
+| **Last reviewed** | `2026-04-17 21:23:04 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `6` |
+| **Resolved findings** | `7` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 9 — 2026-04-17 21:23:04 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `4ceb62f` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Rechecked the remaining document/editor provider notes against the current branch. No new correctness bug was confirmed in the pending-mention flow. I fixed two low-risk editor/queue footguns and one clarity issue: mention-count callbacks now read from refs instead of stale TipTap closures, the queue’s initial baseline/current counts no longer share an object reference, and the replay-ledger clamp helper is named after what it actually does.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 9 | 1 |
+| Carried from Turn 8 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 9
+
+#### F9-01 ~~[BUG] Low~~ → RESOLVED — Editor mention-count synchronization still depended on stale closure capture and queue state shared an initialization reference
+**How it was fixed:** [RichTextEditor](../components/app/rich-text-editor.tsx:155) now keeps `onChange`, `onMentionCountsChange`, and `onMentionInserted` in refs so TipTap `onCreate`/`onUpdate` and the external-content sync effect always call the latest callback without depending on render-time closure capture. The external sync effect in [rich-text-editor.tsx](../components/app/rich-text-editor.tsx:586) no longer depends on the callback reference either, which removes redundant reruns. In [document-mention-queue.ts](../lib/content/document-mention-queue.ts:83), `createDocumentMentionQueueState()` now clones `currentCounts` separately from `baselineCounts`, eliminating the fragile shared-object initialization pattern. I also renamed the replay-ledger clamp helper in [document_handlers.ts](../convex/app/document_handlers.ts:212) to match its actual stored-count-vs-content-count semantics.
+
+**Verified:** Added regression coverage in [document-mention-queue.test.ts](../tests/lib/content/document-mention-queue.test.ts:1), then ran:
+- `pnpm test -- tests/lib/content/document-mention-queue.test.ts tests/components/document-detail-screen.test.tsx`
+- `pnpm exec eslint components/app/rich-text-editor.tsx lib/content/document-mention-queue.ts tests/lib/content/document-mention-queue.test.ts convex/app/document_handlers.ts dist/electron-stage/electron/main.cjs --max-warnings 0`
+- `git diff --check`
+
+### Remaining notes classified
+
+- The server-side mention validation still uses the regex extractor path under the Convex runtime; that remains acceptable as long as editor mention markup changes keep both extraction paths in sync.
+- Skipping self-mention validation remains intentional because self-mentions are discarded during delivery.
+- The broad same-origin anchor interception in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:294) still reads as intentional while pending mention notifications exist.
+- The popstate route-state edge case and the “other users’ concurrent edits can affect local mention deltas” note remain acceptable tradeoffs rather than confirmed bugs on this branch.
+- The older per-keystroke HTML-parse note, inline callback note, and RichTextEditor mock-ordering note are stale on the current branch.
 
 ## Turn 8 — 2026-04-17 21:04:02 BST
 
