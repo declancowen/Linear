@@ -34,6 +34,7 @@ export function createWorkDocumentActions({
 }: WorkSliceFactoryArgs): Pick<
   WorkSlice,
   | "updateDocumentContent"
+  | "flushDocumentSync"
   | "renameDocument"
   | "deleteDocument"
   | "updateItemDescription"

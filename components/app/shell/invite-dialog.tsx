@@ -13,11 +13,18 @@ import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
 import { syncSendInvite } from "@/lib/convex/client"
-import { getAccessibleTeams, getTeamRole } from "@/lib/domain/selectors"
+import { getInviteWorkspaceUserMatches } from "@/lib/domain/invite-search"
+import {
+  getAccessibleTeams,
+  getCurrentWorkspace,
+  getTeamRole,
+  getWorkspaceUsers,
+} from "@/lib/domain/selectors"
 import { normalizeTeamIconToken, type Role } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
+import { UserAvatar } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -43,6 +50,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+function isValidInviteEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
 export function InviteDialog({
   open,
   onOpenChange,
@@ -55,6 +66,7 @@ export function InviteDialog({
   presetTeamIds: string[]
 }) {
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
   const inviteableTeams = useAppStore(
     useShallow((state) =>
@@ -64,10 +76,22 @@ export function InviteDialog({
       })
     )
   )
+  const teamMemberships = useAppStore((state) => state.teamMemberships)
+  const workspaceUsers = useAppStore(
+    useShallow((state) => {
+      const currentWorkspace = getCurrentWorkspace(state)
+
+      return currentWorkspace
+        ? getWorkspaceUsers(state, currentWorkspace.id)
+        : []
+    })
+  )
   const [teamIds, setTeamIds] = useState<string[]>([])
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<Role>("viewer")
   const [submitting, setSubmitting] = useState(false)
+  const [dismissedWorkspaceMatchEmail, setDismissedWorkspaceMatchEmail] =
+    useState<string | null>(null)
   const inviteRoleOptions: Array<{
     value: Role
     label: string
@@ -107,10 +131,23 @@ export function InviteDialog({
     setTeamIds(lockedToTeam ? presetTeamIds : [])
     setEmail("")
     setRole("viewer")
+    setDismissedWorkspaceMatchEmail(null)
   }, [lockedToTeam, open, presetTeamIds])
 
-  const canInvite =
+  const workspaceUserMatches = getInviteWorkspaceUserMatches({
+    currentUserId,
+    query: email,
+    selectedTeamIds: teamIds,
+    teamMemberships,
+    workspaceUsers,
+  })
+  const firstSelectableWorkspaceUserMatch = workspaceUserMatches[0] ?? null
+  const showWorkspaceUserMatches =
     email.trim().length > 0 &&
+    workspaceUserMatches.length > 0 &&
+    email.trim().toLowerCase() !== dismissedWorkspaceMatchEmail
+  const canInvite =
+    isValidInviteEmail(email) &&
     teamIds.length > 0 &&
     teamIds.every((teamId) =>
       inviteableTeams.some((team) => team.id === teamId)
@@ -144,16 +181,79 @@ export function InviteDialog({
         <div className="space-y-5 px-6 py-4">
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="invite-email">Email address</FieldLabel>
+              <FieldLabel htmlFor="invite-email">
+                Email address or name
+              </FieldLabel>
               <FieldContent>
-                <Input
-                  id="invite-email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="colleague@company.com"
-                  autoFocus
-                />
+                <div className="space-y-2">
+                  <Input
+                    id="invite-email"
+                    value={email}
+                    onChange={(event) => {
+                      setEmail(event.target.value)
+                      setDismissedWorkspaceMatchEmail(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "Enter" &&
+                        !isValidInviteEmail(email) &&
+                        firstSelectableWorkspaceUserMatch
+                      ) {
+                        event.preventDefault()
+                        setEmail(firstSelectableWorkspaceUserMatch.email)
+                        setDismissedWorkspaceMatchEmail(
+                          firstSelectableWorkspaceUserMatch.email.toLowerCase()
+                        )
+                      }
+                    }}
+                    placeholder="colleague@company.com or type a name"
+                    autoFocus
+                  />
+                  {showWorkspaceUserMatches ? (
+                    <div className="overflow-hidden rounded-xl border bg-muted/15">
+                      <div className="border-b px-3 py-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                        People in this workspace
+                      </div>
+                      <div className="flex flex-col gap-1 p-1">
+                        {workspaceUserMatches.map((user) => (
+                          <button
+                            key={user.id}
+                            type="button"
+                            className="flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/60"
+                            onClick={() => {
+                              setEmail(user.email)
+                              setDismissedWorkspaceMatchEmail(
+                                user.email.toLowerCase()
+                              )
+                            }}
+                          >
+                            <UserAvatar
+                              name={user.name}
+                              avatarImageUrl={user.avatarImageUrl}
+                              avatarUrl={user.avatarUrl}
+                              status={user.status}
+                              showStatus={false}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium">
+                                {user.name}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {user.email}
+                                {user.title ? ` · ${user.title}` : ""}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </FieldContent>
+              <FieldDescription>
+                Type a name to pick someone already in the workspace, or enter
+                any email address.
+              </FieldDescription>
             </Field>
           </FieldGroup>
 

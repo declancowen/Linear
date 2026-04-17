@@ -316,6 +316,102 @@ describe("DocumentDetailScreen", () => {
     })
   })
 
+  it("starts and clears document presence for editable documents", async () => {
+    const { unmount } = render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    unmount()
+
+    await waitFor(() => {
+      expect(syncClearDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1",
+        {
+          keepalive: true,
+        }
+      )
+    })
+  })
+
+  it("refreshes document presence when the window regains focus", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    syncHeartbeatDocumentPresenceMock.mockClear()
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"))
+    })
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+  })
+
+  it("clears document presence when the page becomes hidden", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
+        "doc_1",
+        "session_1"
+      )
+    })
+
+    syncClearDocumentPresenceMock.mockClear()
+
+    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    )
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    })
+
+    try {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+
+      await waitFor(() => {
+        expect(syncClearDocumentPresenceMock).toHaveBeenCalledWith(
+          "doc_1",
+          "session_1",
+          {
+            keepalive: true,
+          }
+        )
+      })
+    } finally {
+      if (visibilityStateDescriptor) {
+        Object.defineProperty(
+          document,
+          "visibilityState",
+          visibilityStateDescriptor
+        )
+      } else {
+        Reflect.deleteProperty(document, "visibilityState")
+      }
+    }
+  })
+
   it("opens the exit dialog when browser history navigation is attempted with pending mentions", async () => {
     const historyBackSpy = vi
       .spyOn(window.history, "back")

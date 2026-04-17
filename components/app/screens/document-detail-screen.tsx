@@ -190,7 +190,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     let cancelled = false
     let heartbeatTimeoutId: number | null = null
     const activeDocumentId = currentDocumentId
-    const sessionId = getDocumentPresenceSessionId()
+    const sessionId = getDocumentPresenceSessionId(currentUserId)
 
     function clearHeartbeatTimeout() {
       if (heartbeatTimeoutId !== null) {
@@ -253,7 +253,19 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     const handleVisibilityChange = () => {
       if (window.document.visibilityState === "visible") {
         void sendHeartbeat()
+        return
       }
+
+      leaveDocument({ keepalive: true })
+    }
+    const handleWindowFocus = () => {
+      void sendHeartbeat()
+    }
+    const handleWindowOnline = () => {
+      void sendHeartbeat()
+    }
+    const handlePageShow = () => {
+      void sendHeartbeat()
     }
     const handlePageHide = () => {
       leaveDocument({ keepalive: true })
@@ -261,12 +273,18 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     void sendHeartbeat()
 
+    window.addEventListener("focus", handleWindowFocus)
+    window.addEventListener("online", handleWindowOnline)
+    window.addEventListener("pageshow", handlePageShow)
     window.document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("pagehide", handlePageHide)
 
     return () => {
       cancelled = true
       clearHeartbeatTimeout()
+      window.removeEventListener("focus", handleWindowFocus)
+      window.removeEventListener("online", handleWindowOnline)
+      window.removeEventListener("pageshow", handlePageShow)
       window.document.removeEventListener(
         "visibilitychange",
         handleVisibilityChange
@@ -276,7 +294,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [currentDocumentId, resolvedDocumentKind])
+  }, [currentDocumentId, resolvedDocumentKind, currentUserId])
   const activePendingMentionEntries = useMemo(
     () => getPendingDocumentMentionEntries(mentionQueue),
     [mentionQueue]

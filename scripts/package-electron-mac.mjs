@@ -10,6 +10,25 @@ const repoRoot = path.resolve(__dirname, "..")
 const outputDir = path.join(repoRoot, "dist", "electron")
 const installDir = path.join(os.homedir(), "Applications")
 const installedAppPath = path.join(installDir, "Recipe Room.app")
+const defaultRendererUrl = "https://teams.reciperoom.io"
+
+function trimTrailingSlash(value) {
+  return value.replace(/\/+$/, "")
+}
+
+function readUrlValue(value) {
+  const trimmed = value?.trim()
+  return trimmed ? trimTrailingSlash(trimmed) : null
+}
+
+function resolveConfiguredRendererUrl(env = process.env) {
+  return (
+    readUrlValue(env.APP_URL) ??
+    readUrlValue(env.NEXT_PUBLIC_APP_URL) ??
+    readUrlValue(env.TEAMS_URL) ??
+    readUrlValue(env.ELECTRON_RENDERER_URL)
+  )
+}
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -42,7 +61,7 @@ async function findBuiltApp(searchDir) {
       continue
     }
 
-      const appPath = path.join(searchDir, entry.name, "Recipe Room.app")
+    const appPath = path.join(searchDir, entry.name, "Recipe Room.app")
 
     try {
       await fs.access(appPath)
@@ -66,6 +85,10 @@ async function main() {
   )
   const stageDir = path.join(stageRoot, "app")
   const stageOutputDir = path.join(stageRoot, "out")
+  const desktopRuntimeConfig = {
+    rendererUrl:
+      resolveConfiguredRendererUrl(process.env) ?? defaultRendererUrl,
+  }
 
   try {
     await fs.mkdir(stageDir, { recursive: true })
@@ -100,7 +123,12 @@ async function main() {
           output: stageOutputDir,
           buildResources: "electron",
         },
-        files: ["electron/**/*", "app-icon.png", "package.json"],
+        files: [
+          "desktop-runtime.json",
+          "electron/**/*",
+          "app-icon.png",
+          "package.json",
+        ],
         extraMetadata: {
           main: "electron/main.cjs",
         },
@@ -117,6 +145,10 @@ async function main() {
     await fs.writeFile(
       path.join(stageDir, "package.json"),
       `${JSON.stringify(stagePackageJson, null, 2)}\n`
+    )
+    await fs.writeFile(
+      path.join(stageDir, "desktop-runtime.json"),
+      `${JSON.stringify(desktopRuntimeConfig, null, 2)}\n`
     )
 
     await fs.rm(outputDir, { force: true, recursive: true })

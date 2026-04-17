@@ -18,7 +18,7 @@ import {
   defaultUserStatusMessage,
   normalizeTeamIcon,
 } from "./core"
-import type { AppCtx } from "./data"
+import { listUsersByIds, type AppCtx } from "./data"
 
 const DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS = 2 * 60 * 1000
 
@@ -167,13 +167,27 @@ export async function listDocumentPresenceViewers(
     latestEntryByViewerKey.set(viewerKey, entry)
   }
 
-  const filteredViewers = [...latestEntryByViewerKey.values()].map((entry) => ({
-    userId: getDocumentPresenceViewerKey(entry),
-    name: entry.name ?? "User",
-    avatarUrl: entry.avatarUrl ?? "",
-    avatarImageUrl: null,
-    lastSeenAt: entry.lastSeenAt,
-  }))
+  const latestEntries = [...latestEntryByViewerKey.values()]
+  const resolvedUsers = await Promise.all(
+    (await listUsersByIds(
+      ctx,
+      latestEntries.map((entry) => entry.userId)
+    )).map((user) => resolveUserSnapshot(ctx, user))
+  )
+  const resolvedUserById = new Map(
+    resolvedUsers.map((user) => [user.id, user] as const)
+  )
+  const filteredViewers = latestEntries.map((entry) => {
+    const resolvedUser = resolvedUserById.get(entry.userId)
+
+    return {
+      userId: getDocumentPresenceViewerKey(entry),
+      name: resolvedUser?.name ?? entry.name ?? "User",
+      avatarUrl: resolvedUser?.avatarUrl ?? entry.avatarUrl ?? "",
+      avatarImageUrl: resolvedUser?.avatarImageUrl ?? null,
+      lastSeenAt: entry.lastSeenAt,
+    }
+  })
 
   return filteredViewers
 }

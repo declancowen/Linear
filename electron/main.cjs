@@ -1,18 +1,17 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { spawn } = require("node:child_process")
+const fs = require("node:fs")
 const { createServer } = require("node:net")
 const path = require("node:path")
 
 const { app, BrowserWindow, nativeImage, shell } = require("electron")
+const { resolvePackagedRendererUrl } = require("./runtime-config.cjs")
 
 const appName = "Recipe Room"
 const isDevelopment = !app.isPackaged && process.env.NODE_ENV === "development"
-const shouldUseLocalStandaloneServer =
-  !app.isPackaged && process.env.ELECTRON_LOCAL_SERVER === "1"
+const shouldUseLocalStandaloneServer = process.env.ELECTRON_LOCAL_SERVER === "1"
 const localServerUrl =
   process.env.NEXT_DEV_SERVER_URL ?? "http://localhost:3000"
-const packagedRendererUrl =
-  process.env.ELECTRON_RENDERER_URL ?? "https://teams.reciperoom.io"
 
 let mainWindow = null
 let nextServerProcess = null
@@ -140,8 +139,14 @@ async function resolveRendererUrl() {
     return localServerUrl
   }
 
-  if (!shouldUseLocalStandaloneServer) {
-    return packagedRendererUrl
+  const appPath = app.getAppPath()
+  const standaloneServer = path.join(appPath, ".next", "standalone", "server.js")
+  const hasStandaloneServer = fs.existsSync(standaloneServer)
+  const shouldUseBundledStandaloneServer =
+    hasStandaloneServer && (shouldUseLocalStandaloneServer || app.isPackaged)
+
+  if (!shouldUseBundledStandaloneServer) {
+    return resolvePackagedRendererUrl(appPath)
   }
 
   if (
@@ -160,8 +165,6 @@ async function resolveRendererUrl() {
     }
   }
 
-  const appPath = app.getAppPath()
-  const standaloneServer = path.join(appPath, ".next", "standalone", "server.js")
   const port = await findAvailablePort()
   const rendererUrl = `http://localhost:${port}`
   const serverProcess = spawn(process.execPath, [standaloneServer], {
