@@ -375,7 +375,18 @@ export function UserSettingsScreen() {
           },
         }
       : null
+  }, [
+    currentUserAvatarUrl,
+    currentUserEmailAssignments,
+    currentUserEmailDigest,
+    currentUserEmailMentions,
+    currentUserId,
+    currentUserName,
+    currentUserThemePreference,
+    currentUserTitle,
+  ])
 
+  useEffect(() => {
     if (!currentUserId) {
       return
     }
@@ -399,7 +410,6 @@ export function UserSettingsScreen() {
     currentUserEmailMentions,
     currentUserId,
     currentUserName,
-    currentUserThemePreference,
     currentUserTitle,
   ])
 
@@ -521,7 +531,6 @@ export function UserSettingsScreen() {
     setThemePreference(nextTheme)
     setPendingThemePreference(nextTheme)
     setTheme(nextTheme)
-    updateStoredThemePreference(nextTheme)
 
     void queueProfileSave(async () => {
       const rollbackTheme = committedThemePreferenceRef.current
@@ -550,6 +559,7 @@ export function UserSettingsScreen() {
             theme: nextTheme,
           },
         }
+        updateStoredThemePreference(nextTheme)
       } catch (error) {
         console.error(error)
 
@@ -557,7 +567,6 @@ export function UserSettingsScreen() {
           clearPendingThemePreference(nextTheme)
           setThemePreference(rollbackTheme)
           setTheme(rollbackTheme)
-          updateStoredThemePreference(rollbackTheme)
         }
 
         toast.error(
