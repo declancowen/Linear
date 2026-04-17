@@ -1,11 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
 import { submitLogoutForm } from "@/lib/browser/logout"
+import {
+  clearPendingThemePreference,
+  setPendingThemePreference,
+} from "@/lib/browser/theme-preference-sync"
 import {
   syncDeleteCurrentAccount,
   syncRequestAccountEmailChange,
@@ -15,7 +19,7 @@ import {
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { resolveImageAssetSource } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -26,14 +30,6 @@ import {
 } from "@/components/ui/field"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 import {
   ImageUploadControl,
@@ -65,17 +61,201 @@ const themePreferenceOptions: Array<{
   },
 ]
 
+type ThemePreviewTone = "light" | "dark"
+
+const themePreviewToneStyles: Record<
+  ThemePreviewTone,
+  {
+    surface: string
+    surfaceBorder: string
+    sidebar: string
+    sidebarDot: string
+    sidebarLine: string
+    content: string
+    contentBorder: string
+    header: string
+    lineStrong: string
+    line: string
+    card: string
+    cardLine: string
+    divider: string
+  }
+> = {
+  light: {
+    surface: "bg-[#f5f5f2]",
+    surfaceBorder: "border-black/8",
+    sidebar: "bg-[#ecece8]",
+    sidebarDot: "bg-black/20",
+    sidebarLine: "bg-black/16",
+    content: "bg-white/88",
+    contentBorder: "border-black/8",
+    header: "bg-black/10",
+    lineStrong: "bg-black/18",
+    line: "bg-black/12",
+    card: "bg-black/[0.035]",
+    cardLine: "bg-black/14",
+    divider: "bg-black/8",
+  },
+  dark: {
+    surface: "bg-[#202126]",
+    surfaceBorder: "border-white/10",
+    sidebar: "bg-[#2a2b31]",
+    sidebarDot: "bg-white/18",
+    sidebarLine: "bg-white/14",
+    content: "bg-[#27282f]",
+    contentBorder: "border-white/8",
+    header: "bg-white/10",
+    lineStrong: "bg-white/18",
+    line: "bg-white/12",
+    card: "bg-white/[0.045]",
+    cardLine: "bg-white/16",
+    divider: "bg-white/10",
+  },
+}
+
+function ThemePreviewLayout({
+  tone,
+  className,
+}: {
+  tone: ThemePreviewTone
+  className?: string
+}) {
+  const toneClassName = themePreviewToneStyles[tone]
+
+  return (
+    <div className={cn("flex h-full min-w-0 gap-1.5", className)}>
+      <div
+        className={cn(
+          "flex w-4 shrink-0 flex-col rounded-[0.45rem] p-1",
+          toneClassName.sidebar
+        )}
+      >
+        <span className={cn("size-1 rounded-full", toneClassName.sidebarDot)} />
+        <div className="mt-1 space-y-1">
+          {["w-2.5", "w-2", "w-2.5", "w-1.5"].map((widthClassName, index) => (
+            <div
+              key={`${widthClassName}-${index}`}
+              className={cn(
+                "h-px rounded-full",
+                widthClassName,
+                toneClassName.sidebarLine
+              )}
+            />
+          ))}
+        </div>
+        <div className="mt-auto space-y-0.5">
+          {["w-2", "w-1.5"].map((widthClassName, index) => (
+            <div
+              key={`${widthClassName}-${index}`}
+              className={cn(
+                "h-px rounded-full",
+                widthClassName,
+                toneClassName.sidebarLine
+              )}
+            />
+          ))}
+        </div>
+      </div>
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 flex-col rounded-[0.55rem] border p-1.5",
+          toneClassName.content,
+          toneClassName.contentBorder
+        )}
+      >
+        <div className={cn("h-1.5 w-full rounded-sm", toneClassName.header)} />
+        <div className="mt-1.5 space-y-1">
+          {["w-full", "w-4/5", "w-3/5"].map((widthClassName) => (
+            <div
+              key={widthClassName}
+              className={cn(
+                "h-1 rounded-full",
+                widthClassName,
+                toneClassName.line
+              )}
+            />
+          ))}
+        </div>
+        <div
+          className={cn(
+            "mt-1.5 flex flex-1 items-end rounded-[0.45rem] px-1.5 py-1",
+            toneClassName.card
+          )}
+        >
+          <div className="w-full space-y-1">
+            <div
+              className={cn("h-1 w-3/4 rounded-full", toneClassName.cardLine)}
+            />
+            <div
+              className={cn("h-1 w-1/2 rounded-full", toneClassName.lineStrong)}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ThemePreviewPane({
+  tone,
+  className,
+}: {
+  tone: ThemePreviewTone
+  className?: string
+}) {
+  const toneClassName = themePreviewToneStyles[tone]
+
+  return (
+    <div
+      className={cn(
+        "h-full rounded-[0.7rem] border p-1.5",
+        toneClassName.surface,
+        toneClassName.surfaceBorder,
+        className
+      )}
+    >
+      <ThemePreviewLayout tone={tone} />
+    </div>
+  )
+}
+
+function ThemeSystemPreview() {
+  return (
+    <div className="grid h-full grid-cols-[1fr_auto_1fr] overflow-hidden rounded-[0.7rem] border border-border">
+      <div className={cn("p-1.5", themePreviewToneStyles.light.surface)}>
+        <ThemePreviewLayout tone="light" />
+      </div>
+      <div className="w-px bg-border" />
+      <div className={cn("p-1.5", themePreviewToneStyles.dark.surface)}>
+        <ThemePreviewLayout tone="dark" />
+      </div>
+    </div>
+  )
+}
+
+function ThemePreferencePreview({ value }: { value: ThemePreference }) {
+  if (value === "system") {
+    return <ThemeSystemPreview />
+  }
+
+  return <ThemePreviewPane tone={value} />
+}
+
 export function UserSettingsScreen() {
   const router = useRouter()
   const { setTheme } = useTheme()
   const currentUser = useAppStore(getCurrentUser)
+  const themeSaveQueueRef = useRef(Promise.resolve())
+  const latestThemeRequestIdRef = useRef(0)
   const currentUserId = currentUser?.id ?? null
   const currentUserName = currentUser?.name ?? ""
   const currentUserTitle = currentUser?.title ?? ""
   const currentUserAvatarUrl = currentUser?.avatarUrl ?? ""
   const currentUserAvatarPreviewUrl =
-    resolveImageAssetSource(currentUser?.avatarImageUrl, currentUser?.avatarUrl) ??
-    null
+    resolveImageAssetSource(
+      currentUser?.avatarImageUrl,
+      currentUser?.avatarUrl
+    ) ?? null
   const currentUserEmail = currentUser?.email ?? ""
   const currentUserEmailMentions =
     currentUser?.preferences.emailMentions ?? false
@@ -83,6 +263,9 @@ export function UserSettingsScreen() {
     currentUser?.preferences.emailAssignments ?? false
   const currentUserEmailDigest = currentUser?.preferences.emailDigest ?? false
   const currentUserThemePreference = currentUser?.preferences.theme ?? "system"
+  const committedThemePreferenceRef = useRef<ThemePreference>(
+    currentUserThemePreference
+  )
   const avatarImageSrc = resolveImageAssetSource(
     currentUser?.avatarImageUrl,
     currentUser?.avatarUrl
@@ -163,7 +346,6 @@ export function UserSettingsScreen() {
     setEmailMentions(currentUserEmailMentions)
     setEmailAssignments(currentUserEmailAssignments)
     setEmailDigest(currentUserEmailDigest)
-    setThemePreference(currentUserThemePreference)
   }, [
     currentUserAvatarPreviewUrl,
     currentUserAvatarUrl,
@@ -173,9 +355,21 @@ export function UserSettingsScreen() {
     currentUserEmailMentions,
     currentUserId,
     currentUserName,
-    currentUserThemePreference,
     currentUserTitle,
   ])
+
+  useEffect(() => {
+    if (!currentUserId) {
+      return
+    }
+
+    const storedThemePreference =
+      useAppStore.getState().users.find((user) => user.id === currentUserId)
+        ?.preferences.theme ?? "system"
+
+    committedThemePreferenceRef.current = storedThemePreference
+    setThemePreference(storedThemePreference)
+  }, [currentUserId])
 
   async function handleAvatarUpload(file: File) {
     try {
@@ -244,6 +438,76 @@ export function UserSettingsScreen() {
     }
   }
 
+  function updateStoredThemePreference(nextTheme: ThemePreference) {
+    useAppStore.setState((state) => ({
+      users: state.users.map((user) =>
+        user.id === currentUserId
+          ? {
+              ...user,
+              preferences: {
+                ...user.preferences,
+                theme: nextTheme,
+              },
+            }
+          : user
+      ),
+    }))
+  }
+
+  function handleThemePreferenceChange(nextTheme: ThemePreference) {
+    if (!currentUser || nextTheme === themePreference) {
+      return
+    }
+
+    const previousTheme = committedThemePreferenceRef.current
+    const requestId = latestThemeRequestIdRef.current + 1
+    latestThemeRequestIdRef.current = requestId
+
+    setThemePreference(nextTheme)
+    setPendingThemePreference(nextTheme)
+    setTheme(nextTheme)
+    updateStoredThemePreference(nextTheme)
+
+    const persistedProfile = {
+      id: currentUser.id,
+      name: currentUser.name,
+      title: currentUser.title,
+      avatarUrl: currentUser.avatarUrl,
+      preferences: currentUser.preferences,
+    }
+
+    themeSaveQueueRef.current = themeSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await syncUpdateCurrentUserProfile(
+            persistedProfile.id,
+            persistedProfile.name,
+            persistedProfile.title,
+            persistedProfile.avatarUrl,
+            {
+              ...persistedProfile.preferences,
+              theme: nextTheme,
+            }
+          )
+          committedThemePreferenceRef.current = nextTheme
+        } catch (error) {
+          console.error(error)
+
+          if (latestThemeRequestIdRef.current === requestId) {
+            clearPendingThemePreference(nextTheme)
+            setThemePreference(previousTheme)
+            setTheme(previousTheme)
+            updateStoredThemePreference(previousTheme)
+          }
+
+          toast.error(
+            error instanceof Error ? error.message : "Failed to update theme"
+          )
+        }
+      })
+  }
+
   async function handleSave() {
     if (!currentUser) {
       return
@@ -269,6 +533,7 @@ export function UserSettingsScreen() {
       )
 
       toast.success("Profile updated")
+      committedThemePreferenceRef.current = themePreference
       setTheme(themePreference)
       useAppStore.setState((state) => ({
         users: state.users.map((user) =>
@@ -413,6 +678,74 @@ export function UserSettingsScreen() {
           </FieldGroup>
         </SettingsSection>
 
+        <SettingsSection title="Appearance">
+          <FieldGroup>
+            <Field>
+              <FieldLabel id="profile-theme-label">Theme</FieldLabel>
+              <FieldContent>
+                <div
+                  role="radiogroup"
+                  aria-labelledby="profile-theme-label"
+                  className="grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3"
+                >
+                  {themePreferenceOptions.map((option) => {
+                    const checked = option.value === themePreference
+
+                    return (
+                      <label
+                        key={option.value}
+                        className="group cursor-pointer select-none"
+                      >
+                        <input
+                          checked={checked}
+                          className="peer sr-only"
+                          name="profile-theme"
+                          type="radio"
+                          value={option.value}
+                          onChange={(event) =>
+                            handleThemePreferenceChange(
+                              event.target.value as ThemePreference
+                            )
+                          }
+                        />
+                        <div className="space-y-2.5">
+                          <div
+                            className={cn(
+                              "aspect-[1.58/1] overflow-hidden rounded-[1rem] border transition-all duration-150 peer-focus-visible:ring-3 peer-focus-visible:ring-ring/40",
+                              checked
+                                ? "border-primary shadow-sm ring-2 ring-primary/15"
+                                : "border-border hover:border-muted-foreground/30"
+                            )}
+                          >
+                            <ThemePreferencePreview value={option.value} />
+                          </div>
+                          <div
+                            className={cn(
+                              "px-1 text-center transition-colors",
+                              checked
+                                ? "text-foreground"
+                                : "text-muted-foreground group-hover:text-foreground"
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "text-sm",
+                                checked ? "font-medium" : "font-normal"
+                              )}
+                            >
+                              {option.label}
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        </SettingsSection>
+
         <SettingsSection
           title="Notifications"
           description="Control which email events reach you outside the app."
@@ -437,45 +770,6 @@ export function UserSettingsScreen() {
               onCheckedChange={setEmailDigest}
             />
           </div>
-        </SettingsSection>
-
-        <SettingsSection
-          title="Appearance"
-          description="Choose how the interface theme should behave."
-        >
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="profile-theme">Theme</FieldLabel>
-              <FieldContent>
-                <Select
-                  value={themePreference}
-                  onValueChange={(value) =>
-                    setThemePreference(value as ThemePreference)
-                  }
-                >
-                  <SelectTrigger id="profile-theme">
-                    <SelectValue placeholder="Select a theme" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {themePreferenceOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </FieldContent>
-              <FieldDescription>
-                {
-                  themePreferenceOptions.find(
-                    (option) => option.value === themePreference
-                  )?.description
-                }
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
         </SettingsSection>
 
         <SettingsSection
@@ -528,9 +822,7 @@ export function UserSettingsScreen() {
                 Permanently disconnect your sign-in and remove you from active
                 workspace memberships. Existing chats, posts, and documents stay
                 visible for history.
-                {deleteAccountBlockReason
-                  ? ` ${deleteAccountBlockReason}`
-                  : ""}
+                {deleteAccountBlockReason ? ` ${deleteAccountBlockReason}` : ""}
               </p>
             </div>
             <Button
