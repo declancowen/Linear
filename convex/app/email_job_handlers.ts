@@ -119,6 +119,25 @@ export async function claimPendingEmailJobsHandler(
       continue
     }
 
+    const notificationId = job.notificationId
+
+    if (notificationId) {
+      const notification = await ctx.db
+        .query("notifications")
+        .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
+        .unique()
+
+      if (notification?.emailedAt) {
+        await ctx.db.patch(job._id, {
+          sentAt: notification.emailedAt,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+        })
+        continue
+      }
+    }
+
     await ctx.db.patch(job._id, {
       claimId: args.claimId,
       claimedAt: now,

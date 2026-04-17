@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
+import { pathToFileURL } from "node:url"
 
 import { ConvexHttpClient } from "convex/browser"
 import { Resend } from "resend"
@@ -17,28 +18,8 @@ const EMAIL_COLORS = {
   border: "#e4e4e7",
 }
 
-const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
-const serverToken = process.env.CONVEX_SERVER_TOKEN
-const resendApiKey = process.env.RESEND_API_KEY
-const resendFromEmail = process.env.RESEND_FROM_EMAIL
 const origin =
   process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-const dryRun = process.env.DRY_RUN === "1"
-
-if (!convexUrl) {
-  throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
-}
-
-if (!serverToken) {
-  throw new Error("CONVEX_SERVER_TOKEN is not configured")
-}
-
-if (!resendApiKey || !resendFromEmail) {
-  throw new Error("Resend is not configured")
-}
-
-const client = new ConvexHttpClient(convexUrl)
-const resend = new Resend(resendApiKey)
 
 function escapeHtml(input) {
   return input
@@ -223,53 +204,139 @@ function renderNotificationDigestEmail(input) {
   }
 }
 
-const claimId = randomUUID()
-const digests =
-  (await (dryRun
-    ? client.query(api.app.listPendingNotificationDigests, {
-        serverToken,
-      })
-    : client.mutation(api.app.claimPendingNotificationDigests, {
-        serverToken,
-        claimId,
-      }))) ?? []
-const emailedNotificationIds = []
-
-for (const digest of digests) {
-  const message = renderNotificationDigestEmail({
-    userName: digest.user.name,
-    notifications: digest.notifications,
-  })
-
-  if (!dryRun) {
-    try {
-      await resend.emails.send({
-        from: resendFromEmail,
-        to: digest.user.email,
-        subject: message.subject,
-        text: message.text,
-        html: message.html,
-      })
-
-      await client.mutation(api.app.markNotificationsEmailed, {
-        serverToken,
-        claimId,
+function createDigestIdempotencyKey(digest) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        userId: digest.user.id,
         notificationIds: digest.notifications.map((notification) => notification.id),
       })
-    } catch (error) {
-      await client.mutation(api.app.releaseNotificationDigestClaim, {
-        serverToken,
-        claimId,
-        notificationIds: digest.notifications.map((notification) => notification.id),
-      })
-
-      throw error
-    }
-  }
-
-  emailedNotificationIds.push(...digest.notifications.map((notification) => notification.id))
+    )
+    .digest("hex")
 }
 
-console.log(
-  `${dryRun ? "prepared" : "sent"} ${emailedNotificationIds.length} digest notification email entr${emailedNotificationIds.length === 1 ? "y" : "ies"}`
-)
+function getDigestNotificationIds(digests) {
+  return digests.flatMap((digest) =>
+    digest.notifications.map((notification) => notification.id)
+  )
+}
+
+export async function processNotificationDigestsBatch(input) {
+  const emailedNotificationIds = []
+  const pendingDigests = [...input.digests]
+
+  while (pendingDigests.length > 0) {
+    const digest = pendingDigests.shift()
+
+    if (!digest) {
+      break
+    }
+
+    const notificationIds = digest.notifications.map((notification) => notification.id)
+    const message = renderNotificationDigestEmail({
+      userName: digest.user.name,
+      notifications: digest.notifications,
+    })
+
+    if (!input.dryRun) {
+      try {
+        await input.resend.emails.send(
+          {
+            from: input.resendFromEmail,
+            to: digest.user.email,
+            subject: message.subject,
+            text: message.text,
+            html: message.html,
+          },
+          {
+            idempotencyKey: createDigestIdempotencyKey(digest),
+          }
+        )
+
+        await input.markNotificationsEmailed({
+          claimId: input.claimId,
+          notificationIds,
+        })
+      } catch (error) {
+        await input.releaseNotificationDigestClaim({
+          claimId: input.claimId,
+          notificationIds: [
+            ...notificationIds,
+            ...getDigestNotificationIds(pendingDigests),
+          ],
+        })
+
+        throw error
+      }
+    }
+
+    emailedNotificationIds.push(...notificationIds)
+  }
+
+  return {
+    emailedNotificationIds,
+  }
+}
+
+export async function main() {
+  const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
+  const serverToken = process.env.CONVEX_SERVER_TOKEN
+  const resendApiKey = process.env.RESEND_API_KEY
+  const resendFromEmail = process.env.RESEND_FROM_EMAIL
+  const dryRun = process.env.DRY_RUN === "1"
+
+  if (!convexUrl) {
+    throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
+  }
+
+  if (!serverToken) {
+    throw new Error("CONVEX_SERVER_TOKEN is not configured")
+  }
+
+  if (!resendApiKey || !resendFromEmail) {
+    throw new Error("Resend is not configured")
+  }
+
+  const client = new ConvexHttpClient(convexUrl)
+  const resend = new Resend(resendApiKey)
+  const claimId = randomUUID()
+  const digests =
+    (await (dryRun
+      ? client.query(api.app.listPendingNotificationDigests, {
+          serverToken,
+        })
+      : client.mutation(api.app.claimPendingNotificationDigests, {
+          serverToken,
+          claimId,
+        }))) ?? []
+
+  const result = await processNotificationDigestsBatch({
+    digests,
+    dryRun,
+    claimId,
+    resend,
+    resendFromEmail,
+    markNotificationsEmailed: (payload) =>
+      client.mutation(api.app.markNotificationsEmailed, {
+        serverToken,
+        ...payload,
+      }),
+    releaseNotificationDigestClaim: (payload) =>
+      client.mutation(api.app.releaseNotificationDigestClaim, {
+        serverToken,
+        ...payload,
+      }),
+  })
+
+  console.log(
+    `${dryRun ? "prepared" : "sent"} ${result.emailedNotificationIds.length} digest notification email entr${result.emailedNotificationIds.length === 1 ? "y" : "ies"}`
+  )
+}
+
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isDirectRun) {
+  await main()
+}

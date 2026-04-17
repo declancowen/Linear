@@ -364,7 +364,7 @@ export const getCallJoinContext = query({
   handler: getCallJoinContextHandler,
 })
 
-export const claimPendingNotificationDigests = mutation({
+export const claimPendingNotificationDigests = operationalMutation({
   args: {
     ...serverAccessArgs,
     claimId: v.string(),
@@ -381,7 +381,7 @@ export const markNotificationRead = mutation({
   handler: markNotificationReadHandler,
 })
 
-export const markNotificationsEmailed = mutation({
+export const markNotificationsEmailed = operationalMutation({
   args: {
     ...serverAccessArgs,
     claimId: v.optional(v.string()),
@@ -390,7 +390,7 @@ export const markNotificationsEmailed = mutation({
   handler: markNotificationsEmailedHandler,
 })
 
-export const releaseNotificationDigestClaim = mutation({
+export const releaseNotificationDigestClaim = operationalMutation({
   args: {
     ...serverAccessArgs,
     claimId: v.string(),

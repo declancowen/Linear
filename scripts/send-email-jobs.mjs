@@ -1,65 +1,125 @@
 import { randomUUID } from "node:crypto"
+import { pathToFileURL } from "node:url"
 
 import { ConvexHttpClient } from "convex/browser"
 import { Resend } from "resend"
 
 import { api } from "../convex/_generated/api.js"
 
-const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
-const serverToken = process.env.CONVEX_SERVER_TOKEN
-const resendApiKey = process.env.RESEND_API_KEY
-const resendFromEmail = process.env.RESEND_FROM_EMAIL
-const claimId = randomUUID()
-
-if (!convexUrl) {
-  throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
+function toErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
-if (!serverToken) {
-  throw new Error("CONVEX_SERVER_TOKEN is not configured")
-}
+export async function processEmailJobsBatch(input) {
+  let sentCount = 0
+  let failedCount = 0
 
-if (!resendApiKey || !resendFromEmail) {
-  throw new Error("Resend is not configured")
-}
+  for (const job of input.jobs) {
+    try {
+      await input.resend.emails.send(
+        {
+          from: input.resendFromEmail,
+          to: job.toEmail,
+          subject: job.subject,
+          text: job.text,
+          html: job.html,
+        },
+        {
+          idempotencyKey: job.id,
+        }
+      )
+    } catch (error) {
+      await input.releaseEmailJobClaim({
+        claimId: input.claimId,
+        jobIds: [job.id],
+        errorMessage: toErrorMessage(error),
+      })
+      failedCount += 1
+      continue
+    }
 
-const client = new ConvexHttpClient(convexUrl)
-const resend = new Resend(resendApiKey)
+    try {
+      await input.markEmailJobsSent({
+        claimId: input.claimId,
+        jobIds: [job.id],
+      })
+      sentCount += 1
+    } catch (error) {
+      await input.releaseEmailJobClaim({
+        claimId: input.claimId,
+        jobIds: [job.id],
+        errorMessage: `Delivered email but failed to record sent state: ${toErrorMessage(
+          error
+        )}`,
+      })
+      failedCount += 1
+    }
+  }
 
-const jobs =
-  (await client.mutation(api.app.claimPendingEmailJobs, {
-    serverToken,
-    claimId,
-  })) ?? []
-
-let sentCount = 0
-let failedCount = 0
-
-for (const job of jobs) {
-  try {
-    await resend.emails.send({
-      from: resendFromEmail,
-      to: job.toEmail,
-      subject: job.subject,
-      text: job.text,
-      html: job.html,
-    })
-
-    await client.mutation(api.app.markEmailJobsSent, {
-      serverToken,
-      claimId,
-      jobIds: [job.id],
-    })
-    sentCount += 1
-  } catch (error) {
-    await client.mutation(api.app.releaseEmailJobClaim, {
-      serverToken,
-      claimId,
-      jobIds: [job.id],
-      errorMessage: error instanceof Error ? error.message : String(error),
-    })
-    failedCount += 1
+  return {
+    processedCount: input.jobs.length,
+    sentCount,
+    failedCount,
   }
 }
 
-console.log(`processed ${jobs.length} email jobs (${sentCount} sent, ${failedCount} failed)`)
+export async function main() {
+  const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
+  const serverToken = process.env.CONVEX_SERVER_TOKEN
+  const resendApiKey = process.env.RESEND_API_KEY
+  const resendFromEmail = process.env.RESEND_FROM_EMAIL
+  const claimId = randomUUID()
+
+  if (!convexUrl) {
+    throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
+  }
+
+  if (!serverToken) {
+    throw new Error("CONVEX_SERVER_TOKEN is not configured")
+  }
+
+  if (!resendApiKey || !resendFromEmail) {
+    throw new Error("Resend is not configured")
+  }
+
+  const client = new ConvexHttpClient(convexUrl)
+  const resend = new Resend(resendApiKey)
+  const jobs =
+    (await client.mutation(api.app.claimPendingEmailJobs, {
+      serverToken,
+      claimId,
+    })) ?? []
+
+  const result = await processEmailJobsBatch({
+    jobs,
+    claimId,
+    resend,
+    resendFromEmail,
+    markEmailJobsSent: (payload) =>
+      client.mutation(api.app.markEmailJobsSent, {
+        serverToken,
+        ...payload,
+      }),
+    releaseEmailJobClaim: (payload) =>
+      client.mutation(api.app.releaseEmailJobClaim, {
+        serverToken,
+        ...payload,
+      }),
+  })
+
+  console.log(
+    `processed ${result.processedCount} email jobs (${result.sentCount} sent, ${result.failedCount} failed)`
+  )
+
+  if (result.failedCount > 0) {
+    process.exitCode = 1
+  }
+}
+
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isDirectRun) {
+  await main()
+}

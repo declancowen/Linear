@@ -132,13 +132,11 @@ export async function enqueueEmailJobsServer(
     }
   }
 
-  return runConvexRequestWithRetry("enqueueEmailJobsServer", () =>
-    getConvexServerClient().mutation(
-      api.app.enqueueEmailJobs,
-      withServerToken({
-        jobs,
-      })
-    )
+  return getConvexServerClient().mutation(
+    api.app.enqueueEmailJobs,
+    withServerToken({
+      jobs,
+    })
   )
 }
 

@@ -224,6 +224,82 @@ describe("email job handlers", () => {
     })
   })
 
+  it("retires notification-linked jobs that were already covered by a digest", async () => {
+    const { claimPendingEmailJobsHandler } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const ctx = createCtx({
+      emailJobs: [
+        {
+          _id: "job_1_doc",
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_1",
+          toEmail: "alex@example.com",
+          subject: "One",
+          text: "one",
+          html: "<p>one</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+        {
+          _id: "job_2_doc",
+          id: "job_2",
+          kind: "mention",
+          notificationId: "notification_2",
+          toEmail: "jamie@example.com",
+          subject: "Two",
+          text: "two",
+          html: "<p>two</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+      notifications: [
+        {
+          _id: "notification_1_doc",
+          id: "notification_1",
+          emailedAt: "2026-04-17T10:30:00.000Z",
+        },
+        {
+          _id: "notification_2_doc",
+          id: "notification_2",
+          emailedAt: null,
+        },
+      ],
+    })
+
+    const result = await claimPendingEmailJobsHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        claimId: "claim_1",
+      }
+    )
+
+    expect(result.map((job) => job.id)).toEqual(["job_2"])
+    expect(ctx.tables.emailJobs[0]).toMatchObject({
+      sentAt: "2026-04-17T10:30:00.000Z",
+      claimId: null,
+      claimedAt: null,
+      lastError: null,
+    })
+    expect(ctx.tables.emailJobs[1]).toMatchObject({
+      claimId: "claim_1",
+      claimedAt: "2026-04-17T11:00:00.000Z",
+    })
+  })
+
   it("marks sent jobs and their notifications as emailed", async () => {
     const { markEmailJobsSentHandler } = await import(
       "@/convex/app/email_job_handlers"

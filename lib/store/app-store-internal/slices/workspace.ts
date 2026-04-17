@@ -680,6 +680,7 @@ export function createWorkspaceSlice(
 
       try {
         await syncJoinTeamByCode(get().currentUserId, parsed.data.code)
+        await runtime.refreshFromServer()
         toast.success("Joined team")
         return true
       } catch (error) {
