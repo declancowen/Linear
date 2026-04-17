@@ -21,17 +21,25 @@ let nextServerUrl = null
 app.setName(appName)
 
 function resolveDesktopIcon() {
-  const iconPath = path.join(__dirname, "app-icon.png")
-  const icon = nativeImage.createFromPath(iconPath)
+  const iconPaths = [
+    path.resolve(__dirname, "..", "app-icon.png"),
+    path.join(__dirname, "app-icon.png"),
+  ]
 
-  if (icon.isEmpty()) {
-    return null
+  for (const iconPath of iconPaths) {
+    const icon = nativeImage.createFromPath(iconPath)
+
+    if (icon.isEmpty()) {
+      continue
+    }
+
+    return {
+      icon,
+      iconPath,
+    }
   }
 
-  return {
-    icon,
-    iconPath,
-  }
+  return null
 }
 
 function sleep(duration) {
@@ -197,7 +205,7 @@ async function createWindow(iconPath) {
     minWidth: 1024,
     minHeight: 680,
     backgroundColor: "#f7f6f2",
-    ...(iconPath ? { icon: iconPath } : {}),
+    ...(process.platform !== "darwin" && iconPath ? { icon: iconPath } : {}),
     title: appName,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
@@ -266,23 +274,19 @@ if (!hasSingleInstanceLock) {
   })
 
   app.whenReady().then(async () => {
-  const desktopIcon = resolveDesktopIcon()
+    const desktopIcon = resolveDesktopIcon()
 
-  if (process.platform === "darwin" && desktopIcon) {
-    app.dock.setIcon(desktopIcon.icon.resize({ width: 256, height: 256 }))
-  }
+    app.setAboutPanelOptions({
+      applicationName: appName,
+    })
 
-  app.setAboutPanelOptions({
-    applicationName: appName,
-  })
+    await createWindow(desktopIcon?.iconPath)
 
-  await createWindow(desktopIcon?.iconPath)
-
-  app.on("activate", async () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      await createWindow(desktopIcon?.iconPath)
-    }
-  })
+    app.on("activate", async () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        await createWindow(desktopIcon?.iconPath)
+      }
+    })
   })
 }
 

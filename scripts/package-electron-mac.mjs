@@ -76,6 +76,10 @@ async function main() {
         recursive: true,
       }
     )
+    await fs.copyFile(
+      path.join(repoRoot, "app-icon.png"),
+      path.join(stageDir, "app-icon.png")
+    )
 
     const stagePackageJson = {
       name: "recipe-room-desktop",
@@ -96,7 +100,7 @@ async function main() {
           output: stageOutputDir,
           buildResources: "electron",
         },
-        files: ["electron/**/*", "package.json"],
+        files: ["electron/**/*", "app-icon.png", "package.json"],
         extraMetadata: {
           main: "electron/main.cjs",
         },

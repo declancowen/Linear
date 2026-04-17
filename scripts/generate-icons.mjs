@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import pngToIco from "png-to-ico"
+import sharp from "sharp"
 
 const execFile = promisify(execFileCallback)
 
@@ -13,24 +14,24 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, "..")
 const sourceSvgPath = path.join(repoRoot, "app-icon.svg")
+const sourceIconSize = 256
+const maxRasterSize = 1024
+const svgDensity = (72 * maxRasterSize) / sourceIconSize
 
 const svgTargets = [
   path.join(repoRoot, "icon.svg"),
   path.join(repoRoot, "public", "app-icon.svg"),
   path.join(repoRoot, "public", "icon.svg"),
-  path.join(repoRoot, "app", "icon.svg"),
 ]
 
 const appIconTargets = [
   path.join(repoRoot, "app-icon.png"),
   path.join(repoRoot, "public", "app-icon.png"),
-  path.join(repoRoot, "electron", "app-icon.png"),
 ]
 
 const appleIconTargets = [
   path.join(repoRoot, "apple-icon.png"),
   path.join(repoRoot, "public", "apple-icon.png"),
-  path.join(repoRoot, "app", "apple-icon.png"),
 ]
 
 const appIconIcoTargets = [
@@ -41,23 +42,18 @@ const appIconIcoTargets = [
 const faviconTargets = [
   path.join(repoRoot, "favicon.ico"),
   path.join(repoRoot, "public", "favicon.ico"),
-  path.join(repoRoot, "app", "favicon.ico"),
 ]
 
 async function ensureParent(pathname) {
   await fs.mkdir(path.dirname(pathname), { recursive: true })
 }
 
-async function renderPng(inputPath, size, outputPath) {
+async function renderPng(inputBuffer, size, outputPath) {
   await ensureParent(outputPath)
-  await execFile("sips", [
-    "-z",
-    String(size),
-    String(size),
-    inputPath,
-    "--out",
-    outputPath,
-  ])
+  await sharp(inputBuffer, { density: svgDensity })
+    .resize(size, size)
+    .png()
+    .toFile(outputPath)
 }
 
 async function copyToTargets(sourcePath, targets) {
@@ -75,22 +71,13 @@ async function main() {
   )
 
   try {
-    await execFile("qlmanage", [
-      "-t",
-      "-s",
-      "1024",
-      "-o",
-      tempDir,
-      sourceSvgPath,
-    ])
-
-    const renderedSourcePath = path.join(tempDir, "app-icon.svg.png")
+    const sourceSvgBuffer = await fs.readFile(sourceSvgPath)
     const rasterSizes = [16, 32, 48, 64, 128, 180, 256, 512, 1024]
     const rasterPaths = new Map()
 
     for (const size of rasterSizes) {
       const outputPath = path.join(tempDir, `${size}.png`)
-      await renderPng(renderedSourcePath, size, outputPath)
+      await renderPng(sourceSvgBuffer, size, outputPath)
       rasterPaths.set(size, outputPath)
     }
 

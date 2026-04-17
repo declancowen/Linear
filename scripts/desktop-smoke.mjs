@@ -16,7 +16,7 @@ const standaloneServerPath = path.join(
 )
 const electronMainPath = path.join(repoRoot, "electron", "main.cjs")
 const electronPreloadPath = path.join(repoRoot, "electron", "preload.cjs")
-const electronIconPath = path.join(repoRoot, "electron", "app-icon.png")
+const appIconPath = path.join(repoRoot, "app-icon.png")
 
 function sleep(durationMs) {
   return new Promise((resolve) => {
@@ -84,7 +84,7 @@ async function main() {
     assertExists(standaloneServerPath, "Next standalone server"),
     assertExists(electronMainPath, "Electron main entry"),
     assertExists(electronPreloadPath, "Electron preload entry"),
-    assertExists(electronIconPath, "Electron desktop icon"),
+    assertExists(appIconPath, "Desktop app icon"),
   ])
 
   const port = await findAvailablePort()
