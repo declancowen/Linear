@@ -3,18 +3,22 @@ import { addDays } from "date-fns"
 import type { MutationCtx } from "../_generated/server"
 
 import { createNotification } from "./collaboration_utils"
+import { insertAuditEvent } from "./audit"
 import {
   assertServerToken,
+  createSlug,
   createId,
   getNow,
-  matchesTeamAccessIdentifier,
   mergeMembershipRole,
+  normalizeEmailAddress,
 } from "./core"
 import {
   getActiveInvitesForTeamAndEmail,
   getEffectiveRole,
   getInviteByTokenDoc,
+  getTeamByJoinCode,
   getTeamDoc,
+  getTeamBySlug,
   getUserByEmail,
   getUserDoc,
   getWorkspaceDoc,
@@ -54,7 +58,7 @@ export async function createInviteHandler(
   const team = await getTeamDoc(ctx, args.teamId)
 
   if (!team) {
-    return
+    throw new Error("Team not found")
   }
 
   const role = await getEffectiveRole(ctx, team.id, args.currentUserId)
@@ -68,6 +72,7 @@ export async function createInviteHandler(
     workspaceId: team.workspaceId,
     teamId: team.id,
     email: args.email,
+    normalizedEmail: normalizeEmailAddress(args.email),
     role: args.role,
     token: createId("token"),
     joinCode: team.settings.joinCode,
@@ -96,6 +101,21 @@ export async function createInviteHandler(
   }
 
   const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
+
+  await insertAuditEvent(ctx, {
+    type: "invite.created",
+    actorUserId: args.currentUserId,
+    subjectUserId: invitedUser?.id ?? null,
+    workspaceId: team.workspaceId,
+    teamId: team.id,
+    entityId: invite.id,
+    summary: `Invite ${invite.id} was created for ${args.email}.`,
+    details: {
+      email: args.email,
+      inviteRole: args.role,
+      source: "convex",
+    },
+  })
 
   return {
     invite,
@@ -170,6 +190,20 @@ export async function acceptInviteHandler(
     inviteIds: [invite.id],
   })
 
+  await insertAuditEvent(ctx, {
+    type: "invite.accepted",
+    actorUserId: args.currentUserId,
+    subjectUserId: args.currentUserId,
+    workspaceId: invite.workspaceId,
+    teamId: invite.teamId,
+    entityId: invite.id,
+    summary: `Invite ${invite.id} was accepted.`,
+    details: {
+      inviteRole: invite.role,
+      source: "convex",
+    },
+  })
+
   return {
     teamSlug: team?.slug ?? null,
     workspaceId: invite.workspaceId,
@@ -204,6 +238,20 @@ export async function declineInviteHandler(
     inviteIds: [invite.id],
   })
 
+  await insertAuditEvent(ctx, {
+    type: "invite.declined",
+    actorUserId: args.currentUserId,
+    subjectUserId: args.currentUserId,
+    workspaceId: invite.workspaceId,
+    teamId: invite.teamId,
+    entityId: invite.id,
+    summary: `Invite ${invite.id} was declined.`,
+    details: {
+      inviteRole: invite.role,
+      source: "convex",
+    },
+  })
+
   return {
     inviteId: invite.id,
     declinedAt: invite.declinedAt ?? getNow(),
@@ -215,10 +263,10 @@ export async function joinTeamByCodeHandler(
   args: JoinTeamByCodeArgs
 ) {
   assertServerToken(args.serverToken)
-  const teams = await ctx.db.query("teams").collect()
-  const team = teams.find((entry) =>
-    matchesTeamAccessIdentifier(entry, args.code)
-  )
+  const team =
+    (await getTeamDoc(ctx, args.code)) ??
+    (await getTeamBySlug(ctx, createSlug(args.code))) ??
+    (await getTeamByJoinCode(ctx, args.code))
 
   if (!team) {
     throw new Error("Join code not found")

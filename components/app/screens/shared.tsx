@@ -4,6 +4,7 @@ import { useState, type ElementType, type ReactNode } from "react"
 import { GearSix, Kanban, CaretDown, CaretRight, Rows, CheckCircle, Circle, XCircle, CodesandboxLogo, NotePencil } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
+import { getLabelsForTeamScope } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
   statusMeta,
@@ -369,7 +370,9 @@ export function WorkItemLabelsEditor({
 }) {
   const availableLabels = useAppStore(
     useShallow((state) =>
-      [...state.labels].sort((left, right) => left.name.localeCompare(right.name))
+      [...getLabelsForTeamScope(state, item.teamId)].sort((left, right) =>
+        left.name.localeCompare(right.name)
+      )
     )
   )
   const [newLabelName, setNewLabelName] = useState("")
@@ -689,7 +692,9 @@ export function getPatchForField(
       return { labelIds: [] }
     }
 
-    const label = data.labels.find((entry) => entry.name === value)
+    const label = getLabelsForTeamScope(data, item.teamId).find(
+      (entry) => entry.name === value
+    )
 
     if (!label) {
       return {}

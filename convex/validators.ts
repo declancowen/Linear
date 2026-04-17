@@ -189,6 +189,31 @@ const notificationEntityTypeLiterals = [
   v.literal("workspace"),
 ] as const
 
+const auditEventTypeLiterals = [
+  v.literal("membership.role_changed"),
+  v.literal("membership.removed_from_team"),
+  v.literal("membership.removed_from_workspace"),
+  v.literal("membership.left_team"),
+  v.literal("membership.left_workspace"),
+  v.literal("workspace.deleted"),
+  v.literal("account.deleted"),
+  v.literal("invite.created"),
+  v.literal("invite.accepted"),
+  v.literal("invite.declined"),
+  v.literal("provider.membership_cleanup_failed"),
+  v.literal("provider.account_cleanup_failed"),
+] as const
+
+const auditEventOutcomeLiterals = [
+  v.literal("success"),
+  v.literal("failure"),
+] as const
+
+const auditEventSourceLiterals = [
+  v.literal("convex"),
+  v.literal("server"),
+] as const
+
 export const roleValidator = v.union(...roleLiterals)
 export const scopeTypeValidator = v.union(...scopeTypeLiterals)
 export const templateTypeValidator = v.union(...templateTypeLiterals)
@@ -229,6 +254,9 @@ export const chatMessageKindValidator = v.union(...chatMessageKindLiterals)
 export const notificationEntityTypeValidator = v.union(
   ...notificationEntityTypeLiterals
 )
+export const auditEventTypeValidator = v.union(...auditEventTypeLiterals)
+export const auditEventOutcomeValidator = v.union(...auditEventOutcomeLiterals)
+export const auditEventSourceValidator = v.union(...auditEventSourceLiterals)
 export const nullableStringValidator = nullableString
 export const teamTemplateConfigValidator = v.object({
   defaultPriority: priorityValidator,
@@ -275,9 +303,38 @@ export const workspaceFields = {
   }),
 }
 
+export const auditEventDetailsValidator = v.object({
+  deletedPrivateDocumentIds: v.optional(v.array(v.string())),
+  email: v.optional(v.string()),
+  inviteRole: v.optional(roleValidator),
+  nextRole: v.optional(roleValidator),
+  organizationId: v.optional(v.string()),
+  previousRole: v.optional(roleValidator),
+  provider: v.optional(v.string()),
+  reason: v.optional(v.string()),
+  removedTeamIds: v.optional(v.array(v.string())),
+  source: v.optional(auditEventSourceValidator),
+  workosUserId: v.optional(v.string()),
+})
+
+export const auditEventFields = {
+  id: v.string(),
+  type: auditEventTypeValidator,
+  outcome: auditEventOutcomeValidator,
+  actorUserId: nullableString,
+  subjectUserId: nullableString,
+  workspaceId: nullableString,
+  teamId: nullableString,
+  entityId: nullableString,
+  summary: v.string(),
+  details: auditEventDetailsValidator,
+  occurredAt: v.string(),
+}
+
 export const teamFields = {
   id: v.string(),
   workspaceId: v.string(),
+  joinCodeNormalized: v.optional(v.string()),
   slug: v.string(),
   name: v.string(),
   icon: v.string(),
@@ -304,6 +361,7 @@ export const userFields = {
   name: v.string(),
   handle: v.string(),
   email: v.string(),
+  emailNormalized: v.optional(v.string()),
   avatarUrl: v.string(),
   avatarImageStorageId: v.optional(nullableStorageId),
   workosUserId: v.optional(nullableString),
@@ -323,6 +381,7 @@ export const userFields = {
 
 export const labelFields = {
   id: v.string(),
+  workspaceId: v.string(),
   name: v.string(),
   color: v.string(),
 }
@@ -520,6 +579,7 @@ export const inviteFields = {
   workspaceId: v.string(),
   teamId: v.string(),
   email: v.string(),
+  normalizedEmail: v.optional(v.string()),
   role: roleValidator,
   token: v.string(),
   joinCode: v.string(),

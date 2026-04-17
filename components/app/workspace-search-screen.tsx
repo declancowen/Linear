@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useDeferredValue, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   FileText,
@@ -13,8 +13,8 @@ import {
 } from "@phosphor-icons/react"
 
 import {
-  getAccessibleTeams,
-  searchWorkspace,
+  getWorkspaceSearchIndex,
+  queryWorkspaceSearchIndex,
   type GlobalSearchResult,
 } from "@/lib/domain/selectors"
 import { statusMeta, type WorkStatus, workStatuses } from "@/lib/domain/types"
@@ -97,44 +97,27 @@ export function WorkspaceSearchScreen({
   const [kind, setKind] = useState<SearchKindFilter>("all")
   const [teamId, setTeamId] = useState("all")
   const [status, setStatus] = useState<WorkStatus | "all">("all")
+  const searchQuery = useDeferredValue(query)
+  const searchIndex = useMemo(() => getWorkspaceSearchIndex(data), [data])
+  const teams = searchIndex.teams
 
-  const trimmedQuery = query.trim()
-  const teams = useMemo(() => getAccessibleTeams(data), [data])
-  const queriedResults = useMemo(() => searchWorkspace(data, query), [data, query])
+  const trimmedQuery = searchQuery.trim()
   const teamsById = useMemo(
     () => new Map(teams.map((team) => [team.id, team])),
     [teams]
   )
-
-  const scopedResults = useMemo(
-    () =>
-      queriedResults.filter((result) => {
-        if (teamId !== "all" && result.teamId !== teamId) {
-          return false
-        }
-
-        if (status !== "all" && result.kind === "item" && result.status !== status) {
-          return false
-        }
-
-        if (status !== "all" && result.kind !== "item") {
-          return false
-        }
-
-        return true
-      }),
-    [queriedResults, status, teamId]
-  )
-
   const filteredResults = useMemo(
     () =>
-      kind === "all"
-        ? scopedResults
-        : scopedResults.filter((result) => result.kind === kind),
-    [kind, scopedResults]
+      queryWorkspaceSearchIndex(searchIndex, searchQuery, {
+        kind,
+        status,
+        teamId,
+      }),
+    [kind, searchIndex, searchQuery, status, teamId]
   )
 
-  const hasActiveFilters = kind !== "all" || teamId !== "all" || status !== "all"
+  const hasActiveFilters =
+    kind !== "all" || teamId !== "all" || status !== "all"
 
   function clearFilters() {
     setKind("all")
@@ -154,7 +137,7 @@ export function WorkspaceSearchScreen({
             <div className="relative">
               <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-10 pl-9 pr-9 placeholder:text-muted-foreground/60"
+                className="h-10 pr-9 pl-9 placeholder:text-muted-foreground/60"
                 placeholder="Search everything…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
@@ -190,7 +173,9 @@ export function WorkspaceSearchScreen({
 
               <Select
                 value={status}
-                onValueChange={(value) => setStatus(value as WorkStatus | "all")}
+                onValueChange={(value) =>
+                  setStatus(value as WorkStatus | "all")
+                }
               >
                 <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="Filter by status" />
@@ -250,7 +235,9 @@ export function WorkspaceSearchScreen({
           ) : (
             <div className="space-y-0">
               {filteredResults.map((result) => {
-                const team = result.teamId ? (teamsById.get(result.teamId) ?? null) : null
+                const team = result.teamId
+                  ? (teamsById.get(result.teamId) ?? null)
+                  : null
                 const subtitle = result.subtitle?.trim()
                 const metadata = [
                   searchResultLabel(result.kind),
@@ -270,7 +257,9 @@ export function WorkspaceSearchScreen({
                       {searchResultIcon(result.kind)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{result.title}</div>
+                      <div className="truncate text-sm font-medium">
+                        {result.title}
+                      </div>
                       {subtitle ? (
                         <div className="truncate text-xs text-muted-foreground">
                           {subtitle}

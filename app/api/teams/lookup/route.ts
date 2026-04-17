@@ -1,12 +1,17 @@
 import { NextRequest } from "next/server"
 
 import { joinCodeSchema } from "@/lib/domain/types"
+import { isApplicationError } from "@/lib/server/application-errors"
 import { lookupTeamByJoinCodeServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
-import { jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code") ?? ""
@@ -36,6 +41,10 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (isApplicationError(error)) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to look up team", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to look up team"),

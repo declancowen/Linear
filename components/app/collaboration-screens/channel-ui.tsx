@@ -50,7 +50,9 @@ export function ForumPostCard({ postId }: { postId: string }) {
         null
 
       return conversation && conversation.kind === "channel"
-        ? getConversationParticipants(state, conversation)
+        ? getConversationParticipants(state, conversation).filter(
+            (candidate) => candidate.id !== state.currentUserId
+          )
         : []
     })
   )
@@ -440,8 +442,10 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
       userIds.add(workspace.createdBy)
     }
 
-    return users.filter((user) => userIds.has(user.id))
-  }, [conversation, teamMemberships, teams, users, workspaces])
+    return users.filter(
+      (user) => userIds.has(user.id) && user.id !== currentUserId
+    )
+  }, [conversation, currentUserId, teamMemberships, teams, users, workspaces])
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")

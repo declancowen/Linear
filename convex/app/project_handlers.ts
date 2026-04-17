@@ -20,6 +20,7 @@ import {
   normalizeTeam,
   normalizeTeamWorkflowSettings,
 } from "./normalization"
+import { assertWorkspaceLabelIds } from "./work_helpers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -52,6 +53,7 @@ export async function createProjectHandler(
 ) {
   assertServerToken(args.serverToken)
   let settingsTeam = null
+  let workspaceId = args.scopeId
 
   if (args.scopeType === "team") {
     await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
@@ -60,6 +62,8 @@ export async function createProjectHandler(
     if (!settingsTeam) {
       throw new Error("Team not found")
     }
+
+    workspaceId = settingsTeam.workspaceId
 
     if (!normalizeTeam(settingsTeam).settings.features.projects) {
       throw new Error("Projects are disabled for this team")
@@ -89,6 +93,12 @@ export async function createProjectHandler(
       }
     }
   }
+
+  await assertWorkspaceLabelIds(
+    ctx,
+    workspaceId,
+    args.presentation?.filters.labelIds
+  )
 
   const settingsTeamExperience =
     (

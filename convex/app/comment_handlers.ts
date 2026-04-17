@@ -11,6 +11,8 @@ import {
   getCommentDoc,
   getDocumentDoc,
   getWorkItemDoc,
+  listCommentsByTarget,
+  listUsersByIds,
 } from "./data"
 import {
   requireEditableTeamAccess,
@@ -46,9 +48,10 @@ export async function addCommentHandler(
   let followerIds: string[] = []
   let entityType: "workItem" | "document" = "workItem"
   let entityTitle = "item"
-  const existingComments = (await ctx.db.query("comments").collect()).filter(
-    (comment) =>
-      comment.targetType === args.targetType && comment.targetId === args.targetId
+  const existingComments = await listCommentsByTarget(
+    ctx,
+    args.targetType,
+    args.targetId
   )
   const parentComment = args.parentCommentId
     ? await getCommentDoc(ctx, args.parentCommentId)
@@ -71,7 +74,7 @@ export async function addCommentHandler(
     const item = await getWorkItemDoc(ctx, args.targetId)
 
     if (!item) {
-      return
+      throw new Error("Work item not found")
     }
 
     teamId = item.teamId
@@ -90,7 +93,7 @@ export async function addCommentHandler(
     const document = await getDocumentDoc(ctx, args.targetId)
 
     if (!document) {
-      return
+      throw new Error("Document not found")
     }
 
     if (!document.teamId) {
@@ -114,9 +117,13 @@ export async function addCommentHandler(
 
   await requireEditableTeamAccess(ctx, teamId, args.currentUserId)
 
-  const users = await ctx.db.query("users").collect()
-  const actor = users.find((user) => user.id === args.currentUserId)
   const audienceUserIds = new Set(await getTeamMemberIds(ctx, teamId))
+  const users = await listUsersByIds(ctx, [
+    args.currentUserId,
+    ...audienceUserIds,
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
+  const actor = usersById.get(args.currentUserId)
   const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
   const notifiedUserIds = new Set<string>()
   const mentionEmails: Array<{
@@ -150,7 +157,7 @@ export async function addCommentHandler(
       continue
     }
 
-    const mentionedUser = users.find((user) => user.id === mentionedUserId)
+    const mentionedUser = usersById.get(mentionedUserId)
     const notification = createNotification(
       mentionedUserId,
       args.currentUserId,

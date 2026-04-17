@@ -2,6 +2,7 @@
 
 import {
   canEditWorkspace,
+  getLabelsForTeamScope,
   getTeamFeatureSettings,
   getTeamSurfaceDisableReason,
   getWorkItemDescendantIds,
@@ -123,7 +124,10 @@ export function getWorkItemValidationMessage(
     "labelIds" in input &&
     input.labelIds &&
     input.labelIds.some(
-      (labelId) => !state.labels.some((label) => label.id === labelId)
+      (labelId) =>
+        !getLabelsForTeamScope(state, input.teamId).some(
+          (label) => label.id === labelId
+        )
     )
   ) {
     return "One or more labels are invalid"

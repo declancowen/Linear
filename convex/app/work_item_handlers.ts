@@ -18,9 +18,15 @@ import {
   getUserDoc,
   getWorkItemDoc,
   isTeamMember,
+  listAttachmentsByTargets,
+  listCommentsByTargets,
+  listNotificationsByEntities,
+  listTeamDocuments,
+  listWorkspaceDocuments,
 } from "./data"
 import { normalizeTeam } from "./normalization"
 import {
+  assertWorkspaceLabelIds,
   collectWorkItemCascadeIds,
   getResolvedProjectLinkForWorkItemUpdate,
   projectBelongsToTeamScope,
@@ -94,9 +100,7 @@ export async function updateWorkItemHandler(
   const existing = await getWorkItemDoc(ctx, args.itemId)
 
   if (!existing) {
-    return {
-      assignmentEmails: [],
-    }
+    throw new Error("Work item not found")
   }
 
   await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
@@ -128,21 +132,18 @@ export async function updateWorkItemHandler(
     .query("workItems")
     .withIndex("by_team_id", (q) => q.eq("teamId", existing.teamId))
     .collect()
-  const {
-    cascadeItemIds,
-    resolvedPrimaryProjectId,
-    shouldCascadeProjectLink,
-  } = getResolvedProjectLinkForWorkItemUpdate(
-    teamItems.map((item) => ({
-      id: item.id,
-      parentId: item.parentId,
-      primaryProjectId: item.primaryProjectId,
-    })),
-    existing,
-    parent,
-    existing.id,
-    args.patch
-  )
+  const { cascadeItemIds, resolvedPrimaryProjectId, shouldCascadeProjectLink } =
+    getResolvedProjectLinkForWorkItemUpdate(
+      teamItems.map((item) => ({
+        id: item.id,
+        parentId: item.parentId,
+        primaryProjectId: item.primaryProjectId,
+      })),
+      existing,
+      parent,
+      existing.id,
+      args.patch
+    )
 
   if (
     args.patch.assigneeId !== undefined &&
@@ -153,12 +154,7 @@ export async function updateWorkItemHandler(
   }
 
   if (args.patch.labelIds !== undefined) {
-    const labels = await ctx.db.query("labels").collect()
-    const labelIds = new Set(labels.map((label) => label.id))
-
-    if (args.patch.labelIds.some((labelId) => !labelIds.has(labelId))) {
-      throw new Error("One or more labels are invalid")
-    }
+    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.patch.labelIds)
   }
 
   if (resolvedPrimaryProjectId) {
@@ -323,6 +319,11 @@ export async function deleteWorkItemHandler(
   }
 
   await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  const team = await getTeamDoc(ctx, item.teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
 
   const teamItems = await ctx.db
     .query("workItems")
@@ -335,54 +336,65 @@ export async function deleteWorkItemHandler(
   const deletedDescriptionDocIds = new Set(
     deletedWorkItems.map((entry) => entry.descriptionDocId)
   )
-  const comments = await ctx.db.query("comments").collect()
-  const attachments = await ctx.db.query("attachments").collect()
-  const notifications = await ctx.db.query("notifications").collect()
-  const documents = await ctx.db.query("documents").collect()
+  const [
+    workItemComments,
+    documentComments,
+    workItemAttachments,
+    documentAttachments,
+    notifications,
+    workspaceDocuments,
+    teamDocuments,
+  ] = await Promise.all([
+    listCommentsByTargets(ctx, {
+      targetType: "workItem",
+      targetIds: deletedItemIds,
+    }),
+    listCommentsByTargets(ctx, {
+      targetType: "document",
+      targetIds: deletedDescriptionDocIds,
+    }),
+    listAttachmentsByTargets(ctx, {
+      targetType: "workItem",
+      targetIds: deletedItemIds,
+    }),
+    listAttachmentsByTargets(ctx, {
+      targetType: "document",
+      targetIds: deletedDescriptionDocIds,
+    }),
+    listNotificationsByEntities(ctx, [
+      ...[...deletedItemIds].map((entityId) => ({
+        entityType: "workItem" as const,
+        entityId,
+      })),
+      ...[...deletedDescriptionDocIds].map((entityId) => ({
+        entityType: "document" as const,
+        entityId,
+      })),
+    ]),
+    listWorkspaceDocuments(ctx, team.workspaceId),
+    listTeamDocuments(ctx, team.id),
+  ])
+  const documents = [
+    ...new Map(
+      [...workspaceDocuments, ...teamDocuments].map((document) => [
+        document.id,
+        document,
+      ])
+    ).values(),
+  ]
+  const comments = [...workItemComments, ...documentComments]
+  const attachments = [...workItemAttachments, ...documentAttachments]
 
   for (const attachment of attachments) {
-    const targetsDeletedItem =
-      attachment.targetType === "workItem" &&
-      deletedItemIds.has(attachment.targetId)
-    const targetsDeletedDescription =
-      attachment.targetType === "document" &&
-      deletedDescriptionDocIds.has(attachment.targetId)
-
-    if (!targetsDeletedItem && !targetsDeletedDescription) {
-      continue
-    }
-
     await ctx.storage.delete(attachment.storageId)
     await ctx.db.delete(attachment._id)
   }
 
   for (const comment of comments) {
-    const targetsDeletedItem =
-      comment.targetType === "workItem" &&
-      deletedItemIds.has(comment.targetId)
-    const targetsDeletedDescription =
-      comment.targetType === "document" &&
-      deletedDescriptionDocIds.has(comment.targetId)
-
-    if (!targetsDeletedItem && !targetsDeletedDescription) {
-      continue
-    }
-
     await ctx.db.delete(comment._id)
   }
 
   for (const notification of notifications) {
-    const targetsDeletedItem =
-      notification.entityType === "workItem" &&
-      deletedItemIds.has(notification.entityId)
-    const targetsDeletedDescription =
-      notification.entityType === "document" &&
-      deletedDescriptionDocIds.has(notification.entityId)
-
-    if (!targetsDeletedItem && !targetsDeletedDescription) {
-      continue
-    }
-
     await ctx.db.delete(notification._id)
   }
 
@@ -446,8 +458,12 @@ export async function shiftTimelineItemHandler(
   assertServerToken(args.serverToken)
   const item = await getWorkItemDoc(ctx, args.itemId)
 
-  if (!item || !item.startDate) {
-    return
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  if (!item.startDate) {
+    throw new Error("Work item is not scheduled")
   }
 
   await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
@@ -505,12 +521,7 @@ export async function createWorkItemHandler(
   }
 
   if (args.labelIds !== undefined) {
-    const labels = await ctx.db.query("labels").collect()
-    const labelIds = new Set(labels.map((label) => label.id))
-
-    if (args.labelIds.some((labelId) => !labelIds.has(labelId))) {
-      throw new Error("One or more labels are invalid")
-    }
+    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
   }
 
   if (resolvedPrimaryProjectId) {
@@ -551,7 +562,9 @@ export async function createWorkItemHandler(
     teamId: args.teamId,
     title: `${args.title} description`,
     content: `<p>Add a fuller description for ${args.title}.</p>`,
-    linkedProjectIds: resolvedPrimaryProjectId ? [resolvedPrimaryProjectId] : [],
+    linkedProjectIds: resolvedPrimaryProjectId
+      ? [resolvedPrimaryProjectId]
+      : [],
     linkedWorkItemIds: [],
     createdBy: args.currentUserId,
     updatedBy: args.currentUserId,

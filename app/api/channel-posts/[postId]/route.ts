@@ -1,12 +1,18 @@
 import { NextRequest } from "next/server"
 
+import { isApplicationError } from "@/lib/server/application-errors"
 import { deleteChannelPostServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function DELETE(
   _request: NextRequest,
@@ -35,6 +41,10 @@ export async function DELETE(
       ok: true,
     })
   } catch (error) {
+    if (isApplicationError(error)) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to delete post", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete post"),

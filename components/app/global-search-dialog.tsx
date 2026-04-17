@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useDeferredValue, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useShallow } from "zustand/react/shallow"
 import {
   FileText,
   Kanban,
@@ -11,12 +12,14 @@ import {
 } from "@phosphor-icons/react"
 
 import {
+  getWorkspaceSearchIndex,
   getTeam,
   type GlobalSearchResult,
-  searchWorkspace,
+  queryWorkspaceSearchIndex,
 } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
+import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import {
   Command,
   CommandDialog,
@@ -43,13 +46,7 @@ function ShortcutKeys({ keys }: { keys: string[] }) {
   )
 }
 
-function ShortcutHint({
-  keys,
-  label,
-}: {
-  keys: string[]
-  label: string
-}) {
+function ShortcutHint({ keys, label }: { keys: string[]; label: string }) {
   return (
     <div className="flex items-center gap-2 text-muted-foreground">
       <ShortcutKeys keys={keys} />
@@ -95,20 +92,40 @@ export function GlobalSearchDialog({
   fullSearchShortcutKeys: string[]
 }) {
   const router = useRouter()
-  const data = useAppStore()
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState("")
-  const results = searchWorkspace(data, query).slice(0, 20)
-  const trimmedQuery = query.trim()
-  const hasQuery = trimmedQuery.length > 0
-  const groupedResults = {
-    navigation: results.filter((result) => result.kind === "navigation"),
-    teams: results.filter((result) => result.kind === "team"),
-    projects: results.filter((result) => result.kind === "project"),
-    work: results.filter((result) => result.kind === "item"),
-    docs: results.filter((result) => result.kind === "document"),
-  }
+  const searchQuery = useDeferredValue(query)
+  const searchIndex = useMemo(() => getWorkspaceSearchIndex(data), [data])
+  const teamsById = useMemo(
+    () => new Map(searchIndex.teams.map((team) => [team.id, team])),
+    [searchIndex]
+  )
+  const trimmedSearchQuery = searchQuery.trim()
+  const hasQuery = trimmedSearchQuery.length > 0
+  const results = useMemo(
+    () =>
+      queryWorkspaceSearchIndex(searchIndex, searchQuery, {
+        kind: hasQuery ? "all" : "navigation",
+        limit: 20,
+      }),
+    [hasQuery, searchIndex, searchQuery]
+  )
+  const groupedResults = useMemo(
+    () => ({
+      navigation: results.filter((result) => result.kind === "navigation"),
+      teams: results.filter((result) => result.kind === "team"),
+      projects: results.filter((result) => result.kind === "project"),
+      work: results.filter((result) => result.kind === "item"),
+      docs: results.filter((result) => result.kind === "document"),
+    }),
+    [results]
+  )
   const resultGroups = [
-    { key: "navigation", heading: "Navigation", items: groupedResults.navigation },
+    {
+      key: "navigation",
+      heading: "Navigation",
+      items: groupedResults.navigation,
+    },
     { key: "teams", heading: "Teams", items: groupedResults.teams },
     { key: "projects", heading: "Projects", items: groupedResults.projects },
     { key: "work", heading: "Work Items", items: groupedResults.work },
@@ -131,7 +148,7 @@ export function GlobalSearchDialog({
       onOpenChange={onOpenChange}
       title="Global Search"
       description="Search work items, projects, docs, teams, and navigation."
-      className="!top-[12vh] sm:!top-[14vh] !w-[min(52rem,calc(100%-2rem))] !max-w-none overflow-hidden p-0"
+      className="!top-[12vh] !w-[min(52rem,calc(100%-2rem))] !max-w-none overflow-hidden p-0 sm:!top-[14vh]"
     >
       <Command shouldFilter={false} className="!h-[min(32rem,72vh)] p-0">
         <CommandInput
@@ -139,14 +156,17 @@ export function GlobalSearchDialog({
           value={query}
           onValueChange={handleQueryChange}
         />
-        <CommandList className="min-h-0 flex-1 max-h-none">
+        <CommandList className="max-h-none min-h-0 flex-1">
           <CommandEmpty className="text-muted-foreground">
             No results found.
           </CommandEmpty>
           {!hasQuery ? (
             <CommandGroup heading="Jump to">
               {groupedResults.navigation.map((result) => {
-                const team = result.teamId ? getTeam(data, result.teamId) : null
+                const team = result.teamId
+                  ? (teamsById.get(result.teamId) ??
+                    getTeam(data, result.teamId))
+                  : null
                 const subtitle = result.subtitle?.trim()
 
                 return (
@@ -173,7 +193,10 @@ export function GlobalSearchDialog({
               group.items.length > 0 ? (
                 <CommandGroup key={group.key} heading={group.heading}>
                   {group.items.map((result) => {
-                    const team = result.teamId ? getTeam(data, result.teamId) : null
+                    const team = result.teamId
+                      ? (teamsById.get(result.teamId) ??
+                        getTeam(data, result.teamId))
+                      : null
                     const subtitle = result.subtitle?.trim()
 
                     return (

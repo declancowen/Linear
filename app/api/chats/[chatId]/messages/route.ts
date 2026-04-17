@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { chatMessageSchema } from "@/lib/domain/types"
 import {
   markNotificationsEmailedServer,
@@ -13,7 +14,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const chatMessageBodySchema = z.object({
   content: chatMessageSchema.shape.content,
@@ -79,10 +85,13 @@ export async function POST(
       messageId: result?.messageId ?? null,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to send message", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to send message"),
-      500
-    )
+    return jsonError(getConvexErrorMessage(error, "Failed to send message"), 500, {
+      code: "CHAT_MESSAGE_SEND_FAILED",
+    })
   }
 }

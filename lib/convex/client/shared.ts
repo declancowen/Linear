@@ -5,11 +5,60 @@ export const hasConvex = convexUrl.length > 0
 
 export class RouteMutationError extends Error {
   status: number
+  code: string | null
+  retryable: boolean | null
+  details: Record<string, unknown> | null
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    options?: {
+      code?: string | null
+      retryable?: boolean | null
+      details?: Record<string, unknown> | null
+    }
+  ) {
     super(message)
     this.name = "RouteMutationError"
     this.status = status
+    this.code = options?.code ?? null
+    this.retryable = options?.retryable ?? null
+    this.details = options?.details ?? null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function parseRouteErrorPayload(payload: unknown) {
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  const explicitDetails =
+    isRecord(payload.details) ? payload.details : null
+  const legacyDetails = Object.fromEntries(
+    Object.entries(payload).filter(
+      ([key]) =>
+        !["error", "message", "code", "retryable", "details"].includes(key)
+    )
+  )
+  const details =
+    explicitDetails ??
+    (Object.keys(legacyDetails).length > 0 ? legacyDetails : null)
+
+  return {
+    message:
+      typeof payload.error === "string"
+        ? payload.error
+        : typeof payload.message === "string"
+          ? payload.message
+          : null,
+    code: typeof payload.code === "string" ? payload.code : null,
+    retryable:
+      typeof payload.retryable === "boolean" ? payload.retryable : null,
+    details,
   }
 }
 
@@ -25,14 +74,19 @@ export async function runRouteMutation<T>(
   }
 
   const response = await fetch(input, init)
-  const payload = (await response.json().catch(() => null)) as {
-    error?: string
-  } | null
+  const payload = (await response.json().catch(() => null)) as unknown
 
   if (!response.ok) {
+    const parsedError = parseRouteErrorPayload(payload)
+
     throw new RouteMutationError(
-      payload?.error ?? "Request failed",
-      response.status
+      parsedError?.message ?? "Request failed",
+      response.status,
+      {
+        code: parsedError?.code ?? null,
+        retryable: parsedError?.retryable ?? null,
+        details: parsedError?.details ?? null,
+      }
     )
   }
 

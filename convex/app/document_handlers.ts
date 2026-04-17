@@ -15,11 +15,7 @@ import {
   requireEditableWorkspaceAccess,
   requireWorkspaceAdminAccess,
 } from "./access"
-import {
-  cleanupRemainingLinksAfterDelete,
-  deleteDocs,
-  deleteStorageObjects,
-} from "./cleanup"
+import { deleteDocumentCascade } from "./lifecycle"
 import { listDocumentPresenceViewers } from "./normalization"
 import { getAttachmentDoc } from "./data"
 import { createId, getNow as now } from "./core"
@@ -122,7 +118,7 @@ export async function updateDocumentContentHandler(
   const document = await getDocumentDoc(ctx, args.documentId)
 
   if (!document) {
-    return
+    throw new Error("Document not found")
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
@@ -147,7 +143,7 @@ export async function updateDocumentHandler(
   const document = await getDocumentDoc(ctx, args.documentId)
 
   if (!document) {
-    return
+    throw new Error("Document not found")
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
@@ -282,7 +278,7 @@ export async function renameDocumentHandler(
   const document = await getDocumentDoc(ctx, args.documentId)
 
   if (!document) {
-    return
+    throw new Error("Document not found")
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
@@ -310,36 +306,10 @@ export async function deleteDocumentHandler(
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
-
-  const deletedDocumentIds = new Set([document.id])
-  const comments = (await ctx.db.query("comments").collect()).filter(
-    (comment) =>
-      comment.targetType === "document" &&
-      deletedDocumentIds.has(comment.targetId)
-  )
-  const attachments = (await ctx.db.query("attachments").collect()).filter(
-    (attachment) =>
-      attachment.targetType === "document" &&
-      deletedDocumentIds.has(attachment.targetId)
-  )
-  const notifications = (await ctx.db.query("notifications").collect()).filter(
-    (notification) =>
-      notification.entityType === "document" &&
-      deletedDocumentIds.has(notification.entityId)
-  )
-
-  await cleanupRemainingLinksAfterDelete(ctx, {
+  await deleteDocumentCascade(ctx, {
     currentUserId: args.currentUserId,
-    deletedDocumentIds,
+    document,
   })
-  await deleteStorageObjects(
-    ctx,
-    attachments.map((attachment) => attachment.storageId as string)
-  )
-  await deleteDocs(ctx, comments)
-  await deleteDocs(ctx, attachments)
-  await deleteDocs(ctx, notifications)
-  await ctx.db.delete(document._id)
 }
 
 export async function updateItemDescriptionHandler(
@@ -350,7 +320,7 @@ export async function updateItemDescriptionHandler(
   const item = await getWorkItemDoc(ctx, args.itemId)
 
   if (!item) {
-    return
+    throw new Error("Work item not found")
   }
 
   await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
@@ -358,7 +328,7 @@ export async function updateItemDescriptionHandler(
   const descriptionDocument = await getDocumentDoc(ctx, item.descriptionDocId)
 
   if (!descriptionDocument) {
-    return
+    throw new Error("Work item description document not found")
   }
 
   await ctx.db.patch(descriptionDocument._id, {

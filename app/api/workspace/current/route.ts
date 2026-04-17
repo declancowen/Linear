@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { workspaceBrandingSchema } from "@/lib/domain/types"
 import {
   deleteWorkspaceServer,
@@ -12,7 +13,12 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 import { ensureWorkspaceOrganization } from "@/lib/server/workos"
 
 export async function PATCH(request: NextRequest) {
@@ -84,12 +90,17 @@ export async function PATCH(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update workspace", error)
-    return NextResponse.json(
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update workspace"),
+      500,
       {
-        error: getConvexErrorMessage(error, "Failed to update workspace"),
-      },
-      { status: 500 }
+        code: "WORKSPACE_UPDATE_FAILED",
+      }
     )
   }
 }
@@ -130,12 +141,17 @@ export async function DELETE() {
       deletedUserIds: result?.deletedUserIds ?? [],
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to delete workspace", error)
-    return NextResponse.json(
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete workspace"),
+      500,
       {
-        error: getConvexErrorMessage(error, "Failed to delete workspace"),
-      },
-      { status: 500 }
+        code: "WORKSPACE_DELETE_FAILED",
+      }
     )
   }
 }

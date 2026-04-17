@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react"
 
 import {
+  getLabelsForTeamScope,
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
@@ -406,7 +407,7 @@ export function CreateProjectDialog({
   const teams = useAppStore((state) => state.teams)
   const teamMemberships = useAppStore((state) => state.teamMemberships)
   const users = useAppStore((state) => state.users)
-  const labels = useAppStore((state) => state.labels)
+  const labels = useAppStore((state) => getLabelsForTeamScope(state, teamId))
   const settingsTeam = useMemo(
     () => teams.find((entry) => entry.id === teamId) ?? null,
     [teamId, teams]
@@ -421,8 +422,7 @@ export function CreateProjectDialog({
     return users.filter((user) => memberIds.has(user.id))
   }, [teamId, teamMemberships, users])
   const availableLabels = useMemo(
-    () =>
-      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () => [...labels].sort((left, right) => left.name.localeCompare(right.name)),
     [labels]
   )
   const templateType = getDefaultTemplateTypeForTeamExperience(

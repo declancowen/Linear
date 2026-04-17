@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import {
+  coerceWorkOSAccountApplicationError,
   mapWorkOSAccountError,
   updateWorkOSUserEmail,
 } from "@/lib/server/workos"
@@ -11,7 +12,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const emailChangeSchema = z.object({
   email: z.string().trim().email(),
@@ -58,6 +64,16 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     logProviderError("Failed to update account email", error)
+
+    const applicationError = coerceWorkOSAccountApplicationError(
+      error,
+      "Failed to update your email address."
+    )
+
+    if (applicationError) {
+      return jsonApplicationError(applicationError)
+    }
+
     return jsonError(
       mapWorkOSAccountError(
         error,

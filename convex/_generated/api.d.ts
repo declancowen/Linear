@@ -11,6 +11,7 @@
 import type * as app from "../app.js";
 import type * as app_access from "../app/access.js";
 import type * as app_assets from "../app/assets.js";
+import type * as app_audit from "../app/audit.js";
 import type * as app_auth_bootstrap from "../app/auth_bootstrap.js";
 import type * as app_cleanup from "../app/cleanup.js";
 import type * as app_collaboration_handlers from "../app/collaboration_handlers.js";
@@ -21,6 +22,9 @@ import type * as app_core from "../app/core.js";
 import type * as app_data from "../app/data.js";
 import type * as app_document_handlers from "../app/document_handlers.js";
 import type * as app_invite_handlers from "../app/invite_handlers.js";
+import type * as app_label_workspace from "../app/label_workspace.js";
+import type * as app_lifecycle from "../app/lifecycle.js";
+import type * as app_maintenance from "../app/maintenance.js";
 import type * as app_normalization from "../app/normalization.js";
 import type * as app_notification_handlers from "../app/notification_handlers.js";
 import type * as app_notifications from "../app/notifications.js";
@@ -43,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   app: typeof app;
   "app/access": typeof app_access;
   "app/assets": typeof app_assets;
+  "app/audit": typeof app_audit;
   "app/auth_bootstrap": typeof app_auth_bootstrap;
   "app/cleanup": typeof app_cleanup;
   "app/collaboration_handlers": typeof app_collaboration_handlers;
@@ -53,6 +58,9 @@ declare const fullApi: ApiFromModules<{
   "app/data": typeof app_data;
   "app/document_handlers": typeof app_document_handlers;
   "app/invite_handlers": typeof app_invite_handlers;
+  "app/label_workspace": typeof app_label_workspace;
+  "app/lifecycle": typeof app_lifecycle;
+  "app/maintenance": typeof app_maintenance;
   "app/normalization": typeof app_normalization;
   "app/notification_handlers": typeof app_notification_handlers;
   "app/notifications": typeof app_notifications;

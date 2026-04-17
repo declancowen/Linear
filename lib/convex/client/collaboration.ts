@@ -2,6 +2,7 @@
 
 import type { Call, ChatMessage } from "@/lib/domain/types"
 
+import { normalizeStartConversationCallResult } from "./contracts"
 import { runRouteMutation } from "./shared"
 
 export type StartConversationCallResult = {
@@ -40,12 +41,9 @@ export function syncEnsureTeamChat(input: {
 }
 
 export function syncStartConversationCall(conversationId: string) {
-  return runRouteMutation<StartConversationCallResult>(
-    `/api/chats/${conversationId}/calls`,
-    {
-      method: "POST",
-    }
-  )
+  return runRouteMutation<unknown>(`/api/chats/${conversationId}/calls`, {
+    method: "POST",
+  }).then(normalizeStartConversationCallResult)
 }
 
 export function syncSendChatMessage(conversationId: string, content: string) {

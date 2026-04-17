@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server"
 
+import { listTeamDocuments } from "./data"
 import { normalizeTeamFeatures } from "./normalization"
 
 type TeamFeatureSet = {
@@ -32,7 +33,7 @@ export async function getTeamSurfaceDisableMessage(
   )
 
   if (currentFeatures.docs && !nextFeatures.docs) {
-    const documents = await ctx.db.query("documents").collect()
+    const documents = await listTeamDocuments(ctx, team.id)
     const hasTeamDocuments = documents.some(
       (document) =>
         document.kind === "team-document" && document.teamId === team.id

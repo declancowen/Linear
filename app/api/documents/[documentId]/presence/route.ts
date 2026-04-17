@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import {
   clearDocumentPresenceServer,
   heartbeatDocumentPresenceServer,
@@ -11,7 +12,12 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
-import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
 const documentPresenceSchema = z.object({
@@ -78,15 +84,17 @@ export async function POST(
       viewers,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update document presence", error)
-    return NextResponse.json(
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update document presence"),
+      500,
       {
-        error: getConvexErrorMessage(
-          error,
-          "Failed to update document presence"
-        ),
-      },
-      { status: 500 }
+        code: "DOCUMENT_PRESENCE_UPDATE_FAILED",
+      }
     )
   }
 }

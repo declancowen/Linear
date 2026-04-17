@@ -1,14 +1,21 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { leaveTeamServer } from "@/lib/server/convex"
 import { sendAccessChangeEmails } from "@/lib/server/email"
+import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function DELETE(
   _request: NextRequest,
@@ -43,6 +50,11 @@ export async function DELETE(
       }
     }
 
+    await reconcileProviderMembershipCleanup({
+      label: "Failed to deactivate WorkOS membership after team leave",
+      memberships: result?.providerMemberships ?? [],
+    })
+
     await reconcileAuthenticatedAppContext(session.user, session.organizationId)
 
     return jsonOk({
@@ -51,7 +63,13 @@ export async function DELETE(
       workspaceId: result?.workspaceId ?? null,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to leave team", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to leave team"), 500)
+    return jsonError(getConvexErrorMessage(error, "Failed to leave team"), 500, {
+      code: "TEAM_LEAVE_FAILED",
+    })
   }
 }

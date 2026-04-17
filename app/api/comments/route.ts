@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { commentSchema } from "@/lib/domain/types"
 import {
   addCommentServer,
@@ -11,7 +12,12 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
-import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 import { sendMentionEmails } from "@/lib/server/email"
 
 export async function POST(request: NextRequest) {
@@ -60,12 +66,17 @@ export async function POST(request: NextRequest) {
       ok: true,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to post comment", error)
-    return NextResponse.json(
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to post comment"),
+      500,
       {
-        error: getConvexErrorMessage(error, "Failed to post comment"),
-      },
-      { status: 500 }
+        code: "COMMENT_CREATE_FAILED",
+      }
     )
   }
 }

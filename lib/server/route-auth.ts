@@ -27,7 +27,9 @@ export async function requireSession(): Promise<
   const session = await withAuth()
 
   if (!session.user) {
-    return jsonError("Unauthorized", 401)
+    return jsonError("Unauthorized", 401, {
+      code: "AUTH_UNAUTHORIZED",
+    })
   }
 
   return session as AuthenticatedSession
@@ -42,7 +44,9 @@ export async function requireAppContext(
   )
 
   if (!appContext?.ensuredUser) {
-    return jsonError("User context not found", 404)
+    return jsonError("User context not found", 404, {
+      code: "AUTH_APP_CONTEXT_NOT_FOUND",
+    })
   }
 
   return appContext as RequiredAppContext
@@ -56,7 +60,9 @@ export async function requireConvexUser(
   )
 
   if (!authContext?.currentUser) {
-    return jsonError("User context not found", 404)
+    return jsonError("User context not found", 404, {
+      code: "AUTH_CONVEX_USER_NOT_FOUND",
+    })
   }
 
   return authContext as RequiredConvexAuthContext

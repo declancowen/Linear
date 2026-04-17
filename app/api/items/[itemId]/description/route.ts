@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { updateItemDescriptionServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
@@ -8,7 +9,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const itemDescriptionSchema = z.object({
   content: z.string().trim().min(1),
@@ -52,10 +58,13 @@ export async function PATCH(
       ok: true,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update description", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to update description"),
-      500
-    )
+    return jsonError(getConvexErrorMessage(error, "Failed to update description"), 500, {
+      code: "ITEM_DESCRIPTION_UPDATE_FAILED",
+    })
   }
 }

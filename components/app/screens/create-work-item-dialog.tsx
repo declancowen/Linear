@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { CaretDown } from "@phosphor-icons/react"
 
 import {
+  getLabelsForTeamScope,
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
@@ -64,7 +65,7 @@ export function CreateWorkItemDialog({
   const teamMemberships = useAppStore((state) => state.teamMemberships)
   const users = useAppStore((state) => state.users)
   const projects = useAppStore((state) => state.projects)
-  const labels = useAppStore((state) => state.labels)
+  const labels = useAppStore((state) => getLabelsForTeamScope(state, teamId))
   const team = useMemo(
     () => teams.find((entry) => entry.id === teamId) ?? null,
     [teamId, teams]
@@ -86,8 +87,7 @@ export function CreateWorkItemDialog({
     [projects, teamId]
   )
   const availableLabels = useMemo(
-    () =>
-      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () => [...labels].sort((left, right) => left.name.localeCompare(right.name)),
     [labels]
   )
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)

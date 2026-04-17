@@ -16,9 +16,14 @@ export function generateJoinCode(length = JOIN_CODE_LENGTH) {
 }
 
 export function isJoinCodeConflict(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
   return (
-    error instanceof Error &&
-    error.message.toLowerCase().includes("join code is already in use")
+    message.includes("join code is already in use") ||
+    message.includes("join code already exists")
   )
 }
 

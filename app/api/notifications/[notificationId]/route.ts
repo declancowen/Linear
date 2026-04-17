@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import {
   archiveNotificationServer,
   deleteNotificationServer,
@@ -14,7 +15,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const notificationMutationSchema = z.discriminatedUnion("action", [
   z.object({
@@ -85,10 +91,17 @@ export async function PATCH(
 
     return jsonOk({ ok: true })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update notification", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to update notification"),
-      500
+      500,
+      {
+        code: "NOTIFICATION_UPDATE_FAILED",
+      }
     )
   }
 }
@@ -118,10 +131,17 @@ export async function DELETE(
 
     return jsonOk({ ok: true })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to delete notification", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete notification"),
-      500
+      500,
+      {
+        code: "NOTIFICATION_DELETE_FAILED",
+      }
     )
   }
 }

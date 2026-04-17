@@ -6,46 +6,27 @@ import type {
   UserStatus,
 } from "@/lib/domain/types"
 
-import { RouteMutationError, runRouteMutation } from "./shared"
+import {
+  normalizeDeleteCurrentAccountResult,
+  normalizeLeaveWorkspaceResult,
+  normalizeSnapshotRoutePayload,
+} from "./contracts"
+import { runRouteMutation } from "./shared"
 
 export type SnapshotRoutePayload = {
   snapshot: AppSnapshot
   version: number
 }
 
-function isSnapshotRecord(value: unknown): value is AppSnapshot {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "currentUserId" in value &&
-    "teams" in value &&
-    "users" in value
-  )
-}
-
 export async function fetchSnapshotState() {
-  const payload = await runRouteMutation<SnapshotRoutePayload | AppSnapshot>(
-    "/api/snapshot",
-    {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  )
+  const payload = await runRouteMutation<unknown>("/api/snapshot", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
 
-  if ("snapshot" in payload && isSnapshotRecord(payload.snapshot)) {
-    return payload
-  }
-
-  if (isSnapshotRecord(payload)) {
-    return {
-      snapshot: payload,
-      version: 0,
-    }
-  }
-
-  throw new RouteMutationError("Invalid snapshot payload", 500)
+  return normalizeSnapshotRoutePayload(payload)
 }
 
 export async function fetchSnapshot() {
@@ -238,22 +219,15 @@ export function syncRemoveWorkspaceUser(userId: string) {
 }
 
 export function syncLeaveWorkspace() {
-  return runRouteMutation<{
-    workspaceId: string
-    removedTeamIds: string[]
-  }>("/api/workspace/current/leave", {
+  return runRouteMutation<unknown>("/api/workspace/current/leave", {
     method: "DELETE",
-  })
+  }).then(normalizeLeaveWorkspaceResult)
 }
 
 export function syncDeleteCurrentAccount() {
-  return runRouteMutation<{
-    ok: true
-    logoutRequired: true
-    notice: string
-  }>("/api/account", {
+  return runRouteMutation<unknown>("/api/account", {
     method: "DELETE",
-  })
+  }).then(normalizeDeleteCurrentAccountResult)
 }
 
 export function syncUpdateCurrentUserProfile(

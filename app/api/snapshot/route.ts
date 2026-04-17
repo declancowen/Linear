@@ -1,3 +1,4 @@
+import { isApplicationError } from "@/lib/server/application-errors"
 import {
   getSnapshotServer,
   getSnapshotVersionServer,
@@ -7,7 +8,12 @@ import {
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -64,6 +70,10 @@ export async function GET() {
 
     return jsonOk(payload)
   } catch (error) {
+    if (isApplicationError(error)) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to load snapshot", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to load snapshot"),

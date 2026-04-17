@@ -11,7 +11,9 @@ export async function parseJsonBody<TSchema extends ZodTypeAny>(
   const parsed = schema.safeParse(body)
 
   if (!parsed.success) {
-    return jsonError(invalidMessage, 400)
+    return jsonError(invalidMessage, 400, {
+      code: "ROUTE_INVALID_BODY",
+    })
   }
 
   return parsed.data

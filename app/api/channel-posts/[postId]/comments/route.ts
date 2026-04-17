@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { channelPostCommentSchema } from "@/lib/domain/types"
 import {
   addChannelPostCommentServer,
@@ -13,7 +14,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const channelPostCommentBodySchema = z.object({
   content: channelPostCommentSchema.shape.content,
@@ -79,10 +85,17 @@ export async function POST(
       commentId: result?.commentId ?? null,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to create comment", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to create comment"),
-      500
+      500,
+      {
+        code: "CHANNEL_POST_COMMENT_CREATE_FAILED",
+      }
     )
   }
 }

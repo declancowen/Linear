@@ -1,13 +1,20 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { removeWorkspaceUserServer } from "@/lib/server/convex"
 import { sendAccessChangeEmails } from "@/lib/server/email"
+import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function DELETE(
   _request: NextRequest,
@@ -56,16 +63,28 @@ export async function DELETE(
       }
     }
 
+    await reconcileProviderMembershipCleanup({
+      label: "Failed to deactivate WorkOS membership after workspace removal",
+      memberships: result?.providerMemberships ?? [],
+    })
+
     return jsonOk({
       ok: true,
       workspaceId: result?.workspaceId ?? workspaceId,
       userId: result?.userId ?? userId,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to remove workspace user", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to remove workspace user"),
-      500
+      500,
+      {
+        code: "WORKSPACE_USER_REMOVE_FAILED",
+      }
     )
   }
 }

@@ -7,17 +7,253 @@ import type {
   TeamWorkflowSettings,
   TemplateType,
 } from "@/lib/domain/types"
+import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
+
+const TEAM_JOIN_CODE_CONFLICT_MATCH = /join code (already exists|is already in use)/i
+
+const REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Only team admins can regenerate join codes",
+    status: 403,
+    code: "TEAM_JOIN_CODE_ADMIN_REQUIRED",
+  },
+  {
+    match: TEAM_JOIN_CODE_CONFLICT_MATCH,
+    status: 409,
+    code: "TEAM_JOIN_CODE_CONFLICT",
+    retryable: true,
+  },
+] as const
+
+const PROJECT_MUTATION_ERROR_MAPPINGS = [
+  {
+    match: "Project not found",
+    status: 404,
+    code: "PROJECT_NOT_FOUND",
+  },
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Settings team not found",
+    status: 404,
+    code: "PROJECT_SETTINGS_TEAM_NOT_FOUND",
+  },
+  {
+    match: "Settings team must belong to the current workspace",
+    status: 400,
+    code: "PROJECT_SETTINGS_TEAM_SCOPE_INVALID",
+  },
+  {
+    match: "Projects are disabled for this team",
+    status: 400,
+    code: "PROJECTS_DISABLED_FOR_TEAM",
+  },
+  {
+    match: "Projects are disabled for the selected team",
+    status: 400,
+    code: "PROJECTS_DISABLED_FOR_SETTINGS_TEAM",
+  },
+  {
+    match: "Project template is not allowed for this team",
+    status: 400,
+    code: "PROJECT_TEMPLATE_INVALID",
+  },
+  {
+    match: "One or more labels are invalid",
+    status: 400,
+    code: "PROJECT_LABELS_INVALID",
+  },
+  {
+    match: (message: string) =>
+      message === "Your current role is read-only" ||
+      message === "You do not have access to this team" ||
+      message === "You do not have access to this workspace",
+    status: 403,
+    code: "PROJECT_ACCESS_DENIED",
+  },
+] as const
+
+const TEAM_FEATURE_VALIDATION_ERROR_MAPPINGS = [
+  {
+    match: "Community teams can only enable docs, chat, and channel surfaces.",
+    status: 400,
+    code: "TEAM_FEATURES_INVALID",
+  },
+  {
+    match: "Community teams must enable docs, chat, channel, or a combination.",
+    status: 400,
+    code: "TEAM_FEATURES_INVALID",
+  },
+  {
+    match: "Non-community teams must include the work surface, projects, and views.",
+    status: 400,
+    code: "TEAM_FEATURES_INVALID",
+  },
+] as const
+
+const TEAM_SURFACE_DISABLE_ERROR_MAPPINGS = [
+  {
+    match: "Docs cannot be turned off while this team still has documents.",
+    status: 409,
+    code: "TEAM_FEATURE_DISABLE_CONFLICT",
+  },
+  {
+    match: "Chat cannot be turned off while the team chat has messages.",
+    status: 409,
+    code: "TEAM_FEATURE_DISABLE_CONFLICT",
+  },
+  {
+    match: "Channel cannot be turned off while posts exist.",
+    status: 409,
+    code: "TEAM_FEATURE_DISABLE_CONFLICT",
+  },
+] as const
+
+const TEAM_CREATE_ERROR_MAPPINGS = [
+  {
+    match: "Workspace not found",
+    status: 404,
+    code: "WORKSPACE_NOT_FOUND",
+  },
+  {
+    match: "Only workspace admins can perform this action",
+    status: 403,
+    code: "WORKSPACE_ADMIN_REQUIRED",
+  },
+  ...TEAM_FEATURE_VALIDATION_ERROR_MAPPINGS,
+] as const
+
+const TEAM_UPDATE_DETAILS_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Only team admins can update team details",
+    status: 403,
+    code: "TEAM_ADMIN_REQUIRED",
+  },
+  ...TEAM_FEATURE_VALIDATION_ERROR_MAPPINGS,
+  ...TEAM_SURFACE_DISABLE_ERROR_MAPPINGS,
+  {
+    match: TEAM_JOIN_CODE_CONFLICT_MATCH,
+    status: 409,
+    code: "TEAM_JOIN_CODE_CONFLICT",
+    retryable: true,
+  },
+] as const
+
+const DELETE_TEAM_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Only team admins can delete the team",
+    status: 403,
+    code: "TEAM_ADMIN_REQUIRED",
+  },
+] as const
+
+const LEAVE_TEAM_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "You are not a member of this team",
+    status: 404,
+    code: "TEAM_MEMBERSHIP_NOT_FOUND",
+  },
+  {
+    match: "Team admins can't leave the team",
+    status: 409,
+    code: "TEAM_LEAVE_ADMIN_FORBIDDEN",
+  },
+] as const
+
+const TEAM_MEMBER_ROLE_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Only team admins can manage team members",
+    status: 403,
+    code: "TEAM_ADMIN_REQUIRED",
+  },
+  {
+    match: "You can't change your own team access here",
+    status: 409,
+    code: "TEAM_MEMBER_SELF_MUTATION_FORBIDDEN",
+  },
+  {
+    match: "Team member not found",
+    status: 404,
+    code: "TEAM_MEMBER_NOT_FOUND",
+  },
+  {
+    match: "Teams must keep at least one admin",
+    status: 409,
+    code: "TEAM_LAST_ADMIN_REQUIRED",
+  },
+] as const
+
+const TEAM_WORKFLOW_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Only team admins can update workflow settings",
+    status: 403,
+    code: "TEAM_ADMIN_REQUIRED",
+  },
+] as const
+
+const TEAM_JOIN_BY_CODE_ERROR_MAPPINGS = [
+  {
+    match: "Join code not found",
+    status: 404,
+    code: "TEAM_JOIN_CODE_NOT_FOUND",
+  },
+  {
+    match: "User not found",
+    status: 404,
+    code: "ACCOUNT_NOT_FOUND",
+  },
+] as const
 
 export async function joinTeamByCodeServer(input: {
   currentUserId: string
   code: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.joinTeamByCode,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.joinTeamByCode,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...TEAM_JOIN_BY_CODE_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
 }
 
 export async function createProjectServer(input: {
@@ -31,10 +267,16 @@ export async function createProjectServer(input: {
   settingsTeamId?: string | null
   presentation?: ProjectPresentationConfig
 }) {
-  return getConvexServerClient().mutation(
-    api.app.createProject,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.createProject,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
+  }
 }
 
 export async function updateProjectServer(input: {
@@ -45,10 +287,16 @@ export async function updateProjectServer(input: {
     priority?: Priority
   }
 }) {
-  return getConvexServerClient().mutation(
-    api.app.updateProject,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateProject,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
+  }
 }
 
 export async function updateTeamWorkflowSettingsServer(input: {
@@ -56,10 +304,16 @@ export async function updateTeamWorkflowSettingsServer(input: {
   teamId: string
   workflow: TeamWorkflowSettings
 }) {
-  return getConvexServerClient().mutation(
-    api.app.updateTeamWorkflowSettings,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateTeamWorkflowSettings,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...TEAM_WORKFLOW_ERROR_MAPPINGS]) ?? error
+    )
+  }
 }
 
 export async function updateTeamMemberRoleServer(input: {
@@ -68,10 +322,17 @@ export async function updateTeamMemberRoleServer(input: {
   userId: string
   role: Role
 }) {
-  return getConvexServerClient().mutation(
-    api.app.updateTeamMemberRole,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateTeamMemberRole,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...TEAM_MEMBER_ROLE_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
 }
 
 export async function updateTeamDetailsServer(input: {
@@ -91,10 +352,17 @@ export async function updateTeamDetailsServer(input: {
     channels: boolean
   }
 }) {
-  return getConvexServerClient().mutation(
-    api.app.updateTeamDetails,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateTeamDetails,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...TEAM_UPDATE_DETAILS_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
 }
 
 export async function createTeamServer(input: {
@@ -114,30 +382,42 @@ export async function createTeamServer(input: {
     channels: boolean
   }
 }) {
-  return getConvexServerClient().mutation(
-    api.app.createTeam,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.createTeam,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...TEAM_CREATE_ERROR_MAPPINGS]) ?? error
+  }
 }
 
 export async function deleteTeamServer(input: {
   currentUserId: string
   teamId: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.deleteTeam,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteTeam,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...DELETE_TEAM_ERROR_MAPPINGS]) ?? error
+  }
 }
 
 export async function leaveTeamServer(input: {
   currentUserId: string
   teamId: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.leaveTeam,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.leaveTeam,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...LEAVE_TEAM_ERROR_MAPPINGS]) ?? error
+  }
 }
 
 export async function removeTeamMemberServer(input: {
@@ -145,10 +425,17 @@ export async function removeTeamMemberServer(input: {
   teamId: string
   userId: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.removeTeamMember,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.removeTeamMember,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...TEAM_MEMBER_ROLE_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
 }
 
 export async function regenerateTeamJoinCodeServer(input: {
@@ -156,8 +443,15 @@ export async function regenerateTeamJoinCodeServer(input: {
   teamId: string
   joinCode: string
 }) {
-  return getConvexServerClient().mutation(
-    api.app.regenerateTeamJoinCode,
-    withServerToken(input)
-  )
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.regenerateTeamJoinCode,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
 }

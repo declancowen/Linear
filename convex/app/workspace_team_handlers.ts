@@ -11,6 +11,7 @@ import {
   type UserStatus,
 } from "../../lib/domain/types"
 import {
+  requireEditableWorkspaceAccess,
   requireReadableWorkspaceAccess,
   requireTeamAdminAccess,
   requireWorkspaceAdminAccess,
@@ -19,7 +20,6 @@ import {
 import { assertImageUpload } from "./assets"
 import {
   cascadeDeleteTeamData,
-  cleanupUserAccessRemoval,
   cleanupRemainingLinksAfterDelete,
   cleanupUnusedLabels,
   cleanupUserAppStatesForDeletedWorkspace,
@@ -30,23 +30,40 @@ import {
 import {
   assertServerToken,
   createId,
-  createUniqueTeamSlug,
-  createUniqueWorkspaceSlug,
+  createSlug,
   defaultUserPreferences,
   defaultUserStatus,
   defaultUserStatusMessage,
-  ensureJoinCodeAvailable,
   getDefaultLabelColor,
   normalizeJoinCode,
   normalizeTeamIcon,
 } from "./core"
 import {
   type AppCtx,
-  getUserAppState,
+  getTeamByJoinCode,
+  getTeamBySlug,
   getTeamMembershipDoc,
   getTeamDoc,
   getUserDoc,
+  getWorkspaceBySlug,
   getWorkspaceDoc,
+  listAttachmentsByTargets,
+  listCallsByConversations,
+  listChannelPostCommentsByPosts,
+  listChannelPostsByConversations,
+  listChatMessagesByConversations,
+  listCommentsByTargets,
+  listConversationsByScope,
+  listLabelsByWorkspace,
+  listMilestonesByProjects,
+  listNotificationsByEntities,
+  listProjectsByScope,
+  listProjectUpdatesByProjects,
+  listTeamsByIds,
+  listViewsByScope,
+  listWorkspacesByIds,
+  listWorkspacesOwnedByUser,
+  listWorkspaceDocuments,
   listWorkspaceTeams,
   setCurrentWorkspaceForUser,
 } from "./data"
@@ -56,6 +73,11 @@ import {
   syncTeamConversationMemberships,
 } from "./conversations"
 import { createNotification } from "./collaboration_utils"
+import { insertAuditEvent } from "./audit"
+import {
+  applyWorkspaceAccessRemovalPolicy,
+  finalizeCurrentAccountDeletionPolicy,
+} from "./lifecycle"
 import { getTeamSurfaceDisableMessage } from "./team_feature_guards"
 import { ensureTeamWorkViews } from "./work_helpers"
 import {
@@ -172,14 +194,6 @@ type AccessEmailJob = {
   body: string
 }
 
-function buildDeletedUserEmail(userId: string) {
-  return `deleted+${userId.toLowerCase()}@linear.invalid`
-}
-
-function buildDeletedUserHandle(userId: string) {
-  return `deleted-${userId.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(-12)}`
-}
-
 async function listTeamAdminUsers(
   ctx: MutationCtx,
   teamId: string,
@@ -210,6 +224,68 @@ async function getTeamAdminCount(ctx: MutationCtx, teamId: string) {
     .collect()
 
   return memberships.filter((membership) => membership.role === "admin").length
+}
+
+async function createUniqueWorkspaceSlugWithLookup(ctx: AppCtx, name: string) {
+  const baseSlug = createSlug(name) || "workspace"
+
+  if (!(await getWorkspaceBySlug(ctx, baseSlug))) {
+    return baseSlug
+  }
+
+  let suffix = 2
+
+  while (suffix < 1000) {
+    const suffixText = `-${suffix}`
+    const candidate = `${baseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
+
+    if (!(await getWorkspaceBySlug(ctx, candidate))) {
+      return candidate
+    }
+
+    suffix += 1
+  }
+
+  throw new Error("Unable to generate a unique workspace slug")
+}
+
+async function createUniqueTeamSlugWithLookup(
+  ctx: AppCtx,
+  name: string,
+  joinCode: string
+) {
+  const baseSlug = createSlug(name) || createSlug(joinCode) || "team"
+
+  if (!(await getTeamBySlug(ctx, baseSlug))) {
+    return baseSlug
+  }
+
+  let suffix = 2
+
+  while (suffix < 1000) {
+    const suffixText = `-${suffix}`
+    const candidate = `${baseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
+
+    if (!(await getTeamBySlug(ctx, candidate))) {
+      return candidate
+    }
+
+    suffix += 1
+  }
+
+  throw new Error("Unable to generate a unique team slug")
+}
+
+async function ensureTeamJoinCodeAvailable(
+  ctx: AppCtx,
+  joinCode: string,
+  excludedTeamId?: string
+) {
+  const existingTeam = await getTeamByJoinCode(ctx, joinCode)
+
+  if (existingTeam && existingTeam.id !== excludedTeamId) {
+    throw new Error("Join code already exists")
+  }
 }
 
 async function notifyWorkspaceOwnerOfAccessChange(
@@ -374,9 +450,11 @@ export async function createWorkspaceHandler(
   }
 ) {
   assertServerToken(args.serverToken)
-  const workspaces = await ctx.db.query("workspaces").collect()
   const workspaceId = createId("workspace")
-  const workspaceSlug = createUniqueWorkspaceSlug(workspaces, args.name)
+  const workspaceSlug = await createUniqueWorkspaceSlugWithLookup(
+    ctx,
+    args.name
+  )
 
   await ctx.db.insert("workspaces", {
     id: workspaceId,
@@ -407,7 +485,7 @@ export async function updateWorkspaceBrandingHandler(
   const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
 
   if (!workspace) {
-    return
+    throw new Error("Workspace not found")
   }
 
   await requireWorkspaceOwnerAccess(
@@ -468,9 +546,7 @@ export async function deleteWorkspaceHandler(
     "Only the workspace owner can delete the workspace"
   )
 
-  const workspaceTeams = (await ctx.db.query("teams").collect()).filter(
-    (team) => team.workspaceId === workspace.id
-  )
+  const workspaceTeams = await listWorkspaceTeams(ctx, workspace.id)
 
   for (const team of workspaceTeams) {
     await cascadeDeleteTeamData(ctx, {
@@ -481,84 +557,66 @@ export async function deleteWorkspaceHandler(
     })
   }
 
-  const projects = (await ctx.db.query("projects").collect()).filter(
-    (project) =>
-      project.scopeType === "workspace" && project.scopeId === workspace.id
-  )
+  const projects = await listProjectsByScope(ctx, "workspace", workspace.id)
   const deletedProjectIds = new Set(projects.map((project) => project.id))
-  const milestones = (await ctx.db.query("milestones").collect()).filter(
-    (milestone) => deletedProjectIds.has(milestone.projectId)
-  )
+  const milestones = await listMilestonesByProjects(ctx, deletedProjectIds)
   const deletedMilestoneIds = new Set(
     milestones.map((milestone) => milestone.id)
   )
-  const projectUpdates = (
-    await ctx.db.query("projectUpdates").collect()
-  ).filter((update) => deletedProjectIds.has(update.projectId))
-  const documents = (await ctx.db.query("documents").collect()).filter(
-    (document) => document.workspaceId === workspace.id
+  const projectUpdates = await listProjectUpdatesByProjects(
+    ctx,
+    deletedProjectIds
   )
+  const documents = await listWorkspaceDocuments(ctx, workspace.id)
   const deletedDocumentIds = new Set(documents.map((document) => document.id))
-  const views = (await ctx.db.query("views").collect()).filter(
-    (view) => view.scopeType === "workspace" && view.scopeId === workspace.id
+  const views = await listViewsByScope(ctx, "workspace", workspace.id)
+  const conversations = await listConversationsByScope(
+    ctx,
+    "workspace",
+    workspace.id
   )
-  const conversations = await ctx.db
-    .query("conversations")
-    .withIndex("by_scope", (q) =>
-      q.eq("scopeType", "workspace").eq("scopeId", workspace.id)
-    )
-    .collect()
   const deletedConversationIds = new Set(
     conversations.map((conversation) => conversation.id)
   )
-  const calls = (await ctx.db.query("calls").collect()).filter((call) =>
-    deletedConversationIds.has(call.conversationId)
-  )
-  const chatMessages = (await ctx.db.query("chatMessages").collect()).filter(
-    (message) => deletedConversationIds.has(message.conversationId)
-  )
+  const [calls, chatMessages, channelPosts] = await Promise.all([
+    listCallsByConversations(ctx, deletedConversationIds),
+    listChatMessagesByConversations(ctx, deletedConversationIds),
+    listChannelPostsByConversations(ctx, deletedConversationIds),
+  ])
   const deletedChatMessageIds = new Set(
     chatMessages.map((message) => message.id)
   )
-  const channelPosts = (await ctx.db.query("channelPosts").collect()).filter(
-    (post) => deletedConversationIds.has(post.conversationId)
-  )
   const deletedChannelPostIds = new Set(channelPosts.map((post) => post.id))
-  const channelPostComments = (
-    await ctx.db.query("channelPostComments").collect()
-  ).filter((comment) => deletedChannelPostIds.has(comment.postId))
-  const attachments = (await ctx.db.query("attachments").collect()).filter(
-    (attachment) =>
-      attachment.targetType === "document" &&
-      deletedDocumentIds.has(attachment.targetId)
-  )
-  const comments = (await ctx.db.query("comments").collect()).filter(
-    (comment) =>
-      comment.targetType === "document" &&
-      deletedDocumentIds.has(comment.targetId)
-  )
-  const invites = (await ctx.db.query("invites").collect()).filter(
-    (invite) => invite.workspaceId === workspace.id
-  )
-  const deletedInviteIds = new Set(invites.map((invite) => invite.id))
-  const notifications = (await ctx.db.query("notifications").collect()).filter(
-    (notification) => {
-      switch (notification.entityType) {
-        case "document":
-          return deletedDocumentIds.has(notification.entityId)
-        case "project":
-          return deletedProjectIds.has(notification.entityId)
-        case "invite":
-          return deletedInviteIds.has(notification.entityId)
-        case "chat":
-          return deletedChatMessageIds.has(notification.entityId)
-        case "channelPost":
-          return deletedChannelPostIds.has(notification.entityId)
-        default:
-          return false
-      }
-    }
-  )
+  const [channelPostComments, attachments, comments, notifications] =
+    await Promise.all([
+      listChannelPostCommentsByPosts(ctx, deletedChannelPostIds),
+      listAttachmentsByTargets(ctx, {
+        targetType: "document",
+        targetIds: deletedDocumentIds,
+      }),
+      listCommentsByTargets(ctx, {
+        targetType: "document",
+        targetIds: deletedDocumentIds,
+      }),
+      listNotificationsByEntities(ctx, [
+        ...[...deletedDocumentIds].map((entityId) => ({
+          entityType: "document" as const,
+          entityId,
+        })),
+        ...[...deletedProjectIds].map((entityId) => ({
+          entityType: "project" as const,
+          entityId,
+        })),
+        ...[...deletedChatMessageIds].map((entityId) => ({
+          entityType: "chat" as const,
+          entityId,
+        })),
+        ...[...deletedChannelPostIds].map((entityId) => ({
+          entityType: "channelPost" as const,
+          entityId,
+        })),
+      ]),
+    ])
 
   await cleanupRemainingLinksAfterDelete(ctx, {
     currentUserId: args.currentUserId,
@@ -584,7 +642,6 @@ export async function deleteWorkspaceHandler(
   await deleteDocs(ctx, attachments)
   await deleteDocs(ctx, notifications)
   await deleteDocs(ctx, projectUpdates)
-  await deleteDocs(ctx, invites)
   await deleteDocs(ctx, views)
   await deleteDocs(ctx, documents)
   await deleteDocs(ctx, milestones)
@@ -594,7 +651,19 @@ export async function deleteWorkspaceHandler(
 
   await cleanupUserAppStatesForDeletedWorkspace(ctx, workspace.id)
 
-  const deletedLabelIds = await cleanupUnusedLabels(ctx)
+  const deletedLabelIds = await cleanupUnusedLabels(ctx, workspace.id)
+
+  await insertAuditEvent(ctx, {
+    type: "workspace.deleted",
+    actorUserId: args.currentUserId,
+    workspaceId: workspace.id,
+    entityId: workspace.id,
+    summary: `Workspace ${workspace.name} was deleted.`,
+    details: {
+      removedTeamIds: workspaceTeams.map((team) => team.id),
+      source: "convex",
+    },
+  })
 
   return {
     workspaceId: workspace.id,
@@ -615,7 +684,7 @@ export async function setWorkspaceWorkosOrganizationHandler(
   const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
 
   if (!workspace) {
-    return null
+    throw new Error("Workspace not found")
   }
 
   await ctx.db.patch(workspace._id, {
@@ -641,7 +710,7 @@ export async function updateCurrentUserProfileHandler(
   const user = await getUserDoc(ctx, args.userId)
 
   if (!user) {
-    return
+    throw new Error("User not found")
   }
 
   let nextAvatarImageStorageId = user.avatarImageStorageId ?? null
@@ -699,9 +768,7 @@ export async function ensureWorkspaceScaffoldingHandler(
     args.currentUserId
   )
 
-  const teams = (await ctx.db.query("teams").collect()).filter(
-    (team) => team.workspaceId === args.workspaceId
-  )
+  const teams = await listWorkspaceTeams(ctx, args.workspaceId)
 
   for (const team of teams) {
     await ensureTeamWorkViews(ctx, team)
@@ -724,10 +791,7 @@ export async function createTeamHandler(
     throw new Error("Workspace not found")
   }
 
-  const teams = await ctx.db.query("teams").collect()
-  const workspaceTeams = teams.filter(
-    (team) => team.workspaceId === args.workspaceId
-  )
+  const workspaceTeams = await listWorkspaceTeams(ctx, args.workspaceId)
   const canCreateFirstTeam =
     workspace.createdBy === args.currentUserId && workspaceTeams.length === 0
 
@@ -750,15 +814,18 @@ export async function createTeamHandler(
   )
   const normalizedJoinCode = normalizeJoinCode(args.joinCode)
   const normalizedIcon = normalizeTeamIcon(args.icon, args.experience)
-
-  ensureJoinCodeAvailable(teams, normalizedJoinCode)
-
-  const teamSlug = createUniqueTeamSlug(teams, args.name, normalizedJoinCode)
+  await ensureTeamJoinCodeAvailable(ctx, normalizedJoinCode)
+  const teamSlug = await createUniqueTeamSlugWithLookup(
+    ctx,
+    args.name,
+    normalizedJoinCode
+  )
   const teamId = createId("team")
 
   await ctx.db.insert("teams", {
     id: teamId,
     workspaceId: workspace.id,
+    joinCodeNormalized: normalizedJoinCode,
     slug: teamSlug,
     name: args.name,
     icon: normalizedIcon,
@@ -860,9 +927,10 @@ export async function leaveTeamHandler(ctx: MutationCtx, args: LeaveTeamArgs) {
   const currentUser = await getUserDoc(ctx, args.currentUserId)
 
   await ctx.db.delete(membership._id)
-  await cleanupUserAccessRemoval(ctx, {
+  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
     currentUserId: args.currentUserId,
     removedUserId: args.currentUserId,
+    removedUserWorkosUserId: currentUser?.workosUserId ?? null,
     workspaceId: team.workspaceId,
     removedTeamIds: [team.id],
   })
@@ -880,10 +948,28 @@ export async function leaveTeamHandler(ctx: MutationCtx, args: LeaveTeamArgs) {
     excludeUserIds: [args.currentUserId],
   })
 
+  await insertAuditEvent(ctx, {
+    type: "membership.left_team",
+    actorUserId: args.currentUserId,
+    subjectUserId: args.currentUserId,
+    workspaceId: team.workspaceId,
+    teamId: team.id,
+    entityId: args.currentUserId,
+    summary: `${userName} left ${team.name}.`,
+    details: {
+      removedTeamIds: [team.id],
+      source: "convex",
+      workosUserId: currentUser?.workosUserId ?? undefined,
+    },
+  })
+
   return {
     teamId: team.id,
     workspaceId: team.workspaceId,
     emailJobs,
+    providerMemberships: accessRemoval.providerMembershipCleanup
+      ? [accessRemoval.providerMembershipCleanup]
+      : [],
   }
 }
 
@@ -891,6 +977,7 @@ export async function createLabelHandler(
   ctx: MutationCtx,
   args: ServerAccessArgs & {
     currentUserId: string
+    workspaceId: string
     name: string
     color?: string
   }
@@ -903,13 +990,25 @@ export async function createLabelHandler(
     throw new Error("User not found")
   }
 
+  const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
+
+  if (!workspace) {
+    throw new Error("Workspace not found")
+  }
+
+  await requireEditableWorkspaceAccess(
+    ctx,
+    args.workspaceId,
+    args.currentUserId
+  )
+
   const normalizedName = args.name.trim()
 
   if (normalizedName.length === 0) {
     throw new Error("Label name is required")
   }
 
-  const existingLabels = await ctx.db.query("labels").collect()
+  const existingLabels = await listLabelsByWorkspace(ctx, args.workspaceId)
   const existingLabel =
     existingLabels.find(
       (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
@@ -921,6 +1020,7 @@ export async function createLabelHandler(
 
   const label = {
     id: createId("label"),
+    workspaceId: workspace.id,
     name: normalizedName,
     color: args.color?.trim() || getDefaultLabelColor(normalizedName),
   }
@@ -971,8 +1071,7 @@ export async function updateTeamDetailsHandler(
     : team.settings.joinCode
 
   if (args.joinCode) {
-    const teams = await ctx.db.query("teams").collect()
-    ensureJoinCodeAvailable(teams, normalizedJoinCode, team.id)
+    await ensureTeamJoinCodeAvailable(ctx, normalizedJoinCode, team.id)
   }
 
   const disableMessage = await getTeamSurfaceDisableMessage(
@@ -988,6 +1087,7 @@ export async function updateTeamDetailsHandler(
   await ctx.db.patch(team._id, {
     name: args.name,
     icon: normalizedIcon,
+    joinCodeNormalized: normalizedJoinCode,
     settings: {
       ...team.settings,
       summary: args.summary,
@@ -1049,11 +1149,10 @@ export async function regenerateTeamJoinCodeHandler(
   )
 
   const normalizedJoinCode = normalizeJoinCode(args.joinCode)
-  const teams = await ctx.db.query("teams").collect()
-
-  ensureJoinCodeAvailable(teams, normalizedJoinCode, team.id)
+  await ensureTeamJoinCodeAvailable(ctx, normalizedJoinCode, team.id)
 
   await ctx.db.patch(team._id, {
+    joinCodeNormalized: normalizedJoinCode,
     settings: {
       ...team.settings,
       joinCode: normalizedJoinCode,
@@ -1126,6 +1225,21 @@ export async function updateTeamMemberRoleHandler(
 
   await syncTeamConversationMemberships(ctx, team.id)
 
+  await insertAuditEvent(ctx, {
+    type: "membership.role_changed",
+    actorUserId: args.currentUserId,
+    subjectUserId: membership.userId,
+    workspaceId: team.workspaceId,
+    teamId: team.id,
+    entityId: membership.userId,
+    summary: `Team role for ${membership.userId} changed from ${membership.role} to ${args.role} in ${team.name}.`,
+    details: {
+      nextRole: args.role,
+      previousRole: membership.role,
+      source: "convex",
+    },
+  })
+
   return {
     teamId: team.id,
     userId: membership.userId,
@@ -1153,9 +1267,10 @@ export async function removeTeamMemberHandler(
   const actor = await getUserDoc(ctx, args.currentUserId)
 
   await ctx.db.delete(membership._id)
-  await cleanupUserAccessRemoval(ctx, {
+  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
     currentUserId: args.currentUserId,
     removedUserId: membership.userId,
+    removedUserWorkosUserId: removedUser?.workosUserId ?? null,
     workspaceId: team.workspaceId,
     removedTeamIds: [team.id],
   })
@@ -1189,6 +1304,21 @@ export async function removeTeamMemberHandler(
     await ctx.db.insert("notifications", notification)
   }
 
+  await insertAuditEvent(ctx, {
+    type: "membership.removed_from_team",
+    actorUserId: args.currentUserId,
+    subjectUserId: membership.userId,
+    workspaceId: team.workspaceId,
+    teamId: team.id,
+    entityId: membership.userId,
+    summary: `${removedUserName} was removed from ${team.name}.`,
+    details: {
+      removedTeamIds: [team.id],
+      source: "convex",
+      workosUserId: removedUser?.workosUserId ?? undefined,
+    },
+  })
+
   return {
     teamId: team.id,
     workspaceId: team.workspaceId,
@@ -1212,6 +1342,9 @@ export async function removeTeamMemberHandler(
           ]
         : []),
     ],
+    providerMemberships: accessRemoval.providerMembershipCleanup
+      ? [accessRemoval.providerMembershipCleanup]
+      : [],
   }
 }
 
@@ -1270,9 +1403,10 @@ export async function removeWorkspaceUserHandler(
     await ctx.db.delete(membership._id)
   }
 
-  await cleanupUserAccessRemoval(ctx, {
+  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
     currentUserId: args.currentUserId,
     removedUserId: args.userId,
+    removedUserWorkosUserId: removedUser?.workosUserId ?? null,
     workspaceId: workspace.id,
     removedTeamIds: memberships.map((membership) => membership.teamId),
   })
@@ -1292,6 +1426,20 @@ export async function removeWorkspaceUserHandler(
       ? `${actorName} removed you from ${workspaceName}. This removed your access to ${teamSummary}.`
       : `${actorName} removed you from ${workspaceName}.`
 
+  await insertAuditEvent(ctx, {
+    type: "membership.removed_from_workspace",
+    actorUserId: args.currentUserId,
+    subjectUserId: args.userId,
+    workspaceId: workspace.id,
+    entityId: args.userId,
+    summary: `${removedUserName} was removed from ${workspaceName}.`,
+    details: {
+      removedTeamIds: memberships.map((membership) => membership.teamId),
+      source: "convex",
+      workosUserId: removedUser?.workosUserId ?? undefined,
+    },
+  })
+
   return {
     workspaceId: workspace.id,
     userId: args.userId,
@@ -1309,6 +1457,9 @@ export async function removeWorkspaceUserHandler(
           ]
         : []),
     ],
+    providerMemberships: accessRemoval.providerMembershipCleanup
+      ? [accessRemoval.providerMembershipCleanup]
+      : [],
   }
 }
 
@@ -1344,13 +1495,16 @@ export async function leaveWorkspaceHandler(
     throw new Error("Workspace admins can't leave the workspace")
   }
 
+  const currentUser = await getUserDoc(ctx, args.currentUserId)
+
   for (const membership of memberships) {
     await ctx.db.delete(membership._id)
   }
 
-  await cleanupUserAccessRemoval(ctx, {
+  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
     currentUserId: args.currentUserId,
     removedUserId: args.currentUserId,
+    removedUserWorkosUserId: currentUser?.workosUserId ?? null,
     workspaceId: workspace.id,
     removedTeamIds: memberships.map((membership) => membership.teamId),
   })
@@ -1358,11 +1512,11 @@ export async function leaveWorkspaceHandler(
   for (const membership of memberships) {
     await syncTeamConversationMemberships(ctx, membership.teamId)
   }
-
-  const currentUser = await getUserDoc(ctx, args.currentUserId)
   const userName = currentUser?.name ?? "A user"
   const leaveMessage = `${userName} left ${workspace.name}.`
-  const removedTeamIds = [...new Set(memberships.map((membership) => membership.teamId))]
+  const removedTeamIds = [
+    ...new Set(memberships.map((membership) => membership.teamId)),
+  ]
   const emailJobs = await notifyWorkspaceOwnerOfAccessChange(ctx, {
     workspaceId: workspace.id,
     actorUserId: args.currentUserId,
@@ -1393,11 +1547,28 @@ export async function leaveWorkspaceHandler(
     )
   }
 
+  await insertAuditEvent(ctx, {
+    type: "membership.left_workspace",
+    actorUserId: args.currentUserId,
+    subjectUserId: args.currentUserId,
+    workspaceId: workspace.id,
+    entityId: args.currentUserId,
+    summary: `${userName} left ${workspace.name}.`,
+    details: {
+      removedTeamIds,
+      source: "convex",
+      workosUserId: currentUser?.workosUserId ?? undefined,
+    },
+  })
+
   return {
     workspaceId: workspace.id,
     userId: args.currentUserId,
     removedTeamIds,
     emailJobs,
+    providerMemberships: accessRemoval.providerMembershipCleanup
+      ? [accessRemoval.providerMembershipCleanup]
+      : [],
   }
 }
 
@@ -1415,9 +1586,9 @@ async function assertCurrentAccountDeletionAllowed(
     throw new Error("This account has already been deleted")
   }
 
-  const workspaces = await ctx.db.query("workspaces").collect()
+  const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, currentUserId)
 
-  if (workspaces.some((workspace) => workspace.createdBy === currentUserId)) {
+  if (ownedWorkspaces.length > 0) {
     throw new Error(
       "Transfer or delete your owned workspace before deleting your account"
     )
@@ -1437,7 +1608,6 @@ async function assertCurrentAccountDeletionAllowed(
   return {
     memberships,
     user,
-    workspaces,
   }
 }
 
@@ -1517,15 +1687,21 @@ export async function deleteCurrentAccountHandler(
   args: DeleteCurrentAccountArgs
 ) {
   assertServerToken(args.serverToken)
-  const { memberships, user, workspaces } =
-    await assertCurrentAccountDeletionAllowed(ctx, args.currentUserId)
+  const { memberships, user } = await assertCurrentAccountDeletionAllowed(
+    ctx,
+    args.currentUserId
+  )
 
-  const teams = await ctx.db.query("teams").collect()
+  const teams = await listTeamsByIds(
+    ctx,
+    memberships.map((membership) => membership.teamId)
+  )
+  const teamsById = new Map(teams.map((team) => [team.id, team]))
   const currentUserName = user.name ?? "A user"
   const removedTeamIdsByWorkspace = memberships.reduce<
     Record<string, string[]>
   >((accumulator, membership) => {
-    const team = teams.find((entry) => entry.id === membership.teamId)
+    const team = teamsById.get(membership.teamId)
 
     if (!team) {
       return accumulator
@@ -1538,22 +1714,25 @@ export async function deleteCurrentAccountHandler(
 
     return accumulator
   }, {})
+  const workspaces = await listWorkspacesByIds(
+    ctx,
+    Object.keys(removedTeamIdsByWorkspace)
+  )
+  const workspacesById = new Map(
+    workspaces.map((workspace) => [workspace.id, workspace])
+  )
   const emailJobs: AccessEmailJob[] = []
 
   for (const membership of memberships) {
     await ctx.db.delete(membership._id)
   }
+  const deletionLifecycle = await finalizeCurrentAccountDeletionPolicy(ctx, {
+    currentUserId: args.currentUserId,
+    user,
+    removedTeamIdsByWorkspace,
+  })
 
-  for (const [workspaceId, removedTeamIds] of Object.entries(
-    removedTeamIdsByWorkspace
-  )) {
-    await cleanupUserAccessRemoval(ctx, {
-      currentUserId: args.currentUserId,
-      removedUserId: args.currentUserId,
-      workspaceId,
-      removedTeamIds,
-    })
-
+  for (const removedTeamIds of Object.values(removedTeamIdsByWorkspace)) {
     for (const teamId of removedTeamIds) {
       await syncTeamConversationMemberships(ctx, teamId)
     }
@@ -1562,7 +1741,7 @@ export async function deleteCurrentAccountHandler(
   for (const [workspaceId, removedTeamIds] of Object.entries(
     removedTeamIdsByWorkspace
   )) {
-    const workspace = workspaces.find((entry) => entry.id === workspaceId)
+    const workspace = workspacesById.get(workspaceId)
 
     if (workspace) {
       emailJobs.push(
@@ -1579,7 +1758,7 @@ export async function deleteCurrentAccountHandler(
     }
 
     for (const teamId of removedTeamIds) {
-      const team = teams.find((entry) => entry.id === teamId)
+      const team = teamsById.get(teamId)
 
       if (!team) {
         continue
@@ -1599,31 +1778,27 @@ export async function deleteCurrentAccountHandler(
     }
   }
 
-  const userAppState = await getUserAppState(ctx, args.currentUserId)
-
-  if (userAppState) {
-    await ctx.db.delete(userAppState._id)
-  }
-
-  const deletedAt = new Date().toISOString()
-
-  await ctx.db.patch(user._id, {
-    email: buildDeletedUserEmail(user.id),
-    handle: buildDeletedUserHandle(user.id),
-    accountDeletionPendingAt: null,
-    accountDeletedAt: deletedAt,
-    hasExplicitStatus: false,
-    status: defaultUserStatus,
-    statusMessage: defaultUserStatusMessage,
-    preferences: {
-      ...defaultUserPreferences,
-      ...user.preferences,
+  await insertAuditEvent(ctx, {
+    type: "account.deleted",
+    actorUserId: args.currentUserId,
+    subjectUserId: user.id,
+    entityId: user.id,
+    summary: `${currentUserName} deleted their account.`,
+    details: {
+      deletedPrivateDocumentIds: deletionLifecycle.deletedPrivateDocumentIds,
+      removedTeamIds: [
+        ...new Set(memberships.map((membership) => membership.teamId)),
+      ],
+      source: "convex",
+      workosUserId: user.workosUserId ?? undefined,
     },
   })
 
   return {
     userId: user.id,
-    removedWorkspaceIds: Object.keys(removedTeamIdsByWorkspace),
+    removedWorkspaceIds: deletionLifecycle.removedWorkspaceIds,
     emailJobs,
+    providerMemberships: deletionLifecycle.providerMemberships,
+    deletedPrivateDocumentIds: deletionLifecycle.deletedPrivateDocumentIds,
   }
 }

@@ -1,7 +1,11 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
 import { assertServerToken, getNow } from "./core"
-import { getNotificationDoc } from "./data"
+import {
+  getNotificationDoc,
+  listPendingDigestNotifications,
+  listUsersByIds,
+} from "./data"
 import { getOwnedNotificationOrNull } from "./notifications"
 import { normalizeUser } from "./normalization"
 
@@ -23,23 +27,36 @@ export async function listPendingNotificationDigestsHandler(
   args: ServerAccessArgs
 ) {
   assertServerToken(args.serverToken)
-  const users = (await ctx.db.query("users").collect()).map(normalizeUser)
-  const notifications = await ctx.db.query("notifications").collect()
+  const pendingNotifications = (
+    await listPendingDigestNotifications(ctx)
+  ).filter(
+    (notification) =>
+      !notification.readAt &&
+      !notification.archivedAt &&
+      !notification.emailedAt
+  )
+  const users = (
+    await listUsersByIds(
+      ctx,
+      pendingNotifications.map((notification) => notification.userId)
+    )
+  ).map(normalizeUser)
+  const notificationsByUserId = new Map<string, typeof pendingNotifications>()
+
+  for (const notification of pendingNotifications) {
+    const existing = notificationsByUserId.get(notification.userId) ?? []
+    existing.push(notification)
+    notificationsByUserId.set(notification.userId, existing)
+  }
 
   return users
     .filter((user) => user.preferences.emailDigest)
     .map((user) => {
-      const pendingNotifications = notifications
-        .filter(
-          (notification) =>
-            notification.userId === user.id &&
-            !notification.readAt &&
-            !notification.archivedAt &&
-            !notification.emailedAt
-        )
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      const pendingNotificationsForUser = [
+        ...(notificationsByUserId.get(user.id) ?? []),
+      ].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 
-      if (pendingNotifications.length === 0) {
+      if (pendingNotificationsForUser.length === 0) {
         return null
       }
 
@@ -49,7 +66,7 @@ export async function listPendingNotificationDigestsHandler(
           email: user.email,
           name: user.name,
         },
-        notifications: pendingNotifications.map((notification) => ({
+        notifications: pendingNotificationsForUser.map((notification) => ({
           id: notification.id,
           message: notification.message,
           entityId: notification.entityId,
@@ -74,7 +91,7 @@ export async function markNotificationReadHandler(
   )
 
   if (!notification) {
-    return
+    throw new Error("Notification not found")
   }
 
   await ctx.db.patch(notification._id, {
@@ -114,7 +131,7 @@ export async function toggleNotificationReadHandler(
   )
 
   if (!notification) {
-    return
+    throw new Error("Notification not found")
   }
 
   await ctx.db.patch(notification._id, {
@@ -134,7 +151,7 @@ export async function archiveNotificationHandler(
   )
 
   if (!notification) {
-    return
+    throw new Error("Notification not found")
   }
 
   await ctx.db.patch(notification._id, {
@@ -154,7 +171,7 @@ export async function unarchiveNotificationHandler(
   )
 
   if (!notification) {
-    return
+    throw new Error("Notification not found")
   }
 
   await ctx.db.patch(notification._id, {
@@ -174,7 +191,7 @@ export async function deleteNotificationHandler(
   )
 
   if (!notification) {
-    return
+    throw new Error("Notification not found")
   }
 
   await ctx.db.delete(notification._id)

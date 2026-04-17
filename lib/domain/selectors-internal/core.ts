@@ -326,6 +326,20 @@ export function getLabelMap(data: AppData) {
   return Object.fromEntries(data.labels.map((label) => [label.id, label]))
 }
 
+export function getLabelsForWorkspace(data: AppData, workspaceId: string) {
+  return data.labels.filter((label) => label.workspaceId === workspaceId)
+}
+
+export function getLabelsForTeamScope(data: AppData, teamId: string) {
+  const team = getTeam(data, teamId)
+
+  if (!team) {
+    return []
+  }
+
+  return getLabelsForWorkspace(data, team.workspaceId)
+}
+
 export function getProjectsForScope(
   data: AppData,
   scopeType: "team" | "workspace",

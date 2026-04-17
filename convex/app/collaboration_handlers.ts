@@ -33,7 +33,9 @@ import {
   getChannelPostDoc,
   getConversationDoc,
   getTeamDoc,
+  listUsersByIds,
   getWorkspaceDoc,
+  listNotificationsByEntity,
 } from "./data"
 import {
   getChannelConversationPath,
@@ -129,9 +131,15 @@ export async function createWorkspaceChatHandler(
   args: CreateWorkspaceChatArgs
 ) {
   assertServerToken(args.serverToken)
-  await requireEditableWorkspaceAccess(ctx, args.workspaceId, args.currentUserId)
+  await requireEditableWorkspaceAccess(
+    ctx,
+    args.workspaceId,
+    args.currentUserId
+  )
 
-  const workspaceUserIds = new Set(await getWorkspaceUserIds(ctx, args.workspaceId))
+  const workspaceUserIds = new Set(
+    await getWorkspaceUserIds(ctx, args.workspaceId)
+  )
   const participantIds = [
     ...new Set([args.currentUserId, ...args.participantIds]),
   ].filter((userId) => workspaceUserIds.has(userId))
@@ -140,7 +148,8 @@ export async function createWorkspaceChatHandler(
     throw new Error("Chats need at least two workspace members")
   }
 
-  const users = await ctx.db.query("users").collect()
+  const users = await listUsersByIds(ctx, participantIds)
+  const usersById = new Map(users.map((user) => [user.id, user]))
   const variant = participantIds.length === 2 ? "direct" : "group"
 
   if (variant === "direct") {
@@ -163,10 +172,9 @@ export async function createWorkspaceChatHandler(
   const resolvedTitle =
     args.title.trim() ||
     (variant === "direct"
-      ? (users.find((user) => user.id === otherParticipantIds[0])?.name ??
-        "Direct chat")
+      ? (usersById.get(otherParticipantIds[0] ?? "")?.name ?? "Direct chat")
       : otherParticipantIds
-          .map((userId) => users.find((user) => user.id === userId)?.name ?? "")
+          .map((userId) => usersById.get(userId)?.name ?? "")
           .filter(Boolean)
           .join(", ")
           .slice(0, 80) || "Group chat")
@@ -241,7 +249,8 @@ export async function createChannelHandler(
   args: CreateChannelArgs
 ) {
   assertServerToken(args.serverToken)
-  const targets = Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
+  const targets =
+    Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
 
   if (targets !== 1) {
     throw new Error("Channel must target exactly one team or workspace")
@@ -466,19 +475,24 @@ export async function sendChatMessageHandler(
     throw new Error("Messages can only be sent to chats")
   }
 
-  const users = await ctx.db.query("users").collect()
+  const audienceUserIds = await getConversationAudienceUserIds(
+    ctx,
+    conversation
+  )
+  const users = await listUsersByIds(ctx, [
+    args.currentUserId,
+    ...audienceUserIds,
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
   const now = getNow()
   const messageId = createId("chat_message")
-  const actor = users.find((user) => user.id === args.currentUserId)
+  const actor = usersById.get(args.currentUserId)
   const messageHtml = args.content.trim()
   const messageText = getPlainTextContent(messageHtml)
 
   if (!messageText) {
     throw new Error("Message content must include at least 1 character")
   }
-
-  const audienceUserIds = await getConversationAudienceUserIds(ctx, conversation)
-
   if (!audienceUserIds.some((userId) => userId !== args.currentUserId)) {
     throw new Error(
       conversation.scopeType === "team"
@@ -523,7 +537,7 @@ export async function sendChatMessageHandler(
       continue
     }
 
-    const mentionedUser = users.find((user) => user.id === mentionedUserId)
+    const mentionedUser = usersById.get(mentionedUserId)
     const notification = createNotification(
       mentionedUserId,
       args.currentUserId,
@@ -580,12 +594,23 @@ export async function createChannelPostHandler(
     throw new Error("Posts can only be created in channels")
   }
 
-  const users = await ctx.db.query("users").collect()
+  const audienceUserIds = await getConversationAudienceUserIds(
+    ctx,
+    conversation
+  )
+  const users = await listUsersByIds(ctx, [
+    args.currentUserId,
+    ...audienceUserIds,
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
   const now = getNow()
   const postId = createId("channel_post")
-  const actor = users.find((user) => user.id === args.currentUserId)
-  const audienceUserIds = await getConversationAudienceUserIds(ctx, conversation)
-  const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
+  const actor = usersById.get(args.currentUserId)
+  const mentionUserIds = createMentionIds(
+    args.content,
+    users,
+    audienceUserIds
+  ).filter((userId) => userId !== args.currentUserId)
   const mentionEmails: Array<{
     notificationId: string
     email: string
@@ -622,7 +647,7 @@ export async function createChannelPostHandler(
       continue
     }
 
-    const mentionedUser = users.find((user) => user.id === mentionedUserId)
+    const mentionedUser = usersById.get(mentionedUserId)
     const notification = createNotification(
       mentionedUserId,
       args.currentUserId,
@@ -685,19 +710,34 @@ export async function addChannelPostCommentHandler(
     throw new Error("Comments can only be added to channels")
   }
 
-  const users = await ctx.db.query("users").collect()
-  const actor = users.find((user) => user.id === args.currentUserId)
   const existingComments = await ctx.db
     .query("channelPostComments")
     .withIndex("by_post", (q) => q.eq("postId", post.id))
     .collect()
   const now = getNow()
   const commentId = createId("channel_comment")
-  const audienceUserIds = await getConversationAudienceUserIds(ctx, conversation)
-  const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
+  const audienceUserIds = await getConversationAudienceUserIds(
+    ctx,
+    conversation
+  )
+  const users = await listUsersByIds(ctx, [
+    args.currentUserId,
+    ...audienceUserIds,
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
+  const actor = usersById.get(args.currentUserId)
+  const mentionUserIds = createMentionIds(
+    args.content,
+    users,
+    audienceUserIds
+  ).filter((userId) => userId !== args.currentUserId)
   const notifiedUserIds = new Set<string>()
   const entityTitle = post.title.trim() || "a channel post"
-  const entityPath = await getChannelConversationPath(ctx, conversation, post.id)
+  const entityPath = await getChannelConversationPath(
+    ctx,
+    conversation,
+    post.id
+  )
   const commentText = getPlainTextContent(args.content)
   const mentionEmails: Array<{
     notificationId: string
@@ -729,7 +769,7 @@ export async function addChannelPostCommentHandler(
       continue
     }
 
-    const mentionedUser = users.find((user) => user.id === mentionedUserId)
+    const mentionedUser = usersById.get(mentionedUserId)
     const notification = createNotification(
       mentionedUserId,
       args.currentUserId,
@@ -830,10 +870,10 @@ export async function deleteChannelPostHandler(
     .query("channelPostComments")
     .withIndex("by_post", (q) => q.eq("postId", post.id))
     .collect()
-  const notifications = (await ctx.db.query("notifications").collect()).filter(
-    (notification) =>
-      notification.entityType === "channelPost" &&
-      notification.entityId === post.id
+  const notifications = await listNotificationsByEntity(
+    ctx,
+    "channelPost",
+    post.id
   )
 
   for (const comment of comments) {

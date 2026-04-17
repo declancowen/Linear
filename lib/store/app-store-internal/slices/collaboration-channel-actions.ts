@@ -75,7 +75,7 @@ export function createCollaborationChannelActions({
           parsed.data.content,
           state.users,
           getConversationAudienceUserIds(state, conversation)
-        )
+        ).filter((userId) => userId !== state.currentUserId)
         const notifications = [...state.notifications]
         const entityTitle = parsed.data.title.trim() || "a channel post"
         const notifiedUserIds = new Set<string>()
@@ -177,7 +177,7 @@ export function createCollaborationChannelActions({
           parsed.data.content,
           state.users,
           audienceUserIds
-        )
+        ).filter((userId) => userId !== state.currentUserId)
         const notifications = [...state.notifications]
         const notifiedUserIds = new Set<string>()
         const followerIds = [

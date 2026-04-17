@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { joinCodeSchema } from "@/lib/domain/types"
 import { joinTeamByCodeServer } from "@/lib/server/convex"
 import {
@@ -11,7 +12,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -55,10 +61,17 @@ export async function POST(request: NextRequest) {
       workspaceId: joined.workspaceId,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to join team", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to join team"),
-      500
+      500,
+      {
+        code: "TEAM_JOIN_FAILED",
+      }
     )
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 
 import { workspaceSetupSchema } from "@/lib/domain/types"
+import { isApplicationError } from "@/lib/server/application-errors"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { createWorkspaceServer } from "@/lib/server/convex"
 import {
@@ -9,7 +10,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 function getWorkspaceLogo(name: string) {
   return (
@@ -79,6 +85,10 @@ export async function POST(request: NextRequest) {
       workspaceSlug: result.workspaceSlug,
     })
   } catch (error) {
+    if (isApplicationError(error)) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to create workspace", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to create workspace"),

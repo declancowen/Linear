@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { channelPostSchema } from "@/lib/domain/types"
 import {
   createChannelPostServer,
@@ -13,7 +14,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const channelPostBodySchema = z.object({
   title: channelPostSchema.shape.title,
@@ -81,7 +87,13 @@ export async function POST(
       postId: result?.postId ?? null,
     })
   } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to create post", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to create post"), 500)
+    return jsonError(getConvexErrorMessage(error, "Failed to create post"), 500, {
+      code: "CHANNEL_POST_CREATE_FAILED",
+    })
   }
 }

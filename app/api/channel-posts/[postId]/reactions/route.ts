@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { isApplicationError } from "@/lib/server/application-errors"
 import { toggleChannelPostReactionServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
@@ -8,7 +9,12 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import {
+  isRouteResponse,
+  jsonApplicationError,
+  jsonError,
+  jsonOk,
+} from "@/lib/server/route-response"
 
 const reactionSchema = z.object({
   emoji: z.string().trim().min(1).max(16),
@@ -52,6 +58,10 @@ export async function POST(
       ok: true,
     })
   } catch (error) {
+    if (isApplicationError(error)) {
+      return jsonApplicationError(error)
+    }
+
     logProviderError("Failed to update reaction", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to update reaction"),
