@@ -43,6 +43,7 @@ Files and areas reviewed across all turns:
 - `convex/app/access.ts` — centralized owner-only and team-admin-only authorization helpers
 - `convex/app/cleanup.ts` — cleanup after workspace/team access removal
 - `convex/app/collaboration_handlers.ts` — server-side read-only guard for workspace chats
+- `convex/app/conversations.ts` — workspace/team conversation participant synchronization
 - `convex/app/collaboration_utils.ts` — notification entity support for team/workspace access events
 - `convex/app/data.ts` — membership lookup helpers and role lookup reuse
 - `convex/app/normalization.ts` — `accountDeletedAt` normalization
@@ -69,13 +70,81 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-17 20:08:07 BST` |
-| **Total turns** | `17` |
+| **Last reviewed** | `2026-04-17 20:34:22 BST` |
+| **Total turns** | `19` |
 | **Open findings** | `0` |
-| **Resolved findings** | `25` |
+| **Resolved findings** | `26` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 19 — 2026-04-17 20:34:22 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `301e0fe` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `B18-01`. Removing a workspace user now resynchronizes the workspace channel even when that user only had a direct workspace membership and no workspace team memberships to drive the existing team-conversation resync path.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 19 | 1 |
+| Carried from Turn 18 | 1 |
+| Accepted | 0 |
+
+### Resolved during Turn 19
+
+#### B18-01 ~~[BUG] Medium~~ → RESOLVED — Removing a direct workspace member does not resync the workspace channel participant list
+**How it was fixed:** Added [syncWorkspaceChannelMemberships](../convex/app/conversations.ts:372) as an explicit workspace-level participant sync helper. [removeWorkspaceUserHandler](../convex/app/workspace_team_handlers.ts:1541) now calls it when a user was removed via a direct workspace membership path with no removed team memberships, so the workspace channel no longer relies on team-level syncs to shed removed direct members.
+
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:577), then ran:
+- `pnpm test -- tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx`
+- `pnpm exec eslint convex/app/document_handlers.ts convex/app/conversations.ts convex/app/workspace_team_handlers.ts lib/store/app-store-internal/runtime.ts lib/store/app-store-internal/types.ts lib/store/app-store-internal/slices/work-shared.ts lib/store/app-store-internal/slices/work-document-actions.ts components/app/screens/document-detail-screen.tsx tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx --max-warnings 0`
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+- Team creation granting workspace admin and the pre-cascade team-deletion notification ordering still match the current product model.
+
+## Turn 18 — 2026-04-17 20:24:45 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `301e0fe` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest provider notes found one new live membership-lifecycle bug in the current branch. Removing a workspace user who only has a direct workspace membership updates access and provider cleanup correctly, but it does not resynchronize the workspace channel participant list, so the removed user can remain in that channel’s cached participants until some unrelated team/workspace sync happens later.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 18 | 0 |
+| Carried from Turn 17 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B18-01 [BUG] Medium — Removing a direct workspace member does not resync the workspace channel participant list
+**Where:** [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1541), [conversations.ts](../convex/app/conversations.ts:343)
+
+**What’s wrong:** `removeWorkspaceUserHandler()` deletes the direct `workspaceMembership`, deletes any team memberships, applies the workspace-access removal policy, and then only calls `syncTeamConversationMemberships()` for teams that actually lost a `teamMembership`. If the removed user only had a direct workspace membership, that loop never runs. The workspace channel conversation therefore keeps the stale `participantIds` snapshot even though `getWorkspaceUserIds()` would no longer include the removed user.
+
+**Why it matters:** The removed user can linger in workspace-channel participant lists and related UI until another path happens to resync that conversation. Server-side access checks still enforce removal, so this is not a privilege-escalation bug, but it is still a real data-integrity and UX inconsistency in the membership lifecycle.
+
+**Root cause:** Workspace-channel synchronization is currently piggybacked on team-conversation resyncs. The direct-workspace-membership removal path does not have an unconditional workspace-level participant resync even though workspace membership is now a first-class access source.
+
+**What to change:** After removing a workspace user, resynchronize the workspace channel participants regardless of whether any team memberships were removed. The cleanest fix is a dedicated workspace-channel sync helper in `conversations.ts`, or an unconditional workspace-channel sync call from `removeWorkspaceUserHandler()` after membership deletion.
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
+- Team creation granting workspace admin and the pre-cascade team-deletion notification ordering both still match the current product model.
 
 ## Turn 17 — 2026-04-17 20:08:07 BST
 

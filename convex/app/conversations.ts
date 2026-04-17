@@ -360,16 +360,23 @@ export async function syncTeamConversationMemberships(
     ctx,
     team.workspaceId
   )
-  const workspaceParticipantIds = await getWorkspaceUserIds(
-    ctx,
-    team.workspaceId
-  )
 
-  await syncConversationParticipants(
-    ctx,
-    workspaceChannel,
-    workspaceParticipantIds
-  )
+  await syncWorkspaceChannelMemberships(ctx, team.workspaceId, workspaceChannel)
+}
+
+export async function syncWorkspaceChannelMemberships(
+  ctx: MutationCtx,
+  workspaceId: string,
+  existingConversation?: Awaited<
+    ReturnType<typeof findPrimaryWorkspaceChannelConversation>
+  >
+) {
+  const workspaceChannel =
+    existingConversation ??
+    (await findPrimaryWorkspaceChannelConversation(ctx, workspaceId))
+  const workspaceParticipantIds = await getWorkspaceUserIds(ctx, workspaceId)
+
+  await syncConversationParticipants(ctx, workspaceChannel, workspaceParticipantIds)
 }
 
 export async function updateConversationRoom(

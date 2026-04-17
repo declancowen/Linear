@@ -5,6 +5,7 @@ import {
   buildMentionEmailJobs,
   type MentionEmail,
 } from "../../lib/email/builders"
+import { extractRichTextMentionCounts } from "../../lib/content/rich-text-mentions"
 import { assertServerToken, getNow } from "./core"
 import {
   getDocumentDoc,
@@ -234,6 +235,7 @@ export async function sendDocumentMentionNotificationsHandler(
         ? await getWorkspaceUserIds(ctx, document.workspaceId)
         : []
   )
+  const persistedMentionCounts = extractRichTextMentionCounts(document.content)
   const mentionCounts = new Map<string, number>()
 
   for (const mention of args.mentions) {
@@ -265,6 +267,12 @@ export async function sendDocumentMentionNotificationsHandler(
     if (!audienceUserIds.has(userId)) {
       throw new Error(
         "One or more mentioned users are invalid for this document"
+      )
+    }
+
+    if ((persistedMentionCounts[userId] ?? 0) < (mentionCounts.get(userId) ?? 0)) {
+      throw new Error(
+        "One or more mentioned users are not present in the document"
       )
     }
   }

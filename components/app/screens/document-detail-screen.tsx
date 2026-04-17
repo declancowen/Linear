@@ -484,6 +484,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     setSendingMentionNotifications(true)
 
     try {
+      await useAppStore.getState().flushDocumentSync(loadedDocumentId)
+
       const result = (await syncSendDocumentMentionNotifications(
         loadedDocumentId,
         submittedMentionEntries

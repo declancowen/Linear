@@ -7,14 +7,20 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  fetchSnapshotMock,
+  flushDocumentSyncMock,
   routerPushMock,
   syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresenceMock,
+  syncUpdateDocumentMock,
   syncSendDocumentMentionNotificationsMock,
 } = vi.hoisted(() => ({
+  fetchSnapshotMock: vi.fn(),
+  flushDocumentSyncMock: vi.fn(),
   routerPushMock: vi.fn(),
   syncClearDocumentPresenceMock: vi.fn(),
   syncHeartbeatDocumentPresenceMock: vi.fn(),
+  syncUpdateDocumentMock: vi.fn(),
   syncSendDocumentMentionNotificationsMock: vi.fn(),
 }))
 
@@ -47,9 +53,11 @@ vi.mock("sonner", () => ({
 }))
 
 vi.mock("@/lib/convex/client", () => ({
+  fetchSnapshot: fetchSnapshotMock,
   syncClearDocumentPresence: syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresence: syncHeartbeatDocumentPresenceMock,
   syncSendDocumentMentionNotifications: syncSendDocumentMentionNotificationsMock,
+  syncUpdateDocument: syncUpdateDocumentMock,
 }))
 
 vi.mock("@/components/app/rich-text-editor", () => ({
@@ -234,12 +242,18 @@ const mentionedUser = {
 
 describe("DocumentDetailScreen", () => {
   beforeEach(() => {
+    fetchSnapshotMock.mockReset()
+    flushDocumentSyncMock.mockReset()
     routerPushMock.mockReset()
     syncClearDocumentPresenceMock.mockReset()
     syncHeartbeatDocumentPresenceMock.mockReset()
+    syncUpdateDocumentMock.mockReset()
     syncSendDocumentMentionNotificationsMock.mockReset()
+    fetchSnapshotMock.mockResolvedValue(null)
+    flushDocumentSyncMock.mockResolvedValue(undefined)
     syncClearDocumentPresenceMock.mockResolvedValue(undefined)
     syncHeartbeatDocumentPresenceMock.mockResolvedValue([])
+    syncUpdateDocumentMock.mockResolvedValue(undefined)
     syncSendDocumentMentionNotificationsMock.mockResolvedValue({
       ok: true,
       recipientCount: 1,
@@ -249,6 +263,7 @@ describe("DocumentDetailScreen", () => {
 
     useAppStore.setState({
       ...createEmptyState(),
+      flushDocumentSync: flushDocumentSyncMock,
       currentUserId: currentUser.id,
       currentWorkspaceId: "workspace_1",
       workspaces: [
@@ -383,6 +398,9 @@ describe("DocumentDetailScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
     fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+    await waitFor(() => {
+      expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledTimes(1)
+    })
     fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
 
     await act(async () => {
@@ -400,5 +418,28 @@ describe("DocumentDetailScreen", () => {
         )
       ).toBeInTheDocument()
     })
+  })
+
+  it("flushes pending document sync before sending mention notifications", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
+    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+
+    await waitFor(() => {
+      expect(flushDocumentSyncMock).toHaveBeenCalledWith("doc_1")
+    })
+    expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
+      "doc_1",
+      [
+        {
+          userId: "user_2",
+          count: 1,
+        },
+      ]
+    )
+    expect(flushDocumentSyncMock.mock.invocationCallOrder[0]).toBeLessThan(
+      syncSendDocumentMentionNotificationsMock.mock.invocationCallOrder[0]
+    )
   })
 })

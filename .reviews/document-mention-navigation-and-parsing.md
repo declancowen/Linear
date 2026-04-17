@@ -18,23 +18,94 @@
 ## Scope (cumulative — updated each turn as new files are touched)
 
 Files and areas reviewed across all turns:
+- `app/api/documents/[documentId]/mentions/route.ts` — document mention notification route contract
 - `components/app/screens/document-detail-screen.tsx` — pending mention exit protection, navigation interception, pending mention batching
 - `components/app/rich-text-editor.tsx` — editor-driven mention count synchronization
+- `convex/app/document_handlers.ts` — server-side document mention notification validation
 - `lib/content/document-mention-queue.ts` — reducer-backed pending mention queue semantics
 - `lib/content/rich-text-mentions.ts` — mention extraction and fallback parsing
+- `lib/server/convex/documents.ts` — server wrapper for document mention notification mutation
 
 ## Review status (updated every turn)
 
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 19:10:46 BST` |
-| **Last reviewed** | `2026-04-17 20:08:07 BST` |
-| **Total turns** | `4` |
+| **Last reviewed** | `2026-04-17 20:34:22 BST` |
+| **Total turns** | `6` |
 | **Open findings** | `0` |
-| **Resolved findings** | `3` |
+| **Resolved findings** | `4` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 6 — 2026-04-17 20:34:22 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `301e0fe` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed `F5-01`. Document mention notifications now validate requested recipients and counts against persisted document mentions on the server, and the document screen flushes queued rich-text persistence before sending so valid pending mentions are saved before the server performs that check.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 6 | 1 |
+| Carried from Turn 5 | 1 |
+| Accepted | 0 |
+
+### Resolved during Turn 6
+
+#### F5-01 ~~[BUG] High~~ → RESOLVED — Document mention notifications still trust client-supplied recipients and counts
+**How it was fixed:** [sendDocumentMentionNotificationsHandler](../convex/app/document_handlers.ts:205) now parses the persisted document content with [extractRichTextMentionCounts](../lib/content/rich-text-mentions.ts:58) and rejects any requested mention recipient/count that is not backed by the saved document. On the client side, [DocumentDetailScreen](../components/app/screens/document-detail-screen.tsx:468) now flushes queued document sync through the store runtime before calling the mention-notification mutation, so the server validates against up-to-date persisted content rather than a stale debounced save.
+
+**Verified:** Added regression coverage in [document-handlers.test.ts](../tests/convex/document-handlers.test.ts:1) and [document-detail-screen.test.tsx](../tests/components/document-detail-screen.test.tsx:1), then ran:
+- `pnpm test -- tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx`
+- `pnpm exec eslint convex/app/document_handlers.ts convex/app/conversations.ts convex/app/workspace_team_handlers.ts lib/store/app-store-internal/runtime.ts lib/store/app-store-internal/types.ts lib/store/app-store-internal/slices/work-shared.ts lib/store/app-store-internal/slices/work-document-actions.ts components/app/screens/document-detail-screen.tsx tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx --max-warnings 0`
+
+### Remaining notes classified
+
+- The old pending-mention queue double-count note is stale on this branch.
+- The old HTML-parse-on-every-keystroke note is stale.
+- The broad same-origin anchor interception in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:294) still reads as intentional while pending mention notifications exist.
+- Mention counting on editor `onUpdate` remains a performance watchpoint for very large documents, not an active correctness bug from this review pass.
+
+## Turn 5 — 2026-04-17 20:24:45 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `301e0fe` |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-review of the latest provider notes found one new live server-side integrity bug in the current branch. The pending-mention queue on the client is now much more stable, but the server mutation still trusts client-supplied mention recipients and counts instead of validating them against document content before creating notifications and emails.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 5 | 0 |
+| Carried from Turn 4 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### F5-01 [BUG] High — Document mention notifications still trust client-supplied recipients and counts
+**Where:** [document_handlers.ts](../convex/app/document_handlers.ts:205), [route.ts](../app/api/documents/%5BdocumentId%5D/mentions/route.ts:56), [documents.ts](../lib/server/convex/documents.ts:310)
+
+**What’s wrong:** `sendDocumentMentionNotificationsHandler()` normalizes `args.mentions`, rejects users outside the document audience, and then inserts notifications/emails directly from that client-supplied list. It never derives or validates the recipients against the stored document content. Any user with edit access can therefore submit arbitrary audience user ids and counts and cause false “mentioned you” notifications and emails.
+
+**Why it matters:** This is effectively notification spoofing/spam from an otherwise authorized editor. The recent client-side queue fixes improve correctness for normal UI use, but they do not provide a server-side security boundary. The route can still be called with crafted payloads.
+
+**Root cause:** Mention delivery is modeled as “the client tells the server who was mentioned,” while the server only verifies that each target is a valid document audience member. There is no final source-of-truth check against document content before the side effect is persisted.
+
+**What to change:** Validate or derive mention recipients from document content on the server before inserting notifications. The strongest version is to derive mention counts from the stored/sanitized document content and ignore `args.mentions` as authority. Because document saves are queued with a debounce in the client runtime, that fix should likely be paired with an explicit content flush before sending mention notifications, or with passing the current sanitized content through the same server mutation and validating against that sanitized content there.
+
+### Remaining notes classified
+
+- The old pending-mention queue double-count note is stale on this branch. [document-mention-queue.ts](../lib/content/document-mention-queue.ts:1) no longer increments counts separately from the editor sync.
+- The old HTML-parse-on-every-keystroke note is stale. The queue is now synchronized from editor mention counts rather than reparsing document HTML on each render.
+- The broad same-origin anchor interception in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:292) still reads as intentional while pending mention notifications exist.
+- The current mention-count extraction on editor `onUpdate` is still a performance watchpoint for very large documents, but it is not a correctness bug from this review pass.
 
 ## Turn 4 — 2026-04-17 20:08:07 BST
 

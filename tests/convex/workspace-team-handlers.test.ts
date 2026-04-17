@@ -45,6 +45,7 @@ const queueEmailJobsMock = vi.fn()
 const applyWorkspaceAccessRemovalPolicyMock = vi.fn()
 const finalizeCurrentAccountDeletionPolicyMock = vi.fn()
 const syncTeamConversationMembershipsMock = vi.fn()
+const syncWorkspaceChannelMembershipsMock = vi.fn()
 
 vi.mock("@/lib/email/builders", () => ({
   buildAccessChangeEmailJobs: buildAccessChangeEmailJobsMock,
@@ -119,6 +120,7 @@ vi.mock("@/convex/app/lifecycle", () => ({
 }))
 
 vi.mock("@/convex/app/conversations", () => ({
+  syncWorkspaceChannelMemberships: syncWorkspaceChannelMembershipsMock,
   syncTeamConversationMemberships: syncTeamConversationMembershipsMock,
 }))
 
@@ -179,6 +181,7 @@ describe("workspace and team deletion handlers", () => {
     applyWorkspaceAccessRemovalPolicyMock.mockReset()
     finalizeCurrentAccountDeletionPolicyMock.mockReset()
     syncTeamConversationMembershipsMock.mockReset()
+    syncWorkspaceChannelMembershipsMock.mockReset()
 
     buildAccessChangeEmailJobsMock.mockImplementation(({ emails }) => emails)
     createNotificationMock.mockImplementation(
@@ -601,6 +604,61 @@ describe("workspace member protection", () => {
         userId: "user_admin",
       })
     ).rejects.toThrow("Workspace admins can't be removed from the workspace")
+  })
+
+  it("resyncs the workspace channel when removing a direct workspace member with no team memberships", async () => {
+    const { removeWorkspaceUserHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const collectMock = vi.fn().mockResolvedValue([])
+
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: collectMock,
+      }),
+    })
+    getWorkspaceMembershipDocMock.mockResolvedValue({
+      _id: "workspace_membership_1",
+      workspaceId: "workspace_1",
+      userId: "user_member",
+      role: "viewer",
+    })
+    getUserDocMock.mockImplementation(async (_ctx, userId: string) => {
+      if (userId === "user_member") {
+        return {
+          id: "user_member",
+          name: "Sam",
+          email: "sam@example.com",
+          workosUserId: "workos_member",
+        }
+      }
+
+      return {
+        id: "user_owner",
+        name: "Alex",
+        email: "alex@example.com",
+        workosUserId: "workos_owner",
+      }
+    })
+    applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
+      providerMembershipCleanup: null,
+    })
+
+    await removeWorkspaceUserHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_owner",
+      origin: "https://app.example.com",
+      workspaceId: "workspace_1",
+      userId: "user_member",
+    })
+
+    expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_1")
+    expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
+    expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1"
+    )
   })
 })
 

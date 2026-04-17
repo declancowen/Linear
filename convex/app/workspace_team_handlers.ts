@@ -81,6 +81,7 @@ import {
 import {
   ensureTeamChannelConversation,
   ensureTeamChatConversation,
+  syncWorkspaceChannelMemberships,
   syncTeamConversationMemberships,
 } from "./conversations"
 import { createNotification } from "./collaboration_utils"
@@ -1617,6 +1618,10 @@ export async function removeWorkspaceUserHandler(
     if (teamMemberships.some((membership) => membership.teamId === team.id)) {
       await syncTeamConversationMemberships(ctx, team.id)
     }
+  }
+
+  if (teamMemberships.length === 0) {
+    await syncWorkspaceChannelMemberships(ctx, workspace.id)
   }
 
   const actorName = actor?.name ?? "A workspace admin"

@@ -78,6 +78,9 @@ export function createWorkDocumentActions({
         "Failed to update document"
       )
     },
+    async flushDocumentSync(documentId) {
+      await runtime.flushRichTextSync(`document:${documentId}`)
+    },
     renameDocument(documentId, title) {
       const updatedAt = getNow()
       const normalizedTitle = title.trim() || "Untitled document"
