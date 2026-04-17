@@ -1,17 +1,20 @@
-import { spawn } from "node:child_process"
-import { createServer } from "node:net"
-import path from "node:path"
-import { fileURLToPath } from "node:url"
+/* eslint-disable @typescript-eslint/no-require-imports */
+const { spawn } = require("node:child_process")
+const { createServer } = require("node:net")
+const path = require("node:path")
 
-import { app, BrowserWindow, nativeImage, shell } from "electron"
+const { app, BrowserWindow, nativeImage, shell } = require("electron")
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const isDev = !app.isPackaged
-const localServerUrl = process.env.NEXT_DEV_SERVER_URL ?? "http://127.0.0.1:3000"
+const appName = "Recipe Room"
+const isDev = process.env.NODE_ENV !== "production"
+const localServerUrl =
+  process.env.NEXT_DEV_SERVER_URL ?? "http://localhost:3000"
 
+let mainWindow = null
 let nextServerProcess = null
 let nextServerUrl = null
+
+app.setName(appName)
 
 function resolveDesktopIcon() {
   const iconPath = path.join(__dirname, "app-icon.png")
@@ -127,12 +130,12 @@ async function resolveRendererUrl() {
   const appPath = app.getAppPath()
   const standaloneServer = path.join(appPath, ".next", "standalone", "server.js")
   const port = await findAvailablePort()
-  const rendererUrl = `http://127.0.0.1:${port}`
+  const rendererUrl = `http://localhost:${port}`
   const serverProcess = spawn(process.execPath, [standaloneServer], {
     cwd: appPath,
     env: {
       ...process.env,
-      HOSTNAME: "127.0.0.1",
+      HOSTNAME: "localhost",
       NODE_ENV: "production",
       PORT: String(port),
     },
@@ -156,22 +159,32 @@ async function resolveRendererUrl() {
 }
 
 async function createWindow(iconPath) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus()
+    return mainWindow
+  }
+
   const rendererUrl = await resolveRendererUrl()
   const rendererOrigin = new URL(rendererUrl).origin
-  const mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 980,
-    minWidth: 1180,
-    minHeight: 760,
+  mainWindow = new BrowserWindow({
+    width: 1220,
+    height: 820,
+    minWidth: 1024,
+    minHeight: 680,
     backgroundColor: "#f7f6f2",
     ...(iconPath ? { icon: iconPath } : {}),
+    title: appName,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, "preload.mjs"),
+      preload: path.join(__dirname, "preload.cjs"),
       sandbox: true,
     },
+  })
+
+  mainWindow.on("closed", () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -206,14 +219,37 @@ async function createWindow(iconPath) {
       mode: "detach",
     })
   }
+
+  return mainWindow
 }
 
-app.whenReady().then(async () => {
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) {
+      return
+    }
+
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore()
+    }
+
+    mainWindow.focus()
+  })
+
+  app.whenReady().then(async () => {
   const desktopIcon = resolveDesktopIcon()
 
   if (process.platform === "darwin" && desktopIcon) {
-    app.dock.setIcon(desktopIcon.icon)
+    app.dock.setIcon(desktopIcon.icon.resize({ width: 256, height: 256 }))
   }
+
+  app.setAboutPanelOptions({
+    applicationName: appName,
+  })
 
   await createWindow(desktopIcon?.iconPath)
 
@@ -222,7 +258,8 @@ app.whenReady().then(async () => {
       await createWindow(desktopIcon?.iconPath)
     }
   })
-})
+  })
+}
 
 app.on("before-quit", () => {
   nextServerProcess?.kill()

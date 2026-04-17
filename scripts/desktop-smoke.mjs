@@ -14,8 +14,8 @@ const standaloneServerPath = path.join(
   "standalone",
   "server.js"
 )
-const electronMainPath = path.join(repoRoot, "electron", "main.mjs")
-const electronPreloadPath = path.join(repoRoot, "electron", "preload.mjs")
+const electronMainPath = path.join(repoRoot, "electron", "main.cjs")
+const electronPreloadPath = path.join(repoRoot, "electron", "preload.cjs")
 const electronIconPath = path.join(repoRoot, "electron", "app-icon.png")
 
 function sleep(durationMs) {
@@ -88,13 +88,13 @@ async function main() {
   ])
 
   const port = await findAvailablePort()
-  const smokeUrl = `http://127.0.0.1:${port}`
+  const smokeUrl = `http://localhost:${port}`
   const smokeProbeUrl = new URL("/icon.svg", smokeUrl).toString()
   const serverProcess = spawn(process.execPath, [standaloneServerPath], {
     cwd: repoRoot,
     env: {
       ...process.env,
-      HOSTNAME: "127.0.0.1",
+      HOSTNAME: "localhost",
       NODE_ENV: "production",
       PORT: String(port),
       APP_URL: process.env.APP_URL ?? smokeUrl,

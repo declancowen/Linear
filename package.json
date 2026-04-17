@@ -1,7 +1,7 @@
 {
   "name": "linear",
   "version": "0.0.1",
-  "main": "electron/main.mjs",
+  "main": "electron/main.cjs",
   "type": "module",
   "private": true,
   "scripts": {
@@ -16,8 +16,8 @@
     "notifications:send-digests": "node --env-file=.env.local scripts/send-notification-digests.mjs",
     "emails:send-jobs": "node --env-file=.env.local scripts/send-email-jobs.mjs",
     "sync:workos:workspaces": "node --env-file=.env.local scripts/sync-workspace-organizations.mjs",
-    "desktop:dev": "concurrently -k \"pnpm web:dev\" \"cross-env NEXT_DEV_SERVER_URL=http://127.0.0.1:3000 electron electron/main.mjs\"",
-    "desktop:start": "cross-env NODE_ENV=production electron electron/main.mjs",
+    "desktop:dev": "concurrently -k \"cross-env APP_URL=http://localhost:3000 NEXT_PUBLIC_APP_URL=http://localhost:3000 TEAMS_URL=http://localhost:3000 NEXT_PUBLIC_WORKOS_REDIRECT_URI=http://localhost:3000/callback next dev --turbopack --hostname localhost --port 3000\" \"cross-env NODE_ENV=development NEXT_DEV_SERVER_URL=http://localhost:3000 node --env-file=.env.local scripts/run-electron.cjs\"",
+    "desktop:start": "cross-env NODE_ENV=production node --env-file=.env.local scripts/run-electron.cjs",
     "desktop:smoke": "node scripts/desktop-smoke.mjs",
     "lint": "eslint app components convex electron hooks lib scripts test tests eslint.config.mjs next.config.mjs postcss.config.mjs proxy.ts vitest.config.ts --max-warnings 0",
     "test": "vitest run",
