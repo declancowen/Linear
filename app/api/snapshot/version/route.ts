@@ -56,12 +56,11 @@ export async function GET() {
 
     return jsonOk(snapshotVersion)
   } catch (error) {
-    logProviderError("Failed to load snapshot version", error)
-
     if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
+    logProviderError("Failed to load snapshot version", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to load snapshot version"),
       500

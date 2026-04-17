@@ -95,7 +95,7 @@ export async function DELETE() {
 
     logProviderError("Failed to delete account", error)
     return jsonError(
-      "We couldn't finish deleting your account. No changes were applied. Please try again or contact support.",
+      "We couldn't finish deleting your account. Please try again or contact support.",
       500,
       {
         code: "ACCOUNT_DELETE_FINALIZE_FAILED",

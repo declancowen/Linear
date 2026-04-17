@@ -378,9 +378,9 @@ describe("document and workspace route contracts", () => {
     expect(response.status).toBe(500)
     await expect(response.json()).resolves.toEqual({
       error:
-        "We couldn't finish deleting your account. No changes were applied. Please try again or contact support.",
+        "We couldn't finish deleting your account. Please try again or contact support.",
       message:
-        "We couldn't finish deleting your account. No changes were applied. Please try again or contact support.",
+        "We couldn't finish deleting your account. Please try again or contact support.",
       code: "ACCOUNT_DELETE_FINALIZE_FAILED",
     })
     expect(cancelCurrentAccountDeletionServerMock).toHaveBeenCalledWith({

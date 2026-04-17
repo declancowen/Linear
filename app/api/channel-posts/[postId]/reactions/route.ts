@@ -58,12 +58,11 @@ export async function POST(
       ok: true,
     })
   } catch (error) {
-    logProviderError("Failed to update reaction", error)
-
     if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
+    logProviderError("Failed to update reaction", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to update reaction"),
       500

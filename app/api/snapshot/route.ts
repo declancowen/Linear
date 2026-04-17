@@ -70,12 +70,11 @@ export async function GET() {
 
     return jsonOk(payload)
   } catch (error) {
-    logProviderError("Failed to load snapshot", error)
-
     if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
+    logProviderError("Failed to load snapshot", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to load snapshot"),
       500

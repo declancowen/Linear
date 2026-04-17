@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 
@@ -6,6 +7,7 @@ const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const createTeamServerMock = vi.fn()
 const joinTeamByCodeServerMock = vi.fn()
+const lookupTeamByJoinCodeServerMock = vi.fn()
 const updateTeamDetailsServerMock = vi.fn()
 const deleteTeamServerMock = vi.fn()
 const updateTeamWorkflowSettingsServerMock = vi.fn()
@@ -29,6 +31,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 vi.mock("@/lib/server/convex", () => ({
   createTeamServer: createTeamServerMock,
   joinTeamByCodeServer: joinTeamByCodeServerMock,
+  lookupTeamByJoinCodeServer: lookupTeamByJoinCodeServerMock,
   updateTeamDetailsServer: updateTeamDetailsServerMock,
   deleteTeamServer: deleteTeamServerMock,
   updateTeamWorkflowSettingsServer: updateTeamWorkflowSettingsServerMock,
@@ -68,6 +71,7 @@ describe("team and collaboration route contracts", () => {
     requireAppContextMock.mockReset()
     createTeamServerMock.mockReset()
     joinTeamByCodeServerMock.mockReset()
+    lookupTeamByJoinCodeServerMock.mockReset()
     updateTeamDetailsServerMock.mockReset()
     deleteTeamServerMock.mockReset()
     updateTeamWorkflowSettingsServerMock.mockReset()
@@ -178,6 +182,28 @@ describe("team and collaboration route contracts", () => {
       message: "Join code not found",
       code: "TEAM_JOIN_CODE_NOT_FOUND",
     })
+  })
+
+  it("maps team lookup failures without provider-error noise", async () => {
+    const { GET } = await import("@/app/api/teams/lookup/route")
+
+    lookupTeamByJoinCodeServerMock.mockRejectedValue(
+      new ApplicationError("Join code not found", 404, {
+        code: "TEAM_JOIN_CODE_NOT_FOUND",
+      })
+    )
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/teams/lookup?code=MISSING") as never
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: "Join code not found",
+      message: "Join code not found",
+      code: "TEAM_JOIN_CODE_NOT_FOUND",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
   })
 
   it("maps team detail and delete failures to typed error responses", async () => {

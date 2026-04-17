@@ -85,12 +85,11 @@ export async function POST(request: NextRequest) {
       workspaceSlug: result.workspaceSlug,
     })
   } catch (error) {
-    logProviderError("Failed to create workspace", error)
-
     if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
+    logProviderError("Failed to create workspace", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to create workspace"),
       500

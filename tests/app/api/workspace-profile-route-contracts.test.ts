@@ -5,6 +5,7 @@ import { ApplicationError } from "@/lib/server/application-errors"
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const requireConvexUserMock = vi.fn()
+const createWorkspaceServerMock = vi.fn()
 const updateWorkspaceBrandingServerMock = vi.fn()
 const deleteWorkspaceServerMock = vi.fn()
 const setWorkspaceWorkosOrganizationServerMock = vi.fn()
@@ -24,6 +25,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 }))
 
 vi.mock("@/lib/server/convex", () => ({
+  createWorkspaceServer: createWorkspaceServerMock,
   updateWorkspaceBrandingServer: updateWorkspaceBrandingServerMock,
   deleteWorkspaceServer: deleteWorkspaceServerMock,
   setWorkspaceWorkosOrganizationServer: setWorkspaceWorkosOrganizationServerMock,
@@ -53,6 +55,7 @@ describe("workspace and profile route contracts", () => {
     requireSessionMock.mockReset()
     requireAppContextMock.mockReset()
     requireConvexUserMock.mockReset()
+    createWorkspaceServerMock.mockReset()
     updateWorkspaceBrandingServerMock.mockReset()
     deleteWorkspaceServerMock.mockReset()
     setWorkspaceWorkosOrganizationServerMock.mockReset()
@@ -145,6 +148,46 @@ describe("workspace and profile route contracts", () => {
       code: "WORKSPACE_NOT_FOUND",
     })
     expect(ensureWorkspaceOrganizationMock).not.toHaveBeenCalled()
+  })
+
+  it("maps workspace creation failures without provider-error noise", async () => {
+    const { POST } = await import("@/app/api/workspaces/route")
+
+    createWorkspaceServerMock.mockRejectedValue(
+      new ApplicationError("Workspace name is required", 400, {
+        code: "WORKSPACE_NAME_REQUIRED",
+      })
+    )
+    requireAppContextMock.mockResolvedValue({
+      ensuredUser: {
+        userId: "user_1",
+      },
+      authContext: {
+        currentWorkspace: null,
+        pendingWorkspace: null,
+      },
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/workspaces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Acme",
+          description: "Ignored ok",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Workspace name is required",
+      message: "Workspace name is required",
+      code: "WORKSPACE_NAME_REQUIRED",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
   })
 
   it("maps workspace delete failures to typed error responses", async () => {

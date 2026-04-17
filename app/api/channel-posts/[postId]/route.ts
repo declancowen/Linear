@@ -41,12 +41,11 @@ export async function DELETE(
       ok: true,
     })
   } catch (error) {
-    logProviderError("Failed to delete post", error)
-
     if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
+    logProviderError("Failed to delete post", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to delete post"),
       500

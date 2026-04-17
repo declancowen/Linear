@@ -8,6 +8,7 @@ const requireConvexUserMock = vi.fn()
 const deleteChannelPostServerMock = vi.fn()
 const toggleChannelPostReactionServerMock = vi.fn()
 const getSnapshotServerMock = vi.fn()
+const getSnapshotVersionServerMock = vi.fn()
 const updateWorkOSUserEmailMock = vi.fn()
 const requestWorkOSPasswordResetMock = vi.fn()
 const logProviderErrorMock = vi.fn()
@@ -22,7 +23,7 @@ vi.mock("@/lib/server/convex", () => ({
   deleteChannelPostServer: deleteChannelPostServerMock,
   toggleChannelPostReactionServer: toggleChannelPostReactionServerMock,
   getSnapshotServer: getSnapshotServerMock,
-  getSnapshotVersionServer: vi.fn(),
+  getSnapshotVersionServer: getSnapshotVersionServerMock,
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -53,6 +54,7 @@ describe("platform route contracts", () => {
     deleteChannelPostServerMock.mockReset()
     toggleChannelPostReactionServerMock.mockReset()
     getSnapshotServerMock.mockReset()
+    getSnapshotVersionServerMock.mockReset()
     updateWorkOSUserEmailMock.mockReset()
     requestWorkOSPasswordResetMock.mockReset()
     logProviderErrorMock.mockReset()
@@ -83,6 +85,10 @@ describe("platform route contracts", () => {
       currentUser: {
         id: "user_1",
       },
+    })
+    getSnapshotVersionServerMock.mockResolvedValue({
+      version: 0,
+      currentUserId: "user_1",
     })
   })
 
@@ -144,6 +150,7 @@ describe("platform route contracts", () => {
       message: "Post not found",
       code: "CHANNEL_POST_NOT_FOUND",
     })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
   })
 
   it("maps snapshot failures to typed error responses", async () => {
@@ -163,6 +170,27 @@ describe("platform route contracts", () => {
       message: "Authenticated user not found",
       code: "SNAPSHOT_USER_NOT_FOUND",
     })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("maps snapshot version outer failures without provider-error noise", async () => {
+    const { GET } = await import("@/app/api/snapshot/version/route")
+
+    requireConvexUserMock.mockRejectedValue(
+      new ApplicationError("Authenticated user not found", 404, {
+        code: "SNAPSHOT_USER_NOT_FOUND",
+      })
+    )
+
+    const response = await GET()
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: "Authenticated user not found",
+      message: "Authenticated user not found",
+      code: "SNAPSHOT_USER_NOT_FOUND",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
   })
 
   it("maps WorkOS account failures to typed error responses", async () => {

@@ -41,12 +41,11 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    logProviderError("Failed to look up team", error)
-
     if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
+    logProviderError("Failed to look up team", error)
     return jsonError(
       getConvexErrorMessage(error, "Failed to look up team"),
       500
