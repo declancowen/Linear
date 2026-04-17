@@ -981,6 +981,7 @@ export async function leaveTeamHandler(ctx: MutationCtx, args: LeaveTeamArgs) {
   return {
     teamId: team.id,
     workspaceId: team.workspaceId,
+    workspaceAccessRemoved: !accessRemoval.hasWorkspaceAccess,
     emailJobs,
     providerMemberships: accessRemoval.providerMembershipCleanup
       ? [accessRemoval.providerMembershipCleanup]

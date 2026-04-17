@@ -306,7 +306,12 @@ export function createWorkspaceSlice(
       try {
         const result = await syncLeaveTeam(teamId)
         set((state) => ({
-          ...getNextStateAfterTeamRemoval(state, result.teamId ?? teamId),
+          ...(result.workspaceAccessRemoved && result.workspaceId
+            ? getNextStateAfterWorkspaceRemoval(
+                state,
+                result.workspaceId
+              )
+            : getNextStateAfterTeamRemoval(state, result.teamId ?? teamId)),
         }))
         toast.success("Left team")
         return true

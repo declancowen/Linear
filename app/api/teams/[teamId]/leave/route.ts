@@ -50,6 +50,7 @@ export async function DELETE(
       ok: true,
       teamId: result?.teamId ?? teamId,
       workspaceId: result?.workspaceId ?? null,
+      workspaceAccessRemoved: result?.workspaceAccessRemoved === true,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

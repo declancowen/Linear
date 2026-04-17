@@ -459,7 +459,6 @@ export function UserSettingsScreen() {
       return
     }
 
-    const previousTheme = committedThemePreferenceRef.current
     const requestId = latestThemeRequestIdRef.current + 1
     latestThemeRequestIdRef.current = requestId
 
@@ -479,6 +478,8 @@ export function UserSettingsScreen() {
     themeSaveQueueRef.current = themeSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        const rollbackTheme = committedThemePreferenceRef.current
+
         try {
           await syncUpdateCurrentUserProfile(
             persistedProfile.id,
@@ -496,9 +497,9 @@ export function UserSettingsScreen() {
 
           if (latestThemeRequestIdRef.current === requestId) {
             clearPendingThemePreference(nextTheme)
-            setThemePreference(previousTheme)
-            setTheme(previousTheme)
-            updateStoredThemePreference(previousTheme)
+            setThemePreference(rollbackTheme)
+            setTheme(rollbackTheme)
+            updateStoredThemePreference(rollbackTheme)
           }
 
           toast.error(

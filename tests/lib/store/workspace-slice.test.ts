@@ -7,6 +7,7 @@ import {
 } from "@/lib/domain/types"
 
 const syncJoinTeamByCodeMock = vi.fn()
+const syncLeaveTeamMock = vi.fn()
 const syncUpdateTeamDetailsMock = vi.fn()
 const toastSuccessMock = vi.fn()
 const toastErrorMock = vi.fn()
@@ -24,7 +25,7 @@ vi.mock("@/lib/convex/client", () => ({
   syncDeleteTeam: vi.fn(),
   syncJoinTeamByCode: syncJoinTeamByCodeMock,
   syncLeaveWorkspace: vi.fn(),
-  syncLeaveTeam: vi.fn(),
+  syncLeaveTeam: syncLeaveTeamMock,
   syncRegenerateTeamJoinCode: vi.fn(),
   syncRemoveTeamMember: vi.fn(),
   syncRemoveWorkspaceUser: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@/lib/convex/client", () => ({
 describe("workspace slice", () => {
   beforeEach(() => {
     syncJoinTeamByCodeMock.mockReset()
+    syncLeaveTeamMock.mockReset()
     syncUpdateTeamDetailsMock.mockReset()
     toastSuccessMock.mockReset()
     toastErrorMock.mockReset()
@@ -168,5 +170,133 @@ describe("workspace slice", () => {
     })
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
     expect(toastSuccessMock).toHaveBeenCalledWith("Team updated")
+  })
+
+  it("drops the workspace immediately when leaving the last accessible team removes workspace access", async () => {
+    const { createWorkspaceSlice } = await import(
+      "@/lib/store/app-store-internal/slices/workspace"
+    )
+
+    let state = {
+      ...createEmptyState(),
+      currentUserId: "user_1",
+      currentWorkspaceId: "workspace_1",
+      workspaces: [
+        {
+          id: "workspace_1",
+          slug: "alpha",
+          name: "Alpha",
+          logoUrl: "",
+          logoImageUrl: null,
+          createdBy: "user_2",
+          workosOrganizationId: "org_1",
+          settings: {
+            accent: "emerald",
+            description: "Alpha workspace",
+          },
+        },
+        {
+          id: "workspace_2",
+          slug: "beta",
+          name: "Beta",
+          logoUrl: "",
+          logoImageUrl: null,
+          createdBy: "user_3",
+          workosOrganizationId: "org_2",
+          settings: {
+            accent: "blue",
+            description: "Beta workspace",
+          },
+        },
+      ],
+      teams: [
+        {
+          id: "team_1",
+          workspaceId: "workspace_1",
+          slug: "platform",
+          name: "Platform",
+          icon: "robot",
+          settings: {
+            joinCode: "JOIN1234",
+            summary: "Platform team",
+            guestProjectIds: [],
+            guestDocumentIds: [],
+            guestWorkItemIds: [],
+            experience: "software-development" as const,
+            features: createDefaultTeamFeatureSettings("software-development"),
+            workflow: createDefaultTeamWorkflowSettings("software-development"),
+          },
+        },
+        {
+          id: "team_2",
+          workspaceId: "workspace_2",
+          slug: "design",
+          name: "Design",
+          icon: "users",
+          settings: {
+            joinCode: "JOIN5678",
+            summary: "Design team",
+            guestProjectIds: [],
+            guestDocumentIds: [],
+            guestWorkItemIds: [],
+            experience: "project-management" as const,
+            features: createDefaultTeamFeatureSettings("project-management"),
+            workflow: createDefaultTeamWorkflowSettings("project-management"),
+          },
+        },
+      ],
+      teamMemberships: [
+        {
+          teamId: "team_1",
+          userId: "user_1",
+          role: "member" as const,
+        },
+        {
+          teamId: "team_2",
+          userId: "user_1",
+          role: "member" as const,
+        },
+      ],
+      ui: {
+        activeTeamId: "team_1",
+        activeInboxNotificationId: null,
+        selectedViewByRoute: {},
+      },
+    }
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    })
+
+    const slice = createWorkspaceSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground: vi.fn(),
+      } as never
+    )
+
+    syncLeaveTeamMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+      workspaceAccessRemoved: true,
+    })
+
+    await expect(slice.leaveTeam("team_1")).resolves.toBe(true)
+
+    expect(state.currentWorkspaceId).toBe("workspace_2")
+    expect(state.workspaces.map((workspace) => workspace.id)).toEqual([
+      "workspace_2",
+    ])
+    expect(state.teams.map((team) => team.id)).toEqual(["team_2"])
+    expect(toastSuccessMock).toHaveBeenCalledWith("Left team")
   })
 })

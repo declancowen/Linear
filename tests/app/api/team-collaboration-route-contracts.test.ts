@@ -519,6 +519,7 @@ describe("team and collaboration route contracts", () => {
       ok: true,
       teamId: "team_1",
       workspaceId: "workspace_1",
+      workspaceAccessRemoved: false,
     })
     expect(reconcileProviderMembershipCleanupMock).toHaveBeenCalledWith({
       label: "Failed to deactivate WorkOS membership after team leave",
