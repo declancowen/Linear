@@ -54,6 +54,7 @@ import {
   listInvitesByNormalizedEmail,
   listInvitesByTeams,
   listPersonalViewsByUsers,
+  listUsersByIds,
   listViewsByScopes,
   listWorkItemsByTeams,
   listWorkspacesByIds,
@@ -536,38 +537,29 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     visibleConversations.map((conversation) => conversation.id)
   )
   const visibleCalls = await listCallsByConversations(ctx, visibleConversationIds)
-  const visibleChatMessages = (await listChatMessagesByConversations(
-    ctx,
-    visibleConversationIds
-  ))
-    .flat()
-    .map((message) => ({
-      ...message,
-      kind: message.kind ?? "text",
-      callId: message.callId ?? null,
-      mentionUserIds: message.mentionUserIds ?? [],
-    }))
-  const visibleChannelPosts = (await listChannelPostsByConversations(
-    ctx,
-    visibleConversationIds
-  ))
-    .flat()
-    .map((post) => ({
-      ...post,
-      reactions: post.reactions ?? [],
-    }))
+  const visibleChatMessages = (
+    await listChatMessagesByConversations(ctx, visibleConversationIds)
+  ).map((message) => ({
+    ...message,
+    kind: message.kind ?? "text",
+    callId: message.callId ?? null,
+    mentionUserIds: message.mentionUserIds ?? [],
+  }))
+  const visibleChannelPosts = (
+    await listChannelPostsByConversations(ctx, visibleConversationIds)
+  ).map((post) => ({
+    ...post,
+    reactions: post.reactions ?? [],
+  }))
   const visibleChannelPostIds = new Set(
     visibleChannelPosts.map((post) => post.id)
   )
-  const visibleChannelPostComments = (await listChannelPostCommentsByPosts(
-    ctx,
-    visibleChannelPostIds
-  ))
-    .flat()
-    .map((comment) => ({
-      ...comment,
-      mentionUserIds: comment.mentionUserIds ?? [],
-    }))
+  const visibleChannelPostComments = (
+    await listChannelPostCommentsByPosts(ctx, visibleChannelPostIds)
+  ).map((comment) => ({
+    ...comment,
+    mentionUserIds: comment.mentionUserIds ?? [],
+  }))
 
   for (const workspace of visibleWorkspaces) {
     if (workspace.createdBy) {
@@ -706,13 +698,9 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     teams: normalizedVisibleTeams,
     teamMemberships: visibleTeamMemberships,
     users: await Promise.all(
-      (
-        await Promise.all(
-          [...visibleUserIds].map((userId) => getUserDoc(ctx, userId))
-        )
+      (await listUsersByIds(ctx, visibleUserIds)).map((user) =>
+        resolveUserSnapshot(ctx, user)
       )
-        .filter((user) => user != null)
-        .map((user) => resolveUserSnapshot(ctx, user))
     ),
     labels: (await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList)).filter(
       (label) => accessibleWorkspaceIds.has(label.workspaceId)

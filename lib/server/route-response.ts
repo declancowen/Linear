@@ -44,6 +44,10 @@ export function jsonError(
   init?: JsonErrorInit
 ) {
   const details = sanitizeRouteErrorDetails(init?.details)
+  const responseInit: ResponseInit = {
+    statusText: init?.statusText,
+    headers: init?.headers,
+  }
 
   return NextResponse.json(
     {
@@ -57,7 +61,7 @@ export function jsonError(
       ...(details ?? {}),
     },
     {
-      ...init,
+      ...responseInit,
       status,
     }
   )
