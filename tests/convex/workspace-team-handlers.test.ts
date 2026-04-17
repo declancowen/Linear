@@ -14,6 +14,7 @@ const assertServerTokenMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getUserDocMock = vi.fn()
 const getWorkspaceDocMock = vi.fn()
+const getWorkspaceMembershipDocMock = vi.fn()
 const listActiveTeamUsersMock = vi.fn()
 const listActiveWorkspaceUsersMock = vi.fn()
 const listAttachmentsByTargetsMock = vi.fn()
@@ -28,6 +29,8 @@ const listMilestonesByProjectsMock = vi.fn()
 const listNotificationsByEntitiesMock = vi.fn()
 const listProjectsByScopeMock = vi.fn()
 const listProjectUpdatesByProjectsMock = vi.fn()
+const listTeamMembershipsByTeamsMock = vi.fn()
+const listUsersByIdsMock = vi.fn()
 const listViewsByScopeMock = vi.fn()
 const listWorkspaceDocumentsMock = vi.fn()
 const listWorkspaceMembershipsByWorkspaceMock = vi.fn()
@@ -64,6 +67,7 @@ vi.mock("@/convex/app/data", () => ({
   getTeamDoc: getTeamDocMock,
   getUserDoc: getUserDocMock,
   getWorkspaceDoc: getWorkspaceDocMock,
+  getWorkspaceMembershipDoc: getWorkspaceMembershipDocMock,
   listActiveTeamUsers: listActiveTeamUsersMock,
   listActiveWorkspaceUsers: listActiveWorkspaceUsersMock,
   listAttachmentsByTargets: listAttachmentsByTargetsMock,
@@ -78,6 +82,8 @@ vi.mock("@/convex/app/data", () => ({
   listNotificationsByEntities: listNotificationsByEntitiesMock,
   listProjectsByScope: listProjectsByScopeMock,
   listProjectUpdatesByProjects: listProjectUpdatesByProjectsMock,
+  listTeamMembershipsByTeams: listTeamMembershipsByTeamsMock,
+  listUsersByIds: listUsersByIdsMock,
   listViewsByScope: listViewsByScopeMock,
   listWorkspaceDocuments: listWorkspaceDocumentsMock,
   listWorkspaceMembershipsByWorkspace: listWorkspaceMembershipsByWorkspaceMock,
@@ -101,6 +107,7 @@ function createCtx() {
     db: {
       insert: vi.fn(),
       delete: vi.fn(),
+      query: vi.fn(),
     },
   }
 }
@@ -121,6 +128,7 @@ describe("workspace and team deletion handlers", () => {
     getTeamDocMock.mockReset()
     getUserDocMock.mockReset()
     getWorkspaceDocMock.mockReset()
+    getWorkspaceMembershipDocMock.mockReset()
     listActiveTeamUsersMock.mockReset()
     listActiveWorkspaceUsersMock.mockReset()
     listAttachmentsByTargetsMock.mockReset()
@@ -135,6 +143,8 @@ describe("workspace and team deletion handlers", () => {
     listNotificationsByEntitiesMock.mockReset()
     listProjectsByScopeMock.mockReset()
     listProjectUpdatesByProjectsMock.mockReset()
+    listTeamMembershipsByTeamsMock.mockReset()
+    listUsersByIdsMock.mockReset()
     listViewsByScopeMock.mockReset()
     listWorkspaceDocumentsMock.mockReset()
     listWorkspaceMembershipsByWorkspaceMock.mockReset()
@@ -178,6 +188,8 @@ describe("workspace and team deletion handlers", () => {
     listViewsByScopeMock.mockResolvedValue([])
     listWorkspaceDocumentsMock.mockResolvedValue([])
     listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([])
+    listTeamMembershipsByTeamsMock.mockResolvedValue([])
+    listUsersByIdsMock.mockResolvedValue([])
     deleteDocsMock.mockResolvedValue(undefined)
     deleteStorageObjectsMock.mockResolvedValue(undefined)
     cleanupRemainingLinksAfterDeleteMock.mockResolvedValue(undefined)
@@ -416,5 +428,138 @@ describe("workspace and team deletion handlers", () => {
       deletedUserIds: [],
       providerMemberships: [],
     })
+  })
+
+  it("includes inactive workspace users in provider cleanup when deleting a workspace", async () => {
+    const { deleteWorkspaceHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+
+    getWorkspaceDocMock.mockResolvedValue({
+      _id: "workspace_1_doc",
+      id: "workspace_1",
+      name: "Acme",
+      createdBy: "user_1",
+      workosOrganizationId: "org_1",
+      logoImageStorageId: null,
+    })
+    getUserDocMock.mockResolvedValue({
+      id: "user_1",
+      name: "Alex",
+    })
+    listActiveWorkspaceUsersMock.mockResolvedValue([
+      {
+        id: "user_1",
+        email: "alex@example.com",
+      },
+    ])
+    listWorkspaceTeamsMock.mockResolvedValue([
+      {
+        id: "team_1",
+      },
+    ])
+    listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([
+      {
+        workspaceId: "workspace_1",
+        userId: "user_deleted",
+        role: "viewer",
+      },
+    ])
+    listTeamMembershipsByTeamsMock.mockResolvedValue([
+      {
+        teamId: "team_1",
+        userId: "user_active",
+        role: "member",
+      },
+    ])
+    listUsersByIdsMock.mockResolvedValue([
+      {
+        id: "user_1",
+        workosUserId: "workos_owner",
+      },
+      {
+        id: "user_active",
+        workosUserId: "workos_active",
+      },
+      {
+        id: "user_deleted",
+        workosUserId: "workos_deleted",
+      },
+    ])
+    cascadeDeleteTeamDataMock.mockResolvedValue({
+      teamId: "team_1",
+    })
+
+    const result = await deleteWorkspaceHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      workspaceId: "workspace_1",
+    })
+
+    expect(result.providerMemberships).toEqual([
+      {
+        workspaceId: "workspace_1",
+        organizationId: "org_1",
+        workosUserId: "workos_owner",
+      },
+      {
+        workspaceId: "workspace_1",
+        organizationId: "org_1",
+        workosUserId: "workos_active",
+      },
+      {
+        workspaceId: "workspace_1",
+        organizationId: "org_1",
+        workosUserId: "workos_deleted",
+      },
+    ])
+  })
+})
+
+describe("workspace member protection", () => {
+  beforeEach(() => {
+    getWorkspaceDocMock.mockResolvedValue({
+      id: "workspace_1",
+      createdBy: "user_owner",
+      name: "Acme",
+    })
+    getWorkspaceMembershipDocMock.mockResolvedValue(null)
+    listWorkspaceTeamsMock.mockResolvedValue([
+      {
+        id: "team_1",
+      },
+    ])
+  })
+
+  it("blocks removing users who are admins on workspace teams", async () => {
+    const { removeWorkspaceUserHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const collectMock = vi.fn().mockResolvedValue([
+      {
+        teamId: "team_1",
+        userId: "user_admin",
+        role: "admin",
+      },
+    ])
+
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: collectMock,
+      }),
+    })
+
+    await expect(
+      removeWorkspaceUserHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_owner",
+        origin: "https://app.example.com",
+        workspaceId: "workspace_1",
+        userId: "user_admin",
+      })
+    ).rejects.toThrow("Workspace admins can't be removed from the workspace")
   })
 })

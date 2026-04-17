@@ -88,6 +88,18 @@ function getWorkspaceMembershipKey(workspaceId: string, userId: string) {
   return `${workspaceId}:${userId}`
 }
 
+function createWorkspaceMembershipRecord(
+  workspaceId: string,
+  userId: string,
+  role: MembershipRole
+): WorkspaceMembershipRecord {
+  return {
+    workspaceId,
+    userId,
+    role,
+  }
+}
+
 function compareWorkspaceMemberships(
   left: WorkspaceMembershipRecord,
   right: WorkspaceMembershipRecord
@@ -105,7 +117,7 @@ export function buildWorkspaceMembershipBackfillPlan(
   const workspaceByTeamId = new Map(
     input.teams.map((team) => [team.id, team.workspaceId] as const)
   )
-  const expectedRoleByMembershipKey = new Map<string, MembershipRole>()
+  const expectedMembershipByKey = new Map<string, WorkspaceMembershipRecord>()
 
   for (const workspace of input.workspaces) {
     const ownerUserId = workspace.createdBy ?? null
@@ -114,9 +126,9 @@ export function buildWorkspaceMembershipBackfillPlan(
       continue
     }
 
-    expectedRoleByMembershipKey.set(
+    expectedMembershipByKey.set(
       getWorkspaceMembershipKey(workspace.id, ownerUserId),
-      "admin"
+      createWorkspaceMembershipRecord(workspace.id, ownerUserId, "admin")
     )
   }
 
@@ -131,25 +143,21 @@ export function buildWorkspaceMembershipBackfillPlan(
       workspaceId,
       membership.userId
     )
-    const currentRole = expectedRoleByMembershipKey.get(membershipKey) ?? null
+    const currentMembership = expectedMembershipByKey.get(membershipKey) ?? null
+    const nextRole = mergeMembershipRole(
+      currentMembership?.role ?? null,
+      membership.role
+    )
 
-    expectedRoleByMembershipKey.set(
+    expectedMembershipByKey.set(
       membershipKey,
-      mergeMembershipRole(currentRole, membership.role)
+      createWorkspaceMembershipRecord(workspaceId, membership.userId, nextRole)
     )
   }
 
-  const expectedMemberships = [...expectedRoleByMembershipKey.entries()]
-    .map(([membershipKey, role]) => {
-      const [workspaceId, userId] = membershipKey.split(":")
-
-      return {
-        workspaceId,
-        userId,
-        role,
-      }
-    })
-    .sort(compareWorkspaceMemberships)
+  const expectedMemberships = [...expectedMembershipByKey.values()].sort(
+    compareWorkspaceMemberships
+  )
 
   const actualRoleByMembershipKey = new Map(
     input.workspaceMemberships.map((membership) => [

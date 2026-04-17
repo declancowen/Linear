@@ -110,4 +110,42 @@ describe("workspace membership backfill", () => {
     ])
     expect(plan.status.memberships.staleRole).toBe(1)
   })
+
+  it("preserves full workspace and user ids in the expected membership plan", () => {
+    const plan = buildWorkspaceMembershipBackfillPlan({
+      workspaces: [
+        {
+          id: "workspace:1",
+          createdBy: "user:1",
+        },
+      ],
+      teams: [
+        {
+          id: "team:1",
+          workspaceId: "workspace:1",
+        },
+      ],
+      teamMemberships: [
+        {
+          teamId: "team:1",
+          userId: "user:2",
+          role: "member",
+        },
+      ],
+      workspaceMemberships: [],
+    })
+
+    expect(plan.expectedMemberships).toEqual([
+      {
+        workspaceId: "workspace:1",
+        userId: "user:1",
+        role: "admin",
+      },
+      {
+        workspaceId: "workspace:1",
+        userId: "user:2",
+        role: "member",
+      },
+    ])
+  })
 })

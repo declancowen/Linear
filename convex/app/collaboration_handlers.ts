@@ -35,10 +35,9 @@ import {
   getConversationDoc,
   getTeamMembershipDoc,
   getTeamDoc,
-  getWorkspaceRoleMapForUser,
+  getWorkspaceEditRole,
   listUsersByIds,
   getWorkspaceDoc,
-  isWorkspaceOwner,
   listNotificationsByEntity,
   type AppCtx,
 } from "./data"
@@ -163,18 +162,9 @@ async function resolveConversationMeetingRole(
   }
 
   if (conversation.scopeType === "workspace") {
-    if (await isWorkspaceOwner(ctx, conversation.scopeId, currentUserId)) {
-      return "host" as const
-    }
-
-    const workspaceRoles =
-      (await getWorkspaceRoleMapForUser(ctx, currentUserId))[
-        conversation.scopeId
-      ] ?? []
-
-    return workspaceRoles.some((role) => role === "admin" || role === "member")
-      ? ("host" as const)
-      : ("guest" as const)
+    return toMeetingRole(
+      await getWorkspaceEditRole(ctx, conversation.scopeId, currentUserId)
+    )
   }
 
   const membership = await getTeamMembershipDoc(

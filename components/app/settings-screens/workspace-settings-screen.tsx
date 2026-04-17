@@ -119,6 +119,20 @@ export function WorkspaceSettingsScreen() {
     return users
       .filter((user) => workspaceUserIds.has(user.id))
       .map((user) => {
+        const hasWorkspaceAdminRole =
+          workspace.createdBy === user.id ||
+          workspaceMemberships.some(
+            (membership) =>
+              membership.workspaceId === workspace.id &&
+              membership.userId === user.id &&
+              membership.role === "admin"
+          )
+        const hasTeamAdminRole = teamMemberships.some(
+          (membership) =>
+            membership.userId === user.id &&
+            workspaceTeamIds.has(membership.teamId) &&
+            membership.role === "admin"
+        )
         const teamNames = teamMemberships
           .filter(
             (membership) =>
@@ -138,14 +152,8 @@ export function WorkspaceSettingsScreen() {
           avatarImageUrl: user.avatarImageUrl,
           status: user.status,
           isOwner: workspace.createdBy === user.id,
-          isWorkspaceAdmin:
-            workspace.createdBy === user.id ||
-            workspaceMemberships.some(
-              (membership) =>
-                membership.workspaceId === workspace.id &&
-                membership.userId === user.id &&
-                membership.role === "admin"
-            ),
+          isWorkspaceAdmin: hasWorkspaceAdminRole,
+          isTeamAdmin: !hasWorkspaceAdminRole && hasTeamAdminRole,
           isCurrentUser: currentUserId === user.id,
           teamNames,
         }

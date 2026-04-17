@@ -65,7 +65,9 @@ import {
   listNotificationsByEntities,
   listProjectsByScope,
   listProjectUpdatesByProjects,
+  listTeamMembershipsByTeams,
   listTeamsByIds,
+  listUsersByIds,
   listViewsByScope,
   listWorkspacesByIds,
   listWorkspaceMembershipsByWorkspace,
@@ -594,11 +596,25 @@ export async function deleteWorkspaceHandler(
 
   const [workspaceTeams, workspaceMembers, workspaceMemberships, actor] =
     await Promise.all([
-    listWorkspaceTeams(ctx, workspace.id),
-    listActiveWorkspaceUsers(ctx, workspace.id),
-    listWorkspaceMembershipsByWorkspace(ctx, workspace.id),
-    getUserDoc(ctx, args.currentUserId),
+      listWorkspaceTeams(ctx, workspace.id),
+      listActiveWorkspaceUsers(ctx, workspace.id),
+      listWorkspaceMembershipsByWorkspace(ctx, workspace.id),
+      getUserDoc(ctx, args.currentUserId),
+    ])
+  const workspaceTeamMemberships = await listTeamMembershipsByTeams(
+    ctx,
+    workspaceTeams.map((team) => team.id)
+  )
+  const workspaceUserIds = new Set([
+    ...workspaceMemberships.map((membership) => membership.userId),
+    ...workspaceTeamMemberships.map((membership) => membership.userId),
   ])
+
+  if (workspace.createdBy) {
+    workspaceUserIds.add(workspace.createdBy)
+  }
+
+  const workspaceUsers = await listUsersByIds(ctx, workspaceUserIds)
   const actorName = actor?.name ?? "A workspace owner"
   const workspaceDeletedHeadline = `${workspace.name} was deleted`
   const workspaceDeletedBody = `${actorName} deleted the ${workspace.name} workspace. It is no longer available.`
@@ -750,7 +766,7 @@ export async function deleteWorkspaceHandler(
     providerMemberships:
       workspace.workosOrganizationId == null
         ? []
-        : workspaceMembers
+        : workspaceUsers
             .filter((member) => Boolean(member.workosUserId))
             .map((member) => ({
               workspaceId: workspace.id,

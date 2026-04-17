@@ -7,11 +7,36 @@ function isNonEmptyString(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0
 }
 
+function extractHtmlAttribute(content: string, attributeName: string) {
+  const match = content.match(
+    new RegExp(`${attributeName}\\s*=\\s*(["'])(.*?)\\1`, "i")
+  )
+
+  return match?.[2]
+}
+
 function extractMentionUserIdsWithRegex(content: string) {
-  const matches = content.matchAll(/<span[^>]*data-id="([^"]+)"[^>]*>/gi)
+  const matches = content.matchAll(/<span\b([^>]*)>/gi)
 
   return [
-    ...new Set([...matches].map((match) => match[1]).filter(isNonEmptyString)),
+    ...new Set(
+      [...matches]
+        .map((match) => match[1] ?? "")
+        .map((attributes) => {
+          const mentionType = extractHtmlAttribute(attributes, "data-type")
+          const className = extractHtmlAttribute(attributes, "class")
+          const isMentionSpan =
+            mentionType === "mention" ||
+            className?.split(/\s+/).includes("editor-mention")
+
+          if (!isMentionSpan) {
+            return undefined
+          }
+
+          return extractHtmlAttribute(attributes, "data-id")
+        })
+        .filter(isNonEmptyString)
+    ),
   ]
 }
 

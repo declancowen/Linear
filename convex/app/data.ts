@@ -1189,6 +1189,59 @@ export async function getWorkspaceRoleMapForUser(ctx: AppCtx, userId: string) {
   return workspaceRoleMap
 }
 
+export async function getWorkspaceEditRole(
+  ctx: AppCtx,
+  workspaceId: string,
+  userId: string
+) {
+  const workspace = await getWorkspaceDoc(ctx, workspaceId)
+
+  if (!workspace) {
+    return null
+  }
+
+  if (workspace.createdBy === userId) {
+    return "admin"
+  }
+
+  const [workspaceMembership, memberships] = await Promise.all([
+    getWorkspaceMembershipDoc(ctx, workspaceId, userId),
+    listTeamMembershipsByUser(ctx, userId),
+  ])
+
+  const directRole = workspaceMembership?.role ?? null
+
+  if (directRole === "admin" || directRole === "member") {
+    return directRole
+  }
+
+  if (memberships.length === 0) {
+    return directRole
+  }
+
+  const teams = await listTeamsByIds(
+    ctx,
+    memberships.map((membership) => membership.teamId)
+  )
+  const workspaceTeamIds = new Set(
+    teams
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => team.id)
+  )
+  const highestTeamRole =
+    memberships
+      .filter((membership) => workspaceTeamIds.has(membership.teamId))
+      .reduce<(typeof memberships)[number]["role"] | null>(
+        (currentRole, membership) =>
+          mergeMembershipRole(currentRole, membership.role),
+        null
+      ) ?? null
+
+  return highestTeamRole
+    ? mergeMembershipRole(directRole, highestTeamRole)
+    : directRole
+}
+
 export async function ensureWorkspaceMembership(
   ctx: MutationCtx,
   input: {

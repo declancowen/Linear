@@ -2,17 +2,10 @@ import { v } from "convex/values"
 
 import {
   normalizeTeamIconToken,
+  type Role,
   type TeamExperienceType,
 } from "../../lib/domain/types"
-
-type Role = "guest" | "viewer" | "member" | "admin"
-
-const rolePriority: Record<Role, number> = {
-  guest: 0,
-  viewer: 1,
-  member: 2,
-  admin: 3,
-}
+import { mergeRole } from "../../lib/domain/roles"
 
 export const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
 export const defaultUserPreferences = {
@@ -121,13 +114,7 @@ export function mergeMembershipRole(
   currentRole: Role | null | undefined,
   requestedRole: Role
 ) {
-  if (!currentRole) {
-    return requestedRole
-  }
-
-  return rolePriority[currentRole] >= rolePriority[requestedRole]
-    ? currentRole
-    : requestedRole
+  return mergeRole(currentRole, requestedRole)
 }
 
 export function createUniqueTeamSlug(
