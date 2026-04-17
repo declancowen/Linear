@@ -1,7 +1,6 @@
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { ApplicationError } from "@/lib/server/application-errors"
-import { enqueueEmailJobsServer, leaveWorkspaceServer } from "@/lib/server/convex"
-import { buildAccessChangeEmailJobs } from "@/lib/server/email"
+import { leaveWorkspaceServer } from "@/lib/server/convex"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
 import {
   getConvexErrorMessage,
@@ -39,18 +38,6 @@ export async function DELETE() {
       currentUserId: appContext.ensuredUser.userId,
       workspaceId,
     })
-
-    if (result?.emailJobs?.length) {
-      try {
-        await enqueueEmailJobsServer(
-          buildAccessChangeEmailJobs({
-            emails: result.emailJobs,
-          })
-        )
-      } catch (emailError) {
-        logProviderError("Failed to send workspace leave email", emailError)
-      }
-    }
 
     await reconcileProviderMembershipCleanup({
       label: "Failed to deactivate WorkOS membership after workspace leave",

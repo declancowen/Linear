@@ -2,6 +2,7 @@ import { addDays } from "date-fns"
 
 import type { MutationCtx } from "../_generated/server"
 
+import { buildTeamInviteEmailJobs } from "../../lib/email/builders"
 import { createNotification } from "./collaboration_utils"
 import { insertAuditEvent } from "./audit"
 import {
@@ -26,6 +27,7 @@ import {
 } from "./data"
 import { archiveInviteNotifications } from "./notifications"
 import { syncTeamConversationMemberships } from "./conversations"
+import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -116,6 +118,22 @@ export async function createInviteHandler(
       source: "convex",
     },
   })
+
+  await queueEmailJobs(
+    ctx,
+    buildTeamInviteEmailJobs({
+      invites: [
+        {
+          email: args.email,
+          workspaceName: workspace?.name ?? "Workspace",
+          teamName: team.name,
+          role: args.role,
+          inviteToken: invite.token,
+          joinCode: invite.joinCode,
+        },
+      ],
+    })
+  )
 
   return {
     invite,

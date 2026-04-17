@@ -3,11 +3,7 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { chatMessageSchema } from "@/lib/domain/types"
-import {
-  enqueueMentionEmailJobsServer,
-  sendChatMessageServer,
-} from "@/lib/server/convex"
-import { buildMentionEmailJobs } from "@/lib/server/email"
+import { sendChatMessageServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -66,17 +62,6 @@ export async function POST(
       currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
     })
-
-    try {
-      await enqueueMentionEmailJobsServer(
-        buildMentionEmailJobs({
-          origin: new URL(request.url).origin,
-          emails: result?.mentionEmails ?? [],
-        })
-      )
-    } catch (emailError) {
-      logProviderError("Failed to enqueue mention emails", emailError)
-    }
 
     return jsonOk({
       ok: true,

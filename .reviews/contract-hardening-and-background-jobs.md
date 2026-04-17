@@ -32,7 +32,7 @@ Files and areas reviewed across all turns:
 - `convex/app.ts`, `convex/schema.ts`, `convex/validators.ts` — exported mutations, schema, and validators for email jobs and digest claims
 - `lib/server/convex/notifications.ts` — server wrappers for notification and email-job mutations
 - `lib/server/convex/collaboration.ts` — typed collaboration wrappers for call-join flow
-- `lib/server/email.ts` — email rendering and job payload builders
+- `lib/email/builders.ts` and `lib/server/email.ts` — shared email-job builders and compatibility barrel
 - `scripts/send-email-jobs.mjs` and `scripts/send-notification-digests.mjs` — operational workers
 - `lib/store/app-store-internal/domain-updates.ts`, `lib/store/app-store-internal/runtime.ts`, `lib/store/app-store-internal/slices/workspace.ts` — local store/domain patching after workspace/team mutations
 - `components/app/onboarding-workspace-form.tsx` — onboarding workspace creation navigation path
@@ -43,10 +43,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 12:51:22 BST` |
-| **Last reviewed** | `2026-04-17 13:06:08 BST` |
-| **Total turns** | `3` |
-| **Open findings** | `1` |
-| **Resolved findings** | `7` |
+| **Last reviewed** | `2026-04-17 13:25:10 BST` |
+| **Total turns** | `4` |
+| **Open findings** | `0` |
+| **Resolved findings** | `8` |
 | **Accepted findings** | `0` |
 
 ---
@@ -231,5 +231,41 @@ Files and areas reviewed across all turns:
   - `pnpm test -- tests/convex/email-job-handlers.test.ts tests/convex/notification-digest-claims.test.ts tests/lib/store/workspace-slice.test.ts tests/scripts/send-email-jobs.test.ts tests/scripts/send-notification-digests.test.ts`
 - Ran focused lint:
   - `pnpm exec eslint convex/app.ts convex/app/email_job_handlers.ts lib/server/convex/notifications.ts lib/store/app-store-internal/slices/workspace.ts scripts/send-email-jobs.mjs scripts/send-notification-digests.mjs tests/convex/email-job-handlers.test.ts tests/lib/store/workspace-slice.test.ts tests/scripts/send-email-jobs.test.ts tests/scripts/send-notification-digests.test.ts --max-warnings 0`
+- Ran static type verification:
+  - `pnpm typecheck`
+
+## Turn 4 — 2026-04-17 13:25:10 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `55a3e0e` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the last open architectural finding by moving email-intent persistence into the originating Convex domain mutations. Mention, assignment, invite, and access-change emails are now built through a shared pure builder module and inserted into the outbox within the same mutation that creates the underlying notification / invite / lifecycle change. The route layer no longer owns enqueue durability. This also removed the last inline Resend sender by collapsing [lib/server/email.ts](/Users/declancowen/Documents/GitHub/Linear/lib/server/email.ts) into a compatibility barrel over the shared builder module.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 4 | 1 |
+| Carried from previous turns | 1 |
+| Accepted | 0 |
+
+### Resolved findings
+
+- **Resolved:** `F1-02` The email outbox was outside the originating domain transaction, so email intents could be lost on partial failure.
+  Fixed by moving email-job construction and insertion into the originating Convex mutations in:
+  - [convex/app/comment_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/comment_handlers.ts)
+  - [convex/app/collaboration_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/collaboration_handlers.ts)
+  - [convex/app/work_item_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/work_item_handlers.ts)
+  - [convex/app/invite_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/invite_handlers.ts)
+  - [convex/app/workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts)
+  using the new shared builder seam in [lib/email/builders.ts](/Users/declancowen/Documents/GitHub/Linear/lib/email/builders.ts) and the internal queue helper in [convex/app/email_job_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/email_job_handlers.ts). The affected API routes in [app/api](/Users/declancowen/Documents/GitHub/Linear/app/api) no longer enqueue email jobs after the main mutation returns.
+
+### Verification approach
+
+- Ran route, wrapper, worker, and handler regression coverage:
+  - `pnpm test -- tests/app/api/rich-text-route-contracts.test.ts tests/app/api/work-route-contracts.test.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/app/api/document-workspace-route-contracts.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/convex/email-job-handlers.test.ts tests/scripts/send-email-jobs.test.ts tests/scripts/send-notification-digests.test.ts tests/lib/store/workspace-slice.test.ts tests/lib/server/convex-notifications.test.ts tests/lib/server/convex-work.test.ts tests/lib/server/convex-collaboration.test.ts tests/lib/server/convex-workspace.test.ts tests/lib/server/convex-teams-projects.test.ts`
+- Ran broader lint over the affected surfaces:
+  - `pnpm exec eslint app/api convex/app lib/email lib/server tests/app/api tests/convex tests/scripts tests/lib/store/workspace-slice.test.ts --max-warnings 0`
 - Ran static type verification:
   - `pnpm typecheck`

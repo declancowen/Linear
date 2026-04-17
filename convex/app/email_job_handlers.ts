@@ -1,4 +1,5 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
+import type { QueuedEmailJob } from "../../lib/email/builders"
 
 import { assertServerToken, createId, getNow } from "./core"
 
@@ -63,9 +64,20 @@ export async function enqueueEmailJobsHandler(
   args: EnqueueEmailJobsArgs
 ) {
   assertServerToken(args.serverToken)
+  const queued = await queueEmailJobs(ctx, args.jobs)
+
+  return {
+    queued,
+  }
+}
+
+export async function queueEmailJobs(
+  ctx: MutationCtx,
+  jobs: QueuedEmailJob[]
+) {
   const now = getNow()
 
-  for (const job of args.jobs) {
+  for (const job of jobs) {
     await ctx.db.insert("emailJobs", {
       id: createId("email_job"),
       kind: job.kind,
@@ -84,9 +96,7 @@ export async function enqueueEmailJobsHandler(
     })
   }
 
-  return {
-    queued: args.jobs.length,
-  }
+  return jobs.length
 }
 
 export async function claimPendingEmailJobsHandler(

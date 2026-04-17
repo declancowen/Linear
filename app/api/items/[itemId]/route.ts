@@ -2,12 +2,7 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import {
-  deleteWorkItemServer,
-  enqueueEmailJobsServer,
-  updateWorkItemServer,
-} from "@/lib/server/convex"
-import { buildAssignmentEmailJobs } from "@/lib/server/email"
+import { deleteWorkItemServer, updateWorkItemServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -77,22 +72,11 @@ export async function PATCH(
       return appContext
     }
 
-    const result = await updateWorkItemServer({
+    await updateWorkItemServer({
       currentUserId: appContext.ensuredUser.userId,
       itemId,
       patch: parsed,
     })
-
-    try {
-      await enqueueEmailJobsServer(
-        buildAssignmentEmailJobs({
-          origin: new URL(request.url).origin,
-          emails: result?.assignmentEmails ?? [],
-        })
-      )
-    } catch (emailError) {
-      logProviderError("Failed to enqueue assignment emails", emailError)
-    }
 
     return jsonOk({
       ok: true,

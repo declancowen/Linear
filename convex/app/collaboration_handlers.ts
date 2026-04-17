@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
+import { buildMentionEmailJobs } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
 import {
   requireEditableTeamAccess,
@@ -46,6 +47,7 @@ import {
   getChatConversationPath,
 } from "./notifications"
 import { normalizeTeam } from "./normalization"
+import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -796,6 +798,13 @@ export async function sendChatMessageHandler(
     lastActivityAt: now,
   })
 
+  await queueEmailJobs(
+    ctx,
+    buildMentionEmailJobs({
+      emails: mentionEmails,
+    })
+  )
+
   return {
     messageId,
     mentionEmails,
@@ -905,6 +914,13 @@ export async function createChannelPostHandler(
     updatedAt: now,
     lastActivityAt: now,
   })
+
+  await queueEmailJobs(
+    ctx,
+    buildMentionEmailJobs({
+      emails: mentionEmails,
+    })
+  )
 
   return {
     postId,
@@ -1061,6 +1077,13 @@ export async function addChannelPostCommentHandler(
     updatedAt: now,
     lastActivityAt: now,
   })
+
+  await queueEmailJobs(
+    ctx,
+    buildMentionEmailJobs({
+      emails: mentionEmails,
+    })
+  )
 
   return {
     commentId,

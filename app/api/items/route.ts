@@ -2,8 +2,7 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { workItemSchema } from "@/lib/domain/types"
-import { createWorkItemServer, enqueueEmailJobsServer } from "@/lib/server/convex"
-import { buildAssignmentEmailJobs } from "@/lib/server/email"
+import { createWorkItemServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -45,17 +44,6 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
-
-    try {
-      await enqueueEmailJobsServer(
-        buildAssignmentEmailJobs({
-          origin: new URL(request.url).origin,
-          emails: result?.assignmentEmails ?? [],
-        })
-      )
-    } catch (emailError) {
-      logProviderError("Failed to enqueue assignment emails", emailError)
-    }
 
     return jsonOk({
       ok: true,
