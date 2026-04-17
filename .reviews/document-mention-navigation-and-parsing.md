@@ -19,6 +19,8 @@
 
 Files and areas reviewed across all turns:
 - `components/app/screens/document-detail-screen.tsx` — pending mention exit protection, navigation interception, pending mention batching
+- `components/app/rich-text-editor.tsx` — editor-driven mention count synchronization
+- `lib/content/document-mention-queue.ts` — reducer-backed pending mention queue semantics
 - `lib/content/rich-text-mentions.ts` — mention extraction and fallback parsing
 
 ## Review status (updated every turn)
@@ -26,13 +28,50 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 19:10:46 BST` |
-| **Last reviewed** | `2026-04-17 19:26:52 BST` |
-| **Total turns** | `2` |
+| **Last reviewed** | `2026-04-17 19:53:09 BST` |
+| **Total turns** | `3` |
 | **Open findings** | `0` |
-| **Resolved findings** | `1` |
+| **Resolved findings** | `2` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 3 — 2026-04-17 19:53:09 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `beca264` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the remaining live document-mention issue. The pending mention bar is now driven by editor mention counts plus a reducer-backed queue, which removes the repeated HTML parsing from the hot path, makes delete/self-mention behavior deterministic, and preserves mentions added while an earlier notification batch is still sending.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 3 | 1 |
+| Carried from Turn 2 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### F3-01 ~~[BUG] High~~ → RESOLVED — Newly added mentions could be dropped when a previous notification batch finished sending
+**Where:** [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:468), [rich-text-editor.tsx](../components/app/rich-text-editor.tsx:79)
+
+**What was wrong:** The old queue logic captured `activePendingMentionEntries` and `currentMentionCounts` from the render that initiated the send. When the request resolved, it cleared the whole pending batch using that stale snapshot. Any mention inserted while the request was in flight could therefore disappear from the queue without ever being sent. The same path also reparsed full HTML content on every keystroke, which made the pending-notification bar laggy and flickery under mention insert/delete churn.
+
+**How it was fixed:** [document-mention-queue.ts](../lib/content/document-mention-queue.ts:1) now owns the pending mention state as a pure reducer with explicit actions for document reset, count sync, tracking inserted users, clearing, and marking only the submitted batch as sent. [rich-text-editor.tsx](../components/app/rich-text-editor.tsx:79) now emits mention counts directly from the editor document, so [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:97) no longer reparses the whole HTML document on every content update. Self-mentions are still ignored at the tracking boundary, deletions immediately prune queued users, and later mentions survive an earlier send.
+
+**Verified:** Added regression coverage in [document-detail-screen.test.tsx](../tests/components/document-detail-screen.test.tsx:1) and [document-mention-queue.test.ts](../tests/lib/content/document-mention-queue.test.ts:1), then ran:
+- `pnpm test -- tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts tests/lib/content/rich-text-mentions.test.ts tests/components/chat-thread.test.tsx`
+- `pnpm exec eslint components/app/screens/document-detail-screen.tsx components/app/rich-text-editor.tsx components/app/collaboration-screens/chat-thread.tsx lib/content/document-mention-queue.ts lib/content/rich-text-mentions.ts lib/domain/selectors-internal/core.ts tests/components/document-detail-screen.test.tsx tests/components/chat-thread.test.tsx tests/lib/content/document-mention-queue.test.ts tests/lib/content/rich-text-mentions.test.ts --max-warnings 0`
+- `git diff --check`
+
+### Remaining notes classified
+
+- The old `activePendingMentionEntries` parse-on-every-keystroke note is stale. Pending mention counts are now synchronized from editor state rather than recomputed by reparsing HTML on each render.
+- The baseline reset effect no longer needs to track `document?.content` on every keystroke; the queue is reset on document changes and then kept in sync by editor callbacks.
+- The former “mention delta can include other users’ concurrent edits” tradeoff is reduced materially because the pending queue now follows the local editor document state, not a reparsed snapshot echo from the store on every render.
+- The broad same-origin anchor interception in [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:292) remains intentional while pending mention notifications exist.
 
 ## Turn 2 — 2026-04-17 19:26:52 BST
 

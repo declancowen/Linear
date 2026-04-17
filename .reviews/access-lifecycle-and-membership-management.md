@@ -69,13 +69,36 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-17 19:26:52 BST` |
-| **Total turns** | `15` |
+| **Last reviewed** | `2026-04-17 19:53:09 BST` |
+| **Total turns** | `16` |
 | **Open findings** | `0` |
 | **Resolved findings** | `24` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 16 — 2026-04-17 19:53:09 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `beca264` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Rechecked the remaining access-adjacent notes from the latest provider output. No new lifecycle bug was confirmed. The old `canAdminWorkspace` / `getWorkspaceRoleMapForUser` findings remain stale on this branch, and the exported direct-or-fallback workspace-role helper has now been internalized to reduce future misuse. I also memoized per-user workspace membership state in chat-thread rendering to avoid repeating workspace-access scans per message.
+
+| Status | Count |
+|--------|-------|
+| New findings | 0 |
+| Resolved during Turn 16 | 0 |
+| Carried from Turn 15 | 0 |
+| Accepted | 0 |
+
+### Remaining access-related notes classified
+
+- The `canAdminWorkspace` and `getWorkspaceRoleMapForUser` notes are still stale. The current branch already uses merged effective workspace roles for admin gating on both the client and server paths.
+- [selectors-internal/core.ts](../lib/domain/selectors-internal/core.ts:87) no longer exports the direct-or-fallback workspace-role helper, so the subtle non-merging behavior is now confined to internal selector composition rather than exposed as a reusable API.
+- The `cleanup.ts` viewer-membership note remains an intentional policy decision: deleting a team can leave former members as workspace viewers until explicitly removed from the workspace.
+- The workspace-deletion email/provider-cleanup asymmetry, team-creation workspace-admin promotion, and pre-cascade team-deletion notifications remain intentional and match the current product model.
 
 ## Turn 15 — 2026-04-17 19:26:52 BST
 

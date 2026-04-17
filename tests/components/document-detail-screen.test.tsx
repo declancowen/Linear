@@ -56,27 +56,77 @@ vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
     onChange,
+    onMentionCountsChange,
     onMentionInserted,
   }: {
     content: string
     onChange: (content: string) => void
+    onMentionCountsChange?: (counts: Record<string, number>) => void
     onMentionInserted?: (candidate: { id: string }) => void
-  }) => (
-    <button
-      type="button"
-      onClick={() => {
-        onChange(
-          [
-            content,
-            '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
-          ].join("")
-        )
-        onMentionInserted?.({ id: "user_2" })
-      }}
-    >
-      Insert mention
-    </button>
-  ),
+  }) => {
+    function countMentions(nextContent: string) {
+      const counts: Record<string, number> = {}
+      const matches = nextContent.matchAll(/data-id="([^"]+)"/g)
+
+      for (const match of matches) {
+        const userId = match[1]
+
+        if (!userId) {
+          continue
+        }
+
+        counts[userId] = (counts[userId] ?? 0) + 1
+      }
+
+      return counts
+    }
+
+    function syncContent(nextContent: string) {
+      onChange(nextContent)
+      onMentionCountsChange?.(countMentions(nextContent))
+    }
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            const nextContent = [
+              content,
+              '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
+            ].join("")
+
+            onMentionInserted?.({ id: "user_2" })
+            syncContent(nextContent)
+          }}
+        >
+          Insert mention
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const nextContent = [
+              content,
+              '<span class="editor-mention" data-type="mention" data-id="user_1">@alex</span>',
+            ].join("")
+
+            onMentionInserted?.({ id: "user_1" })
+            syncContent(nextContent)
+          }}
+        >
+          Insert self mention
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            syncContent("<p></p>")
+          }}
+        >
+          Clear mentions
+        </button>
+      </>
+    )
+  },
 }))
 
 vi.mock("@/components/app/screens/helpers", () => ({
@@ -287,5 +337,69 @@ describe("DocumentDetailScreen", () => {
     expect(historyBackSpy).toHaveBeenCalledTimes(1)
 
     historyBackSpy.mockRestore()
+  })
+
+  it("hides the notification bar when all queued mentions are removed", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
+
+    expect(screen.getByText("Send mention notifications")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear mentions" }))
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Send mention notifications")
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it("ignores self mentions when another pending mention is already queued", () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
+    fireEvent.click(screen.getByRole("button", { name: "Insert self mention" }))
+
+    expect(
+      screen.getByText(
+        "1 mention across 1 person are ready to send for this document."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("keeps later mentions queued when an earlier send completes", async () => {
+    let resolveSend:
+      | ((value: { ok: boolean; recipientCount: number; mentionCount: number }) => void)
+      | null = null
+
+    syncSendDocumentMentionNotificationsMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSend = resolve
+        })
+    )
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
+    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
+
+    await act(async () => {
+      resolveSend?.({
+        ok: true,
+        recipientCount: 1,
+        mentionCount: 1,
+      })
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "1 mention across 1 person are ready to send for this document."
+        )
+      ).toBeInTheDocument()
+    })
   })
 })

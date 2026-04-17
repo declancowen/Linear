@@ -277,22 +277,64 @@ export function ChatThread({
     messages.length === 0 && hideComposer && composerDisabledReason
       ? composerDisabledReason
       : "Start the conversation below."
+  const workspaceMembershipStateByUserId = useMemo(() => {
+    const membershipStates = new Map<
+      string,
+      "active" | "former" | "unknown"
+    >()
+
+    if (!currentWorkspaceId) {
+      return membershipStates
+    }
+
+    const relevantUserIds = new Set<string>()
+
+    if (welcomeParticipant?.id) {
+      relevantUserIds.add(welcomeParticipant.id)
+    }
+
+    for (const member of members) {
+      relevantUserIds.add(member.id)
+    }
+
+    for (const message of messages) {
+      relevantUserIds.add(message.createdBy)
+    }
+
+    for (const userId of relevantUserIds) {
+      membershipStates.set(
+        userId,
+        hasWorkspaceAccessInCollections(
+          workspaces,
+          workspaceMemberships,
+          teams,
+          teamMemberships,
+          currentWorkspaceId,
+          userId
+        )
+          ? "active"
+          : "former"
+      )
+    }
+
+    return membershipStates
+  }, [
+    currentWorkspaceId,
+    members,
+    messages,
+    teamMemberships,
+    teams,
+    welcomeParticipant,
+    workspaces,
+    workspaceMemberships,
+  ])
 
   function getWorkspaceMembershipState(userId: string | null | undefined) {
     if (!userId || !currentWorkspaceId) {
       return "unknown" as const
     }
 
-    return hasWorkspaceAccessInCollections(
-      workspaces,
-      workspaceMemberships,
-      teams,
-      teamMemberships,
-      currentWorkspaceId,
-      userId
-    )
-      ? ("active" as const)
-      : ("former" as const)
+    return workspaceMembershipStateByUserId.get(userId) ?? ("unknown" as const)
   }
 
   useEffect(() => {

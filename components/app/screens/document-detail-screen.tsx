@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useReducer, useRef, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -13,9 +13,13 @@ import {
   syncSendDocumentMentionNotifications,
 } from "@/lib/convex/client"
 import {
+  createDocumentMentionQueueState,
+  getPendingDocumentMentionEntries,
+  reduceDocumentMentionQueue,
+} from "@/lib/content/document-mention-queue"
+import {
   extractRichTextMentionCounts,
   summarizePendingDocumentMentions,
-  type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
 import {
   getTeam,
@@ -105,12 +109,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
-  const [mentionBaselineCounts, setMentionBaselineCounts] = useState<
-    Record<string, number>
-  >({})
-  const [pendingMentionUsers, setPendingMentionUsers] = useState<
-    Record<string, true>
-  >({})
+  const [mentionQueue, dispatchMentionQueue] = useReducer(
+    reduceDocumentMentionQueue,
+    createDocumentMentionQueueState({})
+  )
   const [sendingMentionNotifications, setSendingMentionNotifications] =
     useState(false)
   const [pendingExitTarget, setPendingExitTarget] =
@@ -123,9 +125,12 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const currentRouteHrefRef = useRef<string | null>(null)
   const currentRouteStateRef = useRef<unknown>(null)
   const previousDocumentIdRef = useRef<string | null>(null)
+  const currentDocumentContentRef = useRef("")
   const currentDocumentId = document?.id ?? null
   const resolvedDocumentKind = document?.kind ?? null
   const documentTitle = document?.title ?? ""
+
+  currentDocumentContentRef.current = document?.content ?? ""
 
   useEffect(() => {
     if (previousDocumentIdRef.current === currentDocumentId) {
@@ -134,12 +139,14 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     previousDocumentIdRef.current = currentDocumentId
     setIsEditingTitle(false)
-    setMentionBaselineCounts(extractRichTextMentionCounts(document?.content ?? ""))
-    setPendingMentionUsers({})
+    dispatchMentionQueue({
+      type: "reset-document",
+      counts: extractRichTextMentionCounts(currentDocumentContentRef.current),
+    })
     setPendingExitTarget(null)
     setExitDialogOpen(false)
     allowHistoryExitRef.current = false
-  }, [currentDocumentId, document?.content])
+  }, [currentDocumentId])
 
   useEffect(() => {
     currentRouteHrefRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
@@ -263,31 +270,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       }).catch(() => {})
     }
   }, [currentDocumentId, resolvedDocumentKind])
-  const currentMentionCounts = useMemo(
-    () => extractRichTextMentionCounts(document?.content ?? ""),
-    [document?.content]
-  )
   const activePendingMentionEntries = useMemo(
-    () =>
-      Object.keys(pendingMentionUsers).flatMap<PendingDocumentMention>(
-        (userId) => {
-          const pendingCount = Math.max(
-            0,
-            (currentMentionCounts[userId] ?? 0) -
-              (mentionBaselineCounts[userId] ?? 0)
-          )
-
-          return pendingCount > 0
-            ? [
-                {
-                  userId,
-                  count: pendingCount,
-                },
-              ]
-            : []
-        }
-      ),
-    [currentMentionCounts, mentionBaselineCounts, pendingMentionUsers]
+    () => getPendingDocumentMentionEntries(mentionQueue),
+    [mentionQueue]
   )
   const pendingMentionSummary = useMemo(
     () => summarizePendingDocumentMentions(activePendingMentionEntries),
@@ -439,8 +424,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const loadedDocumentId = loadedDocument.id
 
   function clearPendingMentionBatch() {
-    setMentionBaselineCounts(currentMentionCounts)
-    setPendingMentionUsers({})
+    dispatchMentionQueue({
+      type: "clear-all",
+    })
   }
 
   function closeExitDialog() {
@@ -471,15 +457,20 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       return true
     }
 
+    const submittedMentionEntries = activePendingMentionEntries
+
     setSendingMentionNotifications(true)
 
     try {
       const result = (await syncSendDocumentMentionNotifications(
         loadedDocumentId,
-        activePendingMentionEntries
+        submittedMentionEntries
       )) as DocumentMentionNotificationsResponse
 
-      clearPendingMentionBatch()
+      dispatchMentionQueue({
+        type: "mark-sent",
+        entries: submittedMentionEntries,
+      })
       toast.success(
         `Sent notifications for ${formatMentionCountLabel(
           result.mentionCount
@@ -618,11 +609,17 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
                 return
               }
 
-              setPendingMentionUsers((current) => ({
-                ...current,
-                [candidate.id]: true,
-              }))
+              dispatchMentionQueue({
+                type: "track-user",
+                userId: candidate.id,
+              })
             }}
+            onMentionCountsChange={(counts) =>
+              dispatchMentionQueue({
+                type: "sync-counts",
+                counts,
+              })
+            }
             onStatsChange={setDocumentStats}
             onChange={(content) =>
               useAppStore.getState().updateDocumentContent(document.id, content)

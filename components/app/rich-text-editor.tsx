@@ -28,6 +28,7 @@ import Typography from "@tiptap/extension-typography"
 import Underline from "@tiptap/extension-underline"
 import StarterKit from "@tiptap/starter-kit"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import type { RichTextMentionCounts } from "@/lib/content/rich-text-mentions"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
@@ -80,6 +81,7 @@ type RichTextEditorProps = {
   onSubmitShortcut?: () => void
   submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
+  onMentionCountsChange?: (counts: RichTextMentionCounts) => void
   mentionMenuPlacement?: "above" | "below"
   editorInstanceRef?: MutableRefObject<Editor | null>
   onMentionInserted?: (candidate: MentionCandidate) => void
@@ -103,6 +105,26 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;")
 }
 
+function getEditorMentionCounts(currentEditor: Editor): RichTextMentionCounts {
+  const mentionCounts: RichTextMentionCounts = {}
+
+  currentEditor.state.doc.descendants((node) => {
+    if (node.type.name !== "mention") {
+      return
+    }
+
+    const mentionId = node.attrs.id
+
+    if (typeof mentionId !== "string" || mentionId.length === 0) {
+      return
+    }
+
+    mentionCounts[mentionId] = (mentionCounts[mentionId] ?? 0) + 1
+  })
+
+  return mentionCounts
+}
+
 export function RichTextEditor({
   content,
   onChange,
@@ -119,6 +141,7 @@ export function RichTextEditor({
   onSubmitShortcut,
   submitOnEnter = false,
   onStatsChange,
+  onMentionCountsChange,
   mentionMenuPlacement = "below",
   editorInstanceRef,
   onMentionInserted,
@@ -267,6 +290,10 @@ export function RichTextEditor({
         : null
     )
     syncMentionState(buildMentionState(currentEditor, containerRef.current))
+  }
+
+  function syncMentionCounts(currentEditor: Editor) {
+    onMentionCountsChange?.(getEditorMentionCounts(currentEditor))
   }
 
   // Build editor class based on mode
@@ -528,8 +555,13 @@ export function RichTextEditor({
         return false
       },
     },
+    onCreate({ editor: currentEditor }) {
+      syncMentionCounts(currentEditor)
+      syncCommandMenus(currentEditor)
+    },
     onUpdate({ editor: currentEditor }) {
       onChange(sanitizeRichTextContent(currentEditor.getHTML()))
+      syncMentionCounts(currentEditor)
       syncCommandMenus(currentEditor)
     },
     onSelectionUpdate({ editor: currentEditor }) {
@@ -575,8 +607,9 @@ export function RichTextEditor({
       editor.commands.setContent(sanitizedStringContent, {
         emitUpdate: false,
       })
+      onMentionCountsChange?.(getEditorMentionCounts(editor))
     }
-  }, [editor, sanitizedStringContent])
+  }, [editor, onMentionCountsChange, sanitizedStringContent])
 
   useEffect(() => {
     if (!editor) {

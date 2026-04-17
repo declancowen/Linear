@@ -84,7 +84,7 @@ function getHighestWorkspaceTeamRoleInCollections(
   )
 }
 
-export function getWorkspaceRoleInCollections(
+function getDirectOrFallbackWorkspaceRoleInCollections(
   workspaces: AppData["workspaces"],
   workspaceMemberships: AppData["workspaceMemberships"],
   teams: AppData["teams"],
@@ -128,7 +128,7 @@ export function getWorkspaceEditableRoleInCollections(
   workspaceId: string,
   userId: string
 ) {
-  const workspaceRole = getWorkspaceRoleInCollections(
+  const workspaceRole = getDirectOrFallbackWorkspaceRoleInCollections(
     workspaces,
     workspaceMemberships,
     teams,
