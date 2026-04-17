@@ -57,12 +57,13 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     content,
     onChange,
     onMentionCountsChange,
-    onMentionInserted,
   }: {
     content: string
     onChange: (content: string) => void
-    onMentionCountsChange?: (counts: Record<string, number>) => void
-    onMentionInserted?: (candidate: { id: string }) => void
+    onMentionCountsChange?: (
+      counts: Record<string, number>,
+      source: "initial" | "local" | "external"
+    ) => void
   }) => {
     function countMentions(nextContent: string) {
       const counts: Record<string, number> = {}
@@ -83,7 +84,7 @@ vi.mock("@/components/app/rich-text-editor", () => ({
 
     function syncContent(nextContent: string) {
       onChange(nextContent)
-      onMentionCountsChange?.(countMentions(nextContent))
+      onMentionCountsChange?.(countMentions(nextContent), "local")
     }
 
     return (
@@ -96,7 +97,6 @@ vi.mock("@/components/app/rich-text-editor", () => ({
               '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
             ].join("")
 
-            onMentionInserted?.({ id: "user_2" })
             syncContent(nextContent)
           }}
         >
@@ -110,7 +110,6 @@ vi.mock("@/components/app/rich-text-editor", () => ({
               '<span class="editor-mention" data-type="mention" data-id="user_1">@alex</span>',
             ].join("")
 
-            onMentionInserted?.({ id: "user_1" })
             syncContent(nextContent)
           }}
         >

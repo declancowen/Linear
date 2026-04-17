@@ -28,13 +28,48 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-17 19:10:46 BST` |
-| **Last reviewed** | `2026-04-17 19:53:09 BST` |
-| **Total turns** | `3` |
+| **Last reviewed** | `2026-04-17 20:08:07 BST` |
+| **Total turns** | `4` |
 | **Open findings** | `0` |
-| **Resolved findings** | `2` |
+| **Resolved findings** | `3` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 4 — 2026-04-17 20:08:07 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `85a3836` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the follow-up queue bug. Mention counts are authoritative from editor count sync now, so insertions are no longer double-counted and local paste/undo/import-style count increases are still captured for notification sending without relying on mention-selection callbacks.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 4 | 1 |
+| Carried from Turn 3 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### F4-01 ~~[BUG] Medium~~ → RESOLVED — Pending mention queue could double-count inserts and miss local count-only mention changes
+**Where:** [document-mention-queue.ts](../lib/content/document-mention-queue.ts:1), [rich-text-editor.tsx](../components/app/rich-text-editor.tsx:79), [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:292)
+
+**What was wrong:** The previous reducer updated `currentCounts` in both `sync-counts` and `track-user`, so a normal mention insert could be inflated by `+1` before the next content sync. At the same time, the queue only considered explicitly tracked users, so local mention-count changes that did not go through `onMentionInserted` could be skipped entirely.
+
+**How it was fixed:** `sync-counts` is now the only source of truth for mention counts. It can selectively auto-track local count increases while ignoring configured user ids such as the current user. [rich-text-editor.tsx](../components/app/rich-text-editor.tsx:79) now labels mention-count syncs as `initial`, `local`, or `external`, and [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:292) only auto-tracks local increases for notification-eligible mentions. The old `track-user` increment path is gone.
+
+**Verified:** Updated [document-mention-queue.test.ts](../tests/lib/content/document-mention-queue.test.ts:1) and [document-detail-screen.test.tsx](../tests/components/document-detail-screen.test.tsx:1), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts components/app/screens/document-detail-screen.tsx components/app/rich-text-editor.tsx lib/content/document-mention-queue.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts --max-warnings 0`
+
+### Remaining notes classified
+
+- The old test-mock ordering note is stale. [document-detail-screen.test.tsx](../tests/components/document-detail-screen.test.tsx:49) now models the real editor behavior through `onMentionCountsChange` rather than relying on `onMentionInserted`.
+- The old `activePendingMentionEntries` HTML-parsing note is stale. The pending queue no longer reparses document HTML on every keystroke.
+- The inline `onMentionCountsChange` callback note is also stale on the current branch. [document-detail-screen.tsx](../components/app/screens/document-detail-screen.tsx:292) now passes a stable callback.
 
 ## Turn 3 — 2026-04-17 19:53:09 BST
 

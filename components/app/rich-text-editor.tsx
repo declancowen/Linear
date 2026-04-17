@@ -64,6 +64,8 @@ export type RichTextEditorStats = {
   characters: number
 }
 
+export type RichTextMentionCountsChangeSource = "initial" | "local" | "external"
+
 type RichTextEditorProps = {
   content: string | JSONContent
   onChange: (content: string) => void
@@ -81,7 +83,10 @@ type RichTextEditorProps = {
   onSubmitShortcut?: () => void
   submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
-  onMentionCountsChange?: (counts: RichTextMentionCounts) => void
+  onMentionCountsChange?: (
+    counts: RichTextMentionCounts,
+    source: RichTextMentionCountsChangeSource
+  ) => void
   mentionMenuPlacement?: "above" | "below"
   editorInstanceRef?: MutableRefObject<Editor | null>
   onMentionInserted?: (candidate: MentionCandidate) => void
@@ -293,7 +298,7 @@ export function RichTextEditor({
   }
 
   function syncMentionCounts(currentEditor: Editor) {
-    onMentionCountsChange?.(getEditorMentionCounts(currentEditor))
+    onMentionCountsChange?.(getEditorMentionCounts(currentEditor), "local")
   }
 
   // Build editor class based on mode
@@ -556,7 +561,7 @@ export function RichTextEditor({
       },
     },
     onCreate({ editor: currentEditor }) {
-      syncMentionCounts(currentEditor)
+      onMentionCountsChange?.(getEditorMentionCounts(currentEditor), "initial")
       syncCommandMenus(currentEditor)
     },
     onUpdate({ editor: currentEditor }) {
@@ -607,7 +612,7 @@ export function RichTextEditor({
       editor.commands.setContent(sanitizedStringContent, {
         emitUpdate: false,
       })
-      onMentionCountsChange?.(getEditorMentionCounts(editor))
+      onMentionCountsChange?.(getEditorMentionCounts(editor), "external")
     }
   }, [editor, onMentionCountsChange, sanitizedStringContent])
 

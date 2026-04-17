@@ -11,8 +11,11 @@ describe("document mention queue", () => {
     let state = createDocumentMentionQueueState({})
 
     state = reduceDocumentMentionQueue(state, {
-      type: "track-user",
-      userId: "user_1",
+      type: "sync-counts",
+      counts: {
+        user_1: 1,
+      },
+      trackCountIncreases: true,
     })
     state = reduceDocumentMentionQueue(state, {
       type: "sync-counts",
@@ -22,28 +25,41 @@ describe("document mention queue", () => {
     expect(getPendingDocumentMentionEntries(state)).toEqual([])
   })
 
-  it("preserves mentions added while an earlier batch is in flight", () => {
+  it("tracks new local mention count increases without double-counting", () => {
     let state = createDocumentMentionQueueState({})
 
-    state = reduceDocumentMentionQueue(state, {
-      type: "track-user",
-      userId: "user_1",
-    })
     state = reduceDocumentMentionQueue(state, {
       type: "sync-counts",
       counts: {
         user_1: 1,
       },
+      trackCountIncreases: true,
     })
+
+    expect(getPendingDocumentMentionEntries(state)).toEqual([
+      {
+        userId: "user_1",
+        count: 1,
+      },
+    ])
+  })
+
+  it("preserves mentions added while an earlier batch is in flight", () => {
+    let state = createDocumentMentionQueueState({})
+
     state = reduceDocumentMentionQueue(state, {
-      type: "track-user",
-      userId: "user_1",
+      type: "sync-counts",
+      counts: {
+        user_1: 1,
+      },
+      trackCountIncreases: true,
     })
     state = reduceDocumentMentionQueue(state, {
       type: "sync-counts",
       counts: {
         user_1: 2,
       },
+      trackCountIncreases: true,
     })
     state = reduceDocumentMentionQueue(state, {
       type: "mark-sent",
@@ -61,5 +77,39 @@ describe("document mention queue", () => {
         count: 1,
       },
     ])
+  })
+
+  it("tracks mention count increases introduced without mention-selection callbacks", () => {
+    let state = createDocumentMentionQueueState({})
+
+    state = reduceDocumentMentionQueue(state, {
+      type: "sync-counts",
+      counts: {
+        user_2: 2,
+      },
+      trackCountIncreases: true,
+    })
+
+    expect(getPendingDocumentMentionEntries(state)).toEqual([
+      {
+        userId: "user_2",
+        count: 2,
+      },
+    ])
+  })
+
+  it("ignores configured users when auto-tracking count increases", () => {
+    let state = createDocumentMentionQueueState({})
+
+    state = reduceDocumentMentionQueue(state, {
+      type: "sync-counts",
+      counts: {
+        user_self: 1,
+      },
+      trackCountIncreases: true,
+      ignoredUserIds: ["user_self"],
+    })
+
+    expect(getPendingDocumentMentionEntries(state)).toEqual([])
   })
 })

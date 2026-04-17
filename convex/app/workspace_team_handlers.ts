@@ -1848,6 +1848,12 @@ async function assertCurrentAccountDeletionAllowed(
     )
   }
 
+  if (workspaceMemberships.some((membership) => membership.role === "admin")) {
+    throw new Error(
+      "Leave or transfer your workspace admin access before deleting your account"
+    )
+  }
+
   return {
     memberships,
     workspaceMemberships,

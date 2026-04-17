@@ -17,10 +17,8 @@ export type DocumentMentionQueueAction =
   | {
       type: "sync-counts"
       counts: RichTextMentionCounts
-    }
-  | {
-      type: "track-user"
-      userId: string
+      trackCountIncreases?: boolean
+      ignoredUserIds?: string[]
     }
   | {
       type: "clear-all"
@@ -57,6 +55,35 @@ function pruneTrackedUserIds(
   )
 }
 
+function trackCountIncreases(
+  trackedUserIds: Record<string, true>,
+  previousCounts: RichTextMentionCounts,
+  nextCounts: RichTextMentionCounts,
+  baselineCounts: RichTextMentionCounts,
+  ignoredUserIds: string[] = []
+) {
+  const ignoredUserIdSet = new Set(ignoredUserIds)
+  const nextTrackedUserIds = { ...trackedUserIds }
+
+  for (const userId of Object.keys(nextCounts)) {
+    if (ignoredUserIdSet.has(userId)) {
+      continue
+    }
+
+    if ((nextCounts[userId] ?? 0) <= (previousCounts[userId] ?? 0)) {
+      continue
+    }
+
+    if (getPendingMentionCount(baselineCounts, nextCounts, userId) <= 0) {
+      continue
+    }
+
+    nextTrackedUserIds[userId] = true
+  }
+
+  return nextTrackedUserIds
+}
+
 export function createDocumentMentionQueueState(
   counts: RichTextMentionCounts
 ): DocumentMentionQueueState {
@@ -79,29 +106,24 @@ export function reduceDocumentMentionQueue(
 
     case "sync-counts": {
       const nextCurrentCounts = cloneMentionCounts(action.counts)
+      const prunedTrackedUserIds = pruneTrackedUserIds(
+        state.trackedUserIds,
+        state.baselineCounts,
+        nextCurrentCounts
+      )
 
       return {
         ...state,
         currentCounts: nextCurrentCounts,
-        trackedUserIds: pruneTrackedUserIds(
-          state.trackedUserIds,
-          state.baselineCounts,
-          nextCurrentCounts
-        ),
-      }
-    }
-
-    case "track-user": {
-      const nextCurrentCounts = cloneMentionCounts(state.currentCounts)
-      nextCurrentCounts[action.userId] = (nextCurrentCounts[action.userId] ?? 0) + 1
-
-      return {
-        ...state,
-        currentCounts: nextCurrentCounts,
-        trackedUserIds: {
-          ...state.trackedUserIds,
-          [action.userId]: true,
-        },
+        trackedUserIds: action.trackCountIncreases
+          ? trackCountIncreases(
+              prunedTrackedUserIds,
+              state.currentCounts,
+              nextCurrentCounts,
+              state.baselineCounts,
+              action.ignoredUserIds
+            )
+          : prunedTrackedUserIds,
       }
     }
 

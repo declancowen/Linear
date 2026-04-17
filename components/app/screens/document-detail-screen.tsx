@@ -2,7 +2,14 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useMemo, useReducer, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -281,6 +288,21 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const hasPendingMentionNotifications =
     pendingMentionSummary.recipientCount > 0 &&
     document?.kind !== "private-document"
+  const handleMentionCountsChange = useCallback(
+    (
+      counts: Record<string, number>,
+      source: "initial" | "local" | "external"
+    ) => {
+      dispatchMentionQueue({
+        type: "sync-counts",
+        counts,
+        trackCountIncreases:
+          source === "local" && document?.kind !== "private-document",
+        ignoredUserIds: [currentUserId],
+      })
+    },
+    [currentUserId, document?.kind]
+  )
 
   useEffect(() => {
     if (!hasPendingMentionNotifications) {
@@ -601,25 +623,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
             showStats={false}
             placeholder="Start writing..."
             mentionCandidates={mentionCandidates}
-            onMentionInserted={(candidate) => {
-              if (
-                candidate.id === currentUserId ||
-                loadedDocument.kind === "private-document"
-              ) {
-                return
-              }
-
-              dispatchMentionQueue({
-                type: "track-user",
-                userId: candidate.id,
-              })
-            }}
-            onMentionCountsChange={(counts) =>
-              dispatchMentionQueue({
-                type: "sync-counts",
-                counts,
-              })
-            }
+            onMentionCountsChange={handleMentionCountsChange}
             onStatsChange={setDocumentStats}
             onChange={(content) =>
               useAppStore.getState().updateDocumentContent(document.id, content)

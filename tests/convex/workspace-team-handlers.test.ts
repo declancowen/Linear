@@ -605,6 +605,45 @@ describe("workspace member protection", () => {
 })
 
 describe("account deletion lifecycle", () => {
+  it("blocks deleting an account while the user is a direct workspace admin", async () => {
+    const { deleteCurrentAccountHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const collectMock = vi.fn().mockResolvedValue([])
+
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: collectMock,
+      }),
+    })
+    getUserDocMock.mockResolvedValue({
+      _id: "user_1_doc",
+      id: "user_1",
+      name: "Alex",
+      workosUserId: "workos_1",
+      accountDeletedAt: null,
+    })
+    listWorkspaceMembershipsByUserMock.mockResolvedValue([
+      {
+        _id: "workspace_membership_1",
+        workspaceId: "workspace_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ])
+
+    await expect(
+      deleteCurrentAccountHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+      })
+    ).rejects.toThrow(
+      "Leave or transfer your workspace admin access before deleting your account"
+    )
+  })
+
   it("removes direct workspace memberships before finalizing account deletion", async () => {
     const { deleteCurrentAccountHandler } = await import(
       "@/convex/app/workspace_team_handlers"

@@ -69,13 +69,48 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-16 17:53:42 BST` |
-| **Last reviewed** | `2026-04-17 19:53:09 BST` |
-| **Total turns** | `16` |
+| **Last reviewed** | `2026-04-17 20:08:07 BST` |
+| **Total turns** | `17` |
 | **Open findings** | `0` |
-| **Resolved findings** | `24` |
+| **Resolved findings** | `25` |
 | **Accepted findings** | `0` |
 
 ---
+
+## Turn 17 — 2026-04-17 20:08:07 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `85a3836` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Closed the follow-up account-deletion guard gap. Direct workspace admins are now blocked from deleting their account until they leave or transfer that admin access, matching the same admin-removal safety invariant enforced elsewhere in the workspace lifecycle handlers.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 17 | 1 |
+| Carried from Turn 16 | 0 |
+| Accepted | 0 |
+
+### Findings
+
+#### B17-01 ~~[BUG] Medium~~ → RESOLVED — Account deletion allowed direct workspace admins to bypass the admin-removal safeguard
+**Where:** [workspace_team_handlers.ts](../convex/app/workspace_team_handlers.ts:1814)
+
+**What was wrong:** `assertCurrentAccountDeletionAllowed()` had been extended to load direct workspace memberships, but it still only rejected `teamMemberships` with `role === "admin"`. A user who retained direct workspace-admin access could therefore pass validation and delete their account, unlike the leave/remove workspace flows which already block workspace admins.
+
+**How it was fixed:** [assertCurrentAccountDeletionAllowed](../convex/app/workspace_team_handlers.ts:1814) now also rejects direct `workspaceMemberships` with `role === "admin"` and returns a specific error message for that case.
+
+**Verified:** Added regression coverage in [workspace-team-handlers.test.ts](../tests/convex/workspace-team-handlers.test.ts:607), then ran:
+- `pnpm test -- tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts`
+- `pnpm exec eslint convex/app/workspace_team_handlers.ts components/app/screens/document-detail-screen.tsx components/app/rich-text-editor.tsx lib/content/document-mention-queue.ts tests/convex/workspace-team-handlers.test.ts tests/components/document-detail-screen.test.tsx tests/lib/content/document-mention-queue.test.ts --max-warnings 0`
+
+### Remaining access-related notes classified
+
+- The `cleanup.ts` viewer-membership accumulation note remains intentional policy.
+- The workspace-deletion email/provider-cleanup asymmetry remains intentional.
+- The older `canAdminWorkspace` / `getWorkspaceRoleMapForUser` notes remain stale on this branch.
 
 ## Turn 16 — 2026-04-17 19:53:09 BST
 
