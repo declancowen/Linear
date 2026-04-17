@@ -13,6 +13,7 @@ import type * as app_access from "../app/access.js";
 import type * as app_assets from "../app/assets.js";
 import type * as app_audit from "../app/audit.js";
 import type * as app_auth_bootstrap from "../app/auth_bootstrap.js";
+import type * as app_claim_utils from "../app/claim_utils.js";
 import type * as app_cleanup from "../app/cleanup.js";
 import type * as app_collaboration_handlers from "../app/collaboration_handlers.js";
 import type * as app_collaboration_utils from "../app/collaboration_utils.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   "app/assets": typeof app_assets;
   "app/audit": typeof app_audit;
   "app/auth_bootstrap": typeof app_auth_bootstrap;
+  "app/claim_utils": typeof app_claim_utils;
   "app/cleanup": typeof app_cleanup;
   "app/collaboration_handlers": typeof app_collaboration_handlers;
   "app/collaboration_utils": typeof app_collaboration_utils;
