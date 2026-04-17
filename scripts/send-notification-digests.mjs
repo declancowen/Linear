@@ -252,11 +252,6 @@ export async function processNotificationDigestsBatch(input) {
             idempotencyKey: createDigestIdempotencyKey(digest),
           }
         )
-
-        await input.markNotificationsEmailed({
-          claimId: input.claimId,
-          notificationIds,
-        })
       } catch (error) {
         await input.releaseNotificationDigestClaim({
           claimId: input.claimId,
@@ -265,6 +260,24 @@ export async function processNotificationDigestsBatch(input) {
             ...getDigestNotificationIds(pendingDigests),
           ],
         })
+
+        throw error
+      }
+
+      try {
+        await input.markNotificationsEmailed({
+          claimId: input.claimId,
+          notificationIds,
+        })
+      } catch (error) {
+        const remainingNotificationIds = getDigestNotificationIds(pendingDigests)
+
+        if (remainingNotificationIds.length > 0) {
+          await input.releaseNotificationDigestClaim({
+            claimId: input.claimId,
+            notificationIds: remainingNotificationIds,
+          })
+        }
 
         throw error
       }

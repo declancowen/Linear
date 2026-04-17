@@ -37,7 +37,13 @@ function createQuery(records: RecordWithId[]) {
 
       return {
         collect: async () => applyFilters(),
+        take: async (count: number) => applyFilters().slice(0, count),
         unique: async () => applyFilters()[0] ?? null,
+        async *[Symbol.asyncIterator]() {
+          for (const record of applyFilters()) {
+            yield record
+          }
+        },
       }
     },
   }

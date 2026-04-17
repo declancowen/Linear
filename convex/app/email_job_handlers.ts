@@ -25,6 +25,10 @@ type ClaimPendingEmailJobsArgs = ServerAccessArgs & {
   limit?: number
 }
 
+type ListPendingEmailJobsArgs = ServerAccessArgs & {
+  limit?: number
+}
+
 type MarkEmailJobsSentArgs = ServerAccessArgs & {
   claimId: string
   jobIds: string[]
@@ -106,6 +110,7 @@ export async function claimPendingEmailJobsHandler(
   assertServerToken(args.serverToken)
   const now = getNow()
   const nowMs = Date.parse(now)
+  const claimLimit = args.limit ?? DEFAULT_EMAIL_JOB_CLAIM_LIMIT
   const claimedJobs: Array<{
     id: string
     kind: "mention" | "assignment" | "invite" | "access-change"
@@ -115,13 +120,13 @@ export async function claimPendingEmailJobsHandler(
     text: string
     html: string
   }> = []
-  const pendingJobs = await ctx.db
+
+  const pendingJobs = ctx.db
     .query("emailJobs")
     .withIndex("by_sent_at", (q) => q.eq("sentAt", null))
-    .collect()
 
-  for (const job of pendingJobs) {
-    if (claimedJobs.length >= (args.limit ?? DEFAULT_EMAIL_JOB_CLAIM_LIMIT)) {
+  for await (const job of pendingJobs) {
+    if (claimedJobs.length >= claimLimit) {
       break
     }
 
@@ -240,12 +245,12 @@ export async function releaseEmailJobClaimHandler(
 
 export async function listPendingEmailJobsHandler(
   ctx: QueryCtx,
-  args: ServerAccessArgs
+  args: ListPendingEmailJobsArgs
 ) {
   assertServerToken(args.serverToken)
 
   return ctx.db
     .query("emailJobs")
     .withIndex("by_sent_at", (q) => q.eq("sentAt", null))
-    .collect()
+    .take(args.limit ?? DEFAULT_EMAIL_JOB_CLAIM_LIMIT)
 }

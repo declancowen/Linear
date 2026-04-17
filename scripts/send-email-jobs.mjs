@@ -44,14 +44,7 @@ export async function processEmailJobsBatch(input) {
         jobIds: [job.id],
       })
       sentCount += 1
-    } catch (error) {
-      await input.releaseEmailJobClaim({
-        claimId: input.claimId,
-        jobIds: [job.id],
-        errorMessage: `Delivered email but failed to record sent state: ${toErrorMessage(
-          error
-        )}`,
-      })
+    } catch {
       failedCount += 1
     }
   }

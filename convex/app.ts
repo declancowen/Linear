@@ -305,7 +305,10 @@ export const listPendingNotificationDigests = query({
 })
 
 export const listPendingEmailJobs = query({
-  args: serverAccessArgs,
+  args: {
+    ...serverAccessArgs,
+    limit: v.optional(v.number()),
+  },
   handler: listPendingEmailJobsHandler,
 })
 
