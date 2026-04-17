@@ -3,6 +3,37 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 import { normalizeEmailAddress, normalizeJoinCode } from "./core"
 
 export type AppCtx = MutationCtx | QueryCtx
+const QUERY_BATCH_SIZE = 20
+
+function uniqueValuesByKey<T>(
+  values: Iterable<T>,
+  key: (value: T) => string
+) {
+  return [
+    ...new Map([...values].map((value) => [key(value), value] as const)).values(),
+  ]
+}
+
+async function mapInBatches<T, R>(
+  values: T[],
+  loader: (value: T) => Promise<R>
+) {
+  const results: R[] = []
+
+  for (let index = 0; index < values.length; index += QUERY_BATCH_SIZE) {
+    const batch = values.slice(index, index + QUERY_BATCH_SIZE)
+    results.push(...(await Promise.all(batch.map(loader))))
+  }
+
+  return results
+}
+
+async function flatMapInBatches<T, R>(
+  values: T[],
+  loader: (value: T) => Promise<R[]>
+) {
+  return (await mapInBatches(values, loader)).flat()
+}
 
 export async function getWorkspaceDoc(ctx: AppCtx, id: string) {
   return ctx.db
@@ -47,24 +78,12 @@ export async function getTeamByWorkspaceAndSlug(
 
 export async function getTeamByJoinCode(ctx: AppCtx, code: string) {
   const normalizedCode = normalizeJoinCode(code)
-  const indexedTeam = await ctx.db
+  return ctx.db
     .query("teams")
     .withIndex("by_join_code", (q) =>
       q.eq("joinCodeNormalized", normalizedCode)
     )
     .unique()
-
-  if (indexedTeam) {
-    return indexedTeam
-  }
-
-  const legacyTeams = await ctx.db.query("teams").collect()
-
-  return (
-    legacyTeams.find(
-      (team) => normalizeJoinCode(team.settings.joinCode) === normalizedCode
-    ) ?? null
-  )
 }
 
 export async function getLabelDoc(ctx: AppCtx, id: string) {
@@ -83,9 +102,7 @@ export async function getUserDoc(ctx: AppCtx, id: string) {
 
 export async function listUsersByIds(ctx: AppCtx, userIds: Iterable<string>) {
   return (
-    await Promise.all(
-      [...new Set(userIds)].map((userId) => getUserDoc(ctx, userId))
-    )
+    await mapInBatches([...new Set(userIds)], (userId) => getUserDoc(ctx, userId))
   ).filter((user) => user != null)
 }
 
@@ -114,6 +131,15 @@ export async function listTeamMembershipsByTeam(ctx: AppCtx, teamId: string) {
     .query("teamMemberships")
     .withIndex("by_team", (q) => q.eq("teamId", teamId))
     .collect()
+}
+
+export async function listTeamMembershipsByTeams(
+  ctx: AppCtx,
+  teamIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(teamIds)], (teamId) =>
+    listTeamMembershipsByTeam(ctx, teamId)
+  )
 }
 
 export async function getUserAppState(ctx: AppCtx, userId: string) {
@@ -159,25 +185,18 @@ export async function listProjectsByScopes(
     scopeId: string
   }>
 ) {
-  const uniqueScopes = [
-    ...new Map(
-      [...scopes].map(
-        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
-      )
-    ).values(),
-  ]
+  const uniqueScopes = uniqueValuesByKey(
+    scopes,
+    (scope) => `${scope.scopeType}:${scope.scopeId}`
+  )
 
   if (uniqueScopes.length === 0) {
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueScopes.map((scope) =>
-        listProjectsByScope(ctx, scope.scopeType, scope.scopeId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueScopes, (scope) =>
+    listProjectsByScope(ctx, scope.scopeType, scope.scopeId)
+  )
 }
 
 export async function listMilestonesByProject(ctx: AppCtx, projectId: string) {
@@ -197,13 +216,9 @@ export async function listMilestonesByProjects(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueProjectIds.map((projectId) =>
-        listMilestonesByProject(ctx, projectId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueProjectIds, (projectId) =>
+    listMilestonesByProject(ctx, projectId)
+  )
 }
 
 export async function getUserByEmail(ctx: AppCtx, email: string) {
@@ -218,17 +233,7 @@ export async function getUserByEmail(ctx: AppCtx, email: string) {
   if (user && !user.accountDeletedAt && !user.accountDeletionPendingAt) {
     return user
   }
-
-  const legacyUsers = await ctx.db.query("users").collect()
-
-  return (
-    legacyUsers.find(
-      (entry) =>
-        !entry.accountDeletedAt &&
-        !entry.accountDeletionPendingAt &&
-        normalizeEmailAddress(entry.email) === normalizedEmail
-    ) ?? null
-  )
+  return null
 }
 
 export async function getUserByWorkOSUserId(ctx: AppCtx, workosUserId: string) {
@@ -295,9 +300,7 @@ export async function listWorkspaceTeams(ctx: AppCtx, workspaceId: string) {
 
 export async function listTeamsByIds(ctx: AppCtx, teamIds: Iterable<string>) {
   return (
-    await Promise.all(
-      [...new Set(teamIds)].map((teamId) => getTeamDoc(ctx, teamId))
-    )
+    await mapInBatches([...new Set(teamIds)], (teamId) => getTeamDoc(ctx, teamId))
   ).filter((team) => team != null)
 }
 
@@ -306,6 +309,15 @@ export async function listLabelsByWorkspace(ctx: AppCtx, workspaceId: string) {
     .query("labels")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect()
+}
+
+export async function listLabelsByWorkspaces(
+  ctx: AppCtx,
+  workspaceIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(workspaceIds)], (workspaceId) =>
+    listLabelsByWorkspace(ctx, workspaceId)
+  )
 }
 
 export async function listWorkspacesOwnedByUser(ctx: AppCtx, userId: string) {
@@ -320,10 +332,8 @@ export async function listWorkspacesByIds(
   workspaceIds: Iterable<string>
 ) {
   return (
-    await Promise.all(
-      [...new Set(workspaceIds)].map((workspaceId) =>
-        getWorkspaceDoc(ctx, workspaceId)
-      )
+    await mapInBatches([...new Set(workspaceIds)], (workspaceId) =>
+      getWorkspaceDoc(ctx, workspaceId)
     )
   ).filter((workspace) => workspace != null)
 }
@@ -342,6 +352,15 @@ export async function listWorkItemsByTeam(ctx: AppCtx, teamId: string) {
     .collect()
 }
 
+export async function listWorkItemsByTeams(
+  ctx: AppCtx,
+  teamIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(teamIds)], (teamId) =>
+    listWorkItemsByTeam(ctx, teamId)
+  )
+}
+
 export async function getDocumentDoc(ctx: AppCtx, id: string) {
   return ctx.db
     .query("documents")
@@ -354,10 +373,8 @@ export async function listDocumentsByIds(
   documentIds: Iterable<string>
 ) {
   return (
-    await Promise.all(
-      [...new Set(documentIds)].map((documentId) =>
-        getDocumentDoc(ctx, documentId)
-      )
+    await mapInBatches([...new Set(documentIds)], (documentId) =>
+      getDocumentDoc(ctx, documentId)
     )
   ).filter((document) => document != null)
 }
@@ -369,11 +386,29 @@ export async function listWorkspaceDocuments(ctx: AppCtx, workspaceId: string) {
     .collect()
 }
 
+export async function listWorkspaceDocumentsByWorkspaces(
+  ctx: AppCtx,
+  workspaceIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(workspaceIds)], (workspaceId) =>
+    listWorkspaceDocuments(ctx, workspaceId)
+  )
+}
+
 export async function listTeamDocuments(ctx: AppCtx, teamId: string) {
   return ctx.db
     .query("documents")
     .withIndex("by_team", (q) => q.eq("teamId", teamId))
     .collect()
+}
+
+export async function listTeamDocumentsByTeams(
+  ctx: AppCtx,
+  teamIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(teamIds)], (teamId) =>
+    listTeamDocuments(ctx, teamId)
+  )
 }
 
 export async function listDocumentsByCreator(ctx: AppCtx, userId: string) {
@@ -416,13 +451,9 @@ export async function listCommentsByTargets(
     return []
   }
 
-  return (
-    await Promise.all(
-      targetIds.map((targetId) =>
-        listCommentsByTarget(ctx, input.targetType, targetId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(targetIds, (targetId) =>
+    listCommentsByTarget(ctx, input.targetType, targetId)
+  )
 }
 
 export async function listDocumentPresenceByUser(ctx: AppCtx, userId: string) {
@@ -459,25 +490,18 @@ export async function listConversationsByScopes(
     scopeId: string
   }>
 ) {
-  const uniqueScopes = [
-    ...new Map(
-      [...scopes].map(
-        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
-      )
-    ).values(),
-  ]
+  const uniqueScopes = uniqueValuesByKey(
+    scopes,
+    (scope) => `${scope.scopeType}:${scope.scopeId}`
+  )
 
   if (uniqueScopes.length === 0) {
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueScopes.map((scope) =>
-        listConversationsByScope(ctx, scope.scopeType, scope.scopeId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueScopes, (scope) =>
+    listConversationsByScope(ctx, scope.scopeType, scope.scopeId)
+  )
 }
 
 export async function getCallDoc(ctx: AppCtx, id: string) {
@@ -507,13 +531,9 @@ export async function listCallsByConversations(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueConversationIds.map((conversationId) =>
-        listCallsByConversation(ctx, conversationId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueConversationIds, (conversationId) =>
+    listCallsByConversation(ctx, conversationId)
+  )
 }
 
 export async function getChannelPostDoc(ctx: AppCtx, id: string) {
@@ -543,13 +563,9 @@ export async function listChatMessagesByConversations(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueConversationIds.map((conversationId) =>
-        listChatMessagesByConversation(ctx, conversationId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueConversationIds, (conversationId) =>
+    listChatMessagesByConversation(ctx, conversationId)
+  )
 }
 
 export async function listChannelPostsByConversation(
@@ -572,13 +588,9 @@ export async function listChannelPostsByConversations(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueConversationIds.map((conversationId) =>
-        listChannelPostsByConversation(ctx, conversationId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueConversationIds, (conversationId) =>
+    listChannelPostsByConversation(ctx, conversationId)
+  )
 }
 
 export async function listChannelPostCommentsByPost(
@@ -601,11 +613,9 @@ export async function listChannelPostCommentsByPosts(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniquePostIds.map((postId) => listChannelPostCommentsByPost(ctx, postId))
-    )
-  ).flat()
+  return flatMapInBatches(uniquePostIds, (postId) =>
+    listChannelPostCommentsByPost(ctx, postId)
+  )
 }
 
 export async function getAttachmentDoc(ctx: AppCtx, id: string) {
@@ -641,13 +651,9 @@ export async function listAttachmentsByTargets(
     return []
   }
 
-  return (
-    await Promise.all(
-      targetIds.map((targetId) =>
-        listAttachmentsByTarget(ctx, input.targetType, targetId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(targetIds, (targetId) =>
+    listAttachmentsByTarget(ctx, input.targetType, targetId)
+  )
 }
 
 export async function getViewDoc(ctx: AppCtx, id: string) {
@@ -677,25 +683,18 @@ export async function listViewsByScopes(
     scopeId: string
   }>
 ) {
-  const uniqueScopes = [
-    ...new Map(
-      [...scopes].map(
-        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
-      )
-    ).values(),
-  ]
+  const uniqueScopes = uniqueValuesByKey(
+    scopes,
+    (scope) => `${scope.scopeType}:${scope.scopeId}`
+  )
 
   if (uniqueScopes.length === 0) {
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueScopes.map((scope) =>
-        listViewsByScope(ctx, scope.scopeType, scope.scopeId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueScopes, (scope) =>
+    listViewsByScope(ctx, scope.scopeType, scope.scopeId)
+  )
 }
 
 export async function listPersonalViewsByUsers(
@@ -708,11 +707,9 @@ export async function listPersonalViewsByUsers(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueUserIds.map((userId) => listViewsByScope(ctx, "personal", userId))
-    )
-  ).flat()
+  return flatMapInBatches(uniqueUserIds, (userId) =>
+    listViewsByScope(ctx, "personal", userId)
+  )
 }
 
 export async function listViewsByScopeEntity(
@@ -775,25 +772,18 @@ export async function listNotificationsByEntities(
     entityId: string
   }>
 ) {
-  const uniqueEntities = [
-    ...new Map(
-      [...entities].map(
-        (entity) => [`${entity.entityType}:${entity.entityId}`, entity] as const
-      )
-    ).values(),
-  ]
+  const uniqueEntities = uniqueValuesByKey(
+    entities,
+    (entity) => `${entity.entityType}:${entity.entityId}`
+  )
 
   if (uniqueEntities.length === 0) {
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueEntities.map((entity) =>
-        listNotificationsByEntity(ctx, entity.entityType, entity.entityId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueEntities, (entity) =>
+    listNotificationsByEntity(ctx, entity.entityType, entity.entityId)
+  )
 }
 
 export async function listNotificationsByUser(ctx: AppCtx, userId: string) {
@@ -808,16 +798,6 @@ export async function listPendingDigestNotifications(ctx: AppCtx) {
     .query("notifications")
     .withIndex("by_emailed_at", (q) => q.eq("emailedAt", null))
     .collect()
-}
-
-function dedupeInvitesById<
-  T extends {
-    id: string
-  },
->(invites: T[]) {
-  return [
-    ...new Map(invites.map((invite) => [invite.id, invite] as const)).values(),
-  ]
 }
 
 export async function listInvitesByTeam(ctx: AppCtx, teamId: string) {
@@ -837,28 +817,19 @@ export async function listInvitesByTeams(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueTeamIds.map((teamId) => listInvitesByTeam(ctx, teamId))
-    )
-  ).flat()
+  return flatMapInBatches(uniqueTeamIds, (teamId) =>
+    listInvitesByTeam(ctx, teamId)
+  )
 }
 
 export async function listInvitesByNormalizedEmail(ctx: AppCtx, email: string) {
   const normalizedEmail = normalizeEmailAddress(email)
-  const indexedInvites = await ctx.db
+  return ctx.db
     .query("invites")
     .withIndex("by_normalized_email", (q) =>
       q.eq("normalizedEmail", normalizedEmail)
     )
     .collect()
-  const legacyInvites = (await ctx.db.query("invites").collect()).filter(
-    (invite) =>
-      !invite.normalizedEmail &&
-      normalizeEmailAddress(invite.email) === normalizedEmail
-  )
-
-  return dedupeInvitesById([...indexedInvites, ...legacyInvites])
 }
 
 export async function getInviteByTokenDoc(ctx: AppCtx, token: string) {
@@ -931,13 +902,9 @@ export async function listProjectUpdatesByProjects(
     return []
   }
 
-  return (
-    await Promise.all(
-      uniqueProjectIds.map((projectId) =>
-        listProjectUpdatesByProject(ctx, projectId)
-      )
-    )
-  ).flat()
+  return flatMapInBatches(uniqueProjectIds, (projectId) =>
+    listProjectUpdatesByProject(ctx, projectId)
+  )
 }
 
 export async function getActiveInvitesForTeamAndEmail(
@@ -955,13 +922,7 @@ export async function getActiveInvitesForTeamAndEmail(
       q.eq("teamId", input.teamId).eq("normalizedEmail", normalizedEmail)
     )
     .collect()
-  const legacyInvites = (await listInvitesByTeam(ctx, input.teamId)).filter(
-    (invite) =>
-      !invite.normalizedEmail &&
-      normalizeEmailAddress(invite.email) === normalizedEmail
-  )
-
-  return dedupeInvitesById([...indexedInvites, ...legacyInvites]).filter(
+  return indexedInvites.filter(
     (invite) =>
       !invite.acceptedAt &&
       !invite.declinedAt &&

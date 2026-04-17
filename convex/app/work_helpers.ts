@@ -14,7 +14,6 @@ import {
 } from "./access"
 import { getNow } from "./core"
 import {
-  getLabelDoc,
   getTeamDoc,
   getUserAppState,
   getViewDoc,
@@ -350,23 +349,8 @@ export async function assertWorkspaceLabelIds(
 
   const workspaceLabels = await listLabelsByWorkspace(ctx, workspaceId)
   const workspaceLabelIds = new Set(workspaceLabels.map((label) => label.id))
-  const missingLabelIds = uniqueLabelIds.filter(
-    (labelId) => !workspaceLabelIds.has(labelId)
-  )
 
-  if (missingLabelIds.length === 0) {
-    return
-  }
-
-  // Allow legacy pre-backfill labels that still exist without a workspaceId.
-  const legacyLabels = await Promise.all(
-    missingLabelIds.map((labelId) => getLabelDoc(ctx, labelId))
-  )
-  const hasInvalidLabel = legacyLabels.some(
-    (label) => !label || (label.workspaceId != null && label.workspaceId !== workspaceId)
-  )
-
-  if (hasInvalidLabel) {
+  if (uniqueLabelIds.some((labelId) => !workspaceLabelIds.has(labelId))) {
     throw new Error("One or more labels are invalid")
   }
 }

@@ -26,6 +26,8 @@ function formatStatus(label, status) {
     `  teams remaining: ${status.teams.remaining}/${status.teams.total}`,
     `  users remaining: ${status.users.remaining}/${status.users.total}`,
     `  invites remaining: ${status.invites.remaining}/${status.invites.total}`,
+    `  labels remaining: ${status.labels.remaining}/${status.labels.total}`,
+    `  labels unresolved: ${status.labels.unresolved}`,
     `  total remaining: ${status.remaining.total}`,
   ].join("\n")
 }
@@ -60,6 +62,7 @@ while (true) {
       `  patched teams: ${result.patched.teams}`,
       `  patched users: ${result.patched.users}`,
       `  patched invites: ${result.patched.invites}`,
+      `  patched labels: ${result.patched.labels}`,
       `  patched total: ${result.patched.total}`,
       `  remaining total: ${result.remaining.total}`,
     ].join("\n")

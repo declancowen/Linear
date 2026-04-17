@@ -24,16 +24,15 @@ import {
   getPendingInvitesForEmail,
   getAuthLifecycleError,
   listAttachmentsByTargets,
-  getLabelDoc,
   getTeamBySlug,
   getTeamByJoinCode,
   getTeamByWorkspaceAndSlug,
-  listCallsByConversation,
-  listChannelPostCommentsByPost,
-  listChannelPostsByConversation,
-  listChatMessagesByConversation,
+  listCallsByConversations,
+  listChannelPostCommentsByPosts,
+  listChannelPostsByConversations,
+  listChatMessagesByConversations,
   listCommentsByTargets,
-  listConversationsByScope,
+  listConversationsByScopes,
   getTeamDoc,
   getUserAppState,
   getUserByEmail,
@@ -43,21 +42,23 @@ import {
   getWorkspaceDoc,
   getWorkspaceRoleMapForUser,
   isDefinedString,
-  listLabelsByWorkspace,
-  listMilestonesByProject,
-  listProjectUpdatesByProject,
-  listProjectsByScope,
-  listTeamMembershipsByTeam,
+  listLabelsByWorkspaces,
+  listMilestonesByProjects,
+  listNotificationsByUser,
+  listProjectUpdatesByProjects,
+  listProjectsByScopes,
   listTeamMembershipsByUser,
+  listTeamMembershipsByTeams,
   listTeamsByIds,
-  listTeamDocuments,
+  listTeamDocumentsByTeams,
   listInvitesByNormalizedEmail,
-  listInvitesByTeam,
-  listViewsByScope,
-  listWorkItemsByTeam,
+  listInvitesByTeams,
+  listPersonalViewsByUsers,
+  listViewsByScopes,
+  listWorkItemsByTeams,
   listWorkspacesByIds,
   listWorkspacesOwnedByUser,
-  listWorkspaceDocuments,
+  listWorkspaceDocumentsByWorkspaces,
   listWorkspaceTeams,
   resolveActiveUserByIdentity,
   resolvePreferredWorkspaceId,
@@ -144,97 +145,6 @@ type LookupTeamByJoinCodeArgs = {
 
 type ListWorkspacesForSyncArgs = {
   serverToken: string
-}
-
-function addInferredLabelWorkspaceId(
-  labelWorkspaceIds: Map<string, Set<string>>,
-  labelId: string,
-  workspaceId: string | null | undefined
-) {
-  if (!workspaceId) {
-    return
-  }
-
-  const existingWorkspaceIds =
-    labelWorkspaceIds.get(labelId) ?? new Set<string>()
-  existingWorkspaceIds.add(workspaceId)
-  labelWorkspaceIds.set(labelId, existingWorkspaceIds)
-}
-
-function inferLabelWorkspaceIds(input: {
-  teams: Array<{ id: string; workspaceId: string }>
-  workItems: Array<{ teamId: string; labelIds: string[] }>
-  views: Array<{
-    scopeType: "personal" | "team" | "workspace"
-    scopeId: string
-    filters: {
-      labelIds: string[]
-      teamIds: string[]
-    }
-  }>
-  projects: Array<{
-    scopeType: "team" | "workspace"
-    scopeId: string
-    presentation?: {
-      filters: {
-        labelIds: string[]
-      }
-    }
-  }>
-}) {
-  const teamWorkspaceIdByTeamId = new Map(
-    input.teams.map((team) => [team.id, team.workspaceId])
-  )
-  const labelWorkspaceIds = new Map<string, Set<string>>()
-
-  for (const workItem of input.workItems) {
-    const workspaceId = teamWorkspaceIdByTeamId.get(workItem.teamId) ?? null
-
-    for (const labelId of workItem.labelIds) {
-      addInferredLabelWorkspaceId(labelWorkspaceIds, labelId, workspaceId)
-    }
-  }
-
-  for (const view of input.views) {
-    let workspaceIds: string[] = []
-
-    if (view.scopeType === "workspace") {
-      workspaceIds = [view.scopeId]
-    } else if (view.scopeType === "team") {
-      workspaceIds = [teamWorkspaceIdByTeamId.get(view.scopeId) ?? ""].filter(
-        Boolean
-      )
-    } else {
-      workspaceIds = [
-        ...new Set(
-          view.filters.teamIds
-            .map((teamId) => teamWorkspaceIdByTeamId.get(teamId) ?? "")
-            .filter(Boolean)
-        ),
-      ]
-    }
-
-    if (workspaceIds.length !== 1) {
-      continue
-    }
-
-    for (const labelId of view.filters.labelIds) {
-      addInferredLabelWorkspaceId(labelWorkspaceIds, labelId, workspaceIds[0])
-    }
-  }
-
-  for (const project of input.projects) {
-    const workspaceId =
-      project.scopeType === "workspace"
-        ? project.scopeId
-        : (teamWorkspaceIdByTeamId.get(project.scopeId) ?? null)
-
-    for (const labelId of project.presentation?.filters.labelIds ?? []) {
-      addInferredLabelWorkspaceId(labelWorkspaceIds, labelId, workspaceId)
-    }
-  }
-
-  return labelWorkspaceIds
 }
 
 export async function bootstrapAppWorkspaceHandler(
@@ -471,13 +381,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       ].map((workspace) => [workspace.id, workspace] as const)
     ).values(),
   ]
-  const visibleTeamMemberships = (
-    await Promise.all(
-      accessibleTeamIdList.map((teamId) =>
-        listTeamMembershipsByTeam(ctx, teamId)
-      )
-    )
-  ).flat()
+  const visibleTeamMemberships = await listTeamMembershipsByTeams(
+    ctx,
+    accessibleTeamIdList
+  )
   const visibleUserIds = new Set(
     visibleTeamMemberships.map((membership) => membership.userId)
   )
@@ -486,46 +393,26 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     visibleUserIds.add(currentUserId)
   }
 
-  const visibleProjects = [
-    ...(
-      await Promise.all(
-        accessibleTeamIdList.map((teamId) =>
-          listProjectsByScope(ctx, "team", teamId)
-        )
-      )
-    ).flat(),
-    ...(
-      await Promise.all(
-        accessibleWorkspaceIdList.map((workspaceId) =>
-          listProjectsByScope(ctx, "workspace", workspaceId)
-        )
-      )
-    ).flat(),
-  ]
+  const visibleProjects = await listProjectsByScopes(ctx, [
+    ...accessibleTeamIdList.map((teamId) => ({
+      scopeType: "team" as const,
+      scopeId: teamId,
+    })),
+    ...accessibleWorkspaceIdList.map((workspaceId) => ({
+      scopeType: "workspace" as const,
+      scopeId: workspaceId,
+    })),
+  ])
   const visibleProjectIds = new Set(
     visibleProjects.map((project) => project.id)
   )
-  const visibleWorkItems = (
-    await Promise.all(
-      accessibleTeamIdList.map((teamId) => listWorkItemsByTeam(ctx, teamId))
-    )
-  ).flat()
+  const visibleWorkItems = await listWorkItemsByTeams(ctx, accessibleTeamIdList)
   const visibleWorkItemIds = new Set(
     visibleWorkItems.map((workItem) => workItem.id)
   )
   const visibleDocuments = [
-    ...(
-      await Promise.all(
-        accessibleTeamIdList.map((teamId) => listTeamDocuments(ctx, teamId))
-      )
-    ).flat(),
-    ...(
-      await Promise.all(
-        accessibleWorkspaceIdList.map((workspaceId) =>
-          listWorkspaceDocuments(ctx, workspaceId)
-        )
-      )
-    ).flat(),
+    ...(await listTeamDocumentsByTeams(ctx, accessibleTeamIdList)),
+    ...(await listWorkspaceDocumentsByWorkspaces(ctx, accessibleWorkspaceIdList)),
   ]
     .filter(
       (document, index, documents) =>
@@ -555,23 +442,17 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     visibleDocuments.map((document) => document.id)
   )
   const visibleViews = [
-    ...(currentUserId
-      ? await listViewsByScope(ctx, "personal", currentUserId)
-      : []),
-    ...(
-      await Promise.all(
-        accessibleTeamIdList.map((teamId) =>
-          listViewsByScope(ctx, "team", teamId)
-        )
-      )
-    ).flat(),
-    ...(
-      await Promise.all(
-        accessibleWorkspaceIdList.map((workspaceId) =>
-          listViewsByScope(ctx, "workspace", workspaceId)
-        )
-      )
-    ).flat(),
+    ...(currentUserId ? await listPersonalViewsByUsers(ctx, [currentUserId]) : []),
+    ...(await listViewsByScopes(ctx, [
+      ...accessibleTeamIdList.map((teamId) => ({
+        scopeType: "team" as const,
+        scopeId: teamId,
+      })),
+      ...accessibleWorkspaceIdList.map((workspaceId) => ({
+        scopeType: "workspace" as const,
+        scopeId: workspaceId,
+      })),
+    ])),
   ]
   const visibleComments = [
     ...(await listCommentsByTargets(ctx, {
@@ -603,12 +484,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     }))
   )
   const visibleNotifications = currentUserId
-    ? (
-        await ctx.db
-          .query("notifications")
-          .withIndex("by_user", (q) => q.eq("userId", currentUserId))
-          .collect()
-      ).map((notification) => ({
+    ? (await listNotificationsByUser(ctx, currentUserId)).map((notification) => ({
         ...notification,
         archivedAt: notification.archivedAt ?? null,
       }))
@@ -617,9 +493,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     ...new Map(
       (
         await Promise.all([
-          ...accessibleTeamIdList.map((teamId) =>
-            listInvitesByTeam(ctx, teamId)
-          ),
+          listInvitesByTeams(ctx, accessibleTeamIdList),
           listInvitesByNormalizedEmail(ctx, normalizedCurrentUserEmail),
         ])
       )
@@ -632,71 +506,25 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       accessibleTeamIds.has(invite.teamId) ||
       normalizeEmailAddress(invite.email) === normalizedCurrentUserEmail
   )
-  const visibleProjectUpdates = (
-    await Promise.all(
-      [...visibleProjectIds].map((projectId) =>
-        listProjectUpdatesByProject(ctx, projectId)
-      )
-    )
-  ).flat()
-  const visibleLabelIds = new Set<string>()
-
-  for (const workItem of visibleWorkItems) {
-    for (const labelId of workItem.labelIds) {
-      visibleLabelIds.add(labelId)
-    }
-  }
-
-  for (const view of visibleViews) {
-    for (const labelId of view.filters.labelIds) {
-      visibleLabelIds.add(labelId)
-    }
-  }
-
-  for (const project of visibleProjects) {
-    for (const labelId of project.presentation?.filters.labelIds ?? []) {
-      visibleLabelIds.add(labelId)
-    }
-  }
-
-  const inferredLabelWorkspaceIds = inferLabelWorkspaceIds({
-    teams: visibleTeams,
-    workItems: visibleWorkItems,
-    views: visibleViews.map((view) => ({
-      scopeType: view.scopeType,
-      scopeId: view.scopeId,
-      filters: {
-        labelIds: view.filters.labelIds,
-        teamIds: view.filters.teamIds,
-      },
-    })),
-    projects: visibleProjects.map((project) => ({
-      scopeType: project.scopeType,
-      scopeId: project.scopeId,
-      presentation: project.presentation
-        ? {
-            filters: {
-              labelIds: project.presentation.filters.labelIds,
-            },
-          }
-        : undefined,
-    })),
-  })
+  const visibleProjectUpdates = await listProjectUpdatesByProjects(
+    ctx,
+    visibleProjectIds
+  )
   const visibleConversations = [
-    ...(
-      await Promise.all(
-        accessibleTeamIdList.map((teamId) =>
-          listConversationsByScope(ctx, "team", teamId)
-        )
-      )
-    ).flat(),
-    ...(
-      await Promise.all(
-        accessibleWorkspaceIdList.map((workspaceId) =>
-          listConversationsByScope(ctx, "workspace", workspaceId)
-        )
-      )
-    )
+    ...(await listConversationsByScopes(
+      ctx,
+      accessibleTeamIdList.map((teamId) => ({
+        scopeType: "team" as const,
+        scopeId: teamId,
+      }))
+    )),
+    ...(await listConversationsByScopes(
+      ctx,
+      accessibleWorkspaceIdList.map((workspaceId) => ({
+        scopeType: "workspace" as const,
+        scopeId: workspaceId,
+      }))
+    ))
       .flat()
       .filter(
         (conversation) =>
@@ -707,20 +535,11 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const visibleConversationIds = new Set(
     visibleConversations.map((conversation) => conversation.id)
   )
-  const visibleCalls = (
-    await Promise.all(
-      [...visibleConversationIds].map((conversationId) =>
-        listCallsByConversation(ctx, conversationId)
-      )
-    )
-  ).flat()
-  const visibleChatMessages = (
-    await Promise.all(
-      [...visibleConversationIds].map((conversationId) =>
-        listChatMessagesByConversation(ctx, conversationId)
-      )
-    )
-  )
+  const visibleCalls = await listCallsByConversations(ctx, visibleConversationIds)
+  const visibleChatMessages = (await listChatMessagesByConversations(
+    ctx,
+    visibleConversationIds
+  ))
     .flat()
     .map((message) => ({
       ...message,
@@ -728,13 +547,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       callId: message.callId ?? null,
       mentionUserIds: message.mentionUserIds ?? [],
     }))
-  const visibleChannelPosts = (
-    await Promise.all(
-      [...visibleConversationIds].map((conversationId) =>
-        listChannelPostsByConversation(ctx, conversationId)
-      )
-    )
-  )
+  const visibleChannelPosts = (await listChannelPostsByConversations(
+    ctx,
+    visibleConversationIds
+  ))
     .flat()
     .map((post) => ({
       ...post,
@@ -743,13 +559,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const visibleChannelPostIds = new Set(
     visibleChannelPosts.map((post) => post.id)
   )
-  const visibleChannelPostComments = (
-    await Promise.all(
-      [...visibleChannelPostIds].map((postId) =>
-        listChannelPostCommentsByPost(ctx, postId)
-      )
-    )
-  )
+  const visibleChannelPostComments = (await listChannelPostCommentsByPosts(
+    ctx,
+    visibleChannelPostIds
+  ))
     .flat()
     .map((comment) => ({
       ...comment,
@@ -901,51 +714,11 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         .filter((user) => user != null)
         .map((user) => resolveUserSnapshot(ctx, user))
     ),
-    labels: [
-      ...new Map(
-        (
-          await Promise.all([
-            ...accessibleWorkspaceIdList.map((workspaceId) =>
-              listLabelsByWorkspace(ctx, workspaceId)
-            ),
-            ...[...visibleLabelIds].map(async (labelId) => {
-              const label = await getLabelDoc(ctx, labelId)
-              return label ? [label] : []
-            }),
-          ])
-        )
-          .flat()
-          .flat()
-          .map((label) => [label.id, label] as const)
-      ).values(),
-    ]
-      .map((label) => {
-        const inferredWorkspaceIds = inferredLabelWorkspaceIds.get(label.id)
-        const workspaceId =
-          label.workspaceId ??
-          (inferredWorkspaceIds?.size === 1
-            ? ([...inferredWorkspaceIds][0] ?? null)
-            : null)
-
-        return {
-          ...label,
-          workspaceId,
-        }
-      })
-      .filter(
-        (label) =>
-          (label.workspaceId !== null &&
-            accessibleWorkspaceIds.has(label.workspaceId)) ||
-          visibleLabelIds.has(label.id)
-      ),
+    labels: (await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList)).filter(
+      (label) => accessibleWorkspaceIds.has(label.workspaceId)
+    ),
     projects: visibleProjects,
-    milestones: (
-      await Promise.all(
-        [...visibleProjectIds].map((projectId) =>
-          listMilestonesByProject(ctx, projectId)
-        )
-      )
-    ).flat(),
+    milestones: await listMilestonesByProjects(ctx, visibleProjectIds),
     workItems: visibleWorkItems.map((item) =>
       normalizeWorkItem(item, normalizedVisibleTeams)
     ),

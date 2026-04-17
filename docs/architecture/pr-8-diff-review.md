@@ -6,18 +6,18 @@ Reviewed against `main` for PR `#8` (`Harden lifecycle flows and membership mana
 
 No open blocking findings remain from this review pass.
 
-## Rerun after `611830c`
+## Final rerun after target-state closeout
 
-I reran the diff review after the latest regression-fix commit and do not see any new blocking defects introduced by that pass.
+I reran the diff review after the final target-state cleanup pass and do not see any new blocking defects introduced by these changes.
 
 The local `.env.local` profile was also corrected so the active Convex runtime values and `CONVEX_DEPLOYMENT` now point at the same local-dev deployment again. That change is intentionally local-only and not part of the branch diff.
 
-### Follow-ups that should still change
+### Closed in this rerun
 
-- Legacy unscoped labels are still a real migration tail. The compatibility path in [getLabelsForWorkspace](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/core.ts:329) and the fallback allowance in [assertWorkspaceLabelIds](/Users/declancowen/Documents/GitHub/Linear/convex/app/work_helpers.ts:338) should be removed after a dedicated label backfill assigns `workspaceId` everywhere. This is the main remaining correctness follow-up, not something I would leave permanently.
-- The legacy indexed-read fallbacks in [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts:48) for teams/users/invites should be removed once you are satisfied every active deployment has been backfilled. They are no longer an architecture target-state, only a rollout hedge.
-- The snapshot fan-out in [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts:490) should still be revisited if workspace sizes materially grow. I do not have evidence of an active Convex limit failure today, so this is scale hardening rather than a present bug.
-- CSP should still move to a nonce-based model later if you want a stronger browser hardening posture. The current state is acceptable for now, but it is not the end-state security posture.
+- Label scoping is now end-state rather than migration-compatible. Labels are backfilled through [maintenance.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/maintenance.ts), [backfill-lookup-fields.mjs](/Users/declancowen/Documents/GitHub/Linear/scripts/backfill-lookup-fields.mjs), and enforced as required at the schema/client boundary in [validators.ts](/Users/declancowen/Documents/GitHub/Linear/convex/validators.ts), [core.ts](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/core.ts), and [contracts.ts](/Users/declancowen/Documents/GitHub/Linear/lib/convex/client/contracts.ts).
+- The legacy indexed-read fallbacks for teams, users, and invites are now removed in [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts), with the backfill status surface still available for rollout verification.
+- Snapshot assembly is materially less likely to hit Convex read fan-out limits now that [auth_bootstrap.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/auth_bootstrap.ts) reads through batched plural helpers in [data.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/data.ts) instead of raw unbounded `Promise.all` fans.
+- CSP is now nonce-based for the proxied app surface via [proxy.ts](/Users/declancowen/Documents/GitHub/Linear/proxy.ts) and [security-headers.ts](/Users/declancowen/Documents/GitHub/Linear/lib/server/security-headers.ts), with the static header test in [next-config.test.ts](/Users/declancowen/Documents/GitHub/Linear/tests/next-config.test.ts) updated accordingly.
 
 ### Items that can stay as-is for now
 
@@ -25,6 +25,7 @@ The local `.env.local` profile was also corrected so the active Convex runtime v
 - The account-deletion ordering in [app/api/account/route.ts](/Users/declancowen/Documents/GitHub/Linear/app/api/account/route.ts:76) is the correct lifecycle model.
 - The `WeakMap` search-index cache in [search.ts](/Users/declancowen/Documents/GitHub/Linear/lib/domain/selectors-internal/search.ts:31) is a reasonable tradeoff until profiling says otherwise.
 - Workspace invite cleanup via team cascade in [workspace_team_handlers.ts](/Users/declancowen/Documents/GitHub/Linear/convex/app/workspace_team_handlers.ts:549) is implicit but functionally correct.
+- `style-src 'unsafe-inline'` remains intentional for the current UI surface, including inline style tags in [chart.tsx](/Users/declancowen/Documents/GitHub/Linear/components/ui/chart.tsx:94) and the HTML fallback in [calls/join route](/Users/declancowen/Documents/GitHub/Linear/app/api/calls/join/route.ts:59). Script hardening is now in place without forcing a risky style-system migration in the same pass.
 
 ## Resolved during review
 
@@ -90,6 +91,8 @@ The local env setup was also consolidated back to a single [`.env.local`](/Users
 
 - `git rev-list --left-right --count HEAD...@{u}` -> `0 0`
 - `pnpm typecheck`
-- `pnpm test -- tests/lib/server/join-codes.test.ts tests/lib/server/convex-work.test.ts tests/lib/server/convex-teams-projects.test.ts tests/next-config.test.ts`
-- `pnpm exec eslint next.config.mjs lib/server/join-codes.ts lib/server/convex/teams-projects.ts convex/app/work_helpers.ts convex/app/work_item_handlers.ts convex/app/collaboration_handlers.ts components/app/collaboration-screens/channel-ui.tsx lib/store/app-store-internal/slices/collaboration-channel-actions.ts tests/lib/server/join-codes.test.ts tests/lib/server/convex-work.test.ts tests/lib/server/convex-teams-projects.test.ts tests/next-config.test.ts --max-warnings 0`
+- `pnpm convex:codegen`
+- `pnpm test -- tests/convex/label-workspace.test.ts tests/lib/server/security-headers.test.ts tests/lib/server/join-codes.test.ts tests/lib/server/convex-work.test.ts tests/lib/server/convex-teams-projects.test.ts tests/next-config.test.ts`
+- `pnpm exec eslint convex/app/data.ts convex/app/auth_bootstrap.ts convex/app/work_helpers.ts convex/app/maintenance.ts convex/app/label_workspace.ts convex/validators.ts lib/convex/client/contracts.ts lib/domain/selectors-internal/core.ts lib/domain/types-internal/models.ts lib/server/security-headers.ts next.config.mjs proxy.ts scripts/backfill-lookup-fields.mjs tests/convex/label-workspace.test.ts tests/lib/server/security-headers.test.ts tests/next-config.test.ts --max-warnings 0`
+- `pnpm build`
 - duplicate-file scan after cleanup found no remaining accidental suffixed backup files

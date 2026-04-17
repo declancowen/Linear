@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 describe("next config governance", () => {
-  it("applies standalone output and a baseline security header policy", async () => {
+  it("applies standalone output and baseline static security headers", async () => {
     const { default: nextConfig } = await import("../next.config.mjs")
 
     expect(nextConfig.output).toBe("standalone")
@@ -22,13 +22,7 @@ describe("next config governance", () => {
       globalRoute?.headers.map((header) => [header.key, header.value]) ?? []
     )
 
-    expect(headers.get("Content-Security-Policy")).toContain(
-      "default-src 'self'"
-    )
-    expect(headers.get("Content-Security-Policy")).toContain(
-      "frame-ancestors 'none'"
-    )
-    expect(headers.get("Content-Security-Policy")).toContain("'unsafe-eval'")
+    expect(headers.has("Content-Security-Policy")).toBe(false)
     expect(headers.get("Referrer-Policy")).toBe(
       "strict-origin-when-cross-origin"
     )

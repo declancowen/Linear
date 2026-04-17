@@ -103,7 +103,7 @@ function isLabelRecord(value: unknown): value is Label {
   return (
     isRecord(value) &&
     isString(value.id) &&
-    isStringOrNull(value.workspaceId) &&
+    isString(value.workspaceId) &&
     isString(value.name) &&
     isString(value.color)
   )

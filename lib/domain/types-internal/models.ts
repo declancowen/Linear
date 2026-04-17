@@ -94,7 +94,7 @@ export interface UserProfile {
 
 export interface Label {
   id: string
-  workspaceId: string | null
+  workspaceId: string
   name: string
   color: string
 }

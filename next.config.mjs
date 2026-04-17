@@ -1,30 +1,6 @@
 const isProduction = process.env.NODE_ENV === "production"
-const scriptSrc = [
-  "'self'",
-  "'unsafe-inline'",
-  ...(isProduction ? [] : ["'unsafe-eval'"]),
-].join(" ")
-
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "font-src 'self' https: data:",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "img-src 'self' https: data: blob:",
-  "object-src 'none'",
-  `script-src ${scriptSrc}`,
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: wss:",
-  "worker-src 'self' blob:",
-  ...(isProduction ? ["upgrade-insecure-requests"] : []),
-].join("; ")
 
 const securityHeaders = [
-  {
-    key: "Content-Security-Policy",
-    value: contentSecurityPolicy,
-  },
   {
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",

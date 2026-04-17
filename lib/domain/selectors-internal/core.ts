@@ -327,9 +327,7 @@ export function getLabelMap(data: AppData) {
 }
 
 export function getLabelsForWorkspace(data: AppData, workspaceId: string) {
-  return data.labels.filter(
-    (label) => label.workspaceId === workspaceId || label.workspaceId === null
-  )
+  return data.labels.filter((label) => label.workspaceId === workspaceId)
 }
 
 export function getLabelsForTeamScope(data: AppData, teamId: string) {

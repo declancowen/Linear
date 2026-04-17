@@ -22,6 +22,7 @@ import type * as app_core from "../app/core.js";
 import type * as app_data from "../app/data.js";
 import type * as app_document_handlers from "../app/document_handlers.js";
 import type * as app_invite_handlers from "../app/invite_handlers.js";
+import type * as app_label_workspace from "../app/label_workspace.js";
 import type * as app_lifecycle from "../app/lifecycle.js";
 import type * as app_maintenance from "../app/maintenance.js";
 import type * as app_normalization from "../app/normalization.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   "app/data": typeof app_data;
   "app/document_handlers": typeof app_document_handlers;
   "app/invite_handlers": typeof app_invite_handlers;
+  "app/label_workspace": typeof app_label_workspace;
   "app/lifecycle": typeof app_lifecycle;
   "app/maintenance": typeof app_maintenance;
   "app/normalization": typeof app_normalization;

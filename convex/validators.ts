@@ -381,7 +381,7 @@ export const userFields = {
 
 export const labelFields = {
   id: v.string(),
-  workspaceId: v.optional(v.string()),
+  workspaceId: v.string(),
   name: v.string(),
   color: v.string(),
 }
