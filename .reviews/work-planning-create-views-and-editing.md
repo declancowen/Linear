@@ -65,10 +65,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 19:46:59 BST` |
-| **Total turns** | `12` |
+| **Last reviewed** | `2026-04-18 19:59:40 BST` |
+| **Total turns** | `13` |
 | **Open findings** | `0` |
-| **Resolved findings** | `21` |
+| **Resolved findings** | `22` |
 | **Accepted findings** | `0` |
 
 ---
@@ -734,4 +734,69 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint lib/store/app-store-internal/slices/work-document-actions.ts tests/lib/store/work-document-actions.test.ts`
   - `pnpm exec vitest run tests/lib/store/work-document-actions.test.ts`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 13 — 2026-04-18 19:59:40 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `711bb0a` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-reviewed the latest batch and confirmed one live scoping bug in child disclosure rendering. The disclosure selector was still querying `data.workItems` directly, so project-detail item views could expand a parent and surface direct children from outside the project as long as they matched the view filters. I fixed that by passing the caller’s scoped item set through the board/list rendering path into the selector. During validation I also fixed a local runtime regression in the shell where the workspace create-action permission check referenced a non-existent `data` variable after the earlier reactivity cleanup.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 13 | 1 |
+| Carried from Turn 12 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 13
+
+#### F13-01 ~~[BUG] High~~ → RESOLVED — Child disclosure rendering could leak direct children from outside the caller’s scoped item set
+**Where:** [lib/domain/selectors-internal/work-items.ts](../lib/domain/selectors-internal/work-items.ts:64), [components/app/screens/work-surface-view.tsx](../components/app/screens/work-surface-view.tsx:954), [components/app/screens/work-surface.tsx](../components/app/screens/work-surface.tsx:162), [components/app/screens/project-detail-screen.tsx](../components/app/screens/project-detail-screen.tsx:517)
+
+**What was wrong:** `getDirectChildWorkItemsForDisplay()` filtered against `data.workItems`, not the item pool the current screen was actually rendering. In team/work surfaces this was usually harmless because the scoped item set and team store slice overlapped, but in project detail it meant expanding a parent could pull in direct children that were not linked to the project and should not appear there.
+
+**How it was fixed:** [getDirectChildWorkItemsForDisplay](../lib/domain/selectors-internal/work-items.ts:64) now accepts an optional source item set and filters against that instead of always using the whole store. [BoardView](../components/app/screens/work-surface-view.tsx:118) and [ListView](../components/app/screens/work-surface-view.tsx:325) now accept `scopedItems`, and both [WorkSurface](../components/app/screens/work-surface.tsx:162) and [ProjectDetailScreen](../components/app/screens/project-detail-screen.tsx:517) pass their caller-scoped item collections through. The disclosure rows therefore stay inside the same project/team/workspace boundary as the parent list itself.
+
+**Verified:** Added selector coverage in [view-item-level.test.ts](../tests/lib/domain/view-item-level.test.ts:210), then ran:
+- `pnpm exec eslint components/app/screens/work-surface.tsx components/app/screens/work-surface-view.tsx components/app/screens/project-detail-screen.tsx components/app/shell.tsx lib/domain/selectors-internal/work-items.ts tests/lib/domain/view-item-level.test.ts`
+- `pnpm exec vitest run tests/lib/domain/view-item-level.test.ts tests/lib/domain/project-views.test.ts`
+
+### Additional regression fixed during verification
+
+- [AppShell](../components/app/shell.tsx:420) now uses the reactive `canEditCurrentWorkspace` value instead of referencing a non-existent `data` variable in the workspace create-action permission check. That was a local runtime regression introduced during the earlier shell reactivity cleanup, not a new review finding from this batch.
+
+### Remaining notes classified
+
+- The dialog/sheet blur behavior remains an intentional cross-cutting fix for modal focus handoff.
+- The label-route workspace override remains safe because the downstream mutation still enforces editable workspace access.
+- The `syncInBackground` chained-promise note is now acceptable given the current rollback/reconciliation split; the rollback path still rethrows into the shared failure handler intentionally so the user gets the standard background-sync error treatment once.
+- Assignee-targeted status notifications are intentional.
+- The top-level fallback in `getVisibleItemsForView()` remains intentional under the highest-parent model.
+- `activeCreateDialog` non-persistence is correct-by-design.
+- Workspace view queries including workspace-scoped views are intentional.
+- Offline default status remains intentional.
+- The create-work-item parent-options performance note is a valid future optimization, not a correctness bug.
+- The `normalizeResendFrom` note is still a behavioral change without a newly confirmed defect in this branch.
+- The fallback project-view `createdAt` timestamp note is only a minor transient-object detail.
+- The async `createDocument` return type is intentional.
+- Team-only project creation remains an intentional contract tightening.
+- Immediate success toasts on optimistic view creation are part of the existing optimistic UX pattern.
+- Preserving `showCompleted` in `clearViewFilters` is a consistent design choice, not a bug.
+- The work-item title spread-order note remains a style concern, not a live defect.
+- Self-assignment notifications are intentional.
+- The work-item mention retry note is stale because retries are now stored per item.
+- The positive presence-lifecycle note is not a defect.
+- The persisted-filter-key, clone-view-filter, shell reactivity, hardcoded fallback timestamp, `showCompleted` leakage, and create-view-dialog reactivity notes are stale because they were fixed in earlier turns.
+
+### Verification approach
+
+- Re-reviewed the latest batch against the current branch rather than assuming the newest note was already covered
+- Applied the fix at the selector/view-boundary where scoping is owned
+- Re-ran focused verification:
+  - `pnpm exec eslint components/app/screens/work-surface.tsx components/app/screens/work-surface-view.tsx components/app/screens/project-detail-screen.tsx components/app/shell.tsx lib/domain/selectors-internal/work-items.ts tests/lib/domain/view-item-level.test.ts`
+  - `pnpm exec vitest run tests/lib/domain/view-item-level.test.ts tests/lib/domain/project-views.test.ts`
   - `git diff --check -- . ':!.reviews/'`

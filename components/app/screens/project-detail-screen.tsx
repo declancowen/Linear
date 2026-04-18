@@ -517,6 +517,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                       <BoardView
                         data={data}
                         items={visibleProjectItems}
+                        scopedItems={items}
                         view={activeProjectItemsView}
                         editable={editable}
                       />
@@ -525,6 +526,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                       <ListView
                         data={data}
                         items={visibleProjectItems}
+                        scopedItems={items}
                         view={activeProjectItemsView}
                         editable={editable}
                       />

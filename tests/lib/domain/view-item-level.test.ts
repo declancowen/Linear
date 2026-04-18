@@ -203,6 +203,38 @@ describe("view item levels", () => {
     ).toEqual(["subtask-visible"])
   })
 
+  it("scopes direct child disclosure to the caller-provided item set", () => {
+    const state = createEmptyState()
+    const parent = createItem("feature-parent", {
+      type: "feature",
+      primaryProjectId: "project_1",
+    })
+    const scopedChild = createItem("requirement-scoped", {
+      type: "requirement",
+      parentId: parent.id,
+      primaryProjectId: "project_1",
+    })
+    const unscopedChild = createItem("requirement-unscoped", {
+      type: "requirement",
+      parentId: parent.id,
+      primaryProjectId: "project_2",
+    })
+
+    state.workItems = [parent, scopedChild, unscopedChild]
+
+    expect(
+      getDirectChildWorkItemsForDisplay(
+        state,
+        parent,
+        "priority",
+        createView({
+          itemLevel: "feature",
+        }),
+        [parent, scopedChild]
+      ).map((item) => item.id)
+    ).toEqual(["requirement-scoped"])
+  })
+
   it("includes workspace-scoped views when listing workspace views", () => {
     const state = createEmptyState()
     state.currentWorkspaceId = "workspace_1"

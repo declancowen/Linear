@@ -162,6 +162,7 @@ export function WorkSurface({
               <BoardView
                 data={data}
                 items={visibleItems}
+                scopedItems={items}
                 view={activeView}
                 editable={editable}
               />
@@ -170,6 +171,7 @@ export function WorkSurface({
               <ListView
                 data={data}
                 items={visibleItems}
+                scopedItems={items}
                 view={activeView}
                 editable={editable}
               />

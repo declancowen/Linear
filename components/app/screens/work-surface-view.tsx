@@ -114,11 +114,13 @@ function buildGroupedWorkItemPatch({
 export function BoardView({
   data,
   items,
+  scopedItems,
   view,
   editable,
 }: {
   data: AppData
   items: WorkItem[]
+  scopedItems?: WorkItem[]
   view: ViewDefinition
   editable: boolean
 }) {
@@ -253,6 +255,7 @@ export function BoardView({
                                     <WorkItemChildDisclosure
                                       data={data}
                                       item={item}
+                                      scopedItems={scopedItems}
                                       view={view}
                                       ordering={view.ordering}
                                       expanded={expandedItemIds.has(item.id)}
@@ -321,11 +324,13 @@ export function BoardView({
 export function ListView({
   data,
   items,
+  scopedItems,
   view,
   editable,
 }: {
   data: AppData
   items: WorkItem[]
+  scopedItems?: WorkItem[]
   view: ViewDefinition
   editable: boolean
 }) {
@@ -455,6 +460,7 @@ export function ListView({
                                 <WorkItemChildDisclosure
                                   data={data}
                                   item={item}
+                                  scopedItems={scopedItems}
                                   view={view}
                                   ordering={view.ordering}
                                   expanded={expandedItemIds.has(item.id)}
@@ -952,6 +958,7 @@ function BoardCardBody({
 function WorkItemChildDisclosure({
   data,
   item,
+  scopedItems,
   view,
   ordering,
   expanded,
@@ -960,6 +967,7 @@ function WorkItemChildDisclosure({
 }: {
   data: AppData
   item: WorkItem
+  scopedItems?: WorkItem[]
   view: ViewDefinition
   ordering: ViewDefinition["ordering"]
   expanded: boolean
@@ -972,7 +980,8 @@ function WorkItemChildDisclosure({
     data,
     item,
     ordering,
-    view
+    view,
+    scopedItems
   )
 
   if (!childCopy.childType || childItems.length === 0) {

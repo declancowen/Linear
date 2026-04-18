@@ -267,6 +267,9 @@ export function AppShell({ children }: AppShellProps) {
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
   )
+  const canEditCurrentWorkspace = useAppStore((state) =>
+    currentWorkspaceId ? canEditWorkspace(state, currentWorkspaceId) : false
+  )
   const activeTeam = useAppStore((state) => getTeam(state, activeTeamId))
   const canOpenWorkspaceSettings = useAppStore((state) => {
     const currentWorkspace = getCurrentWorkspace(state)
@@ -417,7 +420,7 @@ export function AppShell({ children }: AppShellProps) {
     projectCreateTeams,
     viewTeams: viewCreateTeams,
     workspaceViewOption:
-      workspace && canEditWorkspace(data, workspace.id)
+      workspace && canEditCurrentWorkspace
         ? {
             id: workspace.id,
             name: workspace.name,

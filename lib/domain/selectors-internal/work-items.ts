@@ -65,7 +65,8 @@ export function getDirectChildWorkItemsForDisplay(
   data: AppData,
   item: WorkItem,
   ordering: OrderingField,
-  view?: ViewDefinition
+  view?: ViewDefinition,
+  sourceItems?: WorkItem[]
 ) {
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(item)
 
@@ -74,7 +75,7 @@ export function getDirectChildWorkItemsForDisplay(
   }
 
   return sortItems(
-    data.workItems.filter(
+    (sourceItems ?? data.workItems).filter(
       (candidate) =>
         candidate.parentId === item.id &&
         allowedChildTypes.includes(candidate.type) &&
