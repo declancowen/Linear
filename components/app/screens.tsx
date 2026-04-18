@@ -248,6 +248,7 @@ export function ProjectsScreen({
   )
   const canCreateProject = Boolean(team && editable)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const fallbackProjectViewTimestamp = new Date().toISOString()
   const fallbackProjectView =
     createViewDefinition({
       id: `fallback-project-view-${scopeType}-${scopeId}`,
@@ -258,8 +259,8 @@ export function ProjectsScreen({
       entityKind: "projects",
       route: routeKey,
       teamSlug: team?.slug,
-      createdAt: "2026-04-18T00:00:00.000Z",
-      updatedAt: "2026-04-18T00:00:00.000Z",
+      createdAt: fallbackProjectViewTimestamp,
+      updatedAt: fallbackProjectViewTimestamp,
       overrides: {
         layout,
       },

@@ -163,18 +163,20 @@ export function createViewSlice(
       return view.id
     },
     updateViewConfig(viewId, patch) {
+      const { showCompleted, ...viewPatch } = patch
+
       set((state) => ({
         views: state.views.map((view) =>
           view.id === viewId
             ? {
                 ...view,
-                ...patch,
+                ...viewPatch,
                 filters:
-                  patch.showCompleted === undefined
+                  showCompleted === undefined
                     ? view.filters
                     : {
                         ...view.filters,
-                        showCompleted: patch.showCompleted,
+                        showCompleted,
                       },
                 updatedAt: getNow(),
               }

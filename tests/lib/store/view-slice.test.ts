@@ -7,6 +7,7 @@ import {
 } from "@/lib/domain/types"
 
 const syncCreateViewMock = vi.fn()
+const syncUpdateViewConfigMock = vi.fn()
 const toastSuccessMock = vi.fn()
 const toastErrorMock = vi.fn()
 
@@ -23,7 +24,7 @@ vi.mock("@/lib/convex/client", () => ({
   syncToggleViewDisplayProperty: vi.fn(),
   syncToggleViewFilterValue: vi.fn(),
   syncToggleViewHiddenValue: vi.fn(),
-  syncUpdateViewConfig: vi.fn(),
+  syncUpdateViewConfig: syncUpdateViewConfigMock,
 }))
 
 function createViewTestState() {
@@ -69,6 +70,7 @@ function createViewTestState() {
 describe("view slice", () => {
   beforeEach(() => {
     syncCreateViewMock.mockReset()
+    syncUpdateViewConfigMock.mockReset()
     toastSuccessMock.mockReset()
     toastErrorMock.mockReset()
   })
@@ -181,5 +183,85 @@ describe("view slice", () => {
     await backgroundTask
 
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps showCompleted inside filters when updating view config", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    state.views = [
+      {
+        id: "view_1",
+        name: "Delivery view",
+        description: "",
+        scopeType: "team",
+        scopeId: "team_1",
+        entityKind: "items",
+        itemLevel: "epic",
+        showChildItems: true,
+        layout: "board",
+        filters: {
+          status: [],
+          priority: [],
+          assigneeIds: [],
+          creatorIds: [],
+          leadIds: [],
+          health: [],
+          milestoneIds: [],
+          relationTypes: [],
+          projectIds: [],
+          itemTypes: [],
+          labelIds: [],
+          teamIds: [],
+          showCompleted: true,
+        },
+        grouping: "status",
+        subGrouping: null,
+        ordering: "priority",
+        displayProps: ["id", "status"],
+        hiddenState: {
+          groups: [],
+          subgroups: [],
+        },
+        isShared: true,
+        route: "/team/platform/work",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground: syncInBackgroundMock,
+      } as never
+    )
+
+    slice.updateViewConfig("view_1", {
+      layout: "list",
+      showCompleted: false,
+    })
+
+    expect(state.views[0]).not.toHaveProperty("showCompleted")
+    expect(state.views[0]?.layout).toBe("list")
+    expect(state.views[0]?.filters.showCompleted).toBe(false)
+    expect(syncUpdateViewConfigMock).toHaveBeenCalledWith("view_1", {
+      layout: "list",
+      showCompleted: false,
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 })

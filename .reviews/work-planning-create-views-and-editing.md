@@ -23,6 +23,7 @@ Files and areas reviewed across all turns:
 - `lib/domain/search-create-actions.ts` — team/workspace-scoped create-action policy
 - `components/app/screens.tsx` — workspace/team projects surface permissions and fallback views
 - `components/app/screens/create-work-item-dialog.tsx` — work-item create flow, selected-team label creation
+- `components/app/screens/helpers.ts` — persisted view-filter cloning/guard helpers
 - `components/app/screens/project-detail-screen.tsx` — project detail item views, saved view routing, create-view launch path
 - `lib/domain/selectors-internal/projects.ts` — project detail route model
 - `lib/domain/default-views.ts` — view-route constraints and fallback view semantics
@@ -52,16 +53,17 @@ Files and areas reviewed across all turns:
 - `tests/app/api/asset-notification-invite-route-contracts.test.ts` — label route workspace contract coverage
 - `tests/app/api/work-route-contracts.test.ts` — view-create route contract coverage
 - `tests/components/create-dialogs.test.tsx` — create-dialog render regression coverage
+- `tests/components/screen-helpers.test.ts` — persisted filter-key regression coverage
 
 ## Review status (updated every turn)
 
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 18:00:12 BST` |
-| **Total turns** | `6` |
+| **Last reviewed** | `2026-04-18 18:21:27 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
-| **Resolved findings** | `9` |
+| **Resolved findings** | `12` |
 | **Accepted findings** | `0` |
 
 ---
@@ -317,4 +319,80 @@ Files and areas reviewed across all turns:
   - `pnpm exec eslint app/api/labels/route.ts components/app/screens/create-work-item-dialog.tsx components/app/screens/project-detail-screen.tsx components/app/screens/shared.tsx components/app/screens/work-item-detail-screen.tsx lib/content/rich-text-mentions.ts lib/convex/client/work.ts lib/domain/types-internal/schemas.ts lib/store/app-store-internal/slices/work-item-actions.ts lib/store/app-store-internal/types.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/project-views.test.ts tests/lib/store/work-item-actions.test.ts`
   - `pnpm exec vitest run tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/project-views.test.ts tests/lib/store/work-item-actions.test.ts tests/components/work-item-detail-screen.test.tsx`
   - `pnpm exec vitest run tests/components/create-dialogs.test.tsx`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 7 — 2026-04-18 18:21:27 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `32f68ea` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Reviewed the next PR-analysis batch and confirmed three live defects plus one low-risk cleanup item. The work-item create dialog still had an unimported root-type helper in the team-switch path, so changing team space with an `initialType` set could throw at runtime. The persisted filter-key guard in the shared screen helpers had not been updated with the newer project/view filter keys, which left a latent persistence trap for those filters. And `updateViewConfig()` was still spreading `showCompleted` as a stray top-level property instead of keeping it solely in `view.filters`. I fixed those three issues, cleaned up the transient fallback project-view timestamps, and re-ran the targeted review suite. The remaining notes in this batch were either already addressed, intentionally changed product behavior, or safe because the access control lives in the server mutation layer.
+
+| Status | Count |
+|--------|-------|
+| New findings | 3 |
+| Resolved during Turn 7 | 3 |
+| Carried from Turn 6 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 7
+
+#### F7-01 ~~[BUG] High~~ → RESOLVED — Switching team space in the work-item create dialog could throw because the root-type helper was never imported
+**Where:** [components/app/screens/create-work-item-dialog.tsx](../components/app/screens/create-work-item-dialog.tsx:13), [tests/components/create-dialogs.test.tsx](../tests/components/create-dialogs.test.tsx:1)
+
+**What was wrong:** `syncTeamSelection()` called `getDefaultRootWorkItemTypesForTeamExperience()` when recalculating the item type for the newly selected team, but the symbol was missing from the module imports. That path only runs after the user changes the team selector, so the dialog could render fine initially and then throw a `ReferenceError` as soon as the team changed while `initialType` was set.
+
+**How it was fixed:** [CreateWorkItemDialog](../components/app/screens/create-work-item-dialog.tsx:13) now imports the root-type helper directly from the domain types module. I also hardened the dialog regression test by replacing the brittle Radix-portal interaction with a lightweight native-select test double in [create-dialogs.test.tsx](../tests/components/create-dialogs.test.tsx:1), so the test exercises the team-switch code path deterministically in jsdom.
+
+**Verified:** Added team-switch coverage in [create-dialogs.test.tsx](../tests/components/create-dialogs.test.tsx:220), then ran:
+- `pnpm exec vitest run tests/components/create-dialogs.test.tsx`
+- `pnpm exec eslint components/app/screens/create-work-item-dialog.tsx tests/components/create-dialogs.test.tsx`
+
+#### F7-02 ~~[BUG] Medium~~ → RESOLVED — Persisted view-filter guard was missing newer filter keys, leaving a latent persistence trap
+**Where:** [components/app/screens/helpers.ts](../components/app/screens/helpers.ts:34), [tests/components/screen-helpers.test.ts](../tests/components/screen-helpers.test.ts:1)
+
+**What was wrong:** `PersistedViewFilterKey` and `isPersistedViewFilterKey()` still only covered the original filter set. The newer persisted filters (`creatorIds`, `leadIds`, `health`, `milestoneIds`, `relationTypes`, `teamIds`) were already supported elsewhere in the view model, but anything routed through the shared `FilterPopover` guard would have been treated as non-persisted and silently skipped.
+
+**How it was fixed:** [helpers.ts](../components/app/screens/helpers.ts:34) now includes the full persisted filter-key set in both the type union and the runtime guard. I added focused coverage in [screen-helpers.test.ts](../tests/components/screen-helpers.test.ts:1) so future filter additions have a regression check at the helper boundary.
+
+**Verified:** Added guard coverage in [screen-helpers.test.ts](../tests/components/screen-helpers.test.ts:1), then ran:
+- `pnpm exec vitest run tests/components/screen-helpers.test.ts`
+- `pnpm exec eslint components/app/screens/helpers.ts tests/components/screen-helpers.test.ts`
+
+#### F7-03 ~~[BUG] Medium~~ → RESOLVED — `updateViewConfig()` leaked `showCompleted` as a stray top-level property on the view object
+**Where:** [lib/store/app-store-internal/slices/views.ts](../lib/store/app-store-internal/slices/views.ts:133), [tests/lib/store/view-slice.test.ts](../tests/lib/store/view-slice.test.ts:101)
+
+**What was wrong:** The optimistic `updateViewConfig()` path spread the raw `patch` onto the view object before rebuilding `filters.showCompleted`. That left `showCompleted` duplicated at both `view.showCompleted` and `view.filters.showCompleted`. The top-level field was ignored by current readers, but it polluted the object shape and risked confusing future serialization or debugging.
+
+**How it was fixed:** [updateViewConfig](../lib/store/app-store-internal/slices/views.ts:133) now destructures `showCompleted` out of the patch, spreads only the remaining view fields, and writes `showCompleted` exclusively inside `filters`. The store regression test in [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:101) asserts that the top-level property is no longer present after an update.
+
+**Verified:** Added slice coverage in [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:101), then ran:
+- `pnpm exec vitest run tests/lib/store/view-slice.test.ts`
+- `pnpm exec eslint lib/store/app-store-internal/slices/views.ts tests/lib/store/view-slice.test.ts`
+
+### Remaining notes classified
+
+- The label-route workspace override is safe in the current architecture. [createLabelHandler](../convex/app/workspace_team_handlers.ts:148) still enforces `requireEditableWorkspaceAccess()` on the target workspace, so route-level trust is not being widened without a downstream authorization check.
+- The status-change notification shift to the assignee is intentional and matches the requested product behavior plus the current client/server tests.
+- Excluding `activeCreateDialog` from persisted UI state is correct-by-design.
+- Defaulting new/rejoined users to `offline` is intentional and matches the requested presence semantics.
+- The `normalizeResendFrom` display-name note is a behavioral change, but this review pass did not confirm a new code defect from it.
+- The async `createDocument` return type is intentional and the known UI caller awaits it.
+- The “pending mention retries are lost on navigation” note remains an accepted best-effort trade-off for local retry state; this pass did not surface a correctness regression from it.
+- The `cloneViewFilters` note was stale. [cloneViewFilters](../components/app/screens/helpers.ts:62) already copies the newer filter fields.
+- The previous presence-effect dependency concern was already addressed by reading `currentUserId` through a dedicated selector in the work-item screen.
+- As a small hygiene cleanup, the fallback project view in [components/app/screens.tsx](../components/app/screens.tsx:244) now uses a live timestamp instead of a hardcoded date literal.
+
+### Verification approach
+
+- Re-reviewed the current diff against the latest external PR-analysis notes instead of assuming they were all still live
+- Applied the fixes in the existing architecture seams:
+  - domain helper imports stay explicit at the presentation boundary
+  - persisted filter policy stays centralized in shared view-helper code
+  - view filter shape stays normalized in the store slice
+- Re-ran focused verification:
+  - `pnpm exec eslint components/app/screens/create-work-item-dialog.tsx components/app/screens/helpers.ts components/app/screens.tsx lib/store/app-store-internal/slices/views.ts tests/components/create-dialogs.test.tsx tests/components/screen-helpers.test.ts tests/lib/store/view-slice.test.ts`
+  - `pnpm exec vitest run tests/components/create-dialogs.test.tsx tests/components/screen-helpers.test.ts tests/lib/store/view-slice.test.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/project-views.test.ts tests/lib/store/work-item-actions.test.ts tests/components/work-item-detail-screen.test.tsx`
   - `git diff --check -- . ':!.reviews/'`

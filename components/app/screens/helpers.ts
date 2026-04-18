@@ -42,9 +42,15 @@ export type PersistedViewFilterKey =
   | "status"
   | "priority"
   | "assigneeIds"
+  | "creatorIds"
+  | "leadIds"
+  | "health"
+  | "milestoneIds"
+  | "relationTypes"
   | "projectIds"
   | "itemTypes"
   | "labelIds"
+  | "teamIds"
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
   return createDefaultViewFilters()
@@ -57,9 +63,15 @@ export function isPersistedViewFilterKey(
     "status",
     "priority",
     "assigneeIds",
+    "creatorIds",
+    "leadIds",
+    "health",
+    "milestoneIds",
+    "relationTypes",
     "projectIds",
     "itemTypes",
     "labelIds",
+    "teamIds",
   ].includes(key)
 }
 

@@ -12,6 +12,7 @@ import {
 import {
   canParentWorkItemTypeAcceptChild,
   getAllowedWorkItemTypesForTemplate,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultTemplateTypeForTeamExperience,
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
