@@ -132,11 +132,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   )
   const [mainDraftTitle, setMainDraftTitle] = useState("")
   const [mainDraftDescription, setMainDraftDescription] = useState("")
-  const [mainPendingMentionRetryItemId, setMainPendingMentionRetryItemId] = useState<
-    string | null
-  >(null)
-  const [mainPendingMentionRetryEntries, setMainPendingMentionRetryEntries] =
-    useState<PendingDocumentMention[]>([])
+  const [mainPendingMentionRetryEntriesByItemId, setMainPendingMentionRetryEntriesByItemId] =
+    useState<Record<string, PendingDocumentMention[]>>({})
   const [savingMainSection, setSavingMainSection] = useState(false)
   const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
     DocumentPresenceViewer[]
@@ -341,13 +338,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     childItems.length > 0 || allowedChildTypes.length > 0
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
   const isMainEditing = mainEditing && mainDraftItemId === currentItem.id
-  const activeMainPendingMentionRetryEntries =
-    mainPendingMentionRetryItemId === currentItem.id
-      ? filterPendingDocumentMentionsByContent(
-          mainPendingMentionRetryEntries,
-          mainDraftDescription
-        )
-      : []
+  const activeMainPendingMentionRetryEntries = filterPendingDocumentMentionsByContent(
+    mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
+    mainDraftDescription
+  )
   const otherWorkItemEditors = workItemPresenceViewers.filter(
     (viewer) => viewer.userId !== currentUserId
   )
@@ -501,15 +495,20 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           pendingMentionEntries
         )
 
-        setMainPendingMentionRetryItemId(savedItemId)
-        setMainPendingMentionRetryEntries([])
+        setMainPendingMentionRetryEntriesByItemId((current) => {
+          const next = { ...current }
+          delete next[savedItemId]
+          return next
+        })
 
         toast.success(
           `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
         )
       } catch (error) {
-        setMainPendingMentionRetryItemId(savedItemId)
-        setMainPendingMentionRetryEntries(pendingMentionEntries)
+        setMainPendingMentionRetryEntriesByItemId((current) => ({
+          ...current,
+          [savedItemId]: pendingMentionEntries,
+        }))
         toast.error(
           error instanceof Error
             ? error.message
@@ -517,8 +516,15 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         )
       }
     } else {
-      setMainPendingMentionRetryItemId(savedItemId)
-      setMainPendingMentionRetryEntries([])
+      setMainPendingMentionRetryEntriesByItemId((current) => {
+        if (!(savedItemId in current)) {
+          return current
+        }
+
+        const next = { ...current }
+        delete next[savedItemId]
+        return next
+      })
     }
 
     setSavingMainSection(false)

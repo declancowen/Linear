@@ -65,10 +65,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 19:17:41 BST` |
-| **Total turns** | `10` |
+| **Last reviewed** | `2026-04-18 19:33:41 BST` |
+| **Total turns** | `11` |
 | **Open findings** | `0` |
-| **Resolved findings** | `19` |
+| **Resolved findings** | `20` |
 | **Accepted findings** | `0` |
 
 ---
@@ -615,4 +615,64 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint components/app/screens/project-detail-screen.tsx tests/components/project-detail-screen.test.tsx`
   - `pnpm exec vitest run tests/components/project-detail-screen.test.tsx tests/lib/domain/project-views.test.ts`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 11 — 2026-04-18 19:33:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `00bc3ac` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-reviewed the latest batch and confirmed one live correctness bug in the work-item mention retry flow. The screen still stored retry state as a single global `itemId + entries` pair, so saving a different item without mentions could clear the pending retry state for the original item. I moved that retry state to be item-keyed and added a component regression test that switches between items to prove the retry survives. The rest of the list was stale, intentionally changed behavior, or a previously accepted trade-off.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 11 | 1 |
+| Carried from Turn 10 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 11
+
+#### F11-01 ~~[BUG] High~~ → RESOLVED — Saving a different item without mentions could wipe stored mention retries for the original item
+**Where:** [components/app/screens/work-item-detail-screen.tsx](../components/app/screens/work-item-detail-screen.tsx:135), [tests/components/work-item-detail-screen.test.tsx](../tests/components/work-item-detail-screen.test.tsx:495)
+
+**What was wrong:** The screen tracked failed mention-delivery retries as one global `mainPendingMentionRetryItemId` plus one shared `mainPendingMentionRetryEntries` array. If mention delivery failed on item A, then the user navigated to item B and saved it without mentions, the “no pending mentions” branch cleared the shared retry buffer and silently dropped A’s retries.
+
+**How it was fixed:** [WorkItemDetailScreen](../components/app/screens/work-item-detail-screen.tsx:135) now stores pending mention retries in a per-item map keyed by item ID. Saves now only clear or replace retry entries for the item being saved, so other items’ retry state remains intact. The new regression test in [work-item-detail-screen.test.tsx](../tests/components/work-item-detail-screen.test.tsx:495) fails mention delivery on one item, saves another item without mentions, then returns to the original item and verifies the retry is still delivered on the next save.
+
+**Verified:** Added cross-item retry coverage in [work-item-detail-screen.test.tsx](../tests/components/work-item-detail-screen.test.tsx:495), then ran:
+- `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx tests/components/work-item-detail-screen.test.tsx`
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts`
+
+### Remaining notes classified
+
+- The dialog/sheet blur behavior remains an intentional cross-cutting fix for modal focus handoff.
+- The label-route workspace override remains safe because the downstream mutation still enforces editable workspace access.
+- Assignee-targeted status notifications are intentional.
+- The work-item main-section save path preserving the local draft until reconciliation is still an accepted trade-off for this editing flow.
+- The top-level fallback in `getVisibleItemsForView()` remains intentional under the highest-parent model.
+- `activeCreateDialog` non-persistence is correct-by-design.
+- Workspace view queries including workspace-scoped views are intentional.
+- Offline default status remains intentional.
+- The create-work-item parent-options performance note is valid as a future optimization opportunity, but it is not a correctness bug in this branch.
+- The `normalizeResendFrom` note is still a behavioral change without a newly confirmed code defect in this branch.
+- The fallback project-view memoization-on-layout note is a minor efficiency concern, not a correctness issue.
+- The async `createDocument` return type is intentional.
+- Team-only project creation remains an intentional contract tightening.
+- Optimistic success toasts before server confirmation are part of the existing optimistic UX pattern.
+- The work-item title spread-order note remains a style concern, not a live bug in the current flow.
+- Self-assignment notifications are intentional.
+- The presence lifecycle note is positive, not a defect.
+- The older note about retry entries becoming inert on item navigation is now partly improved by the per-item retry map, though full unmount/navigation still remains a best-effort local-state trade-off.
+- The persisted-filter-key, clone-view-filter, shell reactivity, create-view-dialog reactivity, hardcoded fallback timestamp, `showCompleted` leakage, and presence dependency notes are all stale because they were fixed in earlier turns.
+
+### Verification approach
+
+- Re-reviewed the latest note set against the current branch rather than assuming it was covered by the previous turn
+- Applied the fix in the screen state model where retry ownership actually lived
+- Re-ran focused verification:
+  - `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx tests/components/work-item-detail-screen.test.tsx`
+  - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts`
   - `git diff --check -- . ':!.reviews/'`

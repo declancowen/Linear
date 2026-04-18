@@ -260,6 +260,20 @@ function seedState() {
         createdAt: "2026-04-18T10:00:00.000Z",
         updatedAt: "2026-04-18T10:00:00.000Z",
       },
+      {
+        id: "document_2",
+        kind: "item-description",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        title: "Follow up",
+        content: "<p>Second description</p>",
+        linkedProjectIds: [],
+        linkedWorkItemIds: ["item_2"],
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
     ],
     workItems: [
       {
@@ -269,6 +283,30 @@ function seedState() {
         type: "task",
         title: "Plan launch",
         descriptionDocId: "document_1",
+        status: "todo",
+        priority: "medium",
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: null,
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        labelIds: [],
+        milestoneId: null,
+        startDate: null,
+        dueDate: null,
+        targetDate: null,
+        subscriberIds: [],
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+      {
+        id: "item_2",
+        key: "PLA-2",
+        teamId: "team_1",
+        type: "task",
+        title: "Follow up",
+        descriptionDocId: "document_2",
         status: "todo",
         priority: "medium",
         assigneeId: null,
@@ -497,6 +535,103 @@ describe("work item detail screen", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
+  it("preserves mention retries for one item when saving a different item without mentions", async () => {
+    let saveCount = 0
+    const saveWorkItemMainSectionMock = vi.fn().mockImplementation(
+      async ({
+        itemId,
+        description,
+        title,
+      }: {
+        itemId: string
+        description: string
+        title: string
+      }) => {
+        saveCount += 1
+        const documentId = itemId === "item_1" ? "document_1" : "document_2"
+
+        useAppStore.setState((state) => ({
+          workItems: state.workItems.map((item) =>
+            item.id === itemId
+              ? {
+                  ...item,
+                  title,
+                  updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
+                }
+              : item
+          ),
+          documents: state.documents.map((document) =>
+            document.id === documentId
+              ? {
+                  ...document,
+                  content: description,
+                  updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
+                }
+              : document
+          ),
+        }))
+
+        return true
+      }
+    )
+    syncSendItemDescriptionMentionNotificationsMock
+      .mockRejectedValueOnce(new Error("Saved changes but failed to notify mentions"))
+      .mockResolvedValueOnce({
+        recipientCount: 1,
+        mentionCount: 1,
+      })
+    useAppStore.setState({
+      saveWorkItemMainSection: saveWorkItemMainSectionMock,
+    } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.change(screen.getByLabelText("Description editor"), {
+      target: {
+        value:
+          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
+      },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Edit" })
+    ).toBeInTheDocument()
+
+    rerender(<WorkItemDetailScreen itemId="item_2" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.change(screen.getByDisplayValue("Follow up"), {
+      target: { value: "Follow up updated" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Edit" })
+    ).toBeInTheDocument()
+
+    rerender(<WorkItemDetailScreen itemId="item_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+
+    const saveButton = screen.getByRole("button", { name: "Save" })
+    expect(saveButton).not.toBeDisabled()
+
+    fireEvent.click(saveButton)
+
+    await waitFor(() =>
+      expect(
+        syncSendItemDescriptionMentionNotificationsMock
+      ).toHaveBeenNthCalledWith(2, "item_1", [
+        {
+          userId: "user_2",
+          count: 1,
+        },
+      ])
+    )
   })
 
   it("sends self-mentions after saving the main section", async () => {
