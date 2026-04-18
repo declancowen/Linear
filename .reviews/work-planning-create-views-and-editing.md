@@ -22,17 +22,20 @@ Files and areas reviewed across all turns:
 - `components/app/global-search-dialog.tsx` — command-palette create action rendering
 - `lib/domain/search-create-actions.ts` — team/workspace-scoped create-action policy
 - `components/app/screens.tsx` — workspace/team projects surface permissions and fallback views
+- `components/app/screens/create-work-item-dialog.tsx` — work-item create flow, selected-team label creation
 - `components/app/screens/project-detail-screen.tsx` — project detail item views, saved view routing, create-view launch path
 - `lib/domain/selectors-internal/projects.ts` — project detail route model
 - `lib/domain/default-views.ts` — view-route constraints and fallback view semantics
 - `components/app/screens/work-item-detail-screen.tsx` — main-section edit/save flow, mention-delivery follow-up, live concurrent editing UI
-- `components/app/screens/shared.tsx` — full-row sidebar property controls
+- `components/app/screens/shared.tsx` — full-row sidebar property controls, workspace-aware work-item label creation
 - `components/app/screens/work-surface-controls.tsx` — highest-parent configuration options
 - `components/app/screens/work-surface-view.tsx` — parent-container rendering for child rows/cards
 - `lib/content/rich-text-mentions.ts` — pending mention merge/filter helpers for retry-safe delivery
 - `lib/store/app-store-internal/slices/work-document-actions.ts` — main-section persistence contract
+- `lib/store/app-store-internal/slices/work-item-actions.ts` — label creation scope and status-notification mirror semantics
 - `lib/store/app-store-internal/slices/views.ts` — optimistic view creation and canonical ID sync
 - `lib/store/app-store-internal/types.ts` — view-create input contract
+- `app/api/labels/route.ts` — label creation route workspace scoping
 - `app/api/items/[itemId]/description/mentions/route.ts` and `lib/server/convex/documents.ts` — post-save mention-delivery contract
 - `app/api/views/route.ts` — view creation route contract
 - `convex/app/document_handlers.ts` — work-item self-mention delivery semantics
@@ -45,17 +48,20 @@ Files and areas reviewed across all turns:
 - `tests/convex/document-handlers.test.ts` — work-item self-mention server regression coverage
 - `tests/lib/content/rich-text-mentions.test.ts` — pending mention merge/filter regression coverage
 - `tests/lib/store/view-slice.test.ts` — canonical optimistic-view ID regression coverage
+- `tests/lib/store/work-item-actions.test.ts` — workspace-aware label creation regression coverage
+- `tests/app/api/asset-notification-invite-route-contracts.test.ts` — label route workspace contract coverage
 - `tests/app/api/work-route-contracts.test.ts` — view-create route contract coverage
+- `tests/components/create-dialogs.test.tsx` — create-dialog render regression coverage
 
 ## Review status (updated every turn)
 
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 17:40:27 BST` |
-| **Total turns** | `5` |
+| **Last reviewed** | `2026-04-18 18:00:12 BST` |
+| **Total turns** | `6` |
 | **Open findings** | `0` |
-| **Resolved findings** | `6` |
+| **Resolved findings** | `9` |
 | **Accepted findings** | `0` |
 
 ---
@@ -237,4 +243,78 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx lib/content/rich-text-mentions.ts lib/store/app-store-internal/slices/views.ts lib/store/app-store-internal/types.ts lib/domain/types-internal/schemas.ts lib/convex/client/work.ts lib/server/convex/work.ts convex/app.ts convex/app/view_handlers.ts tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts tests/lib/store/view-slice.test.ts tests/app/api/work-route-contracts.test.ts`
   - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts tests/lib/store/view-slice.test.ts tests/app/api/work-route-contracts.test.ts`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 6 — 2026-04-18 18:00:12 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `5834fb6` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Reviewed the latest batch of external PR notes and separated the real defects from the stale or intentional observations. Three correctness bugs were confirmed: label creation in the work-item create/edit flows still targeted the active workspace instead of the selected team’s workspace, pending mention retries were only filtered by presence and could keep an over-large count after repeated mentions were reduced, and the project-detail fallback item view was still coercing an omitted presentation `itemLevel` into an explicit `null`, which skipped the team default and collapsed list/board views to `parentId === null`. Those three defects were fixed and re-verified. The remaining notes in this batch were either already correct (`cloneViewFilters`, `activeCreateDialog` persistence), explicitly requested product semantics (offline default status, assignee-only status notifications), or non-bugs in the current branch.
+
+| Status | Count |
+|--------|-------|
+| New findings | 3 |
+| Resolved during Turn 6 | 3 |
+| Carried from Turn 5 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 6
+
+#### F6-01 ~~[BUG] High~~ → RESOLVED — Label creation still targeted the active workspace instead of the selected team’s workspace
+**Where:** [components/app/screens/create-work-item-dialog.tsx](../components/app/screens/create-work-item-dialog.tsx:320), [components/app/screens/shared.tsx](../components/app/screens/shared.tsx:396), [lib/store/app-store-internal/slices/work-item-actions.ts](../lib/store/app-store-internal/slices/work-item-actions.ts:52), [app/api/labels/route.ts](../app/api/labels/route.ts:43)
+
+**What was wrong:** The work-item create dialog and the sidebar label editor both called `createLabel()` without passing a workspace. The store action then deduplicated and created labels against `currentWorkspaceId`, even when the selected item/team belonged to a different workspace. In a multi-workspace account, that produced labels that were invalid for the selected team’s workspace and could cause subsequent work-item validation failures.
+
+**How it was fixed:** The label-create contract now accepts an optional `workspaceId` all the way through the client and route layers. [CreateWorkItemDialog](../components/app/screens/create-work-item-dialog.tsx:320) passes the selected team’s workspace, [WorkItemLabelsEditor](../components/app/screens/shared.tsx:396) passes the current item’s workspace, [createLabel](../lib/store/app-store-internal/slices/work-item-actions.ts:52) scopes duplicate detection and creation to that workspace, and [app/api/labels/route.ts](../app/api/labels/route.ts:43) respects an explicit workspace override instead of always forcing the active workspace.
+
+**Verified:** Added regression coverage in [work-item-actions.test.ts](../tests/lib/store/work-item-actions.test.ts:184) and extended the route contract in [asset-notification-invite-route-contracts.test.ts](../tests/app/api/asset-notification-invite-route-contracts.test.ts:196), then ran:
+- `pnpm exec vitest run tests/lib/store/work-item-actions.test.ts tests/app/api/asset-notification-invite-route-contracts.test.ts`
+- `pnpm exec eslint app/api/labels/route.ts components/app/screens/create-work-item-dialog.tsx components/app/screens/shared.tsx lib/convex/client/work.ts lib/domain/types-internal/schemas.ts lib/store/app-store-internal/slices/work-item-actions.ts lib/store/app-store-internal/types.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/store/work-item-actions.test.ts`
+
+#### F6-02 ~~[BUG] High~~ → RESOLVED — Pending mention retries could keep an outdated count after repeated mentions were reduced
+**Where:** [lib/content/rich-text-mentions.ts](../lib/content/rich-text-mentions.ts:95), [components/app/screens/work-item-detail-screen.tsx](../components/app/screens/work-item-detail-screen.tsx:345)
+
+**What was wrong:** `filterPendingDocumentMentionsByContent()` only checked whether a user still appeared in the content. If a failed mention batch originally contained three mentions for the same user and the editor later reduced that to one mention before retrying, the retry entry stayed at `count: 3`. The server-side mention validator could then reject the retry as “not present,” creating a repeated failure loop.
+
+**How it was fixed:** [filterPendingDocumentMentionsByContent](../lib/content/rich-text-mentions.ts:95) now clamps each pending retry entry to the current per-user mention count instead of preserving the stale count. The work-item retry flow therefore only resends the number of mentions that still exist in the current content.
+
+**Verified:** Added clamp coverage in [rich-text-mentions.test.ts](../tests/lib/content/rich-text-mentions.test.ts:106), then ran:
+- `pnpm exec vitest run tests/lib/content/rich-text-mentions.test.ts tests/components/work-item-detail-screen.test.tsx`
+- `pnpm exec eslint lib/content/rich-text-mentions.ts components/app/screens/work-item-detail-screen.tsx tests/lib/content/rich-text-mentions.test.ts tests/components/work-item-detail-screen.test.tsx`
+
+#### F6-03 ~~[BUG] High~~ → RESOLVED — Project detail fallback item views still collapsed omitted `itemLevel` into explicit top-level filtering
+**Where:** [components/app/screens/project-detail-screen.tsx](../components/app/screens/project-detail-screen.tsx:104), [tests/lib/domain/project-views.test.ts](../tests/lib/domain/project-views.test.ts:192)
+
+**What was wrong:** The project detail screen initialized and reset `projectItemsLevel` with `itemLevel ?? null`. For default project presentations, `itemLevel` is intentionally omitted, not `null`. Coercing it to `null` meant the fallback item view skipped the team default item level and flowed into `getVisibleItemsForView()` as an explicit “no level,” which filters to `parentId === null`.
+
+**How it was fixed:** [ProjectDetailScreen](../components/app/screens/project-detail-screen.tsx:104) now preserves an omitted `itemLevel` as `undefined` in local presentation state and resolves it through `getDefaultViewItemLevelForTeamExperience()` when materializing the fallback item view. That keeps the default project detail list/board behavior aligned with the team’s configured highest parent level instead of silently degrading to a top-level-only filter.
+
+**Verified:** Added regression coverage in [project-views.test.ts](../tests/lib/domain/project-views.test.ts:192), then ran:
+- `pnpm exec vitest run tests/lib/domain/project-views.test.ts`
+- `pnpm exec eslint components/app/screens/project-detail-screen.tsx tests/lib/domain/project-views.test.ts`
+
+### Remaining notes classified
+
+- The `cloneViewFilters` note was stale. [cloneViewFilters](../components/app/screens/helpers.ts:51) already copies `creatorIds`, `leadIds`, `health`, `milestoneIds`, `relationTypes`, and `teamIds`.
+- The status-change notification target shift is intentional. It matches the requested product rule to only send status-change notifications when the item has an assignee, and the client/server mirrors plus tests already reflect that policy.
+- The `activeCreateDialog` persistence note is correct-by-design. The field is intentionally excluded from persisted UI state.
+- The offline default-user-status note is intentional and matches the earlier product request to default new/rejoined users to offline rather than active.
+- The `normalizeResendFrom` display-name formatting change is a behavioral difference, but no code defect was confirmed in the current branch from this note alone.
+- The async `createDocument` return-type change is intentional and the known caller already awaits it.
+- The work-item presence dependency note was speculative; as a hardening follow-up, [WorkItemDetailScreen](../components/app/screens/work-item-detail-screen.tsx:116) now reads `currentUserId` through a dedicated selector so the heartbeat effect no longer depends on that field through the larger app snapshot object.
+
+### Verification approach
+
+- Re-reviewed the current diff against the latest external PR-analysis notes rather than assuming they were all still live
+- Applied the fixes in the existing architectural seams:
+  - explicit workspace scoping for label creation, owned by the application/store/API contract rather than by incidental UI context
+  - retry-count clamping in the mention helper layer rather than in ad hoc screen logic
+  - fallback item-level resolution in the project-detail presentation layer rather than by changing global view semantics
+- Re-ran focused verification:
+  - `pnpm exec eslint app/api/labels/route.ts components/app/screens/create-work-item-dialog.tsx components/app/screens/project-detail-screen.tsx components/app/screens/shared.tsx components/app/screens/work-item-detail-screen.tsx lib/content/rich-text-mentions.ts lib/convex/client/work.ts lib/domain/types-internal/schemas.ts lib/store/app-store-internal/slices/work-item-actions.ts lib/store/app-store-internal/types.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/project-views.test.ts tests/lib/store/work-item-actions.test.ts`
+  - `pnpm exec vitest run tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/project-views.test.ts tests/lib/store/work-item-actions.test.ts tests/components/work-item-detail-screen.test.tsx`
+  - `pnpm exec vitest run tests/components/create-dialogs.test.tsx`
   - `git diff --check -- . ':!.reviews/'`

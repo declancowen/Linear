@@ -95,7 +95,18 @@ export function filterPendingDocumentMentionsByContent(
 ) {
   const mentionCounts = extractRichTextMentionCounts(content)
 
-  return pendingMentions.filter((mention) => (mentionCounts[mention.userId] ?? 0) > 0)
+  return pendingMentions.flatMap((mention) => {
+    const currentCount = mentionCounts[mention.userId] ?? 0
+
+    return currentCount > 0
+      ? [
+          {
+            userId: mention.userId,
+            count: Math.min(mention.count, currentCount),
+          },
+        ]
+      : []
+  })
 }
 
 export function mergePendingDocumentMentions(

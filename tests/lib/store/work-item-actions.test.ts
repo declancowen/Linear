@@ -181,6 +181,80 @@ describe("work item actions", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("creates labels in the selected workspace instead of the active workspace", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    state.labels = [
+      {
+        id: "label_1",
+        workspaceId: "workspace_1",
+        name: "Bug",
+        color: "red",
+      },
+    ]
+    state.workspaces = [
+      {
+        id: "workspace_1",
+        name: "Primary",
+        slug: "primary",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+      {
+        id: "workspace_2",
+        name: "Secondary",
+        slug: "secondary",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncCreateLabelMock.mockResolvedValue({
+      label: {
+        id: "label_2",
+        workspaceId: "workspace_2",
+        name: "Bug",
+        color: "blue",
+      },
+    })
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const created = await actions.createLabel("Bug", "workspace_2")
+
+    expect(created).toMatchObject({
+      id: "label_2",
+      workspaceId: "workspace_2",
+      name: "Bug",
+    })
+    expect(syncCreateLabelMock).toHaveBeenCalledWith({
+      workspaceId: "workspace_2",
+      name: "Bug",
+    })
+    expect(state.labels.map((label) => label.id)).toEqual(["label_1", "label_2"])
+  })
+
   it("creates self notifications for assignment and assigned status changes", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"

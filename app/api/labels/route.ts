@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    const workspaceId = appContext.authContext?.currentWorkspace?.id
+    const workspaceId =
+      parsed.workspaceId ?? appContext.authContext?.currentWorkspace?.id
 
     if (!workspaceId) {
       return jsonError("No active workspace", 400, {

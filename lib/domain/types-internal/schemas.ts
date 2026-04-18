@@ -25,6 +25,7 @@ import {
 import { getTeamFeatureValidationMessage } from "./work"
 
 export const labelCreateSchema = z.object({
+  workspaceId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1).max(32),
   color: z.string().trim().min(1).max(24).optional(),
 })

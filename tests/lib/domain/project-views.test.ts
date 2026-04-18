@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest"
 import { createViewDefinition } from "@/lib/domain/default-views"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { getProjectDetailModel, getVisibleProjectsForView } from "@/lib/domain/selectors"
-import type { Project, ViewDefinition } from "@/lib/domain/types"
+import {
+  createDefaultProjectPresentationConfig,
+  getDefaultViewItemLevelForTeamExperience,
+  type Project,
+  type ViewDefinition,
+} from "@/lib/domain/types"
 
 function createProject(id: string, overrides?: Partial<Project>): Project {
   return {
@@ -181,6 +186,48 @@ describe("project views", () => {
       scopeId: "team_1",
       isShared: false,
     })
+    expect(view?.itemLevel).toBe("epic")
+  })
+
+  it("keeps the team-default item level when project presentation omits it", () => {
+    const presentation = createDefaultProjectPresentationConfig(
+      "software-delivery"
+    )
+    const effectiveItemLevel =
+      presentation.itemLevel === undefined
+        ? getDefaultViewItemLevelForTeamExperience("software-development")
+        : presentation.itemLevel
+    const view = createViewDefinition({
+      id: "project-items-default",
+      name: "All items",
+      description: "All items linked to this project.",
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      route: "/team/platform/projects/project_1",
+      teamSlug: "platform",
+      experience: "software-development",
+      isShared: false,
+      createdAt: "2026-04-18T09:00:00.000Z",
+      overrides: {
+        layout: presentation.layout,
+        filters: presentation.filters,
+        grouping: presentation.grouping,
+        subGrouping: null,
+        ordering: presentation.ordering,
+        ...(effectiveItemLevel !== undefined
+          ? { itemLevel: effectiveItemLevel }
+          : {}),
+        showChildItems: presentation.showChildItems ?? false,
+        displayProps: presentation.displayProps,
+        hiddenState: {
+          groups: [],
+          subgroups: [],
+        },
+      },
+    })
+
+    expect(presentation.itemLevel).toBeUndefined()
     expect(view?.itemLevel).toBe("epic")
   })
 

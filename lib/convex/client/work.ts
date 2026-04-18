@@ -331,7 +331,11 @@ export function syncClearWorkItemPresence(
   })
 }
 
-export function syncCreateLabel(input: { name: string; color?: string }) {
+export function syncCreateLabel(input: {
+  workspaceId?: string
+  name: string
+  color?: string
+}) {
   return runRouteMutation<unknown>("/api/labels", {
     method: "POST",
     headers: {

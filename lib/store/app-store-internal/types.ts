@@ -277,7 +277,10 @@ export type AppStore = AppData & {
     value: string
   ) => void
   clearViewFilters: (viewId: string) => void
-  createLabel: (name: string) => Promise<Label | null>
+  createLabel: (
+    name: string,
+    workspaceId?: string | null
+  ) => Promise<Label | null>
   updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void

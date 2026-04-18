@@ -370,6 +370,9 @@ export function WorkItemLabelsEditor({
   item: WorkItem
   editable: boolean
 }) {
+  const itemWorkspaceId = useAppStore(
+    (state) => state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
+  )
   const availableLabels = useAppStore(
     useShallow((state) =>
       [...getLabelsForTeamScope(state, item.teamId)].sort((left, right) =>
@@ -393,7 +396,9 @@ export function WorkItemLabelsEditor({
   }
 
   async function handleCreateLabel() {
-    const created = await useAppStore.getState().createLabel(newLabelName)
+    const created = await useAppStore
+      .getState()
+      .createLabel(newLabelName, itemWorkspaceId)
 
     if (!created) {
       return

@@ -49,17 +49,23 @@ export function createWorkItemActions({
   | "createWorkItem"
 > {
   return {
-    async createLabel(name) {
+    async createLabel(name, workspaceId) {
       const normalizedName = name.trim()
+      const resolvedWorkspaceId = workspaceId ?? get().currentWorkspaceId
 
       if (normalizedName.length === 0) {
         toast.error("Label name is required")
         return null
       }
 
+      if (!resolvedWorkspaceId) {
+        toast.error("Workspace not found")
+        return null
+      }
+
       const existing = getLabelsForWorkspace(
         get(),
-        get().currentWorkspaceId
+        resolvedWorkspaceId
       ).find(
         (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
       )
@@ -70,6 +76,7 @@ export function createWorkItemActions({
 
       try {
         const result = await syncCreateLabel({
+          workspaceId: resolvedWorkspaceId,
           name: normalizedName,
         })
 

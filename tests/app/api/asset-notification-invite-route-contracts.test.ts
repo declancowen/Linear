@@ -196,6 +196,7 @@ describe("asset, notification, invite, and document route contracts", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          workspaceId: "workspace_2",
           name: "Bug",
         }),
       }) as never
@@ -203,7 +204,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     expect(labelResponse.status).toBe(404)
     expect(createLabelServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
-      workspaceId: "workspace_1",
+      workspaceId: "workspace_2",
       name: "Bug",
     })
     await expect(labelResponse.json()).resolves.toEqual({

@@ -16,9 +16,11 @@ import {
 } from "@/lib/domain/selectors"
 import {
   createDefaultProjectPresentationConfig,
+  getDefaultViewItemLevelForTeamExperience,
   type DisplayProperty,
   type GroupField,
   type OrderingField,
+  type ProjectPresentationConfig,
   type ViewDefinition,
 } from "@/lib/domain/types"
 import { createViewDefinition } from "@/lib/domain/default-views"
@@ -102,8 +104,8 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const [projectItemsOrdering, setProjectItemsOrdering] =
     useState<OrderingField>(() => initialProjectPresentation.ordering)
   const [projectItemsLevel, setProjectItemsLevel] = useState<
-    ViewDefinition["itemLevel"]
-  >(() => initialProjectPresentation.itemLevel ?? null)
+    ProjectPresentationConfig["itemLevel"]
+  >(() => initialProjectPresentation.itemLevel)
   const [projectItemsShowChildItems, setProjectItemsShowChildItems] =
     useState<boolean>(() => initialProjectPresentation.showChildItems ?? false)
   const [projectItemsFilters, setProjectItemsFilters] = useState<
@@ -124,7 +126,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       setProjectItemsGrouping(defaultProjectPresentation.grouping)
       setProjectItemsSubGrouping(null)
       setProjectItemsOrdering(defaultProjectPresentation.ordering)
-      setProjectItemsLevel(defaultProjectPresentation.itemLevel ?? null)
+      setProjectItemsLevel(defaultProjectPresentation.itemLevel)
       setProjectItemsShowChildItems(
         defaultProjectPresentation.showChildItems ?? false
       )
@@ -199,6 +201,10 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const linkedItemsLabel = `${progress.scope} linked item${
     progress.scope === 1 ? "" : "s"
   }`
+  const effectiveProjectItemsLevel =
+    projectItemsLevel === undefined
+      ? getDefaultViewItemLevelForTeamExperience(team?.settings.experience)
+      : projectItemsLevel
 
   const projectItemsView: ViewDefinition = {
     id: `project-items-${project.id}`,
@@ -207,7 +213,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     scopeType: "personal",
     scopeId: data.currentUserId,
     entityKind: "items",
-    itemLevel: projectItemsLevel ?? null,
+    itemLevel: effectiveProjectItemsLevel ?? null,
     showChildItems: projectItemsShowChildItems,
     layout: projectItemsLayout,
     filters: projectItemsFilters,
@@ -241,7 +247,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
         grouping: projectItemsView.grouping,
         subGrouping: projectItemsView.subGrouping,
         ordering: projectItemsView.ordering,
-        itemLevel: projectItemsView.itemLevel,
+        ...(effectiveProjectItemsLevel !== undefined
+          ? { itemLevel: effectiveProjectItemsLevel }
+          : {}),
         showChildItems: projectItemsView.showChildItems,
         displayProps: projectItemsView.displayProps,
         hiddenState: projectItemsView.hiddenState,
@@ -284,7 +292,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     }
 
     if ("itemLevel" in patch) {
-      setProjectItemsLevel(patch.itemLevel ?? null)
+      setProjectItemsLevel(patch.itemLevel)
     }
 
     if ("showChildItems" in patch) {

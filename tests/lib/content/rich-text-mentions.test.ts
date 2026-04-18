@@ -103,6 +103,25 @@ describe("rich text mentions", () => {
     ])
   })
 
+  it("clamps pending mention retry counts to the current content counts", () => {
+    expect(
+      filterPendingDocumentMentionsByContent(
+        [
+          {
+            userId: "user_1",
+            count: 3,
+          },
+        ],
+        '<p><span class="editor-mention" data-type="mention" data-id="user_1" data-label="alex">@alex</span></p>'
+      )
+    ).toEqual([
+      {
+        userId: "user_1",
+        count: 1,
+      },
+    ])
+  })
+
   it("summarizes pending mention counts for the send bar", () => {
     expect(
       summarizePendingDocumentMentions([

@@ -116,6 +116,7 @@ function formatConcurrentEditorLabel(viewers: DocumentPresenceViewer[]) {
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const router = useRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const item = data.workItems.find((entry) => entry.id === itemId)
   const [deletingItem, setDeletingItem] = useState(false)
   const [projectConfirmOpen, setProjectConfirmOpen] = useState(false)
@@ -156,7 +157,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     let presenceActive = window.document.visibilityState === "visible"
     let heartbeatTimeoutId: number | null = null
     const activeItemId = activePresenceItemId
-    const sessionId = getWorkItemPresenceSessionId(data.currentUserId)
+    const sessionId = getWorkItemPresenceSessionId(currentUserId)
 
     function clearHeartbeatTimeout() {
       if (heartbeatTimeoutId !== null) {
@@ -282,7 +283,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [activePresenceItemId, data.currentUserId, isEditingCurrentItem])
+  }, [activePresenceItemId, currentUserId, isEditingCurrentItem])
 
   if (!item) {
     if (deletingItem) {
@@ -348,7 +349,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         )
       : []
   const otherWorkItemEditors = workItemPresenceViewers.filter(
-    (viewer) => viewer.userId !== data.currentUserId
+    (viewer) => viewer.userId !== currentUserId
   )
   const concurrentEditorLabel = formatConcurrentEditorLabel(otherWorkItemEditors)
   const pendingMainMentionEntries = isMainEditing

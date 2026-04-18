@@ -317,7 +317,9 @@ export function CreateWorkItemDialog({
     }
 
     setCreatingLabel(true)
-    const created = await useAppStore.getState().createLabel(normalizedName)
+    const created = await useAppStore
+      .getState()
+      .createLabel(normalizedName, team?.workspaceId ?? null)
     setCreatingLabel(false)
 
     if (!created) {
