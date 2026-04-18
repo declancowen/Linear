@@ -3,7 +3,10 @@ import type { QueryCtx } from "../_generated/server"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  getDefaultShowChildItemsForItemLevel,
+  getDefaultViewItemLevelForTeamExperience,
   getTeamFeatureValidationMessage,
+  normalizeStoredViewItemLevel,
   normalizeStoredViewItemTypes,
   normalizeStoredWorkItemType,
   normalizeStoredWorkflowItemTypes,
@@ -78,7 +81,8 @@ export function normalizeUser<
 export function resolveUserStatus(
   status: string | null | undefined
 ): UserStatus {
-  return status === "active" ||
+  return status === "offline" ||
+    status === "active" ||
     status === "away" ||
     status === "busy" ||
     status === "out-of-office"
@@ -364,9 +368,12 @@ export function normalizeViewDefinition<
   T extends {
     scopeType: "personal" | "team" | "workspace"
     scopeId: string
+    entityKind?: "items" | "projects" | "docs"
     filters: {
       itemTypes: StoredWorkItemType[]
     }
+    itemLevel?: StoredWorkItemType | null
+    showChildItems?: boolean
   },
 >(
   view: T,
@@ -382,9 +389,25 @@ export function normalizeViewDefinition<
       ? (teams.find((team) => team.id === view.scopeId)?.settings?.experience ??
         "software-development")
       : null
+  const normalizedItemLevel =
+    view.entityKind === "items"
+      ? normalizeStoredViewItemLevel(
+          view.itemLevel ??
+            (view.scopeType === "team"
+              ? getDefaultViewItemLevelForTeamExperience(experience)
+              : null),
+          experience
+        )
+      : null
 
   return {
     ...view,
+    itemLevel: normalizedItemLevel,
+    showChildItems:
+      view.entityKind === "items" && normalizedItemLevel
+        ? view.showChildItems ??
+          getDefaultShowChildItemsForItemLevel(normalizedItemLevel)
+        : false,
     filters: {
       ...view.filters,
       itemTypes: normalizeStoredViewItemTypes(

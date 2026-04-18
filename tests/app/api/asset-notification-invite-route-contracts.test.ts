@@ -113,17 +113,21 @@ describe("asset, notification, invite, and document route contracts", () => {
   })
 
   it("maps attachment and label failures to typed error responses", async () => {
-    const uploadUrlRoute = await import("@/app/api/attachments/upload-url/route")
+    const uploadUrlRoute =
+      await import("@/app/api/attachments/upload-url/route")
     const createAttachmentRoute = await import("@/app/api/attachments/route")
-    const deleteAttachmentRoute = await import(
-      "@/app/api/attachments/[attachmentId]/route"
-    )
+    const deleteAttachmentRoute =
+      await import("@/app/api/attachments/[attachmentId]/route")
     const labelRoute = await import("@/app/api/labels/route")
 
     generateAttachmentUploadUrlServerMock.mockRejectedValue(
-      new ApplicationError("Attachments are only available on team documents", 400, {
-        code: "ATTACHMENT_TARGET_INVALID",
-      })
+      new ApplicationError(
+        "Attachments are only available on team documents",
+        400,
+        {
+          code: "ATTACHMENT_TARGET_INVALID",
+        }
+      )
     )
     createAttachmentServerMock.mockRejectedValue(
       new ApplicationError("Uploaded file not found", 400, {
@@ -286,9 +290,8 @@ describe("asset, notification, invite, and document route contracts", () => {
 
   it("maps notification failures to typed error responses", async () => {
     const notificationsRoute = await import("@/app/api/notifications/route")
-    const notificationRoute = await import(
-      "@/app/api/notifications/[notificationId]/route"
-    )
+    const notificationRoute =
+      await import("@/app/api/notifications/[notificationId]/route")
 
     archiveNotificationServerMock.mockRejectedValue(
       new ApplicationError("Notification not found", 404, {
@@ -384,6 +387,42 @@ describe("asset, notification, invite, and document route contracts", () => {
       error: "Docs are disabled for this team",
       message: "Docs are disabled for this team",
       code: "TEAM_DOCS_DISABLED",
+    })
+  })
+
+  it("returns the persisted document id from document creation", async () => {
+    const { POST } = await import("@/app/api/documents/route")
+
+    createDocumentServerMock.mockResolvedValue({
+      documentId: "document_new",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "document_new",
+          kind: "workspace-document",
+          workspaceId: "workspace_1",
+          title: "Launch doc",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      documentId: "document_new",
+    })
+    expect(createDocumentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      id: "document_new",
+      kind: "workspace-document",
+      workspaceId: "workspace_1",
+      title: "Launch doc",
     })
   })
 })

@@ -14,16 +14,117 @@ describe("convex work server wrappers", () => {
     mutationMock.mockReset()
   })
 
-  it("maps work-item mutation failures to typed application errors", async () => {
-    const {
-      createWorkItemServer,
-      shiftTimelineItemServer,
-      updateWorkItemServer,
-    } = await import("@/lib/server/convex/work")
+  it("maps work-item presence failures to typed application errors", async () => {
+    const { clearWorkItemPresenceServer, heartbeatWorkItemPresenceServer } =
+      await import("@/lib/server/convex/work")
+
+    mutationMock
+      .mockRejectedValueOnce(new Error("Document presence session is already in use"))
+      .mockRejectedValueOnce(new Error("You do not have access to this team"))
+      .mockRejectedValueOnce(new Error("Work item not found"))
+      .mockRejectedValueOnce(new Error("Document presence session is already in use"))
+      .mockRejectedValueOnce(new Error("Your current role is read-only"))
+      .mockRejectedValueOnce(
+        new Error(
+          "Could not find public function for 'app:heartbeatWorkItemPresence'. Did you forget to run `npx convex dev`?"
+        )
+      )
+
+    await expect(
+      heartbeatWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        workosUserId: "workos_1",
+        email: "alex@example.com",
+        name: "Alex",
+        avatarUrl: "",
+        avatarImageUrl: null,
+        sessionId: "session_1",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORK_ITEM_PRESENCE_SESSION_CONFLICT",
+    })
+
+    await expect(
+      heartbeatWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        workosUserId: "workos_1",
+        email: "alex@example.com",
+        name: "Alex",
+        avatarUrl: "",
+        avatarImageUrl: null,
+        sessionId: "session_1",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "WORK_ITEM_ACCESS_DENIED",
+    })
+
+    await expect(
+      clearWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_missing",
+        workosUserId: "workos_1",
+        sessionId: "session_1",
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "WORK_ITEM_NOT_FOUND",
+    })
+
+    await expect(
+      clearWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        workosUserId: "workos_1",
+        sessionId: "session_1",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORK_ITEM_PRESENCE_SESSION_CONFLICT",
+    })
+
+    await expect(
+      clearWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        workosUserId: "workos_1",
+        sessionId: "session_1",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "WORK_ITEM_ACCESS_DENIED",
+    })
+
+    await expect(
+      heartbeatWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        workosUserId: "workos_1",
+        email: "alex@example.com",
+        name: "Alex",
+        avatarUrl: "",
+        avatarImageUrl: null,
+        sessionId: "session_1",
+      })
+    ).rejects.toMatchObject({
+      status: 503,
+      code: "WORK_ITEM_PRESENCE_UNAVAILABLE",
+    })
+  })
+
+  it("maps core work-item mutation failures to typed application errors", async () => {
+    const { createWorkItemServer, shiftTimelineItemServer, updateWorkItemServer } =
+      await import("@/lib/server/convex/work")
 
     mutationMock
       .mockRejectedValueOnce(new Error("Parent item not found"))
       .mockRejectedValueOnce(new Error("Work item is not scheduled"))
+      .mockRejectedValueOnce(
+        new Error("Work item title must be between 2 and 96 characters")
+      )
       .mockRejectedValueOnce(
         new Error(
           "A work item type in this hierarchy is not allowed for the selected project template"
@@ -54,6 +155,19 @@ describe("convex work server wrappers", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "WORK_ITEM_SCHEDULE_MISSING",
+    })
+
+    await expect(
+      updateWorkItemServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        patch: {
+          title: "x",
+        },
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "WORK_ITEM_TITLE_INVALID",
     })
 
     await expect(

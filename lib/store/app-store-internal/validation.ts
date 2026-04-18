@@ -54,19 +54,14 @@ export function getProjectCreationValidationMessage(
   state: AppData,
   input: CreateProjectInput
 ) {
-  const settingsTeamId =
-    input.settingsTeamId ?? (input.scopeType === "team" ? input.scopeId : null)
-
-  if (!settingsTeamId) {
-    return null
+  if (input.scopeType !== "team") {
+    return "Projects must belong to a team space"
   }
 
-  const team = state.teams.find((entry) => entry.id === settingsTeamId)
+  const team = state.teams.find((entry) => entry.id === input.scopeId)
 
   if (!team) {
-    return input.scopeType === "team"
-      ? "Team not found"
-      : "Settings team not found"
+    return "Team not found"
   }
 
   if (!getTeamFeatureSettings(team).projects) {
@@ -103,6 +98,12 @@ export function getWorkItemValidationMessage(
   state: AppData,
   input: WorkItemValidationInput
 ) {
+  const normalizedTitle = input.title.trim()
+
+  if (normalizedTitle.length < 2 || normalizedTitle.length > 96) {
+    return "Work item title must be between 2 and 96 characters"
+  }
+
   const team = state.teams.find((entry) => entry.id === input.teamId)
 
   if (!team) {

@@ -1,16 +1,18 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
-import { CaretRight, SidebarSimple } from "@phosphor-icons/react"
+import { CaretRight, Plus, SidebarSimple } from "@phosphor-icons/react"
 
 import {
   canEditTeam,
   canEditWorkspace,
+  getViewByRoute,
+  getVisibleItemsForView,
   getProjectDetailModel,
   getTemplateDefaultsForTeam,
-  itemMatchesView,
 } from "@/lib/domain/selectors"
 import {
   createDefaultProjectPresentationConfig,
@@ -19,12 +21,15 @@ import {
   type OrderingField,
   type ViewDefinition,
 } from "@/lib/domain/types"
+import { createViewDefinition } from "@/lib/domain/default-views"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MissingState } from "@/components/app/screens/shared"
 import {
+  cloneViewCreateConfig,
   cloneViewFilters,
   createEmptyViewFilters,
   type ViewFilterKey,
@@ -49,7 +54,24 @@ import { cn } from "@/lib/utils"
 
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const searchParams = useSearchParams()
   const projectModel = getProjectDetailModel(data, projectId)
+  const projectRoute = projectModel?.detailHref ?? null
+  const savedProjectItemViews = useAppStore(
+    useShallow((state) => {
+      if (!projectModel || !projectRoute) {
+        return []
+      }
+
+      return state.views.filter(
+        (view) =>
+          view.entityKind === "items" &&
+          view.route === projectRoute &&
+          view.scopeType === projectModel.project.scopeType &&
+          view.scopeId === projectModel.project.scopeId
+      )
+    })
+  )
   const defaultProjectPresentation = projectModel?.project
     ? (projectModel.project.presentation ??
       createDefaultProjectPresentationConfig(
@@ -79,6 +101,11 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     useState<GroupField | null>(null)
   const [projectItemsOrdering, setProjectItemsOrdering] =
     useState<OrderingField>(() => initialProjectPresentation.ordering)
+  const [projectItemsLevel, setProjectItemsLevel] = useState<
+    ViewDefinition["itemLevel"]
+  >(() => initialProjectPresentation.itemLevel ?? null)
+  const [projectItemsShowChildItems, setProjectItemsShowChildItems] =
+    useState<boolean>(() => initialProjectPresentation.showChildItems ?? false)
   const [projectItemsFilters, setProjectItemsFilters] = useState<
     ViewDefinition["filters"]
   >(() => cloneViewFilters(initialProjectPresentation.filters))
@@ -97,12 +124,56 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       setProjectItemsGrouping(defaultProjectPresentation.grouping)
       setProjectItemsSubGrouping(null)
       setProjectItemsOrdering(defaultProjectPresentation.ordering)
+      setProjectItemsLevel(defaultProjectPresentation.itemLevel ?? null)
+      setProjectItemsShowChildItems(
+        defaultProjectPresentation.showChildItems ?? false
+      )
       setProjectItemsFilters(
         cloneViewFilters(defaultProjectPresentation.filters)
       )
       setProjectItemsDisplayProps([...defaultProjectPresentation.displayProps])
     })
   }, [defaultProjectPresentation, projectId, projectModel?.project.id])
+
+  const selectedProjectView =
+    projectRoute ? getViewByRoute(data, projectRoute) : null
+  const activeSavedProjectView = savedProjectItemViews.some(
+    (view) => view.id === selectedProjectView?.id
+  )
+    ? selectedProjectView
+    : (savedProjectItemViews[0] ?? null)
+
+  useEffect(() => {
+    if (
+      !projectRoute ||
+      (activeSavedProjectView === null && savedProjectItemViews.length === 0)
+    ) {
+      return
+    }
+
+    if (!activeSavedProjectView && savedProjectItemViews[0]) {
+      useAppStore
+        .getState()
+        .setSelectedView(projectRoute, savedProjectItemViews[0].id)
+    }
+  }, [activeSavedProjectView, projectRoute, savedProjectItemViews])
+
+  useEffect(() => {
+    if (!projectRoute) {
+      return
+    }
+
+    const requestedViewId = searchParams.get("view")
+
+    if (
+      !requestedViewId ||
+      !savedProjectItemViews.some((view) => view.id === requestedViewId)
+    ) {
+      return
+    }
+
+    useAppStore.getState().setSelectedView(projectRoute, requestedViewId)
+  }, [projectRoute, savedProjectItemViews, searchParams])
 
   if (!projectModel) {
     return <MissingState title="Project not found" />
@@ -119,6 +190,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     members,
     contextLabel,
     backHref,
+    detailHref,
   } = projectModel
   const editable =
     project.scopeType === "team"
@@ -135,6 +207,8 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     scopeType: "personal",
     scopeId: data.currentUserId,
     entityKind: "items",
+    itemLevel: projectItemsLevel ?? null,
+    showChildItems: projectItemsShowChildItems,
     layout: projectItemsLayout,
     filters: projectItemsFilters,
     grouping: projectItemsGrouping,
@@ -143,19 +217,52 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     displayProps: projectItemsDisplayProps,
     hiddenState: { groups: [], subgroups: [] },
     isShared: false,
-    route: backHref,
+    route: detailHref,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   }
-  const filteredProjectItems = items.filter((item) =>
-    itemMatchesView(data, item, projectItemsView)
+  const fallbackProjectItemsView =
+    createViewDefinition({
+      id: `fallback-project-items-${project.id}`,
+      name: "All items",
+      description: "All items linked to this project.",
+      scopeType: project.scopeType,
+      scopeId: project.scopeId,
+      entityKind: "items",
+      route: detailHref,
+      teamSlug: team?.slug,
+      experience: team?.settings.experience,
+      isShared: false,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      overrides: {
+        layout: projectItemsView.layout,
+        filters: projectItemsView.filters,
+        grouping: projectItemsView.grouping,
+        subGrouping: projectItemsView.subGrouping,
+        ordering: projectItemsView.ordering,
+        itemLevel: projectItemsView.itemLevel,
+        showChildItems: projectItemsView.showChildItems,
+        displayProps: projectItemsView.displayProps,
+        hiddenState: projectItemsView.hiddenState,
+      },
+    }) ?? projectItemsView
+  const activeProjectItemsView =
+    activeSavedProjectView ?? fallbackProjectItemsView
+  const displayedProjectItemViews =
+    savedProjectItemViews.length > 0
+      ? savedProjectItemViews
+      : [fallbackProjectItemsView]
+  const visibleProjectItems = getVisibleItemsForView(
+    data,
+    items,
+    activeProjectItemsView
   )
-  const visibleProjectItems =
-    projectItemsView.layout === "timeline"
-      ? filteredProjectItems.filter((item) => item.parentId === null)
-      : filteredProjectItems
   const emptyProjectItemsLabel =
-    projectItemsView.layout === "timeline" && filteredProjectItems.length > 0
+    activeProjectItemsView.layout === "timeline" &&
+    !activeProjectItemsView.itemLevel &&
+    visibleProjectItems.length === 0 &&
+    items.length > 0
       ? "Timeline only shows top-level items."
       : "No items match the current filters."
 
@@ -174,6 +281,14 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 
     if (patch.ordering) {
       setProjectItemsOrdering(patch.ordering)
+    }
+
+    if ("itemLevel" in patch) {
+      setProjectItemsLevel(patch.itemLevel ?? null)
+    }
+
+    if ("showChildItems" in patch) {
+      setProjectItemsShowChildItems(Boolean(patch.showChildItems))
     }
 
     if (patch.showCompleted !== undefined) {
@@ -285,16 +400,75 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                     projectTab !== "issues" && "pointer-events-none invisible"
                   )}
                 >
+                  {displayedProjectItemViews.length > 0 ? (
+                    <div className="mr-1 flex items-center gap-1">
+                      {displayedProjectItemViews.map((view) => (
+                        <button
+                          key={view.id}
+                          className={cn(
+                            "h-6 rounded-sm px-2 text-xs transition-colors",
+                            view.id === activeProjectItemsView.id
+                              ? "bg-accent font-medium"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() =>
+                            projectRoute &&
+                            savedProjectItemViews.some(
+                              (savedView) => savedView.id === view.id
+                            )
+                              ? useAppStore
+                                  .getState()
+                                  .setSelectedView(projectRoute, view.id)
+                              : undefined
+                          }
+                        >
+                          {view.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {editable ? (
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() =>
+                        openManagedCreateDialog({
+                          kind: "view",
+                          defaultScopeType: project.scopeType,
+                          defaultScopeId: project.scopeId,
+                          defaultEntityKind: "items",
+                          defaultRoute: detailHref,
+                          lockScope: true,
+                          lockEntityKind: true,
+                          initialConfig: cloneViewCreateConfig(
+                            activeProjectItemsView
+                          ),
+                        })
+                      }
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  ) : null}
                   <FilterPopover
-                    view={projectItemsView}
+                    view={activeProjectItemsView}
                     items={items}
-                    onToggleFilterValue={toggleProjectItemsFilter}
-                    onClearFilters={clearProjectItemsFilters}
+                    onToggleFilterValue={
+                      activeSavedProjectView ? undefined : toggleProjectItemsFilter
+                    }
+                    onClearFilters={
+                      activeSavedProjectView ? undefined : clearProjectItemsFilters
+                    }
                   />
                   <ViewConfigPopover
-                    view={projectItemsView}
-                    onUpdateView={updateProjectItemsView}
-                    onToggleDisplayProperty={toggleProjectItemsDisplayProperty}
+                    view={activeProjectItemsView}
+                    onUpdateView={
+                      activeSavedProjectView ? undefined : updateProjectItemsView
+                    }
+                    onToggleDisplayProperty={
+                      activeSavedProjectView
+                        ? undefined
+                        : toggleProjectItemsDisplayProperty
+                    }
                   />
                 </div>
               </div>
@@ -316,27 +490,27 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                   </div>
                 ) : visibleProjectItems.length > 0 ? (
                   <div className="overflow-hidden rounded-lg border bg-card">
-                    {projectItemsView.layout === "board" ? (
+                    {activeProjectItemsView.layout === "board" ? (
                       <BoardView
                         data={data}
                         items={visibleProjectItems}
-                        view={projectItemsView}
+                        view={activeProjectItemsView}
                         editable={editable}
                       />
                     ) : null}
-                    {projectItemsView.layout === "list" ? (
+                    {activeProjectItemsView.layout === "list" ? (
                       <ListView
                         data={data}
                         items={visibleProjectItems}
-                        view={projectItemsView}
+                        view={activeProjectItemsView}
                         editable={editable}
                       />
                     ) : null}
-                    {projectItemsView.layout === "timeline" ? (
+                    {activeProjectItemsView.layout === "timeline" ? (
                       <TimelineView
                         data={data}
                         items={visibleProjectItems}
-                        view={projectItemsView}
+                        view={activeProjectItemsView}
                         editable={editable}
                       />
                     ) : null}

@@ -5,7 +5,12 @@ import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import { Circle, Smiley } from "@phosphor-icons/react"
 
-import { getCommentsForTarget, getTeam, getUser } from "@/lib/domain/selectors"
+import {
+  getCommentsForTarget,
+  getStatusOrderForTeam,
+  getTeam,
+  getUser,
+} from "@/lib/domain/selectors"
 import {
   getAllowedChildWorkItemTypesForItem,
   getAllowedWorkItemTypesForTemplate,
@@ -14,12 +19,15 @@ import {
   getDisplayLabelForWorkItemType,
   getPreferredWorkItemTypeForTeamExperience,
   priorityMeta,
+  statusMeta,
   type AppData,
   type Priority,
   type WorkItem,
   type WorkItemType,
+  type WorkStatus,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { UserAvatar } from "@/components/app/user-presence"
 import {
   EmojiPickerPopover,
   insertEmojiIntoTextarea,
@@ -58,6 +66,30 @@ export function WorkItemTypeBadge({
     >
       {getDisplayLabelForWorkItemType(item.type, team?.settings.experience)}
     </Badge>
+  )
+}
+
+export function WorkItemAssigneeAvatar({
+  user,
+  className,
+}: {
+  user: AppData["users"][number] | null | undefined
+  className?: string
+}) {
+  if (!user) {
+    return null
+  }
+
+  return (
+    <UserAvatar
+      name={user.name}
+      avatarImageUrl={user.avatarImageUrl}
+      avatarUrl={user.avatarUrl}
+      status={user.status}
+      showStatus={false}
+      size="sm"
+      className={cn("size-5", className)}
+    />
   )
 }
 
@@ -382,6 +414,7 @@ export function InlineChildIssueComposer({
     parentItem.type,
     team?.settings.experience
   )
+  const teamStatuses = getStatusOrderForTeam(team)
   const [type, setType] = useState<WorkItemType>(
     getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
       parent: true,
@@ -389,6 +422,9 @@ export function InlineChildIssueComposer({
   )
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [status, setStatus] = useState<WorkStatus>(
+    teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
+  )
   const [priority, setPriority] = useState<Priority>("medium")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const projectId = parentItem.primaryProjectId ?? "none"
@@ -411,6 +447,14 @@ export function InlineChildIssueComposer({
   const selectedType = availableItemTypes.includes(type)
     ? type
     : (availableItemTypes[0] ?? fallbackType)
+  const selectedTypeLabel = getDisplayLabelForWorkItemType(
+    selectedType,
+    team?.settings.experience
+  )
+  const selectedAssignee =
+    assigneeId === "none"
+      ? null
+      : (teamMembers.find((user) => user.id === assigneeId) ?? null)
   const normalizedTitle = title.trim()
   const canCreate =
     !disabled && normalizedTitle.length >= 2 && availableItemTypes.length > 0
@@ -421,6 +465,7 @@ export function InlineChildIssueComposer({
       type: selectedType,
       title: normalizedTitle,
       priority,
+      status,
       parentId: parentItem.id,
       assigneeId: assigneeId === "none" ? null : assigneeId,
       primaryProjectId: projectId === "none" ? null : projectId,
@@ -443,7 +488,7 @@ export function InlineChildIssueComposer({
   }
 
   return (
-    <div className="bg-background">
+    <div className="rounded-b-lg bg-background">
       <div className="flex gap-3 px-3 py-3">
         <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
@@ -451,7 +496,7 @@ export function InlineChildIssueComposer({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={childCopy.titlePlaceholder}
-            className="h-auto border-none px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            className="h-auto border-none bg-transparent px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
           />
           <Textarea
@@ -459,27 +504,51 @@ export function InlineChildIssueComposer({
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Add description..."
             rows={1}
-            className="mt-1 min-h-0 resize-none border-none px-0 py-0 text-xs text-muted-foreground shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            className="mt-1 min-h-0 resize-none border-none bg-transparent px-0 py-0 text-xs text-muted-foreground shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0 dark:bg-transparent"
           />
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2">
+        {availableItemTypes.length > 1 ? (
+          <Select
+            value={selectedType}
+            onValueChange={(value) => setType(value as WorkItemType)}
+          >
+            <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {availableItemTypes.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {getDisplayLabelForWorkItemType(
+                      value,
+                      team?.settings.experience
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : availableItemTypes.length === 1 ? (
+          <div className="inline-flex h-7 items-center rounded-full border border-border/50 bg-muted/30 px-2.5 text-[11px] text-foreground">
+            {selectedTypeLabel}
+          </div>
+        ) : null}
+
         <Select
-          value={selectedType}
-          onValueChange={(value) => setType(value as WorkItemType)}
+          value={status}
+          onValueChange={(value) => setStatus(value as WorkStatus)}
         >
           <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              {availableItemTypes.map((value) => (
+              {teamStatuses.map((value) => (
                 <SelectItem key={value} value={value}>
-                  {getDisplayLabelForWorkItemType(
-                    value,
-                    team?.settings.experience
-                  )}
+                  {statusMeta[value].label}
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -506,14 +575,24 @@ export function InlineChildIssueComposer({
 
         <Select value={assigneeId} onValueChange={setAssigneeId}>
           <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
-            <SelectValue />
+            {selectedAssignee ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <WorkItemAssigneeAvatar user={selectedAssignee} className="size-4" />
+                <span className="truncate">{selectedAssignee.name}</span>
+              </span>
+            ) : (
+              <SelectValue />
+            )}
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
               <SelectItem value="none">Unassigned</SelectItem>
               {teamMembers.map((user) => (
                 <SelectItem key={user.id} value={user.id}>
-                  {user.name}
+                  <span className="flex items-center gap-2">
+                    <WorkItemAssigneeAvatar user={user} />
+                    <span className="truncate">{user.name}</span>
+                  </span>
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -541,11 +620,7 @@ export function InlineChildIssueComposer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
-            Create{" "}
-            {getDisplayLabelForWorkItemType(
-              selectedType,
-              team?.settings.experience
-            ).toLowerCase()}
+            Create {selectedTypeLabel.toLowerCase()}
           </Button>
         </div>
       </div>

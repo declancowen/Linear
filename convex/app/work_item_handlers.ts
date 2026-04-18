@@ -2,15 +2,24 @@ import { addDays, differenceInCalendarDays } from "date-fns"
 
 import type { MutationCtx } from "../_generated/server"
 
-import { buildAssignmentEmailJobs } from "../../lib/email/builders"
+import {
+  buildAssignmentEmailJobs,
+  type AssignmentEmail,
+} from "../../lib/email/builders"
+import {
+  buildWorkItemAssignmentNotificationMessage,
+  buildWorkItemStatusChangeNotificationMessage,
+} from "../../lib/domain/notification-copy"
 import {
   getAllowedWorkItemTypesForTemplate,
   getWorkSurfaceCopy,
   normalizeStoredWorkItemType,
+  statusMeta,
   type StoredWorkItemType,
   type WorkItemType,
 } from "../../lib/domain/types"
 import { createNotification } from "./collaboration_utils"
+import { getClampedNotifiedMentionCounts } from "./document_handlers"
 import { assertServerToken, createId, getNow, toTeamKeyPrefix } from "./core"
 import {
   getDocumentDoc,
@@ -25,7 +34,7 @@ import {
   listTeamDocuments,
   listWorkspaceDocuments,
 } from "./data"
-import { normalizeTeam } from "./normalization"
+import { listDocumentPresenceViewers, normalizeTeam } from "./normalization"
 import {
   assertWorkspaceLabelIds,
   collectWorkItemCascadeIds,
@@ -41,6 +50,9 @@ type ServerAccessArgs = {
 }
 
 type WorkItemPatch = {
+  title?: string
+  description?: string
+  expectedUpdatedAt?: string
   status?:
     | "backlog"
     | "todo"
@@ -68,6 +80,24 @@ type UpdateWorkItemArgs = ServerAccessArgs & {
 type DeleteWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
   itemId: string
+}
+
+type WorkItemPresenceArgs = ServerAccessArgs & {
+  currentUserId: string
+  itemId: string
+  workosUserId: string
+  email: string
+  name: string
+  avatarUrl: string
+  avatarImageUrl?: string | null
+  sessionId: string
+}
+
+type ClearWorkItemPresenceArgs = ServerAccessArgs & {
+  currentUserId: string
+  itemId: string
+  workosUserId: string
+  sessionId: string
 }
 
 type ShiftTimelineItemArgs = ServerAccessArgs & {
@@ -122,6 +152,19 @@ export async function updateWorkItemHandler(
       parentId: existing.parentId,
     }
   )
+
+  if (
+    args.patch.expectedUpdatedAt &&
+    existing.updatedAt !== args.patch.expectedUpdatedAt
+  ) {
+    throw new Error("Work item changed while you were editing")
+  }
+
+  const nextTitle = args.patch.title?.trim() || existing.title
+
+  if (nextTitle.length < 2 || nextTitle.length > 96) {
+    throw new Error("Work item title must be between 2 and 96 characters")
+  }
 
   const parent = await validateWorkItemParent(ctx, {
     teamId: existing.teamId,
@@ -207,21 +250,39 @@ export async function updateWorkItemHandler(
   }
 
   const actor = await getUserDoc(ctx, args.currentUserId)
-  const assignmentEmails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    itemTitle: string
-    itemId: string
-    actorName: string
-  }> = []
+  const assignmentEmails: AssignmentEmail[] = []
   const now = getNow()
+  const { description: nextDescription, ...persistedPatch } = args.patch
+
+  delete persistedPatch.expectedUpdatedAt
 
   await ctx.db.patch(existing._id, {
-    ...args.patch,
+    ...persistedPatch,
+    title: nextTitle,
     primaryProjectId: resolvedPrimaryProjectId,
     updatedAt: now,
   })
+
+  if (args.patch.title !== undefined || nextDescription !== undefined) {
+    const descriptionDocument = await getDocumentDoc(ctx, existing.descriptionDocId)
+
+    if (descriptionDocument) {
+      await ctx.db.patch(descriptionDocument._id, {
+        ...(nextDescription !== undefined
+          ? {
+              content: nextDescription,
+              notifiedMentionCounts: getClampedNotifiedMentionCounts(
+                nextDescription,
+                descriptionDocument.notifiedMentionCounts
+              ),
+            }
+          : {}),
+        title: `${nextTitle} description`,
+        updatedAt: now,
+        updatedBy: args.currentUserId,
+      })
+    }
+  }
 
   if (shouldCascadeProjectLink) {
     for (const item of teamItems) {
@@ -261,14 +322,17 @@ export async function updateWorkItemHandler(
   if (
     args.patch.assigneeId !== undefined &&
     args.patch.assigneeId &&
-    args.patch.assigneeId !== existing.assigneeId &&
-    args.patch.assigneeId !== args.currentUserId
+    args.patch.assigneeId !== existing.assigneeId
   ) {
     const assignee = await getUserDoc(ctx, args.patch.assigneeId)
     const notification = createNotification(
       args.patch.assigneeId,
       args.currentUserId,
-      `${actor?.name ?? "Someone"} assigned you ${existing.title}`,
+      buildWorkItemAssignmentNotificationMessage(
+        actor?.name ?? "Someone",
+        nextTitle,
+        team.name
+      ),
       "workItem",
       existing.id,
       "assignment"
@@ -281,24 +345,33 @@ export async function updateWorkItemHandler(
         notificationId: notification.id,
         email: assignee.email,
         name: assignee.name,
-        itemTitle: existing.title,
+        itemTitle: nextTitle,
         itemId: existing.id,
         actorName: actor?.name ?? "Someone",
+        teamName: team.name,
       })
     }
   }
 
+  const resolvedAssigneeId =
+    args.patch.assigneeId === undefined ? existing.assigneeId : args.patch.assigneeId
+
   if (
     args.patch.status &&
     args.patch.status !== existing.status &&
-    existing.creatorId !== args.currentUserId
+    resolvedAssigneeId
   ) {
     await ctx.db.insert(
       "notifications",
       createNotification(
-        existing.creatorId,
+        resolvedAssigneeId,
         args.currentUserId,
-        `${existing.title} moved to ${args.patch.status}`,
+        buildWorkItemStatusChangeNotificationMessage(
+          actor?.name ?? "Someone",
+          nextTitle,
+          statusMeta[args.patch.status].label,
+          team.name
+        ),
         "workItem",
         existing.id,
         "status-change"
@@ -317,6 +390,135 @@ export async function updateWorkItemHandler(
   return {
     assignmentEmails,
   }
+}
+
+export async function heartbeatWorkItemPresenceHandler(
+  ctx: MutationCtx,
+  args: WorkItemPresenceArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const item = await getWorkItemDoc(ctx, args.itemId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+
+  const existingPresenceEntries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+    .collect()
+  const currentTime = getNow()
+  const existingPresence = [...existingPresenceEntries]
+    .filter(
+      (entry) =>
+        entry.workosUserId === args.workosUserId ||
+        (!entry.workosUserId && entry.userId === args.currentUserId)
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+    )[0]
+
+  const conflictingPresenceEntries = existingPresenceEntries.filter((entry) =>
+    entry.workosUserId
+      ? entry.workosUserId !== args.workosUserId
+      : entry.userId !== args.currentUserId
+  )
+
+  if (conflictingPresenceEntries.length > 0) {
+    throw new Error("Document presence session is already in use")
+  }
+
+  if (existingPresence) {
+    await ctx.db.patch(existingPresence._id, {
+      avatarUrl: args.avatarUrl,
+      avatarImageUrl: args.avatarImageUrl ?? null,
+      documentId: item.descriptionDocId,
+      email: args.email,
+      lastSeenAt: currentTime,
+      name: args.name,
+      userId: args.currentUserId,
+      workosUserId: args.workosUserId,
+    })
+
+    for (const duplicateEntry of existingPresenceEntries) {
+      if (
+        duplicateEntry._id !== existingPresence._id &&
+        (duplicateEntry.workosUserId
+          ? duplicateEntry.workosUserId === args.workosUserId
+          : duplicateEntry.userId === args.currentUserId)
+      ) {
+        await ctx.db.delete(duplicateEntry._id)
+      }
+    }
+  } else {
+    await ctx.db.insert("documentPresence", {
+      avatarUrl: args.avatarUrl,
+      avatarImageUrl: args.avatarImageUrl ?? null,
+      documentId: item.descriptionDocId,
+      userId: args.currentUserId,
+      email: args.email,
+      name: args.name,
+      sessionId: args.sessionId,
+      createdAt: currentTime,
+      lastSeenAt: currentTime,
+      workosUserId: args.workosUserId,
+    })
+  }
+
+  return listDocumentPresenceViewers(
+    ctx,
+    item.descriptionDocId,
+    args.currentUserId,
+    args.workosUserId
+  )
+}
+
+export async function clearWorkItemPresenceHandler(
+  ctx: MutationCtx,
+  args: ClearWorkItemPresenceArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const item = await getWorkItemDoc(ctx, args.itemId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+
+  const existingPresenceEntries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+    .collect()
+
+  if (existingPresenceEntries.length === 0) {
+    return { ok: true }
+  }
+
+  const conflictingPresenceEntries = existingPresenceEntries.filter((entry) =>
+    entry.workosUserId
+      ? entry.workosUserId !== args.workosUserId
+      : entry.userId !== args.currentUserId
+  )
+
+  if (conflictingPresenceEntries.length > 0) {
+    throw new Error("Document presence session is already in use")
+  }
+
+  for (const existingPresence of existingPresenceEntries) {
+    if (existingPresence.documentId !== item.descriptionDocId) {
+      continue
+    }
+
+    await ctx.db.delete(existingPresence._id)
+  }
+
+  return { ok: true }
 }
 
 export async function deleteWorkItemHandler(
@@ -611,22 +813,19 @@ export async function createWorkItemHandler(
 
   await ctx.db.insert("workItems", workItem)
 
-  const assignmentEmails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    itemTitle: string
-    itemId: string
-    actorName: string
-  }> = []
+  const assignmentEmails: AssignmentEmail[] = []
 
-  if (args.assigneeId && args.assigneeId !== args.currentUserId) {
+  if (args.assigneeId) {
     const actor = await getUserDoc(ctx, args.currentUserId)
     const assignee = await getUserDoc(ctx, args.assigneeId)
     const notification = createNotification(
       args.assigneeId,
       args.currentUserId,
-      `${actor?.name ?? "Someone"} assigned you ${args.title}`,
+      buildWorkItemAssignmentNotificationMessage(
+        actor?.name ?? "Someone",
+        args.title,
+        team.name
+      ),
       "workItem",
       workItem.id,
       "assignment"
@@ -642,6 +841,7 @@ export async function createWorkItemHandler(
         itemTitle: args.title,
         itemId: workItem.id,
         actorName: actor?.name ?? "Someone",
+        teamName: team.name,
       })
     }
   }

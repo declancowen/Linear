@@ -14,7 +14,7 @@ export const defaultUserPreferences = {
   emailDigest: true,
   theme: "light" as const,
 }
-export const defaultUserStatus = "active" as const
+export const defaultUserStatus = "offline" as const
 export const defaultUserStatusMessage = ""
 
 const labelColors = [

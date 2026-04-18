@@ -54,6 +54,7 @@ describe("send-notification-digests worker", () => {
           },
         },
         resendFromEmail: "noreply@example.com",
+        resendFromName: undefined,
         markNotificationsEmailed: markNotificationsEmailedMock,
         releaseNotificationDigestClaim: releaseNotificationDigestClaimMock,
       })
@@ -121,6 +122,7 @@ describe("send-notification-digests worker", () => {
           },
         },
         resendFromEmail: "noreply@example.com",
+        resendFromName: undefined,
         markNotificationsEmailed: markNotificationsEmailedMock,
         releaseNotificationDigestClaim: releaseNotificationDigestClaimMock,
       })
@@ -129,7 +131,7 @@ describe("send-notification-digests worker", () => {
     expect(sendMock).toHaveBeenCalledTimes(1)
     expect(sendMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        from: "noreply@example.com <noreply@example.com>",
+        from: "noreply@example.com",
       }),
       expect.any(Object)
     )
@@ -180,6 +182,7 @@ describe("send-notification-digests worker", () => {
           },
         },
         resendFromEmail: "noreply@example.com",
+        resendFromName: undefined,
         markNotificationsEmailed: markNotificationsEmailedMock,
         releaseNotificationDigestClaim: releaseNotificationDigestClaimMock,
       })
@@ -190,5 +193,52 @@ describe("send-notification-digests worker", () => {
       claimId: "claim_1",
       notificationIds: ["notification_1"],
     })
+  })
+
+  it("formats digest sends with an optional display name", async () => {
+    const { processNotificationDigestsBatch } = await import(
+      "../../scripts/send-notification-digests.mjs"
+    )
+
+    const sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } })
+
+    await processNotificationDigestsBatch({
+      digests: [
+        {
+          user: {
+            id: "user_1",
+            email: "alex@example.com",
+            name: "Alex",
+          },
+          notifications: [
+            {
+              id: "notification_1",
+              entityType: "workItem",
+              entityId: "item_1",
+              message: "One",
+              createdAt: "2026-04-17T10:00:00.000Z",
+            },
+          ],
+        },
+      ],
+      dryRun: false,
+      claimId: "claim_1",
+      resend: {
+        emails: {
+          send: sendMock,
+        },
+      },
+      resendFromEmail: "noreply@example.com",
+      resendFromName: "Recipe Room",
+      markNotificationsEmailed: vi.fn().mockResolvedValue(undefined),
+      releaseNotificationDigestClaim: vi.fn().mockResolvedValue(undefined),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "Recipe Room <noreply@example.com>",
+      }),
+      expect.any(Object)
+    )
   })
 })

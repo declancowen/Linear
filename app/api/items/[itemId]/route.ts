@@ -18,6 +18,9 @@ import {
 
 const workItemPatchSchema = z
   .object({
+    title: z.string().trim().min(2).max(96).optional(),
+    description: z.string().min(1).optional(),
+    expectedUpdatedAt: z.string().datetime().optional(),
     status: z
       .enum([
         "backlog",

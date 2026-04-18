@@ -408,7 +408,7 @@ export async function updateCurrentUserProfileServer(input: {
   avatarImageStorageId?: string
   clearAvatarImage?: boolean
   clearStatus?: boolean
-  status?: "active" | "away" | "busy" | "out-of-office"
+  status?: "offline" | "active" | "away" | "busy" | "out-of-office"
   statusMessage?: string
   preferences: {
     emailMentions: boolean

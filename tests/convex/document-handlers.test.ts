@@ -167,9 +167,8 @@ describe("document mention notifications", () => {
   })
 
   it("allows sending a pending count that is backed by persisted mentions", async () => {
-    const { sendDocumentMentionNotificationsHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { sendDocumentMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     const result = await sendDocumentMentionNotificationsHandler(ctx as never, {
@@ -220,9 +219,8 @@ describe("document mention notifications", () => {
   })
 
   it("rejects recipients who are not present in persisted document mentions", async () => {
-    const { sendDocumentMentionNotificationsHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { sendDocumentMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -238,16 +236,17 @@ describe("document mention notifications", () => {
           },
         ],
       })
-    ).rejects.toThrow("One or more mentioned users are not present in the document")
+    ).rejects.toThrow(
+      "One or more mentioned users are not present in the document"
+    )
 
     expect(ctx.db.insert).not.toHaveBeenCalled()
     expect(queueEmailJobsMock).not.toHaveBeenCalled()
   })
 
   it("rejects counts that exceed persisted document mentions", async () => {
-    const { sendDocumentMentionNotificationsHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { sendDocumentMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -263,16 +262,17 @@ describe("document mention notifications", () => {
           },
         ],
       })
-    ).rejects.toThrow("One or more mentioned users are not present in the document")
+    ).rejects.toThrow(
+      "One or more mentioned users are not present in the document"
+    )
 
     expect(ctx.db.insert).not.toHaveBeenCalled()
     expect(queueEmailJobsMock).not.toHaveBeenCalled()
   })
 
   it("blocks replaying the same mention batch after the remaining unsent count is exhausted", async () => {
-    const { sendDocumentMentionNotificationsHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { sendDocumentMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
     documentRecord = {
       ...documentRecord,
@@ -322,9 +322,8 @@ describe("document mention notifications", () => {
   })
 
   it("clamps notified mention counts when content updates remove sent mentions", async () => {
-    const { updateDocumentContentHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { updateDocumentContentHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
     documentRecord = {
       ...documentRecord,
@@ -345,6 +344,95 @@ describe("document mention notifications", () => {
       notifiedMentionCounts: {},
       updatedAt: "2026-04-17T20:24:45.000Z",
       updatedBy: "user_1",
+    })
+  })
+
+  it("sends work-item self-mentions through notifications and email jobs", async () => {
+    const { sendItemDescriptionMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
+    const access = await import("@/convex/app/access")
+    const data = await import("@/convex/app/data")
+    const normalization = await import("@/convex/app/normalization")
+    const ctx = createCtx()
+
+    documentRecord = {
+      _id: "item_description_db",
+      id: "document_1",
+      kind: "item-description",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      title: "Test description",
+      content:
+        '<p><span class="editor-mention" data-type="mention" data-id="user_1">@alex</span></p>',
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    }
+
+    vi.mocked(access.requireEditableTeamAccess).mockResolvedValue(undefined)
+    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      title: "Test item",
+      descriptionDocId: "document_1",
+    } as never)
+    vi.mocked(data.getTeamDoc).mockResolvedValue({
+      _id: "team_1_db",
+      id: "team_1",
+      name: "Ops",
+    } as never)
+    vi.mocked(normalization.normalizeTeam).mockReturnValue({
+      name: "Ops",
+    } as never)
+    getTeamMemberIdsMock.mockResolvedValue(["user_1", "user_2"])
+
+    const result = await sendItemDescriptionMentionNotificationsHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        itemId: "item_1",
+        mentions: [
+          {
+            userId: "user_1",
+            count: 1,
+          },
+        ],
+      }
+    )
+
+    expect(result).toEqual({
+      recipientCount: 1,
+      mentionCount: 1,
+    })
+    expect(createNotificationMock).toHaveBeenCalledWith(
+      "user_1",
+      "user_1",
+      'Alex mentioned you in the description of "Test item" in Ops',
+      "workItem",
+      "item_1",
+      "mention"
+    )
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "notifications",
+      expect.objectContaining({
+        userId: "user_1",
+        actorId: "user_1",
+      })
+    )
+    expect(queueEmailJobsMock).toHaveBeenCalledWith(
+      ctx,
+      expect.arrayContaining([
+        expect.objectContaining({
+          email: "alex@example.com",
+          entityId: "item_1",
+          mentionCount: 1,
+        }),
+      ])
+    )
+    expect(documentRecord.notifiedMentionCounts).toEqual({
+      user_1: 1,
     })
   })
 })
@@ -378,9 +466,8 @@ describe("document presence handlers", () => {
   })
 
   it("inserts document presence for a new session and returns other active viewers", async () => {
-    const { heartbeatDocumentPresenceHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { heartbeatDocumentPresenceHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
     ctx.db.query.mockReturnValue({
       withIndex: vi.fn(() => ({
@@ -440,9 +527,8 @@ describe("document presence handlers", () => {
   })
 
   it("updates an existing session entry, removes duplicates, and moves presence to the latest document", async () => {
-    const { heartbeatDocumentPresenceHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { heartbeatDocumentPresenceHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
     ctx.db.query.mockReturnValue({
       withIndex: vi.fn(() => ({
@@ -494,9 +580,8 @@ describe("document presence handlers", () => {
   })
 
   it("clears presence only for the requested document when a session spans multiple documents", async () => {
-    const { clearDocumentPresenceHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { clearDocumentPresenceHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
     ctx.db.query.mockReturnValue({
       withIndex: vi.fn(() => ({
@@ -532,5 +617,46 @@ describe("document presence handlers", () => {
     expect(result).toEqual({
       ok: true,
     })
+  })
+
+  it("reuses a caller-provided id when creating documents", async () => {
+    const { createDocumentHandler } =
+      await import("@/convex/app/document_handlers")
+    const core = await import("@/convex/app/core")
+    const access = await import("@/convex/app/access")
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    vi.mocked(core.createId).mockReturnValue("document_generated")
+    vi.mocked(access.requireEditableWorkspaceAccess).mockResolvedValue(
+      undefined
+    )
+    vi.mocked(data.getTeamDoc).mockResolvedValue(null)
+
+    const result = await createDocumentHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      id: "document_custom",
+      kind: "workspace-document",
+      workspaceId: "workspace_1",
+      title: "Launch doc",
+    })
+
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "documents",
+      expect.objectContaining({
+        id: "document_custom",
+        workspaceId: "workspace_1",
+        title: "Launch doc",
+      })
+    )
+    expect(core.createId).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      documentId: "document_custom",
+    })
+
+    vi.mocked(access.requireEditableWorkspaceAccess).mockReset()
+    vi.mocked(data.getTeamDoc).mockReset()
+    vi.mocked(core.createId).mockReset()
   })
 })

@@ -3,6 +3,7 @@
 import { toast } from "sonner"
 
 import { fetchSnapshot } from "@/lib/convex/client"
+import { RouteMutationError } from "@/lib/convex/client/shared"
 
 import type { AppStoreGet, RichTextSyncTask } from "./types"
 
@@ -64,7 +65,20 @@ export function createStoreRuntime(get: AppStoreGet) {
     try {
       await task()
     } catch (error) {
+      if (
+        error instanceof RouteMutationError &&
+        (error.code === "WORK_ITEM_NOT_FOUND" ||
+          error.code === "DOCUMENT_NOT_FOUND")
+      ) {
+        void refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile store state after benign rich text sync failure",
+            refreshError
+          )
+        })
+      } else {
       await handleSyncFailure(error, entry.fallbackMessage)
+      }
     } finally {
       entry.inFlight = false
 

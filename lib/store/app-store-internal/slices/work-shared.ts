@@ -14,6 +14,7 @@ export type WorkSlice = Pick<
   | "renameDocument"
   | "deleteDocument"
   | "updateItemDescription"
+  | "saveWorkItemMainSection"
   | "uploadAttachment"
   | "deleteAttachment"
   | "addComment"

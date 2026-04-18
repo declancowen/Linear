@@ -2,6 +2,7 @@
 
 import { toast } from "sonner"
 
+import { RouteMutationError } from "@/lib/convex/client/shared"
 import {
   syncCreateAttachment,
   syncCreateDocument,
@@ -10,6 +11,7 @@ import {
   syncGenerateAttachmentUploadUrl,
   syncUpdateDocument,
   syncUpdateItemDescription,
+  syncUpdateWorkItem,
 } from "@/lib/convex/client"
 import { documentSchema } from "@/lib/domain/types"
 
@@ -24,6 +26,7 @@ import {
   canEditWorkspaceDocuments,
   effectiveRole,
   getDocumentCreationValidationMessage,
+  getWorkItemValidationMessage,
 } from "../validation"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
 
@@ -38,6 +41,7 @@ export function createWorkDocumentActions({
   | "renameDocument"
   | "deleteDocument"
   | "updateItemDescription"
+  | "saveWorkItemMainSection"
   | "uploadAttachment"
   | "deleteAttachment"
   | "createDocument"
@@ -65,7 +69,9 @@ export function createWorkDocumentActions({
         `document:${documentId}`,
         () => {
           const state = get()
-          const document = state.documents.find((entry) => entry.id === documentId)
+          const document = state.documents.find(
+            (entry) => entry.id === documentId
+          )
 
           if (!document || document.kind === "item-description") {
             return null
@@ -92,7 +98,10 @@ export function createWorkDocumentActions({
             ? {
                 ...document,
                 title: normalizedTitle,
-                content: replaceDocumentHeading(document.content, normalizedTitle),
+                content: replaceDocumentHeading(
+                  document.content,
+                  normalizedTitle
+                ),
                 updatedAt,
                 updatedBy: state.currentUserId,
               }
@@ -104,7 +113,9 @@ export function createWorkDocumentActions({
         `document:${documentId}`,
         () => {
           const state = get()
-          const document = state.documents.find((entry) => entry.id === documentId)
+          const document = state.documents.find(
+            (entry) => entry.id === documentId
+          )
 
           if (!document || document.kind === "item-description") {
             return null
@@ -131,10 +142,15 @@ export function createWorkDocumentActions({
         )
 
         return {
-          documents: state.documents.filter((document) => document.id !== documentId),
+          documents: state.documents.filter(
+            (document) => document.id !== documentId
+          ),
           comments: state.comments.filter(
             (comment) =>
-              !(comment.targetType === "document" && comment.targetId === documentId)
+              !(
+                comment.targetType === "document" &&
+                comment.targetId === documentId
+              )
           ),
           attachments: state.attachments.filter(
             (attachment) =>
@@ -227,6 +243,108 @@ export function createWorkDocumentActions({
         "Failed to update description"
       )
     },
+    async saveWorkItemMainSection(input) {
+      const state = get()
+      const item = state.workItems.find((entry) => entry.id === input.itemId)
+
+      if (!item) {
+        toast.error("Work item not found")
+        return false
+      }
+
+      const role = effectiveRole(state, item.teamId)
+
+      if (role === "viewer" || role === "guest" || !role) {
+        toast.error("Your current role is read-only")
+        return false
+      }
+
+      const normalizedTitle = input.title.trim()
+      const validationMessage = getWorkItemValidationMessage(state, {
+        teamId: item.teamId,
+        type: item.type,
+        title: normalizedTitle,
+        priority: item.priority,
+        assigneeId: item.assigneeId,
+        parentId: item.parentId,
+        primaryProjectId: item.primaryProjectId,
+        labelIds: item.labelIds,
+        currentItemId: item.id,
+      })
+
+      if (validationMessage) {
+        toast.error(validationMessage)
+        return false
+      }
+
+      const descriptionDocument = state.documents.find(
+        (document) => document.id === item.descriptionDocId
+      )
+
+      if (!descriptionDocument) {
+        toast.error("Work item description document not found")
+        return false
+      }
+
+      const titleChanged = normalizedTitle !== item.title
+      const descriptionChanged =
+        input.description !== descriptionDocument.content
+
+      if (!titleChanged && !descriptionChanged) {
+        return true
+      }
+
+      if (item.updatedAt !== input.expectedUpdatedAt) {
+        toast.error(
+          "This work item changed while you were editing. Review the latest version and try again."
+        )
+        return false
+      }
+
+      const updatedAt = getNow()
+
+      set((current) => ({
+        documents: current.documents.map((document) =>
+          document.id === item.descriptionDocId
+            ? {
+                ...document,
+                content: input.description,
+                title: `${normalizedTitle} description`,
+                updatedAt,
+                updatedBy: current.currentUserId,
+              }
+            : document
+        ),
+        workItems: current.workItems.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                title: normalizedTitle,
+                updatedAt,
+              }
+            : entry
+        ),
+      }))
+
+      try {
+        await syncUpdateWorkItem(get().currentUserId, item.id, {
+          ...(titleChanged ? { title: normalizedTitle } : {}),
+          ...(descriptionChanged ? { description: input.description } : {}),
+          expectedUpdatedAt: input.expectedUpdatedAt,
+        })
+
+        return true
+      } catch (error) {
+        const fallbackMessage =
+          error instanceof RouteMutationError &&
+          error.code === "WORK_ITEM_EDIT_CONFLICT"
+            ? "This work item changed while you were editing. Review the latest version and try again."
+            : "Failed to save work item"
+
+        await runtime.handleSyncFailure(error, fallbackMessage)
+        return false
+      }
+    },
     async uploadAttachment(targetType, targetId, file) {
       const state = get()
       const maxSize = 25 * 1024 * 1024
@@ -249,7 +367,10 @@ export function createWorkDocumentActions({
       }
 
       try {
-        const upload = await syncGenerateAttachmentUploadUrl(targetType, targetId)
+        const upload = await syncGenerateAttachmentUploadUrl(
+          targetType,
+          targetId
+        )
 
         if (!upload?.uploadUrl) {
           throw new Error("Upload URL was not returned")
@@ -320,7 +441,9 @@ export function createWorkDocumentActions({
     },
     async deleteAttachment(attachmentId) {
       const state = get()
-      const attachment = state.attachments.find((entry) => entry.id === attachmentId)
+      const attachment = state.attachments.find(
+        (entry) => entry.id === attachmentId
+      )
 
       if (!attachment) {
         return
@@ -334,7 +457,9 @@ export function createWorkDocumentActions({
       }
 
       set((current) => ({
-        attachments: current.attachments.filter((entry) => entry.id !== attachmentId),
+        attachments: current.attachments.filter(
+          (entry) => entry.id !== attachmentId
+        ),
       }))
 
       try {
@@ -352,11 +477,11 @@ export function createWorkDocumentActions({
         toast.error("Failed to delete attachment")
       }
     },
-    createDocument(input) {
+    async createDocument(input) {
       const parsed = documentSchema.safeParse(input)
       if (!parsed.success) {
         toast.error("Document input is invalid")
-        return
+        return null
       }
       const documentInput = parsed.data
       const validationMessage = getDocumentCreationValidationMessage(
@@ -366,21 +491,31 @@ export function createWorkDocumentActions({
 
       if (validationMessage) {
         toast.error(validationMessage)
-        return
+        return null
       }
+
+      if (documentInput.kind === "team-document") {
+        const role = effectiveRole(get(), documentInput.teamId)
+
+        if (role === "viewer" || role === "guest" || !role) {
+          toast.error("Your current role is read-only")
+          return null
+        }
+      } else if (!canEditWorkspaceDocuments(get(), documentInput.workspaceId)) {
+        toast.error("Your current role is read-only")
+        return null
+      }
+
+      const documentId = createId("document")
+      const createdAt = getNow()
 
       set((state) => {
         if (documentInput.kind === "team-document") {
           const workspaceId =
-            state.teams.find((team) => team.id === documentInput.teamId)?.workspaceId ??
-            ""
-          const role = effectiveRole(state, documentInput.teamId)
-          if (role === "viewer" || role === "guest" || !role) {
-            toast.error("Your current role is read-only")
-            return state
-          }
+            state.teams.find((team) => team.id === documentInput.teamId)
+              ?.workspaceId ?? ""
           const document = {
-            id: createId("document"),
+            id: documentId,
             kind: documentInput.kind,
             workspaceId,
             teamId: documentInput.teamId,
@@ -390,8 +525,8 @@ export function createWorkDocumentActions({
             linkedWorkItemIds: [],
             createdBy: state.currentUserId,
             updatedBy: state.currentUserId,
-            createdAt: getNow(),
-            updatedAt: getNow(),
+            createdAt,
+            updatedAt: createdAt,
           }
 
           return {
@@ -400,18 +535,13 @@ export function createWorkDocumentActions({
           }
         }
 
-        if (!canEditWorkspaceDocuments(state, documentInput.workspaceId)) {
-          toast.error("Your current role is read-only")
-          return state
-        }
-
         const contentTemplate =
           documentInput.kind === "private-document"
             ? "New private document."
             : "New workspace document."
 
         const document = {
-          id: createId("document"),
+          id: documentId,
           kind: documentInput.kind,
           workspaceId: documentInput.workspaceId,
           teamId: null,
@@ -421,8 +551,8 @@ export function createWorkDocumentActions({
           linkedWorkItemIds: [],
           createdBy: state.currentUserId,
           updatedBy: state.currentUserId,
-          createdAt: getNow(),
-          updatedAt: getNow(),
+          createdAt,
+          updatedAt: createdAt,
         }
 
         return {
@@ -431,12 +561,29 @@ export function createWorkDocumentActions({
         }
       })
 
-      runtime.syncInBackground(
-        syncCreateDocument(get().currentUserId, documentInput),
-        "Failed to create document"
-      )
+      try {
+        const result = await syncCreateDocument(get().currentUserId, {
+          ...documentInput,
+          id: documentId,
+        })
 
-      toast.success("Document created")
+        if (result?.documentId && result.documentId !== documentId) {
+          await runtime.refreshFromServer()
+          toast.success("Document created")
+          return result.documentId
+        }
+
+        toast.success("Document created")
+        return documentId
+      } catch (error) {
+        set((state) => ({
+          documents: state.documents.filter(
+            (document) => document.id !== documentId
+          ),
+        }))
+        await runtime.handleSyncFailure(error, "Failed to create document")
+        return null
+      }
     },
   }
 }

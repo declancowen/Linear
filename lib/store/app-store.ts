@@ -17,7 +17,11 @@ export const useAppStore = create<AppStore>()(
     ),
     version: 3,
     partialize: (state) => ({
-      ui: state.ui,
+      ui: {
+        activeTeamId: state.ui.activeTeamId,
+        activeInboxNotificationId: state.ui.activeInboxNotificationId,
+        selectedViewByRoute: state.ui.selectedViewByRoute,
+      },
     }),
     merge: (persistedState, currentState) => ({
       ...currentState,

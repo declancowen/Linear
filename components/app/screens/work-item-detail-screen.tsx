@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CaretDown,
@@ -12,14 +12,23 @@ import {
   SidebarSimple,
   Trash,
 } from "@phosphor-icons/react"
+import { toast } from "sonner"
 
+import { getPendingRichTextMentionEntries } from "@/lib/content/rich-text-mentions"
+import {
+  syncClearWorkItemPresence,
+  syncHeartbeatWorkItemPresence,
+  syncSendItemDescriptionMentionNotifications,
+} from "@/lib/convex/client"
 import {
   canEditTeam,
+  getDirectChildWorkItems,
   getDocument,
   getStatusOrderForTeam,
   getTeam,
   getTeamMembers,
   getUser,
+  getWorkItemChildProgress,
   getWorkItem,
   getWorkItemDescendantIds,
   getWorkItemHierarchyIds,
@@ -31,6 +40,7 @@ import {
   getDisplayLabelForWorkItemType,
   getWorkSurfaceCopy,
   priorityMeta,
+  type DocumentPresenceViewer,
   type Priority,
   type WorkItem,
 } from "@/lib/domain/types"
@@ -46,10 +56,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
-import { getEligibleParentWorkItems, getTeamProjectOptions, selectAppDataSnapshot } from "./helpers"
+import { DocumentPresenceAvatarGroup } from "./document-ui"
+import {
+  getEligibleParentWorkItems,
+  getTeamProjectOptions,
+  getWorkItemPresenceSessionId,
+  selectAppDataSnapshot,
+} from "./helpers"
 import {
   CollapsibleSection,
   MissingState,
@@ -63,10 +80,33 @@ import {
 } from "./shared"
 import {
   CommentsInline,
+  WorkItemAssigneeAvatar,
   InlineChildIssueComposer,
   WorkItemTypeBadge,
 } from "./work-item-ui"
 import { cn } from "@/lib/utils"
+
+const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
+
+function formatConcurrentEditorLabel(viewers: DocumentPresenceViewer[]) {
+  const names = viewers
+    .map((viewer) => viewer.name.trim())
+    .filter((name) => name.length > 0)
+
+  if (names.length === 0) {
+    return null
+  }
+
+  if (names.length === 1) {
+    return `${names[0]} is also editing this item`
+  }
+
+  if (names.length === 2) {
+    return `${names[0]} and ${names[1]} are also editing this item`
+  }
+
+  return `${names[0]} and ${names.length - 1} others are also editing this item`
+}
 
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const router = useRouter()
@@ -79,6 +119,164 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const [childComposerOpen, setChildComposerOpen] = useState(false)
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const [mainEditing, setMainEditing] = useState(false)
+  const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
+  const [mainDraftUpdatedAt, setMainDraftUpdatedAt] = useState<string | null>(
+    null
+  )
+  const [mainDraftTitle, setMainDraftTitle] = useState("")
+  const [mainDraftDescription, setMainDraftDescription] = useState("")
+  const [mainMentionBaselineItemId, setMainMentionBaselineItemId] = useState<
+    string | null
+  >(null)
+  const [mainMentionBaselineContent, setMainMentionBaselineContent] = useState("")
+  const [savingMainSection, setSavingMainSection] = useState(false)
+  const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
+    DocumentPresenceViewer[]
+  >([])
+  const description = item ? getDocument(data, item.descriptionDocId) : null
+  const descriptionContent = description?.content ?? "<p>Add a description…</p>"
+  const activePresenceItemId = item?.id ?? null
+  const isEditingCurrentItem =
+    item !== undefined && mainEditing && mainDraftItemId === item.id
+
+  useEffect(() => {
+    if (!activePresenceItemId || !isEditingCurrentItem) {
+      setWorkItemPresenceViewers([])
+      return
+    }
+
+    let cancelled = false
+    let presenceActive = window.document.visibilityState === "visible"
+    let heartbeatTimeoutId: number | null = null
+    const activeItemId = activePresenceItemId
+    const sessionId = getWorkItemPresenceSessionId(data.currentUserId)
+
+    function clearHeartbeatTimeout() {
+      if (heartbeatTimeoutId !== null) {
+        window.clearTimeout(heartbeatTimeoutId)
+        heartbeatTimeoutId = null
+      }
+    }
+
+    function scheduleHeartbeat(delayMs: number) {
+      clearHeartbeatTimeout()
+
+      if (
+        cancelled ||
+        !presenceActive ||
+        window.document.visibilityState !== "visible"
+      ) {
+        return
+      }
+
+      heartbeatTimeoutId = window.setTimeout(() => {
+        void sendHeartbeat()
+      }, delayMs)
+    }
+
+    async function sendHeartbeat() {
+      if (
+        cancelled ||
+        !presenceActive ||
+        window.document.visibilityState !== "visible"
+      ) {
+        return
+      }
+
+      try {
+        const viewers = await syncHeartbeatWorkItemPresence(
+          activeItemId,
+          sessionId
+        )
+
+        if (
+          !cancelled &&
+          presenceActive &&
+          window.document.visibilityState === "visible"
+        ) {
+          setWorkItemPresenceViewers(viewers)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to sync work item presence", error)
+        }
+      } finally {
+        scheduleHeartbeat(WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS)
+      }
+    }
+
+    function resumePresence() {
+      if (cancelled || window.document.visibilityState !== "visible") {
+        return
+      }
+
+      presenceActive = true
+      void sendHeartbeat()
+    }
+
+    function leaveWorkItem(options?: { keepalive?: boolean }) {
+      presenceActive = false
+      clearHeartbeatTimeout()
+
+      if (!cancelled) {
+        setWorkItemPresenceViewers([])
+      }
+
+      void syncClearWorkItemPresence(activeItemId, sessionId, {
+        keepalive: options?.keepalive,
+      }).catch((error) => {
+        if (!cancelled && window.document.visibilityState === "visible") {
+          console.error("Failed to clear work item presence", error)
+        }
+      })
+    }
+
+    const handleVisibilityChange = () => {
+      if (window.document.visibilityState === "visible") {
+        resumePresence()
+        return
+      }
+
+      leaveWorkItem({ keepalive: true })
+    }
+    const handleWindowFocus = () => {
+      resumePresence()
+    }
+    const handleWindowOnline = () => {
+      resumePresence()
+    }
+    const handlePageShow = () => {
+      resumePresence()
+    }
+    const handlePageHide = () => {
+      leaveWorkItem({ keepalive: true })
+    }
+
+    resumePresence()
+
+    window.addEventListener("focus", handleWindowFocus)
+    window.addEventListener("online", handleWindowOnline)
+    window.addEventListener("pageshow", handlePageShow)
+    window.document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("pagehide", handlePageHide)
+
+    return () => {
+      cancelled = true
+      clearHeartbeatTimeout()
+      window.removeEventListener("focus", handleWindowFocus)
+      window.removeEventListener("online", handleWindowOnline)
+      window.removeEventListener("pageshow", handlePageShow)
+      window.document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      )
+      window.removeEventListener("pagehide", handlePageHide)
+      void syncClearWorkItemPresence(activeItemId, sessionId, {
+        keepalive: true,
+      }).catch(() => {})
+    }
+  }, [activePresenceItemId, data.currentUserId, isEditingCurrentItem])
 
   if (!item) {
     if (deletingItem) {
@@ -92,7 +290,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const team = getTeam(data, currentItem.teamId)
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const editable = team ? canEditTeam(data, team.id) : false
-  const description = getDocument(data, currentItem.descriptionDocId)
   const statusOptions = buildPropertyStatusOptions(getStatusOrderForTeam(team))
   const teamMembers = team ? getTeamMembers(data, team.id) : []
   const teamProjects = getTeamProjectOptions(
@@ -104,9 +301,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     ? getWorkItem(data, currentItem.parentId)
     : null
   const childItems = sortItems(
-    data.workItems.filter((entry) => entry.parentId === currentItem.id),
+    getDirectChildWorkItems(data, currentItem.id),
     "priority"
   )
+  const childProgress = getWorkItemChildProgress(data, currentItem.id)
   const parentOptions = [
     { value: "none", label: "No parent" },
     ...getEligibleParentWorkItems(data, currentItem).map((candidate) => ({
@@ -132,12 +330,40 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           descendantCount === 1 ? "" : "s"
         }?`
       : `Delete this ${itemLabel}?`
-  const completedChildItems = childItems.filter(
-    (child) => child.status === "done"
-  ).length
   const showSubIssuesSection =
     childItems.length > 0 || allowedChildTypes.length > 0
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
+  const isMainEditing = mainEditing && mainDraftItemId === currentItem.id
+  const activeMainMentionBaselineContent =
+    isMainEditing && mainMentionBaselineItemId === currentItem.id
+      ? mainMentionBaselineContent
+      : descriptionContent
+  const otherWorkItemEditors = workItemPresenceViewers.filter(
+    (viewer) => viewer.userId !== data.currentUserId
+  )
+  const concurrentEditorLabel = formatConcurrentEditorLabel(otherWorkItemEditors)
+  const pendingMainMentionEntries = isMainEditing
+    ? getPendingRichTextMentionEntries(
+        activeMainMentionBaselineContent,
+        mainDraftDescription
+      )
+    : []
+  const normalizedMainDraftTitle = mainDraftTitle.trim()
+  const mainTitleDirty =
+    isMainEditing && normalizedMainDraftTitle !== currentItem.title
+  const mainDescriptionDirty =
+    isMainEditing && mainDraftDescription !== descriptionContent
+  const mainDirty = mainTitleDirty || mainDescriptionDirty
+  const mainDraftStale =
+    isMainEditing &&
+    Boolean(mainDraftUpdatedAt) &&
+    mainDraftUpdatedAt !== currentItem.updatedAt
+  const canSaveMainSection =
+    isMainEditing &&
+    normalizedMainDraftTitle.length >= 2 &&
+    (mainDirty || pendingMainMentionEntries.length > 0) &&
+    !savingMainSection &&
+    !mainDraftStale
 
   function buildEndDatePatch(nextEndDate: string | null) {
     return {
@@ -206,6 +432,88 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     useAppStore.getState().updateWorkItem(currentItem.id, patch)
   }
 
+  function handleStartMainEdit() {
+    if (!editable) {
+      return
+    }
+
+    setMainDraftItemId(currentItem.id)
+    setMainDraftUpdatedAt(currentItem.updatedAt)
+    setMainDraftTitle(currentItem.title)
+    setMainDraftDescription(descriptionContent)
+    setMainMentionBaselineItemId(currentItem.id)
+    setMainMentionBaselineContent(descriptionContent)
+    setMainEditing(true)
+  }
+
+  function handleCancelMainEdit() {
+    setMainDraftItemId(null)
+    setMainDraftUpdatedAt(null)
+    setMainDraftTitle(currentItem.title)
+    setMainDraftDescription(descriptionContent)
+    setMainMentionBaselineItemId(currentItem.id)
+    setMainMentionBaselineContent(descriptionContent)
+    setMainEditing(false)
+  }
+
+  function handleReloadMainDraft() {
+    setMainDraftUpdatedAt(currentItem.updatedAt)
+    setMainDraftTitle(currentItem.title)
+    setMainDraftDescription(descriptionContent)
+    setMainMentionBaselineItemId(currentItem.id)
+    setMainMentionBaselineContent(descriptionContent)
+  }
+
+  async function handleSaveMainEdit() {
+    if (!canSaveMainSection) {
+      return
+    }
+
+    setSavingMainSection(true)
+    const savedItemId = currentItem.id
+    const savedDescription = mainDraftDescription
+    const pendingMentionEntries = [...pendingMainMentionEntries]
+
+    const saved = await useAppStore.getState().saveWorkItemMainSection({
+      itemId: savedItemId,
+      title: normalizedMainDraftTitle,
+      description: savedDescription,
+      expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
+    })
+
+    if (!saved) {
+      setSavingMainSection(false)
+      return
+    }
+
+    setMainDraftItemId(null)
+    setMainDraftUpdatedAt(null)
+    setMainMentionBaselineItemId(savedItemId)
+    setMainMentionBaselineContent(savedDescription)
+    setMainEditing(false)
+
+    if (pendingMentionEntries.length > 0) {
+      try {
+        const result = await syncSendItemDescriptionMentionNotifications(
+          savedItemId,
+          pendingMentionEntries
+        )
+
+        toast.success(
+          `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
+        )
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Saved changes but failed to notify mentions"
+        )
+      }
+    }
+
+    setSavingMainSection(false)
+  }
+
   async function handleDeleteItem() {
     setDeletingItem(true)
 
@@ -255,34 +563,62 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           </div>
           <div className="flex items-center gap-1">
             {editable ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    disabled={deletingItem}
-                  >
-                    <DotsThree className="size-4" />
+              <>
+                {isMainEditing ? (
+                  <DocumentPresenceAvatarGroup viewers={workItemPresenceViewers} />
+                ) : null}
+                {isMainEditing ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={savingMainSection}
+                      onClick={handleCancelMainEdit}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!canSaveMainSection}
+                      onClick={() => void handleSaveMainEdit()}
+                    >
+                      {savingMainSection ? "Saving..." : "Save"}
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={handleStartMainEdit}>
+                    Edit
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44 min-w-44">
-                  <DropdownMenuItem
-                    variant="destructive"
-                    disabled={deletingItem}
-                    onSelect={(event) => {
-                      event.preventDefault()
-                      setDeleteDialogOpen(true)
-                    }}
-                  >
-                    <Trash className="size-4" />
-                    Delete{" "}
-                    {getDisplayLabelForWorkItemType(
-                      currentItem.type,
-                      team?.settings.experience
-                    )}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={deletingItem}
+                    >
+                      <DotsThree className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44 min-w-44">
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={deletingItem}
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        setDeleteDialogOpen(true)
+                      }}
+                    >
+                      <Trash className="size-4" />
+                      Delete{" "}
+                      {getDisplayLabelForWorkItemType(
+                        currentItem.type,
+                        team?.settings.experience
+                      )}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
             ) : null}
             <Button
               size="icon-sm"
@@ -308,26 +644,67 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   <span className="truncate">{parentItem.title}</span>
                 </Link>
               ) : null}
-              <h1 className="mb-1 text-2xl font-semibold">
-                {currentItem.title}
-              </h1>
+              {isMainEditing ? (
+                <Input
+                  value={mainDraftTitle}
+                  onChange={(event) => setMainDraftTitle(event.target.value)}
+                  placeholder={`${getDisplayLabelForWorkItemType(
+                    currentItem.type,
+                    team?.settings.experience
+                  )} title`}
+                  className="mb-1 h-auto border-none bg-transparent px-0 py-0 text-2xl font-semibold tracking-tight shadow-none focus-visible:ring-0 md:text-2xl dark:bg-transparent"
+                  autoFocus
+                />
+              ) : (
+                <h1 className="mb-1 text-2xl font-semibold">
+                  {currentItem.title}
+                </h1>
+              )}
               <div className="mb-4">
                 <WorkItemTypeBadge data={data} item={currentItem} />
               </div>
 
+              {mainDraftStale ? (
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">
+                      This item changed while you were editing
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Reload the latest title and description before saving your
+                      draft.
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleReloadMainDraft}
+                  >
+                    Reload latest
+                  </Button>
+                </div>
+              ) : null}
+              {isMainEditing && concurrentEditorLabel ? (
+                <div className="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5">
+                  <div className="text-sm font-medium">
+                    {concurrentEditorLabel}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    You can keep editing, but you may need to reload before
+                    saving if they update the item first.
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-4">
                 <RichTextEditor
-                  content={description?.content ?? "<p>Add a description…</p>"}
-                  editable={editable}
+                  content={isMainEditing ? mainDraftDescription : descriptionContent}
+                  editable={editable && isMainEditing}
                   placeholder="Add a description…"
                   mentionCandidates={
                     team ? getTeamMembers(data, team.id) : data.users
                   }
-                  onChange={(content) =>
-                    useAppStore
-                      .getState()
-                      .updateItemDescription(currentItem.id, content)
-                  }
+                  onChange={setMainDraftDescription}
                   onUploadAttachment={(file) =>
                     useAppStore
                       .getState()
@@ -351,7 +728,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       )}
                       <span>{childCopy.childPluralLabel}</span>
                       <span className="text-xs font-normal tabular-nums">
-                        {completedChildItems}/{childItems.length}
+                        {childItems.length > 0
+                          ? `${childProgress.percent}%`
+                          : "0%"}
                       </span>
                     </button>
                     {canCreateChildItem ? (
@@ -374,14 +753,22 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       <div
                         className="h-full rounded-full bg-green-500 transition-all"
                         style={{
-                          width: `${childItems.length > 0 ? (completedChildItems / childItems.length) * 100 : 0}%`,
+                          width: `${childProgress.percent}%`,
                         }}
                       />
                     </div>
                   ) : null}
 
+                  {childItems.length > 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {childProgress.includedChildren > 0
+                        ? `${childProgress.completedChildren} of ${childProgress.includedChildren} active ${childCopy.childPluralLabel.toLowerCase()} done`
+                        : `No active ${childCopy.childPluralLabel.toLowerCase()} in progress tracking`}
+                    </p>
+                  ) : null}
+
                   {subIssuesOpen ? (
-                    <div className="mt-3 flex flex-col rounded-lg border">
+                    <div className="mt-3 flex flex-col overflow-hidden rounded-lg border">
                       {childItems.map((child, index) => (
                         <Link
                           key={child.id}
@@ -403,10 +790,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                             {priorityMeta[child.priority].label}
                           </span>
                           {child.assigneeId ? (
-                            <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-                              {getUser(data, child.assigneeId)?.avatarUrl ??
-                                "?"}
-                            </div>
+                            <WorkItemAssigneeAvatar
+                              user={getUser(data, child.assigneeId)}
+                              className="shrink-0"
+                            />
                           ) : null}
                         </Link>
                       ))}
@@ -527,26 +914,59 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                         label: user.name,
                       })),
                     ]}
+                    renderValue={(value, label) => {
+                      if (value === "unassigned") {
+                        return <span className="text-sm">{label}</span>
+                      }
+
+                      const selectedUser =
+                        teamMembers.find((user) => user.id === value) ?? null
+
+                      return selectedUser ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <WorkItemAssigneeAvatar user={selectedUser} />
+                          <span className="truncate">{selectedUser.name}</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm">{label}</span>
+                      )
+                    }}
+                    renderOption={(value, label) => {
+                      if (value === "unassigned") {
+                        return <span>{label}</span>
+                      }
+
+                      const optionUser =
+                        teamMembers.find((user) => user.id === value) ?? null
+
+                      return optionUser ? (
+                        <div className="flex items-center gap-2">
+                          <WorkItemAssigneeAvatar user={optionUser} />
+                          <span>{optionUser.name}</span>
+                        </div>
+                      ) : (
+                        <span>{label}</span>
+                      )
+                    }}
                     onValueChange={(value) =>
                       useAppStore.getState().updateWorkItem(currentItem.id, {
                         assigneeId: value === "unassigned" ? null : value,
                       })
                     }
                   />
-                  <PropertySelect
-                    label="Parent"
-                    value={currentItem.parentId ?? "none"}
-                    disabled={
-                      !editable ||
-                      (parentOptions.length === 1 && !currentItem.parentId)
-                    }
-                    options={parentOptions}
-                    onValueChange={(value) =>
-                      useAppStore.getState().updateWorkItem(currentItem.id, {
-                        parentId: value === "none" ? null : value,
-                      })
-                    }
-                  />
+                  {currentItem.parentId || parentOptions.length > 1 ? (
+                    <PropertySelect
+                      label="Parent"
+                      value={currentItem.parentId ?? "none"}
+                      disabled={!editable}
+                      options={parentOptions}
+                      onValueChange={(value) =>
+                        useAppStore.getState().updateWorkItem(currentItem.id, {
+                          parentId: value === "none" ? null : value,
+                        })
+                      }
+                    />
+                  ) : null}
                 </CollapsibleSection>
 
                 <Separator className="my-3" />

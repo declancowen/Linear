@@ -4,6 +4,7 @@ import {
   extractRichTextMentionCounts,
   extractRichTextMentionUserIds,
   filterPendingDocumentMentionsByContent,
+  getPendingRichTextMentionEntries,
   summarizePendingDocumentMentions,
 } from "@/lib/content/rich-text-mentions"
 
@@ -117,5 +118,28 @@ describe("rich text mentions", () => {
       recipientCount: 2,
       mentionCount: 4,
     })
+  })
+
+  it("computes positive mention deltas between persisted and draft content", () => {
+    expect(
+      getPendingRichTextMentionEntries(
+        '<p><span class="editor-mention" data-type="mention" data-id="user_1">@alex</span></p>',
+        [
+          "<p>",
+          '<span class="editor-mention" data-type="mention" data-id="user_1">@alex</span>',
+          '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
+          '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
+          "</p>",
+        ].join(""),
+        {
+          ignoredUserIds: ["user_3"],
+        }
+      )
+    ).toEqual([
+      {
+        userId: "user_2",
+        count: 2,
+      },
+    ])
   })
 })

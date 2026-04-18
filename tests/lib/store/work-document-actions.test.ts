@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { RouteMutationError } from "@/lib/convex/client/shared"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
@@ -7,8 +8,10 @@ import {
 } from "@/lib/domain/types"
 
 const syncCreateAttachmentMock = vi.fn()
+const syncCreateDocumentMock = vi.fn()
 const syncDeleteAttachmentMock = vi.fn()
 const syncGenerateAttachmentUploadUrlMock = vi.fn()
+const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
 const toastSuccessMock = vi.fn()
 
@@ -21,11 +24,12 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/convex/client", () => ({
   syncCreateAttachment: syncCreateAttachmentMock,
-  syncCreateDocument: vi.fn(),
+  syncCreateDocument: syncCreateDocumentMock,
   syncDeleteAttachment: syncDeleteAttachmentMock,
   syncDeleteDocument: vi.fn(),
   syncGenerateAttachmentUploadUrl: syncGenerateAttachmentUploadUrlMock,
   syncUpdateDocument: vi.fn(),
+  syncUpdateWorkItem: syncUpdateWorkItemMock,
   syncUpdateItemDescription: vi.fn(),
 }))
 
@@ -76,6 +80,32 @@ function createState() {
         updatedAt: "2026-04-17T10:00:00.000Z",
       },
     ],
+    workItems: [
+      {
+        id: "item_1",
+        key: "PLA-1",
+        teamId: "team_1",
+        type: "task" as const,
+        title: "Plan launch",
+        descriptionDocId: "document_1",
+        status: "todo" as const,
+        priority: "medium" as const,
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: null,
+        linkedProjectIds: [],
+        linkedDocumentIds: ["document_1"],
+        labelIds: [],
+        milestoneId: null,
+        startDate: null,
+        dueDate: null,
+        targetDate: null,
+        subscriberIds: [],
+        createdAt: "2026-04-17T10:00:00.000Z",
+        updatedAt: "2026-04-17T10:00:00.000Z",
+      },
+    ],
     ui: {
       activeTeamId: "team_1",
       activeInboxNotificationId: null,
@@ -87,26 +117,123 @@ function createState() {
 describe("work document actions", () => {
   beforeEach(() => {
     syncCreateAttachmentMock.mockReset()
+    syncCreateDocumentMock.mockReset()
     syncDeleteAttachmentMock.mockReset()
     syncGenerateAttachmentUploadUrlMock.mockReset()
+    syncUpdateWorkItemMock.mockReset()
     toastErrorMock.mockReset()
     toastSuccessMock.mockReset()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
-  it("reconciles attachments from the server after an ambiguous upload failure", async () => {
-    const { createWorkDocumentActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-document-actions"
+  it("uses one canonical id for optimistic and persisted documents", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
+    const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncCreateDocumentMock.mockImplementation(
+      async (_currentUserId, input) => ({
+        ok: true,
+        documentId: input.id ?? null,
+      })
     )
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: refreshFromServerMock,
+        handleSyncFailure: handleSyncFailureMock,
+        queueRichTextSync: vi.fn(),
+      } as never,
+      set: setState as never,
+    })
+
+    const createdDocumentId = await actions.createDocument({
+      kind: "team-document",
+      teamId: "team_1",
+      title: "Launch doc",
+    })
+
+    expect(createdDocumentId).toBe(state.documents[0]?.id)
+    expect(syncCreateDocumentMock).toHaveBeenCalledWith("user_1", {
+      id: createdDocumentId,
+      kind: "team-document",
+      teamId: "team_1",
+      title: "Launch doc",
+    })
+    expect(handleSyncFailureMock).not.toHaveBeenCalled()
+    expect(refreshFromServerMock).not.toHaveBeenCalled()
+    expect(toastSuccessMock).toHaveBeenCalledWith("Document created")
+  })
+
+  it("rolls back optimistic documents when creation fails", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncCreateDocumentMock.mockRejectedValue(new Error("convex failed"))
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: handleSyncFailureMock,
+        queueRichTextSync: vi.fn(),
+      } as never,
+      set: setState as never,
+    })
+
+    await expect(
+      actions.createDocument({
+        kind: "team-document",
+        teamId: "team_1",
+        title: "Launch doc",
+      })
+    ).resolves.toBeNull()
+
+    expect(state.documents.map((document) => document.id)).toEqual([
+      "document_1",
+    ])
+    expect(handleSyncFailureMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      "Failed to create document"
+    )
+    expect(toastSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it("reconciles attachments from the server after an ambiguous upload failure", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
 
     let state = createState()
     const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
     const setState = (update: unknown) => {
       const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
+        typeof update === "function" ? update(state as never) : update
 
       state = {
         ...state,
@@ -152,9 +279,8 @@ describe("work document actions", () => {
   })
 
   it("restores only the failed attachment on delete failure", async () => {
-    const { createWorkDocumentActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-document-actions"
-    )
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
 
     let state = {
       ...createState(),
@@ -189,9 +315,7 @@ describe("work document actions", () => {
     }
     const setState = (update: unknown) => {
       const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
+        typeof update === "function" ? update(state as never) : update
 
       state = {
         ...state,
@@ -252,5 +376,84 @@ describe("work document actions", () => {
       "attachment_2",
     ])
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to delete attachment")
+  })
+
+  it("blocks main-section saves when the item changed during edit mode", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    const actions = createWorkDocumentActions({
+      get: () => createState() as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: vi.fn(),
+      } as never,
+      set: vi.fn() as never,
+    })
+
+    const saved = await actions.saveWorkItemMainSection({
+      itemId: "item_1",
+      title: "Updated title",
+      description: "<p>Updated details</p>",
+      expectedUpdatedAt: "2026-04-17T09:59:00.000Z",
+    })
+
+    expect(saved).toBe(false)
+    expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "This work item changed while you were editing. Review the latest version and try again."
+    )
+  })
+
+  it("surfaces server edit conflicts with a specific message", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncUpdateWorkItemMock.mockRejectedValue(
+      new RouteMutationError("Work item changed while you were editing", 409, {
+        code: "WORK_ITEM_EDIT_CONFLICT",
+      })
+    )
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: handleSyncFailureMock,
+        queueRichTextSync: vi.fn(),
+      } as never,
+      set: setState as never,
+    })
+
+    const saved = await actions.saveWorkItemMainSection({
+      itemId: "item_1",
+      title: "Updated title",
+      description: "<p>Updated details</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+
+    expect(saved).toBe(false)
+    expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
+      title: "Updated title",
+      description: "<p>Updated details</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(handleSyncFailureMock).toHaveBeenCalledWith(
+      expect.any(RouteMutationError),
+      "This work item changed while you were editing. Review the latest version and try again."
+    )
   })
 })

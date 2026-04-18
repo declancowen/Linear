@@ -64,7 +64,8 @@ const DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
     code: "DOCUMENT_MENTION_STATE_STALE",
   },
   {
-    match: "One or more mentioned users were already notified for this document",
+    match:
+      "One or more mentioned users were already notified for this document",
     status: 409,
     code: "DOCUMENT_MENTION_ALREADY_SENT",
   },
@@ -87,6 +88,26 @@ const ITEM_DESCRIPTION_ERROR_MAPPINGS = [
     match: "Your current role is read-only",
     status: 403,
     code: "ITEM_DESCRIPTION_READ_ONLY",
+  },
+] as const
+
+const ITEM_DESCRIPTION_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
+  ...ITEM_DESCRIPTION_ERROR_MAPPINGS,
+  {
+    match: "One or more mentioned users are invalid for this work item",
+    status: 400,
+    code: "ITEM_DESCRIPTION_MENTION_USERS_INVALID",
+  },
+  {
+    match: "One or more mentioned users are not present in this work item",
+    status: 409,
+    code: "ITEM_DESCRIPTION_MENTION_STATE_STALE",
+  },
+  {
+    match:
+      "One or more mentioned users were already notified for this work item",
+    status: 409,
+    code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
   },
 ] as const
 
@@ -446,6 +467,33 @@ export async function updateItemDescriptionServer(input: {
   }
 }
 
+export async function sendItemDescriptionMentionNotificationsServer(input: {
+  currentUserId: string
+  itemId: string
+  mentions: Array<{
+    userId: string
+    count: number
+  }>
+}) {
+  try {
+    const origin = await resolveServerOrigin()
+
+    return await getConvexServerClient().mutation(
+      api.app.sendItemDescriptionMentionNotifications,
+      withServerToken({
+        ...input,
+        origin,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...ITEM_DESCRIPTION_MENTION_NOTIFICATION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
 export async function addCommentServer(input: {
   currentUserId: string
   targetType: "workItem" | "document"
@@ -554,6 +602,7 @@ export async function deleteAttachmentServer(input: {
 
 export async function createDocumentServer(input: {
   currentUserId: string
+  id?: string
   kind: "team-document" | "workspace-document" | "private-document"
   teamId?: string
   workspaceId?: string

@@ -92,7 +92,11 @@ import {
 } from "./lifecycle"
 import { queueEmailJobs } from "./email_job_handlers"
 import { getTeamSurfaceDisableMessage } from "./team_feature_guards"
-import { ensureTeamWorkViews } from "./work_helpers"
+import {
+  ensureTeamProjectViews,
+  ensureTeamWorkViews,
+  ensureWorkspaceProjectViews,
+} from "./work_helpers"
 import {
   normalizeTeamFeatures,
   normalizeTeamWorkflowSettings,
@@ -875,8 +879,11 @@ export async function ensureWorkspaceScaffoldingHandler(
 
   const teams = await listWorkspaceTeams(ctx, args.workspaceId)
 
+  await ensureWorkspaceProjectViews(ctx, args.workspaceId)
+
   for (const team of teams) {
     await ensureTeamWorkViews(ctx, team)
+    await ensureTeamProjectViews(ctx, team)
   }
 
   return {
@@ -976,6 +983,7 @@ export async function createTeamHandler(
   }
 
   await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, teamId))
+  await ensureTeamProjectViews(ctx, await getTeamDoc(ctx, teamId))
 
   return {
     teamId,
@@ -1277,6 +1285,7 @@ export async function updateTeamDetailsHandler(
   }
 
   await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, team.id))
+  await ensureTeamProjectViews(ctx, await getTeamDoc(ctx, team.id))
 
   return {
     teamId: team.id,

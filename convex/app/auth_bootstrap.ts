@@ -70,7 +70,7 @@ import {
 } from "./data"
 import { resolveUserFromServerArgs } from "./server_users"
 import { syncTeamConversationMemberships } from "./conversations"
-import { ensureTeamWorkViews } from "./work_helpers"
+import { ensureTeamProjectViews, ensureTeamWorkViews } from "./work_helpers"
 import {
   normalizeDocument,
   normalizeTeam,
@@ -149,6 +149,53 @@ type LookupTeamByJoinCodeArgs = {
 
 type ListWorkspacesForSyncArgs = {
   serverToken: string
+}
+
+async function hasAnyWorkspaceAccess(ctx: MutationCtx, userId: string) {
+  const [workspaceMemberships, teamMemberships, ownedWorkspaces] =
+    await Promise.all([
+      listWorkspaceMembershipsByUser(ctx, userId),
+      listTeamMembershipsByUser(ctx, userId),
+      listWorkspacesOwnedByUser(ctx, userId),
+    ])
+
+  if (workspaceMemberships.length > 0 || ownedWorkspaces.length > 0) {
+    return true
+  }
+
+  if (teamMemberships.length === 0) {
+    return false
+  }
+
+  const teams = await listTeamsByIds(
+    ctx,
+    teamMemberships.map((membership) => membership.teamId)
+  )
+
+  return teams.length > 0
+}
+
+function resolveUserPresencePatch(
+  user: {
+    status?: string | null
+    statusMessage?: string | null
+    hasExplicitStatus?: boolean | null
+  },
+  resetPresence: boolean
+) {
+  if (resetPresence) {
+    return {
+      status: defaultUserStatus,
+      statusMessage: defaultUserStatusMessage,
+      hasExplicitStatus: false,
+    }
+  }
+
+  return {
+    status: resolveUserStatus(user.status),
+    statusMessage: user.statusMessage ?? defaultUserStatusMessage,
+    hasExplicitStatus: user.hasExplicitStatus ?? false,
+  }
 }
 
 export async function bootstrapAppWorkspaceHandler(
@@ -270,6 +317,8 @@ export async function bootstrapAppWorkspaceHandler(
   const userId = resolvedUser?.id ?? createId("user")
 
   if (resolvedUser) {
+    const resetPresence = !(await hasAnyWorkspaceAccess(ctx, resolvedUser.id))
+
     await ctx.db.patch(resolvedUser._id, {
       email: normalizedEmail,
       emailNormalized: normalizedEmail,
@@ -277,9 +326,7 @@ export async function bootstrapAppWorkspaceHandler(
       avatarUrl: args.avatarUrl,
       workosUserId: args.workosUserId,
       handle: createHandle(normalizedEmail),
-      status: resolveUserStatus(resolvedUser.status),
-      statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
-      hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
+      ...resolveUserPresencePatch(resolvedUser, resetPresence),
       preferences: {
         ...defaultUserPreferences,
         ...resolvedUser.preferences,
@@ -340,6 +387,7 @@ export async function bootstrapAppWorkspaceHandler(
   await setCurrentWorkspaceForUser(ctx, userId, workspaceId)
 
   await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, teamId))
+  await ensureTeamProjectViews(ctx, await getTeamDoc(ctx, teamId))
 
   return {
     workspaceId,
@@ -914,15 +962,15 @@ export async function ensureUserFromAuthHandler(
   })
 
   if (existing) {
+    const resetPresence = !(await hasAnyWorkspaceAccess(ctx, existing.id))
+
     await ctx.db.patch(existing._id, {
       name: args.name,
       email: normalizedEmail,
       emailNormalized: normalizedEmail,
       workosUserId: args.workosUserId,
       handle: createHandle(normalizedEmail),
-      status: resolveUserStatus(existing.status),
-      statusMessage: existing.statusMessage ?? defaultUserStatusMessage,
-      hasExplicitStatus: existing.hasExplicitStatus ?? false,
+      ...resolveUserPresencePatch(existing, resetPresence),
       preferences: {
         ...defaultUserPreferences,
         ...existing.preferences,
@@ -1015,14 +1063,14 @@ export async function bootstrapWorkspaceUserHandler(
   const role = args.role ?? "admin"
 
   if (resolvedUser) {
+    const resetPresence = !(await hasAnyWorkspaceAccess(ctx, resolvedUser.id))
+
     await ctx.db.patch(resolvedUser._id, {
       email: normalizedEmail,
       emailNormalized: normalizedEmail,
       name: args.name,
       workosUserId: args.workosUserId,
-      status: resolveUserStatus(resolvedUser.status),
-      statusMessage: resolvedUser.statusMessage ?? defaultUserStatusMessage,
-      hasExplicitStatus: resolvedUser.hasExplicitStatus ?? false,
+      ...resolveUserPresencePatch(resolvedUser, resetPresence),
       preferences: {
         ...defaultUserPreferences,
         ...resolvedUser.preferences,

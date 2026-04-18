@@ -9,6 +9,7 @@ const toggleCommentReactionServerMock = vi.fn()
 const updateDocumentServerMock = vi.fn()
 const sendDocumentMentionNotificationsServerMock = vi.fn()
 const updateItemDescriptionServerMock = vi.fn()
+const sendItemDescriptionMentionNotificationsServerMock = vi.fn()
 const leaveWorkspaceServerMock = vi.fn()
 const removeWorkspaceUserServerMock = vi.fn()
 const validateCurrentAccountDeletionServerMock = vi.fn()
@@ -34,6 +35,8 @@ vi.mock("@/lib/server/convex", () => ({
   sendDocumentMentionNotificationsServer:
     sendDocumentMentionNotificationsServerMock,
   updateItemDescriptionServer: updateItemDescriptionServerMock,
+  sendItemDescriptionMentionNotificationsServer:
+    sendItemDescriptionMentionNotificationsServerMock,
   leaveWorkspaceServer: leaveWorkspaceServerMock,
   removeWorkspaceUserServer: removeWorkspaceUserServerMock,
   validateCurrentAccountDeletionServer:
@@ -77,6 +80,7 @@ describe("document and workspace route contracts", () => {
     updateDocumentServerMock.mockReset()
     sendDocumentMentionNotificationsServerMock.mockReset()
     updateItemDescriptionServerMock.mockReset()
+    sendItemDescriptionMentionNotificationsServerMock.mockReset()
     leaveWorkspaceServerMock.mockReset()
     removeWorkspaceUserServerMock.mockReset()
     validateCurrentAccountDeletionServerMock.mockReset()
@@ -294,6 +298,50 @@ describe("document and workspace route contracts", () => {
       error: "Work item not found",
       message: "Work item not found",
       code: "WORK_ITEM_NOT_FOUND",
+    })
+  })
+
+  it("maps item-description mention failures to typed error responses", async () => {
+    const { POST } =
+      await import("@/app/api/items/[itemId]/description/mentions/route")
+
+    sendItemDescriptionMentionNotificationsServerMock.mockRejectedValue(
+      new ApplicationError(
+        "One or more mentioned users are invalid for this work item",
+        400,
+        {
+          code: "ITEM_DESCRIPTION_MENTION_USERS_INVALID",
+        }
+      )
+    )
+
+    const response = await POST(
+      new Request("http://localhost/api/items/item_1/description/mentions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mentions: [
+            {
+              userId: "user_2",
+              count: 2,
+            },
+          ],
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "One or more mentioned users are invalid for this work item",
+      message: "One or more mentioned users are invalid for this work item",
+      code: "ITEM_DESCRIPTION_MENTION_USERS_INVALID",
     })
   })
 

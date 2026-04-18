@@ -22,7 +22,7 @@ export const createAppStore: StateCreator<AppStore, [], [], AppStore> = (
     ...createUiSlice(set),
     ...createNotificationSlice(set, get, runtime),
     ...createWorkspaceSlice(set, get, runtime),
-    ...createViewSlice(set, runtime),
+    ...createViewSlice(set, get, runtime),
     ...createWorkSlice(set, get, runtime),
     ...createCollaborationSlice(set, get, runtime),
     ...createProjectSlice(set, get, runtime),

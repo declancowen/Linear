@@ -2,7 +2,12 @@
 
 import type { ReactElement } from "react"
 import { useRouter } from "next/navigation"
-import { ChatCircle, CopySimple, EnvelopeSimple } from "@phosphor-icons/react"
+import {
+  ChatCircle,
+  CopySimple,
+  EnvelopeSimple,
+  X,
+} from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
@@ -61,6 +66,20 @@ export function UserStatusDot({
   className?: string
 }) {
   const resolvedStatus = resolveUserStatus(status)
+
+  if (resolvedStatus === "offline") {
+    return (
+      <span
+        className={cn(
+          "inline-flex size-2 items-center justify-center rounded-full bg-zinc-400 text-background",
+          className
+        )}
+      >
+        <X weight="bold" className="size-[75%]" />
+      </span>
+    )
+  }
+
   const backgroundColor =
     resolvedStatus === "active"
       ? "#10b981"

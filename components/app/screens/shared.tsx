@@ -328,10 +328,12 @@ export function PropertySelect({
     ) ?? null
 
   return (
-    <div className="flex items-center justify-between py-1">
-      {label && <span className="text-sm text-muted-foreground">{label}</span>}
-      <Select disabled={disabled} value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-sm shadow-none">
+    <Select disabled={disabled} value={value} onValueChange={onValueChange}>
+      <SelectTrigger className="h-9 w-full cursor-pointer justify-between rounded-md border-none bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-muted/20 focus-visible:ring-0">
+        <span className="min-w-0 shrink-0 text-sm text-muted-foreground">
+          {label}
+        </span>
+        <span className="ml-auto flex min-w-0 items-center justify-end gap-2 text-right">
           {renderValue ? (
             renderValue(
               selectedOption?.value ?? value,
@@ -340,24 +342,24 @@ export function PropertySelect({
           ) : (
             <SelectValue />
           )}
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {options.map((option, index) =>
-              option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
-                <SelectSeparator key={`separator-${index}`} />
-              ) : (
-                <SelectItem key={option.value} value={option.value}>
-                  {renderOption
-                    ? renderOption(option.value, option.label)
-                    : option.label}
-                </SelectItem>
-              )
-            )}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
+        </span>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {options.map((option, index) =>
+            option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
+              <SelectSeparator key={`separator-${index}`} />
+            ) : (
+              <SelectItem key={option.value} value={option.value}>
+                {renderOption
+                  ? renderOption(option.value, option.label)
+                  : option.label}
+              </SelectItem>
+            )
+          )}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -524,7 +526,7 @@ export function PropertyDateField({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1">
+    <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-muted/20">
       <span className="text-sm text-muted-foreground">{label}</span>
       <Input
         type="date"
@@ -535,7 +537,7 @@ export function PropertyDateField({
             event.target.value ? `${event.target.value}T00:00:00.000Z` : null
           )
         }
-        className="h-7 w-[9.5rem] border-none bg-transparent px-0 text-right text-sm shadow-none"
+        className="h-7 w-[9.5rem] border-none bg-transparent px-0 text-right text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
       />
     </div>
   )

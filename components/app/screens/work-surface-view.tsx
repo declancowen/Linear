@@ -25,10 +25,14 @@ import {
 
 import {
   buildItemGroupsWithEmptyGroups,
+  formatDisplayValue,
+  getDirectChildWorkItemsForDisplay,
   getProject,
+  getTeam,
   getUser,
 } from "@/lib/domain/selectors"
 import {
+  getChildWorkItemCopy,
   priorityMeta,
   type AppData,
   type DisplayProperty,
@@ -41,7 +45,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { IssueActionMenu, IssueContextMenu, stopMenuEvent } from "./work-item-menus"
-import { WorkItemTypeBadge } from "./work-item-ui"
+import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import { StatusIcon, getPatchForField } from "./shared"
 import {
   getGroupValueAdornment,
@@ -50,45 +54,16 @@ import {
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
 
-function buildNestedListRows(items: WorkItem[]) {
-  const itemIds = new Set(items.map((item) => item.id))
-  const childrenByParent = new Map<string | null, WorkItem[]>()
-
-  items.forEach((item) => {
-    const parentKey =
-      item.parentId && itemIds.has(item.parentId) ? item.parentId : null
-    const siblings = childrenByParent.get(parentKey) ?? []
-
-    siblings.push(item)
-    childrenByParent.set(parentKey, siblings)
-  })
-
-  const ordered: Array<{ item: WorkItem; depth: number }> = []
-  const visited = new Set<string>()
-
-  function visit(parentId: string | null, depth: number) {
-    const children = childrenByParent.get(parentId) ?? []
-
-    children.forEach((child) => {
-      if (visited.has(child.id)) {
-        return
-      }
-
-      visited.add(child.id)
-      ordered.push({ item: child, depth })
-      visit(child.id, depth + 1)
-    })
+function getContainerItemsForDisplay(items: WorkItem[], showChildItems: boolean) {
+  if (!showChildItems) {
+    return items
   }
 
-  visit(null, 0)
+  const visibleItemIds = new Set(items.map((item) => item.id))
 
-  items.forEach((item) => {
-    if (!visited.has(item.id)) {
-      ordered.push({ item, depth: 0 })
-    }
-  })
-
-  return ordered
+  return items.filter(
+    (item) => !item.parentId || !visibleItemIds.has(item.parentId)
+  )
 }
 
 function parseGroupDropTarget(id: string, scope: "board" | "list") {
@@ -151,12 +126,28 @@ export function BoardView({
     ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
   ]
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
   const hiddenGroups = groups.filter(([groupName]) =>
     view.hiddenState.groups.includes(groupName)
   )
   const visibleGroups = groups.filter(
     ([groupName]) => !view.hiddenState.groups.includes(groupName)
   )
+  const showChildItems = Boolean(view.showChildItems)
+
+  function toggleExpandedItem(itemId: string) {
+    setExpandedItemIds((current) => {
+      const next = new Set(current)
+
+      if (next.has(itemId)) {
+        next.delete(itemId)
+      } else {
+        next.add(itemId)
+      }
+
+      return next
+    })
+  }
 
   function handleDragStart(event: DragStartEvent) {
     setActiveItemId(String(event.active.id))
@@ -248,11 +239,27 @@ export function BoardView({
                           <BoardDropLane
                             id={`board::${groupName}::${subgroupName}`}
                           >
-                            {subItems.map((item) => (
+                            {getContainerItemsForDisplay(
+                              subItems,
+                              showChildItems
+                            ).map((item) => (
                               <DraggableWorkCard
                                 key={item.id}
                                 item={item}
                                 data={data}
+                                displayProps={view.displayProps}
+                                details={
+                                  showChildItems ? (
+                                    <WorkItemChildDisclosure
+                                      data={data}
+                                      item={item}
+                                      ordering={view.ordering}
+                                      expanded={expandedItemIds.has(item.id)}
+                                      onToggle={() => toggleExpandedItem(item.id)}
+                                      variant="board"
+                                    />
+                                  ) : null
+                                }
                               />
                             ))}
                           </BoardDropLane>
@@ -298,7 +305,11 @@ export function BoardView({
       <DragOverlay>
         {activeItem ? (
           <div className="w-[18rem]">
-            <BoardCardBody data={data} item={activeItem} />
+            <BoardCardBody
+              data={data}
+              item={activeItem}
+              displayProps={view.displayProps}
+            />
           </div>
         ) : null}
       </DragOverlay>
@@ -322,6 +333,8 @@ export function ListView({
   ]
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
+  const showChildItems = Boolean(view.showChildItems)
 
   function toggleGroup(groupName: string) {
     setCollapsedGroups((current) => {
@@ -337,6 +350,20 @@ export function ListView({
 
   function handleDragStart(event: DragStartEvent) {
     setActiveItemId(String(event.active.id))
+  }
+
+  function toggleExpandedItem(itemId: string) {
+    setExpandedItemIds((current) => {
+      const next = new Set(current)
+
+      if (next.has(itemId)) {
+        next.delete(itemId)
+      } else {
+        next.add(itemId)
+      }
+
+      return next
+    })
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -419,26 +446,41 @@ export function ListView({
                           <ListDropLane
                             id={`list::${groupName}::${subgroupName}`}
                           >
-                            {buildNestedListRows(subItems).map(
-                              ({ item, depth }) =>
-                                editable ? (
-                                  <DraggableListRow
-                                    key={item.id}
-                                    data={data}
-                                    item={item}
-                                    displayProps={view.displayProps}
-                                    depth={depth}
-                                  />
-                                ) : (
-                                  <ListRow
-                                    key={item.id}
-                                    data={data}
-                                    item={item}
-                                    displayProps={view.displayProps}
-                                    depth={depth}
-                                  />
-                                )
-                            )}
+                            {getContainerItemsForDisplay(
+                              subItems,
+                              showChildItems
+                            ).map((item) => {
+                              const details = showChildItems ? (
+                                <WorkItemChildDisclosure
+                                  data={data}
+                                  item={item}
+                                  ordering={view.ordering}
+                                  expanded={expandedItemIds.has(item.id)}
+                                  onToggle={() => toggleExpandedItem(item.id)}
+                                  variant="list"
+                                />
+                              ) : undefined
+
+                              return editable ? (
+                                <DraggableListRow
+                                  key={item.id}
+                                  data={data}
+                                  item={item}
+                                  displayProps={view.displayProps}
+                                  depth={0}
+                                  details={details}
+                                />
+                              ) : (
+                                <ListRow
+                                  key={item.id}
+                                  data={data}
+                                  item={item}
+                                  displayProps={view.displayProps}
+                                  depth={0}
+                                  details={details}
+                                />
+                              )
+                            })}
                           </ListDropLane>
                         </div>
                       )
@@ -567,6 +609,7 @@ function ListRowBody({
   depth,
   dragHandle,
   interactive = true,
+  details,
 }: {
   data: AppData
   item: WorkItem
@@ -574,7 +617,9 @@ function ListRowBody({
   depth: number
   dragHandle?: ReactNode
   interactive?: boolean
+  details?: ReactNode
 }) {
+  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const content = (
     <>
       <span className="w-20 shrink-0 text-xs text-muted-foreground">
@@ -591,15 +636,20 @@ function ListRowBody({
         </span>
       ) : null}
       {displayProps.includes("assignee") ? (
-        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-          {item.assigneeId
-            ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
-            : ""}
-        </div>
+        assignee ? (
+          <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
+        ) : (
+          <span className="size-5 shrink-0" />
+        )
       ) : null}
       {displayProps.includes("project") ? (
         <span className="shrink-0 text-xs text-muted-foreground">
           {getProject(data, item.primaryProjectId)?.name ?? ""}
+        </span>
+      ) : null}
+      {displayProps.includes("labels") ? (
+        <span className="max-w-40 truncate text-xs text-muted-foreground">
+          {formatDisplayValue(data, item, "labels")}
         </span>
       ) : null}
       {displayProps.includes("created") ? (
@@ -616,27 +666,30 @@ function ListRowBody({
   )
 
   const body = (
-    <div className="group flex items-center gap-3 border-b px-4 py-2 transition-colors hover:bg-accent/50">
-      {interactive ? (
-        <IssueActionMenu
-          data={data}
-          item={item}
-          triggerClassName="opacity-0 transition-opacity group-hover:opacity-100"
-        />
-      ) : (
-        <span className="size-4 shrink-0" />
-      )}
-      {dragHandle}
-      {interactive ? (
-        <Link
-          href={`/items/${item.id}`}
-          className="flex min-w-0 flex-1 items-center gap-3"
-        >
-          {content}
-        </Link>
-      ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-3">{content}</div>
-      )}
+    <div className="group border-b transition-colors hover:bg-accent/50">
+      <div className="flex items-center gap-3 px-4 py-2">
+        {interactive ? (
+          <IssueActionMenu
+            data={data}
+            item={item}
+            triggerClassName="opacity-0 transition-opacity group-hover:opacity-100"
+          />
+        ) : (
+          <span className="size-4 shrink-0" />
+        )}
+        {dragHandle}
+        {interactive ? (
+          <Link
+            href={`/items/${item.id}`}
+            className="flex min-w-0 flex-1 items-center gap-3"
+          >
+            {content}
+          </Link>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-3">{content}</div>
+        )}
+      </div>
+      {details}
     </div>
   )
 
@@ -654,11 +707,13 @@ function ListRow({
   item,
   displayProps,
   depth,
+  details,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
+  details?: ReactNode
 }) {
   return (
     <ListRowBody
@@ -666,6 +721,7 @@ function ListRow({
       item={item}
       displayProps={displayProps}
       depth={depth}
+      details={details}
     />
   )
 }
@@ -675,11 +731,13 @@ function DraggableListRow({
   item,
   displayProps,
   depth,
+  details,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
+  details?: ReactNode
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -697,6 +755,7 @@ function DraggableListRow({
         item={item}
         displayProps={displayProps}
         depth={depth}
+        details={details}
         dragHandle={
           <button
             type="button"
@@ -758,7 +817,17 @@ function BoardDropLane({
   )
 }
 
-function DraggableWorkCard({ data, item }: { data: AppData; item: WorkItem }) {
+function DraggableWorkCard({
+  data,
+  item,
+  displayProps,
+  details,
+}: {
+  data: AppData
+  item: WorkItem
+  displayProps: DisplayProperty[]
+  details?: ReactNode
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: item.id,
@@ -773,6 +842,8 @@ function DraggableWorkCard({ data, item }: { data: AppData; item: WorkItem }) {
       <BoardCardBody
         data={data}
         item={item}
+        displayProps={displayProps}
+        details={details}
         dragHandle={
           <button
             type="button"
@@ -792,23 +863,29 @@ function DraggableWorkCard({ data, item }: { data: AppData; item: WorkItem }) {
 function BoardCardBody({
   data,
   item,
+  displayProps,
   dragHandle,
+  details,
 }: {
   data: AppData
   item: WorkItem
+  displayProps: DisplayProperty[]
   dragHandle?: ReactNode
+  details?: ReactNode
 }) {
+  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
+
   return (
     <IssueContextMenu data={data} item={item}>
       <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs transition-shadow hover:shadow-sm">
         <div className="mb-2 flex items-start justify-between gap-2">
           <span className="text-xs text-muted-foreground">{item.key}</span>
           <div className="flex items-center gap-1.5">
-            <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] text-muted-foreground">
-              {item.assigneeId
-                ? (getUser(data, item.assigneeId)?.avatarUrl ?? "?")
-                : ""}
-            </div>
+            {assignee ? (
+              <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
+            ) : (
+              <span className="size-5 shrink-0" />
+            )}
             <IssueActionMenu
               data={data}
               item={item}
@@ -827,7 +904,7 @@ function BoardCardBody({
           <div className="mt-2 flex items-center gap-1.5">
             <StatusIcon status={item.status} />
             <WorkItemTypeBadge data={data} item={item} />
-            {item.primaryProjectId ? (
+            {displayProps.includes("project") && item.primaryProjectId ? (
               <Badge
                 variant="secondary"
                 className="h-4 px-1.5 py-0 text-[10px]"
@@ -836,11 +913,128 @@ function BoardCardBody({
               </Badge>
             ) : null}
           </div>
+          {displayProps.includes("labels") && item.labelIds.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {item.labelIds.slice(0, 3).map((labelId) => {
+                const labelName = formatDisplayValue(data, {
+                  ...item,
+                  labelIds: [labelId],
+                }, "labels")
+
+                if (!labelName) {
+                  return null
+                }
+
+                return (
+                  <Badge
+                    key={`${item.id}-${labelId}`}
+                    variant="outline"
+                    className="h-4 px-1.5 py-0 text-[10px]"
+                  >
+                    {labelName}
+                  </Badge>
+                )
+              })}
+            </div>
+          ) : null}
           <div className="mt-2 text-xs text-muted-foreground">
             Created {format(new Date(item.createdAt), "MMM d")}
           </div>
         </Link>
+        {details}
       </div>
     </IssueContextMenu>
+  )
+}
+
+function WorkItemChildDisclosure({
+  data,
+  item,
+  ordering,
+  expanded,
+  onToggle,
+  variant,
+}: {
+  data: AppData
+  item: WorkItem
+  ordering: ViewDefinition["ordering"]
+  expanded: boolean
+  onToggle: () => void
+  variant: "board" | "list"
+}) {
+  const team = getTeam(data, item.teamId)
+  const childCopy = getChildWorkItemCopy(item.type, team?.settings.experience)
+  const childItems = getDirectChildWorkItemsForDisplay(data, item, ordering)
+
+  if (!childCopy.childType || childItems.length === 0) {
+    return null
+  }
+
+  const childCountLabel = `${childItems.length} ${
+    childItems.length === 1
+      ? childCopy.childLabel.toLowerCase()
+      : childCopy.childPluralLabel.toLowerCase()
+  }`
+
+  return (
+    <div
+      className={cn(
+        variant === "board"
+          ? "mt-3 border-t border-border/60 pt-2"
+          : "border-t border-border/60 bg-muted/20 px-4 py-2"
+      )}
+    >
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        onClick={onToggle}
+      >
+        {expanded ? (
+          <CaretDown className="size-3.5" />
+        ) : (
+          <CaretRight className="size-3.5" />
+        )}
+        <span>{childCountLabel}</span>
+      </button>
+      {expanded ? (
+        <div
+          className={cn(
+            "mt-2 flex flex-col gap-1.5",
+            variant === "board" ? "" : "ml-8"
+          )}
+        >
+          {childItems.map((child) => {
+            const childAssignee = child.assigneeId
+              ? getUser(data, child.assigneeId)
+              : null
+
+            return (
+              <Link
+                key={child.id}
+                href={`/items/${child.id}`}
+                className={cn(
+                  "flex items-center gap-2 rounded-md border border-border/60 text-xs transition-colors hover:bg-accent",
+                  variant === "board"
+                    ? "bg-background/70 px-2 py-1.5"
+                    : "bg-background/80 px-2.5 py-1.5"
+                )}
+              >
+                <StatusIcon status={child.status} />
+                <span className="min-w-0 shrink-0 text-[11px] text-muted-foreground">
+                  {child.key}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{child.title}</span>
+                {childAssignee ? (
+                  <WorkItemAssigneeAvatar
+                    user={childAssignee}
+                    className="size-4"
+                  />
+                ) : null}
+              </Link>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
   )
 }

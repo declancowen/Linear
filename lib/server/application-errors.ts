@@ -37,9 +37,7 @@ export class ApplicationError extends Error {
   }
 }
 
-export function isApplicationError(
-  error: unknown
-): error is ApplicationError {
+export function isApplicationError(error: unknown): error is ApplicationError {
   return error instanceof ApplicationError
 }
 
@@ -53,6 +51,79 @@ function getErrorMessage(error: unknown) {
   }
 
   return null
+}
+
+function getErrorCause(error: unknown) {
+  if (typeof error === "object" && error !== null && "cause" in error) {
+    return error.cause
+  }
+
+  return null
+}
+
+function normalizeErrorMessageVariants(message: string) {
+  const variants = new Set<string>()
+  const trimmedMessage = message.trim()
+
+  if (trimmedMessage.length === 0) {
+    return variants
+  }
+
+  const candidates = [
+    trimmedMessage,
+    ...trimmedMessage
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate.length === 0) {
+      continue
+    }
+
+    variants.add(candidate)
+
+    const withoutRequestPrefix = candidate
+      .replace(/^\[Request ID:[^\]]+\]\s*Server Error\s*/i, "")
+      .trim()
+
+    if (withoutRequestPrefix.length > 0) {
+      variants.add(withoutRequestPrefix)
+      variants.add(
+        withoutRequestPrefix.replace(/^Uncaught Error:\s*/i, "").trim()
+      )
+      variants.add(withoutRequestPrefix.replace(/^Error:\s*/i, "").trim())
+    }
+  }
+
+  return variants
+}
+
+function collectErrorMessages(
+  error: unknown,
+  depth = 0,
+  messages = new Set<string>()
+) {
+  if (depth >= 4) {
+    return messages
+  }
+
+  const message = getErrorMessage(error)
+
+  if (message) {
+    for (const variant of normalizeErrorMessageVariants(message)) {
+      messages.add(variant)
+    }
+  }
+
+  const cause = getErrorCause(error)
+
+  if (cause) {
+    collectErrorMessages(cause, depth + 1, messages)
+  }
+
+  return messages
 }
 
 function matchesApplicationErrorMessage(
@@ -78,23 +149,37 @@ export function coerceApplicationError(
     return error
   }
 
-  const message = getErrorMessage(error)
+  const candidateMessages = [...collectErrorMessages(error)]
 
-  if (!message) {
+  if (candidateMessages.length === 0) {
+    return null
+  }
+
+  const matchedCandidate = candidateMessages.find((message) =>
+    mappings.some((entry) =>
+      matchesApplicationErrorMessage(message, entry.match)
+    )
+  )
+
+  if (!matchedCandidate) {
     return null
   }
 
   const mapping = mappings.find((entry) =>
-    matchesApplicationErrorMessage(message, entry.match)
+    matchesApplicationErrorMessage(matchedCandidate, entry.match)
   )
 
   if (!mapping) {
     return null
   }
 
-  return new ApplicationError(mapping.message ?? message, mapping.status, {
-    code: mapping.code,
-    retryable: mapping.retryable ?? null,
-    details: mapping.details ?? null,
-  })
+  return new ApplicationError(
+    mapping.message ?? matchedCandidate,
+    mapping.status,
+    {
+      code: mapping.code,
+      retryable: mapping.retryable ?? null,
+      details: mapping.details ?? null,
+    }
+  )
 }

@@ -29,6 +29,7 @@ describe("send-email-jobs worker", () => {
         },
       },
       resendFromEmail: "noreply@example.com",
+      resendFromName: undefined,
       markEmailJobsSent: markEmailJobsSentMock,
       releaseEmailJobClaim: releaseEmailJobClaimMock,
     })
@@ -76,13 +77,14 @@ describe("send-email-jobs worker", () => {
         },
       },
       resendFromEmail: "noreply@example.com",
+      resendFromName: undefined,
       markEmailJobsSent: markEmailJobsSentMock,
       releaseEmailJobClaim: releaseEmailJobClaimMock,
     })
 
     expect(sendMock).toHaveBeenCalledWith(
       {
-        from: "noreply@example.com <noreply@example.com>",
+        from: "noreply@example.com",
         to: "alex@example.com",
         subject: "Mention",
         text: "text",
@@ -130,6 +132,48 @@ describe("send-email-jobs worker", () => {
         },
       },
       resendFromEmail: "Recipe Room <noreply@example.com>",
+      resendFromName: "Ignored",
+      markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
+      releaseEmailJobClaim: vi.fn().mockResolvedValue(undefined),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "Recipe Room <noreply@example.com>",
+      }),
+      {
+        idempotencyKey: "job_1",
+      }
+    )
+  })
+
+  it("formats the sender with an optional display name", async () => {
+    const { processEmailJobsBatch } = await import(
+      "../../scripts/send-email-jobs.mjs"
+    )
+
+    const sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } })
+
+    await processEmailJobsBatch({
+      jobs: [
+        {
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_1",
+          toEmail: "alex@example.com",
+          subject: "Mention",
+          text: "text",
+          html: "<p>text</p>",
+        },
+      ],
+      claimId: "claim_1",
+      resend: {
+        emails: {
+          send: sendMock,
+        },
+      },
+      resendFromEmail: "noreply@example.com",
+      resendFromName: "Recipe Room",
       markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
       releaseEmailJobClaim: vi.fn().mockResolvedValue(undefined),
     })

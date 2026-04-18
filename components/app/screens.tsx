@@ -18,6 +18,7 @@ import {
 import {
   canAdminTeam,
   canEditTeam,
+  canEditWorkspace,
   getPrivateDocuments,
   getProjectHref,
   getProjectProgress,
@@ -27,6 +28,7 @@ import {
   getTeamDocuments,
   getUser,
   getViewByRoute,
+  getVisibleProjectsForView,
   getViewsForScope,
   getVisibleWorkItems,
   getWorkspaceDocuments,
@@ -40,6 +42,8 @@ import {
   type Team,
   type ViewDefinition,
 } from "@/lib/domain/types"
+import { createViewDefinition } from "@/lib/domain/default-views"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-settings-dialog"
 import { Button } from "@/components/ui/button"
@@ -64,7 +68,6 @@ import {
 } from "@/components/app/screens/shared"
 export { InboxScreen } from "@/components/app/screens/inbox-screen"
 import { CreateDocumentDialog } from "@/components/app/screens/create-document-dialog"
-import { CreateProjectDialog } from "@/components/app/screens/project-creation"
 import {
   DocumentContextMenu,
 } from "@/components/app/screens/document-ui"
@@ -76,6 +79,11 @@ import {
 } from "@/components/app/screens/collection-boards"
 import { WorkSurface } from "@/components/app/screens/work-surface"
 import { getViewHref } from "@/lib/domain/default-views"
+import { cloneViewCreateConfig } from "@/components/app/screens/helpers"
+import {
+  ProjectFilterPopover,
+  ProjectViewConfigPopover,
+} from "@/components/app/screens/work-surface-controls"
 import { cn } from "@/lib/utils"
 export { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
 export { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
@@ -128,7 +136,7 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
     setLocalLayout(nextLayout)
   }
 
-  return { layout, setLayout }
+  return { activeView, layout, setLayout }
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,16 +236,47 @@ export function ProjectsScreen({
     )
   )
   const routeKey = team ? `/team/${team.slug}/projects` : "/workspace/projects"
-  const { layout, setLayout } = useCollectionLayout(routeKey, projectViews)
+  const { activeView, layout, setLayout } = useCollectionLayout(
+    routeKey,
+    projectViews
+  )
   const editable = useAppStore((state) =>
-    team ? canEditTeam(state, team.id) : true
+    team ? canEditTeam(state, team.id) : canEditWorkspace(state, scopeId)
   )
   const admin = useAppStore((state) =>
     team ? canAdminTeam(state, team.id) : false
   )
   const canCreateProject = Boolean(team && editable)
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const fallbackProjectView =
+    createViewDefinition({
+      id: `fallback-project-view-${scopeType}-${scopeId}`,
+      name: "All projects",
+      description: "All projects in this scope.",
+      scopeType: team ? "team" : "workspace",
+      scopeId,
+      entityKind: "projects",
+      route: routeKey,
+      teamSlug: team?.slug,
+      createdAt: "2026-04-18T00:00:00.000Z",
+      updatedAt: "2026-04-18T00:00:00.000Z",
+      overrides: {
+        layout,
+      },
+    }) ?? null
+  const effectiveProjectView = activeView ?? fallbackProjectView
+  const displayedProjectViews =
+    projectViews.length > 0
+      ? projectViews
+      : fallbackProjectView
+        ? [fallbackProjectView]
+        : []
+  const visibleProjects =
+    effectiveProjectView !== null
+      ? getVisibleProjectsForView(data, projects, effectiveProjectView)
+      : projects
+  const emptyProjectsLabel =
+    projects.length === 0 ? "No projects yet" : "No projects match the current view."
 
   if (team && !teamHasFeature(team, "projects")) {
     return <MissingState title="Projects are disabled for this team" />
@@ -245,10 +284,77 @@ export function ProjectsScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <ScreenHeader
-        title={title}
-        actions={
-          <div className="flex items-center gap-1">
+      <div className={SCREEN_HEADER_CLASS_NAME}>
+        <div className="flex min-w-0 items-center gap-2">
+          <HeaderTitle title={title} />
+          {displayedProjectViews.length > 0 ? (
+            <div className="flex items-center gap-1">
+              {displayedProjectViews.map((view) => (
+                <button
+                  key={view.id}
+                  className={cn(
+                    "h-6 rounded-sm px-2 text-xs transition-colors",
+                    view.id === effectiveProjectView?.id
+                      ? "bg-accent font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={() => {
+                    if (!activeView) {
+                      return
+                    }
+
+                    useAppStore.getState().setSelectedView(routeKey, view.id)
+                  }}
+                >
+                  {view.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {editable ? (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={() =>
+                openManagedCreateDialog({
+                  kind: "view",
+                  defaultScopeType: team ? "team" : "workspace",
+                  defaultScopeId: scopeId,
+                  defaultEntityKind: "projects",
+                  defaultRoute: routeKey,
+                  lockScope: true,
+                  lockEntityKind: true,
+                  initialConfig: effectiveProjectView
+                    ? cloneViewCreateConfig(effectiveProjectView)
+                    : { layout },
+                })
+              }
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1">
+          {activeView ? (
+            <>
+              <ProjectFilterPopover view={activeView} projects={projects} />
+              <ProjectViewConfigPopover
+                view={activeView}
+                extraAction={
+                  team && admin ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => setSettingsOpen(true)}
+                    >
+                      Team workflow settings
+                    </Button>
+                  ) : null
+                }
+              />
+            </>
+          ) : (
             <CollectionDisplaySettingsPopover
               layout={layout}
               onLayoutChange={setLayout}
@@ -265,18 +371,27 @@ export function ProjectsScreen({
                 ) : null
               }
             />
-            {canCreateProject ? (
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                onClick={() => setDialogOpen(true)}
-              >
-                <Plus className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
-        }
-      />
+          )}
+          {canCreateProject ? (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => {
+                if (!team) {
+                  return
+                }
+
+                openManagedCreateDialog({
+                  kind: "project",
+                  defaultTeamId: team.id,
+                })
+              }}
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
+      </div>
       {team && settingsOpen ? (
         <TeamWorkflowSettingsDialog
           open={settingsOpen}
@@ -284,22 +399,14 @@ export function ProjectsScreen({
           teamId={team.id}
         />
       ) : null}
-      {team && dialogOpen ? (
-        <CreateProjectDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          teamId={team.id}
-          disabled={!editable}
-        />
-      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {projects.length === 0 ? (
-          <MissingState title="No projects yet" />
+        {visibleProjects.length === 0 ? (
+          <MissingState title={emptyProjectsLabel} />
         ) : layout === "board" ? (
-          <ProjectBoard data={data} projects={projects} />
+          <ProjectBoard data={data} projects={visibleProjects} />
         ) : (
           <div className="flex flex-col">
-            {projects.map((project) => {
+            {visibleProjects.map((project) => {
               const progress = getProjectProgress(data, project.id)
               return (
                 <Link
@@ -387,6 +494,9 @@ export function ViewsScreen({
   const [layout, setLayout] = useState<"list" | "board">("list")
   const [sortBy, setSortBy] = useState<"updated" | "name" | "entity">("updated")
   const [showDescriptions, setShowDescriptions] = useState(true)
+  const editable = useAppStore((state) =>
+    scopeType === "team" ? canEditTeam(state, scopeId) : canEditWorkspace(state, scopeId)
+  )
   const orderedViews = [...views].sort((left, right) => {
     if (sortBy === "name") {
       return left.name.localeCompare(right.name)
@@ -417,6 +527,22 @@ export function ViewsScreen({
               onSortByChange={setSortBy}
               onShowDescriptionsChange={setShowDescriptions}
             />
+            {editable ? (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                onClick={() =>
+                  openManagedCreateDialog({
+                    kind: "view",
+                    defaultScopeType: scopeType,
+                    defaultScopeId: scopeId,
+                    lockScope: true,
+                  })
+                }
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         }
       />

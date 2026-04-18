@@ -112,3 +112,34 @@ export function summarizePendingDocumentMentions(
     }
   )
 }
+
+export function getPendingRichTextMentionEntries(
+  previousContent: string,
+  nextContent: string,
+  options?: {
+    ignoredUserIds?: string[]
+  }
+) {
+  const previousCounts = extractRichTextMentionCounts(previousContent)
+  const nextCounts = extractRichTextMentionCounts(nextContent)
+  const ignoredUserIds = new Set(options?.ignoredUserIds ?? [])
+
+  return Object.entries(nextCounts).flatMap<PendingDocumentMention>(
+    ([userId, nextCount]) => {
+      if (ignoredUserIds.has(userId)) {
+        return []
+      }
+
+      const addedCount = nextCount - (previousCounts[userId] ?? 0)
+
+      return addedCount > 0
+        ? [
+            {
+              userId,
+              count: addedCount,
+            },
+          ]
+        : []
+    }
+  )
+}

@@ -13,6 +13,9 @@ import type {
   WorkStatus,
 } from "@/lib/domain/types"
 import {
+  getAllowedChildWorkItemTypesForItem,
+  isCompletedWorkStatus,
+  isExcludedFromWorkStatusRollup,
   priorities,
   priorityMeta,
   workItemTypes,
@@ -54,11 +57,60 @@ export function getVisibleWorkItems(
   return data.workItems.filter((item) => teamIds.includes(item.teamId))
 }
 
+export function getDirectChildWorkItems(data: AppData, itemId: string) {
+  return data.workItems.filter((item) => item.parentId === itemId)
+}
+
+export function getDirectChildWorkItemsForDisplay(
+  data: AppData,
+  item: WorkItem,
+  ordering: OrderingField
+) {
+  const allowedChildTypes = getAllowedChildWorkItemTypesForItem(item)
+
+  if (allowedChildTypes.length !== 1) {
+    return []
+  }
+
+  return sortItems(
+    data.workItems.filter(
+      (candidate) =>
+        candidate.parentId === item.id && allowedChildTypes.includes(candidate.type)
+    ),
+    ordering
+  )
+}
+
+export function getWorkItemChildProgress(data: AppData, itemId: string) {
+  const children = getDirectChildWorkItems(data, itemId)
+  const includedChildren = children.filter(
+    (child) => !isExcludedFromWorkStatusRollup(child.status)
+  )
+  const completedChildren = includedChildren.filter((child) =>
+    isCompletedWorkStatus(child.status)
+  )
+
+  return {
+    totalChildren: children.length,
+    includedChildren: includedChildren.length,
+    completedChildren: completedChildren.length,
+    excludedChildren: children.length - includedChildren.length,
+    percent:
+      includedChildren.length === 0
+        ? 0
+        : Math.round((completedChildren.length / includedChildren.length) * 100),
+  }
+}
+
 export function itemMatchesView(
   data: AppData,
   item: WorkItem,
   view: ViewDefinition
 ) {
+  if (view.itemLevel && item.type !== view.itemLevel) {
+    return false
+  }
+
   const project = getProject(data, item.primaryProjectId)
 
   if (
@@ -141,6 +193,20 @@ export function itemMatchesView(
   }
 
   return true
+}
+
+export function getVisibleItemsForView(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition
+) {
+  const filteredItems = items.filter((item) => itemMatchesView(data, item, view))
+
+  if (view.entityKind === "items" && !view.itemLevel) {
+    return filteredItems.filter((item) => item.parentId === null)
+  }
+
+  return filteredItems
 }
 
 export function comparePriority(left: Priority, right: Priority) {

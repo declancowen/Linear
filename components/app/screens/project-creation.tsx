@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useShallow } from "zustand/react/shallow"
 import {
   CalendarDots,
   CaretDown,
@@ -11,7 +12,7 @@ import {
 } from "@phosphor-icons/react"
 
 import {
-  getLabelsForTeamScope,
+  getEditableTeamsForFeature,
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
@@ -37,6 +38,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -47,11 +49,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
 import {
-  ConfigSelect,
-  FilterChip,
-} from "@/components/app/screens/shared"
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { ConfigSelect, FilterChip } from "@/components/app/screens/shared"
 import {
   cloneViewFilters,
   countActiveViewFilters,
@@ -396,33 +403,57 @@ function ProjectFiltersPopover({
 export function CreateProjectDialog({
   open,
   onOpenChange,
-  teamId,
-  disabled,
+  defaultTeamId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
-  disabled: boolean
+  defaultTeamId?: string | null
 }) {
-  const teams = useAppStore((state) => state.teams)
+  const availableTeams = useAppStore(
+    useShallow((state) => getEditableTeamsForFeature(state, "projects"))
+  )
+  const allLabels = useAppStore((state) => state.labels)
   const teamMemberships = useAppStore((state) => state.teamMemberships)
   const users = useAppStore((state) => state.users)
-  const labels = useAppStore((state) => getLabelsForTeamScope(state, teamId))
+  const initialTeamId =
+    defaultTeamId && availableTeams.some((team) => team.id === defaultTeamId)
+      ? defaultTeamId
+      : (availableTeams[0]?.id ?? "")
+  const initialTeam =
+    availableTeams.find((entry) => entry.id === initialTeamId) ?? null
+  const initialTemplateType = getDefaultTemplateTypeForTeamExperience(
+    initialTeam?.settings.experience
+  )
+  const initialTemplateDefaults = getTemplateDefaultsForTeam(
+    initialTeam,
+    initialTemplateType
+  )
+  const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
   const settingsTeam = useMemo(
-    () => teams.find((entry) => entry.id === teamId) ?? null,
-    [teamId, teams]
+    () => availableTeams.find((entry) => entry.id === selectedTeamId) ?? null,
+    [availableTeams, selectedTeamId]
+  )
+  const labels = useMemo(
+    () =>
+      settingsTeam
+        ? allLabels.filter(
+            (label) => label.workspaceId === settingsTeam.workspaceId
+          )
+        : [],
+    [allLabels, settingsTeam]
   )
   const teamMembers = useMemo(() => {
     const memberIds = new Set(
       teamMemberships
-        .filter((membership) => membership.teamId === teamId)
+        .filter((membership) => membership.teamId === selectedTeamId)
         .map((membership) => membership.userId)
     )
 
     return users.filter((user) => memberIds.has(user.id))
-  }, [teamId, teamMemberships, users])
+  }, [selectedTeamId, teamMemberships, users])
   const availableLabels = useMemo(
-    () => [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () =>
+      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
     [labels]
   )
   const templateType = getDefaultTemplateTypeForTeamExperience(
@@ -437,8 +468,8 @@ export function CreateProjectDialog({
   const [summary, setSummary] = useState("")
   const [presentation, setPresentation] = useState<ProjectPresentationConfig>(
     () =>
-      createDefaultProjectPresentationConfig(templateType, {
-        layout: templateDefaults.defaultViewLayout,
+      createDefaultProjectPresentationConfig(initialTemplateType, {
+        layout: initialTemplateDefaults.defaultViewLayout,
       })
   )
   const normalizedName = name.trim()
@@ -447,15 +478,38 @@ export function CreateProjectDialog({
     normalizedSummary.length >= 2
       ? normalizedSummary
       : templateDefaults.summaryHint
-  const canCreate = !disabled && normalizedName.length >= 2
+  const canCreate = availableTeams.length > 0 && normalizedName.length >= 2
   const triggerClassName =
     "h-9 w-auto max-w-full rounded-full border-border/60 bg-background px-3 text-xs font-medium shadow-none"
+
+  function syncTeamSelection(nextTeamId: string) {
+    const nextTeam =
+      availableTeams.find((entry) => entry.id === nextTeamId) ?? null
+    const nextTemplateType = getDefaultTemplateTypeForTeamExperience(
+      nextTeam?.settings.experience
+    )
+    const nextTemplateDefaults = getTemplateDefaultsForTeam(
+      nextTeam,
+      nextTemplateType
+    )
+
+    setSelectedTeamId(nextTeamId)
+    setPresentation(
+      createDefaultProjectPresentationConfig(nextTemplateType, {
+        layout: nextTemplateDefaults.defaultViewLayout,
+      })
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="sr-only">
           <DialogTitle>New project</DialogTitle>
+          <DialogDescription>
+            Create a project and configure its default presentation before
+            teammates start using it.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
@@ -464,7 +518,7 @@ export function CreateProjectDialog({
               variant="outline"
               className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
             >
-              {settingsTeam?.name ?? "Team"}
+              {settingsTeam?.name ?? "Team space"}
             </Badge>
             <span className="text-muted-foreground/50">/</span>
             <span className="tracking-normal normal-case">New project</span>
@@ -474,7 +528,7 @@ export function CreateProjectDialog({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Project name"
-            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem]"
+            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem] dark:bg-transparent"
             autoFocus
           />
           <Textarea
@@ -482,7 +536,7 @@ export function CreateProjectDialog({
             onChange={(event) => setSummary(event.target.value)}
             placeholder={templateDefaults.summaryHint}
             rows={4}
-            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
           />
           <p className="mt-3 text-xs text-muted-foreground">
             Configure the default project view before the team starts using it.
@@ -491,6 +545,35 @@ export function CreateProjectDialog({
 
         <div className="px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={selectedTeamId || "__no_team__"}
+              onValueChange={(value) => {
+                if (value === "__no_team__") {
+                  return
+                }
+
+                syncTeamSelection(value)
+              }}
+              disabled={availableTeams.length === 0}
+            >
+              <SelectTrigger className={triggerClassName}>
+                <SelectValue placeholder="Team space" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {availableTeams.length > 0 ? (
+                    availableTeams.map((team) => (
+                      <SelectItem key={team.id} value={team.id}>
+                        {team.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="__no_team__">No team spaces</SelectItem>
+                  )}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
             <ProjectPresentationPopover
               templateType={templateType}
               presentation={presentation}
@@ -551,6 +634,12 @@ export function CreateProjectDialog({
             />
           </div>
 
+          {availableTeams.length === 0 ? (
+            <p className="mt-3 text-xs text-destructive">
+              No editable team spaces support project creation right now.
+            </p>
+          ) : null}
+
           <div className="mt-5 flex items-center justify-end gap-2">
             <Button
               variant="ghost"
@@ -563,14 +652,18 @@ export function CreateProjectDialog({
               size="sm"
               disabled={!canCreate}
               onClick={() => {
+                if (!selectedTeamId) {
+                  return
+                }
+
                 useAppStore.getState().createProject({
                   scopeType: "team",
-                  scopeId: teamId,
+                  scopeId: selectedTeamId,
                   templateType,
                   name: normalizedName,
                   summary: resolvedSummary,
                   priority: templateDefaults.defaultPriority,
-                  settingsTeamId: teamId,
+                  settingsTeamId: selectedTeamId,
                   presentation: {
                     ...presentation,
                     displayProps: [...presentation.displayProps],

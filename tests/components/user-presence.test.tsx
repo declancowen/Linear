@@ -74,6 +74,28 @@ const formerUser = {
   },
 }
 
+const offlineUser = {
+  id: "user_offline",
+  name: "Offline User",
+  handle: "offline-user",
+  email: "offline@example.com",
+  avatarUrl: "",
+  avatarImageUrl: null,
+  workosUserId: null,
+  title: "Engineer",
+  status: "offline" as const,
+  statusMessage: "",
+  hasExplicitStatus: false,
+  accountDeletionPendingAt: null,
+  accountDeletedAt: null,
+  preferences: {
+    emailMentions: true,
+    emailAssignments: true,
+    emailDigest: true,
+    theme: "system" as const,
+  },
+}
+
 beforeEach(() => {
   useAppStore.setState({
     ...createEmptyState(),
@@ -97,7 +119,7 @@ beforeEach(() => {
     workspaceMemberships: [],
     teams: [],
     teamMemberships: [],
-    users: [currentUser, formerUser],
+    users: [currentUser, formerUser, offlineUser],
   })
 })
 
@@ -136,5 +158,33 @@ describe("workspace former-member presence", () => {
     expect(screen.getAllByText("Left workspace").length).toBeGreaterThan(0)
     expect(screen.queryByText("Product Owner")).not.toBeInTheDocument()
     expect(screen.queryByText("Out of office")).not.toBeInTheDocument()
+  })
+
+  it("shows no explicit status details for offline-by-default members", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaceMemberships: [
+        {
+          workspaceId: "workspace_1",
+          userId: offlineUser.id,
+          role: "member",
+        },
+      ],
+    }))
+
+    render(
+      <UserHoverCard
+        user={offlineUser}
+        userId={offlineUser.id}
+        currentUserId={currentUser.id}
+        workspaceId="workspace_1"
+      >
+        <button type="button">Open offline profile</button>
+      </UserHoverCard>
+    )
+
+    expect(screen.getByText("No status set")).toBeInTheDocument()
+    expect(screen.getByText("No status message")).toBeInTheDocument()
+    expect(screen.queryByText("Offline")).not.toBeInTheDocument()
   })
 })
