@@ -1,6 +1,15 @@
 "use client"
 
-import { useState, type ElementType, type ReactNode } from "react"
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ElementType,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react"
 import { GearSix, Kanban, CaretDown, CaretRight, Rows, CheckCircle, Circle, XCircle, CodesandboxLogo, NotePencil } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -322,22 +331,174 @@ export function PropertySelect({
   renderOption?: (value: string, label: string) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [activeValue, setActiveValue] = useState(value)
+  const listboxId = useId()
+  const optionRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const typeaheadBufferRef = useRef("")
+  const typeaheadResetTimeoutRef = useRef<number | null>(null)
+  const selectableOptions = useMemo(
+    () =>
+      options.filter(
+        (option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE
+      ),
+    [options]
+  )
   const selectedOption =
-    options.find(
-      (option) =>
-        option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
-        option.value === value
-    ) ?? null
+    selectableOptions.find((option) => option.value === value) ?? null
   const selectedValue = selectedOption?.value ?? value
   const selectedLabel = selectedOption?.label ?? value
   const resolvedAccessibleLabel = accessibleLabel ?? (label || "Project")
 
+  useEffect(() => {
+    if (!open || !activeValue) {
+      return
+    }
+
+    optionRefs.current[activeValue]?.focus()
+  }, [activeValue, open])
+
+  useEffect(() => {
+    return () => {
+      if (typeaheadResetTimeoutRef.current !== null) {
+        window.clearTimeout(typeaheadResetTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  function resetTypeaheadBuffer() {
+    if (typeaheadResetTimeoutRef.current !== null) {
+      window.clearTimeout(typeaheadResetTimeoutRef.current)
+    }
+
+    typeaheadResetTimeoutRef.current = window.setTimeout(() => {
+      typeaheadBufferRef.current = ""
+      typeaheadResetTimeoutRef.current = null
+    }, 500)
+  }
+
+  function moveActiveOption(direction: 1 | -1) {
+    if (selectableOptions.length === 0) {
+      return
+    }
+
+    const currentIndex = selectableOptions.findIndex(
+      (option) => option.value === activeValue
+    )
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0
+    const nextIndex =
+      (baseIndex + direction + selectableOptions.length) %
+      selectableOptions.length
+    const nextValue = selectableOptions[nextIndex]?.value
+
+    if (nextValue) {
+      setActiveValue(nextValue)
+    }
+  }
+
+  function moveToBoundaryOption(boundary: "first" | "last") {
+    const nextValue =
+      boundary === "first"
+        ? selectableOptions[0]?.value
+        : selectableOptions[selectableOptions.length - 1]?.value
+
+    if (nextValue) {
+      setActiveValue(nextValue)
+    }
+  }
+
+  function selectOption(nextValue: string) {
+    setOpen(false)
+    onValueChange(nextValue)
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      setActiveValue(
+        selectableOptions.some((option) => option.value === selectedValue)
+          ? selectedValue
+          : selectableOptions[0]?.value ?? ""
+      )
+    }
+
+    setOpen(nextOpen)
+  }
+
+  function handleTypeahead(key: string) {
+    if (!key || key.length !== 1 || selectableOptions.length === 0) {
+      return
+    }
+
+    typeaheadBufferRef.current += key.toLowerCase()
+    resetTypeaheadBuffer()
+
+    const currentIndex = selectableOptions.findIndex(
+      (option) => option.value === activeValue
+    )
+    const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0
+    const orderedOptions = [
+      ...selectableOptions.slice(startIndex),
+      ...selectableOptions.slice(0, startIndex),
+    ]
+    const match = orderedOptions.find((option) =>
+      option.label.toLowerCase().startsWith(typeaheadBufferRef.current)
+    )
+
+    if (match) {
+      setActiveValue(match.value)
+    }
+  }
+
+  function handleListboxKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault()
+        moveActiveOption(1)
+        return
+      case "ArrowUp":
+        event.preventDefault()
+        moveActiveOption(-1)
+        return
+      case "Home":
+        event.preventDefault()
+        moveToBoundaryOption("first")
+        return
+      case "End":
+        event.preventDefault()
+        moveToBoundaryOption("last")
+        return
+      case "Enter":
+      case " ":
+        if (!activeValue) {
+          return
+        }
+
+        event.preventDefault()
+        selectOption(activeValue)
+        return
+      default:
+        if (
+          event.key.length === 1 &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey
+        ) {
+          handleTypeahead(event.key)
+        }
+    }
+  }
+
   return (
-    <Popover open={disabled ? false : open} onOpenChange={setOpen}>
+    <Popover
+      open={disabled ? false : open}
+      onOpenChange={disabled ? undefined : handleOpenChange}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
           aria-label={resolvedAccessibleLabel}
+          aria-controls={open ? listboxId : undefined}
+          aria-expanded={open}
+          aria-haspopup="listbox"
           disabled={disabled}
           className={cn(
             "flex h-9 w-full items-center justify-between rounded-md border px-2 py-1.5 text-sm shadow-none transition-colors focus-visible:ring-0",
@@ -361,8 +522,20 @@ export function PropertySelect({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-1.5">
-        <div className="flex flex-col gap-0.5">
+      <PopoverContent
+        align="end"
+        className="w-64 p-1.5"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+        }}
+      >
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label={resolvedAccessibleLabel}
+          className="flex flex-col gap-0.5"
+          onKeyDown={handleListboxKeyDown}
+        >
           {options.map((option, index) =>
             option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
               <div
@@ -373,13 +546,21 @@ export function PropertySelect({
               <button
                 key={option.value}
                 type="button"
+                ref={(element) => {
+                  optionRefs.current[option.value] = element
+                }}
+                id={`${listboxId}-${option.value}`}
+                role="option"
+                aria-selected={option.value === selectedValue}
+                tabIndex={option.value === activeValue ? 0 : -1}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent",
-                  option.value === selectedValue && "bg-accent/60"
+                  option.value === selectedValue && "bg-accent/60",
+                  option.value === activeValue && "bg-accent"
                 )}
+                onFocus={() => setActiveValue(option.value)}
                 onClick={() => {
-                  setOpen(false)
-                  onValueChange(option.value)
+                  selectOption(option.value)
                 }}
               >
                 <span className="min-w-0 flex-1">

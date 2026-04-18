@@ -21,7 +21,7 @@ describe("PropertySelect", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Status" }))
-    fireEvent.click(await screen.findByRole("button", { name: "Done" }))
+    fireEvent.click(await screen.findByRole("option", { name: "Done" }))
 
     expect(onValueChange).toHaveBeenCalledWith("done")
   })
@@ -46,5 +46,36 @@ describe("PropertySelect", () => {
 
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull()
     expect(onValueChange).not.toHaveBeenCalled()
+  })
+
+  it("supports listbox semantics and keyboard selection", async () => {
+    const onValueChange = vi.fn()
+
+    render(
+      <PropertySelect
+        label="Assignee"
+        value="alex"
+        options={[
+          { value: "alex", label: "Alex" },
+          { value: "jamie", label: "Jamie" },
+          { value: "sam", label: "Sam" },
+        ]}
+        onValueChange={onValueChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Assignee" }))
+
+    const listbox = await screen.findByRole("listbox", { name: "Assignee" })
+    expect(screen.getByRole("option", { name: "Alex" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
+
+    fireEvent.keyDown(listbox, { key: "ArrowDown" })
+    fireEvent.keyDown(listbox, { key: "ArrowDown" })
+    fireEvent.keyDown(listbox, { key: "Enter" })
+
+    expect(onValueChange).toHaveBeenCalledWith("sam")
   })
 })
