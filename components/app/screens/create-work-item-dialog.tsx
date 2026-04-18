@@ -1,15 +1,20 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useShallow } from "zustand/react/shallow"
 import { CaretDown } from "@phosphor-icons/react"
 
 import {
-  getLabelsForTeamScope,
+  getEditableTeamsForFeature,
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
 import {
+  canParentWorkItemTypeAcceptChild,
+  getAllowedWorkItemTypesForTemplate,
+  getDefaultRootWorkItemTypesForTeamExperience,
   getDefaultTemplateTypeForTeamExperience,
+  getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   getWorkSurfaceCopy,
   priorityMeta,
@@ -19,11 +24,13 @@ import {
   type WorkStatus,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -45,72 +52,148 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   formatInlineDescriptionContent,
-  getCreateDialogItemTypes,
   getPreferredCreateDialogType,
 } from "@/components/app/screens/helpers"
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
+
+const NO_TEAM_VALUE = "__no_team__"
+
+function getUserInitials(name: string) {
+  const parts = name
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return "?"
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+}
+
+function AssigneeOption({
+  name,
+  avatarUrl,
+  avatarImageUrl,
+}: {
+  name: string
+  avatarUrl?: string | null
+  avatarImageUrl?: string | null
+}) {
+  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
+
+  return (
+    <span className="flex items-center gap-2">
+      <Avatar size="sm">
+        {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
+        <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
+      </Avatar>
+      <span className="truncate">{name}</span>
+    </span>
+  )
+}
 
 export function CreateWorkItemDialog({
   open,
   onOpenChange,
-  teamId,
-  disabled,
+  defaultTeamId,
+  initialType,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
-  disabled: boolean
+  defaultTeamId?: string | null
+  initialType?: WorkItemType | null
 }) {
-  const teams = useAppStore((state) => state.teams)
+  const availableTeams = useAppStore(
+    useShallow((state) => getEditableTeamsForFeature(state, "issues"))
+  )
+  const allLabels = useAppStore((state) => state.labels)
   const teamMemberships = useAppStore((state) => state.teamMemberships)
   const users = useAppStore((state) => state.users)
   const projects = useAppStore((state) => state.projects)
-  const labels = useAppStore((state) => getLabelsForTeamScope(state, teamId))
+  const workItems = useAppStore((state) => state.workItems)
+  const filteredTeams = useMemo(
+    () =>
+      availableTeams.filter(
+        (team) =>
+          !initialType ||
+          getDefaultWorkItemTypesForTeamExperience(
+            team.settings.experience
+          ).includes(initialType)
+      ),
+    [availableTeams, initialType]
+  )
+  const initialTeamId =
+    defaultTeamId && filteredTeams.some((team) => team.id === defaultTeamId)
+      ? defaultTeamId
+      : (filteredTeams[0]?.id ?? "")
+  const initialTeam =
+    filteredTeams.find((entry) => entry.id === initialTeamId) ?? null
+  const initialTemplateType = getDefaultTemplateTypeForTeamExperience(
+    initialTeam?.settings.experience
+  )
+  const initialStatuses = getStatusOrderForTeam(initialTeam)
+  const initialPriority = getTemplateDefaultsForTeam(
+    initialTeam,
+    initialTemplateType
+  ).defaultPriority
+  const initialWorkItemType =
+    initialType &&
+    getDefaultWorkItemTypesForTeamExperience(
+      initialTeam?.settings.experience
+    ).includes(initialType)
+      ? initialType
+      : getPreferredCreateDialogType(initialTemplateType)
+  const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
   const team = useMemo(
-    () => teams.find((entry) => entry.id === teamId) ?? null,
-    [teamId, teams]
+    () => filteredTeams.find((entry) => entry.id === selectedTeamId) ?? null,
+    [filteredTeams, selectedTeamId]
+  )
+  const labels = useMemo(
+    () =>
+      team
+        ? allLabels.filter((label) => label.workspaceId === team.workspaceId)
+        : [],
+    [allLabels, team]
   )
   const teamMembers = useMemo(() => {
     const memberIds = new Set(
       teamMemberships
-        .filter((membership) => membership.teamId === teamId)
+        .filter((membership) => membership.teamId === selectedTeamId)
         .map((membership) => membership.userId)
     )
 
     return users.filter((user) => memberIds.has(user.id))
-  }, [teamId, teamMemberships, users])
+  }, [selectedTeamId, teamMemberships, users])
   const teamProjects = useMemo(
     () =>
       projects.filter(
-        (project) => project.scopeType === "team" && project.scopeId === teamId
+        (project) =>
+          project.scopeType === "team" && project.scopeId === selectedTeamId
       ),
-    [projects, teamId]
+    [projects, selectedTeamId]
   )
   const availableLabels = useMemo(
-    () => [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () =>
+      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
     [labels]
   )
-  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
-  const teamStatuses = getStatusOrderForTeam(team)
-  const defaultTemplateType = getDefaultTemplateTypeForTeamExperience(
-    team?.settings.experience
-  )
-  const [type, setType] = useState<WorkItemType>(
-    getPreferredCreateDialogType(defaultTemplateType)
-  )
+  const [type, setType] = useState<WorkItemType>(initialWorkItemType)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [status, setStatus] = useState<WorkStatus>(
-    teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
+    initialStatuses.includes("todo")
+      ? "todo"
+      : (initialStatuses[0] ?? "backlog")
   )
-  const [priority, setPriority] = useState<Priority>(
-    getTemplateDefaultsForTeam(
-      team,
-      getDefaultTemplateTypeForTeamExperience(team?.settings.experience)
-    ).defaultPriority
-  )
+  const [priority, setPriority] = useState<Priority>(initialPriority)
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const [projectId, setProjectId] = useState<string>("none")
+  const [selectedParentId, setSelectedParentId] = useState<string>("none")
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [newLabelName, setNewLabelName] = useState("")
   const [creatingLabel, setCreatingLabel] = useState(false)
@@ -118,14 +201,44 @@ export function CreateWorkItemDialog({
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
+  const selectedAssignee =
+    assigneeId === "none"
+      ? null
+      : (teamMembers.find((user) => user.id === assigneeId) ?? null)
+  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
+  const teamStatuses = getStatusOrderForTeam(team)
+  const defaultTemplateType = getDefaultTemplateTypeForTeamExperience(
+    team?.settings.experience
+  )
   const activeTemplateType =
     selectedProject?.templateType ?? defaultTemplateType
-  const availableItemTypes = getCreateDialogItemTypes(activeTemplateType)
+  const availableItemTypes = getAllowedWorkItemTypesForTemplate(activeTemplateType)
   const fallbackType = getPreferredCreateDialogType(activeTemplateType)
   const selectedType =
     availableItemTypes.find((value) => value === type) ??
     availableItemTypes[0] ??
     null
+  const scopedProjectId = projectId === "none" ? null : projectId
+  const parentOptions =
+    !selectedTeamId || !selectedType
+      ? []
+      : [...workItems]
+          .filter(
+            (item) =>
+              item.teamId === selectedTeamId &&
+              canParentWorkItemTypeAcceptChild(item.type, selectedType)
+          )
+          .filter((item) =>
+            scopedProjectId ? item.primaryProjectId === scopedProjectId : true
+          )
+          .sort((left, right) =>
+            left.key.localeCompare(right.key, undefined, { numeric: true })
+          )
+  const selectedParentItem =
+    selectedParentId === "none"
+      ? null
+      : (parentOptions.find((item) => item.id === selectedParentId) ?? null)
+  const effectiveProjectId = selectedParentItem?.primaryProjectId ?? projectId
   const selectedLabels = availableLabels.filter((label) =>
     selectedLabelIds.includes(label.id)
   )
@@ -137,8 +250,16 @@ export function CreateWorkItemDialog({
     : workCopy.titlePlaceholder
   const normalizedTitle = title.trim()
   const normalizedDescription = description.trim()
+  const requiresParent =
+    selectedType === "sub-task" || selectedType === "sub-issue"
+  const showParentSelect =
+    Boolean(selectedType) &&
+    (requiresParent || parentOptions.length > 0 || selectedParentItem !== null)
   const canCreate =
-    !disabled && normalizedTitle.length >= 2 && selectedType !== null
+    filteredTeams.length > 0 &&
+    normalizedTitle.length >= 2 &&
+    selectedType !== null &&
+    (!requiresParent || selectedParentItem !== null)
   const triggerClassName =
     "h-9 w-auto max-w-full rounded-full border-border/60 bg-background px-3 text-xs font-medium shadow-none"
   const labelsTriggerText =
@@ -147,6 +268,39 @@ export function CreateWorkItemDialog({
       : selectedLabels.length === 1
         ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
+
+  function syncTeamSelection(nextTeamId: string) {
+    const nextTeam =
+      filteredTeams.find((entry) => entry.id === nextTeamId) ?? null
+    const nextTemplateType = getDefaultTemplateTypeForTeamExperience(
+      nextTeam?.settings.experience
+    )
+    const nextStatuses = getStatusOrderForTeam(nextTeam)
+    const nextPriority = getTemplateDefaultsForTeam(
+      nextTeam,
+      nextTemplateType
+    ).defaultPriority
+    const nextType =
+      initialType &&
+      getDefaultRootWorkItemTypesForTeamExperience(
+        nextTeam?.settings.experience
+      ).includes(initialType)
+        ? initialType
+        : getPreferredCreateDialogType(nextTemplateType)
+
+    setSelectedTeamId(nextTeamId)
+    setType(nextType)
+    setStatus(
+      nextStatuses.includes("todo") ? "todo" : (nextStatuses[0] ?? "backlog")
+    )
+    setPriority(nextPriority)
+    setAssigneeId("none")
+    setProjectId("none")
+    setSelectedParentId("none")
+    setSelectedLabelIds([])
+    setNewLabelName("")
+    setCreatingLabel(false)
+  }
 
   function toggleLabel(labelId: string) {
     setSelectedLabelIds((current) =>
@@ -164,7 +318,9 @@ export function CreateWorkItemDialog({
     }
 
     setCreatingLabel(true)
-    const created = await useAppStore.getState().createLabel(normalizedName)
+    const created = await useAppStore
+      .getState()
+      .createLabel(normalizedName, team?.workspaceId ?? null)
     setCreatingLabel(false)
 
     if (!created) {
@@ -178,19 +334,20 @@ export function CreateWorkItemDialog({
   }
 
   function handleCreate() {
-    if (!selectedType) {
+    if (!selectedType || !selectedTeamId) {
       return
     }
 
     const createdItemId = useAppStore.getState().createWorkItem({
-      teamId,
+      teamId: selectedTeamId,
       type: selectedType,
       title: normalizedTitle,
+      parentId: selectedParentItem?.id ?? null,
       priority,
       status,
       labelIds: selectedLabelIds,
       assigneeId: assigneeId === "none" ? null : assigneeId,
-      primaryProjectId: projectId === "none" ? null : projectId,
+      primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
     })
 
     if (!createdItemId) {
@@ -211,9 +368,12 @@ export function CreateWorkItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="sr-only">
           <DialogTitle>{workCopy.createLabel}</DialogTitle>
+          <DialogDescription>
+            Create a new work item and seed its initial description.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
@@ -222,11 +382,11 @@ export function CreateWorkItemDialog({
               variant="outline"
               className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
             >
-              {team?.name ?? "Team"}
+              {team?.name ?? "Team space"}
             </Badge>
             <span className="text-muted-foreground/50">/</span>
             <span className="tracking-normal normal-case">
-              Create top-level item
+              {selectedParentItem ? "Create child item" : "Create item"}
             </span>
           </div>
 
@@ -234,7 +394,7 @@ export function CreateWorkItemDialog({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={titlePlaceholder}
-            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem]"
+            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem] dark:bg-transparent"
             autoFocus
           />
           <Textarea
@@ -242,10 +402,11 @@ export function CreateWorkItemDialog({
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Add description..."
             rows={4}
-            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
           />
           <p className="mt-3 text-xs text-muted-foreground">
-            Create it at the team level first. Parent links can be added later.
+            Pick the team space first, then choose a parent when creating a child
+            type.
           </p>
           {selectedLabels.length > 0 ? (
             <div className="mt-4 flex flex-wrap gap-1.5">
@@ -265,8 +426,40 @@ export function CreateWorkItemDialog({
         <div className="px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <Select
+              value={selectedTeamId || NO_TEAM_VALUE}
+              onValueChange={(value) => {
+                if (value === NO_TEAM_VALUE) {
+                  return
+                }
+
+                syncTeamSelection(value)
+              }}
+              disabled={filteredTeams.length === 0}
+            >
+              <SelectTrigger className={triggerClassName}>
+                <SelectValue placeholder="Team space" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {filteredTeams.length > 0 ? (
+                    filteredTeams.map((teamOption) => (
+                      <SelectItem key={teamOption.id} value={teamOption.id}>
+                        {teamOption.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value={NO_TEAM_VALUE}>
+                      No team spaces
+                    </SelectItem>
+                  )}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
               value={status}
               onValueChange={(value) => setStatus(value as WorkStatus)}
+              disabled={!team}
             >
               <SelectTrigger className={triggerClassName}>
                 <SelectValue />
@@ -285,6 +478,7 @@ export function CreateWorkItemDialog({
             <Select
               value={priority}
               onValueChange={(value) => setPriority(value as Priority)}
+              disabled={!team}
             >
               <SelectTrigger className={triggerClassName}>
                 <SelectValue />
@@ -300,23 +494,54 @@ export function CreateWorkItemDialog({
               </SelectContent>
             </Select>
 
-            <Select value={assigneeId} onValueChange={setAssigneeId}>
+            <Select
+              value={assigneeId}
+              onValueChange={setAssigneeId}
+              disabled={!team}
+            >
               <SelectTrigger className={triggerClassName}>
-                <SelectValue placeholder="Assignee" />
+                <SelectValue placeholder="Assignee">
+                  {selectedAssignee ? (
+                    <AssigneeOption
+                      name={selectedAssignee.name}
+                      avatarImageUrl={selectedAssignee.avatarImageUrl}
+                      avatarUrl={selectedAssignee.avatarUrl}
+                    />
+                  ) : (
+                    "Unassigned"
+                  )}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
                   <SelectItem value="none">Unassigned</SelectItem>
                   {teamMembers.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
-                      {user.name}
+                      <AssigneeOption
+                        name={user.name}
+                        avatarImageUrl={user.avatarImageUrl}
+                        avatarUrl={user.avatarUrl}
+                      />
                     </SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
 
-            <Select value={projectId} onValueChange={setProjectId}>
+            <Select
+              value={effectiveProjectId}
+              onValueChange={(value) => {
+                setProjectId(value)
+                if (
+                  selectedParentItem &&
+                  value !== "none" &&
+                  selectedParentItem.primaryProjectId !== value
+                ) {
+                  setSelectedParentId("none")
+                }
+              }}
+              disabled={!team || Boolean(selectedParentItem?.primaryProjectId)}
+            >
               <SelectTrigger className={triggerClassName}>
                 <SelectValue placeholder="Project" />
               </SelectTrigger>
@@ -332,6 +557,45 @@ export function CreateWorkItemDialog({
               </SelectContent>
             </Select>
 
+            {showParentSelect ? (
+              <Select
+                value={selectedParentItem ? selectedParentId : "none"}
+                onValueChange={(value) => {
+                  setSelectedParentId(value)
+
+                  if (value === "none") {
+                    return
+                  }
+
+                  const nextParent =
+                    parentOptions.find((item) => item.id === value) ?? null
+
+                  if (nextParent?.primaryProjectId) {
+                    setProjectId(nextParent.primaryProjectId)
+                  }
+                }}
+                disabled={!team || parentOptions.length === 0}
+              >
+                <SelectTrigger className={triggerClassName}>
+                  <SelectValue placeholder="Parent">
+                    {selectedParentItem
+                      ? `${selectedParentItem.key} · ${selectedParentItem.title}`
+                      : "No parent"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="none">No parent</SelectItem>
+                    {parentOptions.map((parentOption) => (
+                      <SelectItem key={parentOption.id} value={parentOption.id}>
+                        {parentOption.key} · {parentOption.title}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            ) : null}
+
             <Popover>
               <PopoverTrigger asChild>
                 <button
@@ -341,6 +605,7 @@ export function CreateWorkItemDialog({
                     "border",
                     "inline-flex items-center gap-2 overflow-hidden text-left"
                   )}
+                  disabled={!team}
                 >
                   <span className="truncate">{labelsTriggerText}</span>
                   <CaretDown className="size-3 shrink-0 text-muted-foreground" />
@@ -409,7 +674,9 @@ export function CreateWorkItemDialog({
                     type="button"
                     size="sm"
                     className="shrink-0"
-                    disabled={creatingLabel || newLabelName.trim().length === 0}
+                    disabled={
+                      !team || creatingLabel || newLabelName.trim().length === 0
+                    }
                     onClick={() => {
                       void handleCreateLabel()
                     }}
@@ -422,8 +689,22 @@ export function CreateWorkItemDialog({
 
             <Select
               value={selectedType ?? fallbackType}
-              onValueChange={(value) => setType(value as WorkItemType)}
-              disabled={availableItemTypes.length === 0}
+              onValueChange={(value) => {
+                const nextType = value as WorkItemType
+                const nextParentStillValid =
+                  selectedParentItem &&
+                  canParentWorkItemTypeAcceptChild(
+                    selectedParentItem.type,
+                    nextType
+                  )
+
+                setType(nextType)
+
+                if (!nextParentStillValid) {
+                  setSelectedParentId("none")
+                }
+              }}
+              disabled={availableItemTypes.length === 0 || !team}
             >
               <SelectTrigger className={triggerClassName}>
                 <SelectValue placeholder="Type" />
@@ -443,9 +724,16 @@ export function CreateWorkItemDialog({
             </Select>
           </div>
 
-          {availableItemTypes.length === 0 ? (
+          {filteredTeams.length === 0 ? (
             <p className="mt-3 text-xs text-destructive">
-              This team cannot create work items in the current configuration.
+              No editable team spaces support this work item type yet.
+            </p>
+          ) : null}
+
+          {filteredTeams.length > 0 && availableItemTypes.length === 0 ? (
+            <p className="mt-3 text-xs text-destructive">
+              This team space cannot create top-level work items in the current
+              configuration.
             </p>
           ) : null}
 

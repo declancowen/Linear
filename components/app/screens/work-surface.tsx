@@ -1,28 +1,31 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import { Plus } from "@phosphor-icons/react"
 
 import {
   canEditTeam,
+  getVisibleItemsForView,
   getViewByRoute,
-  itemMatchesView,
 } from "@/lib/domain/selectors"
 import {
   type Team,
   type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import {
   HeaderTitle,
   SCREEN_HEADER_CLASS_NAME,
 } from "@/components/app/screens/shared"
-import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
-import { CreateWorkItemDialog } from "@/components/app/screens/create-work-item-dialog"
+import {
+  cloneViewCreateConfig,
+  selectAppDataSnapshot,
+} from "@/components/app/screens/helpers"
 import {
   FilterPopover,
   ViewConfigPopover,
@@ -53,7 +56,7 @@ export function WorkSurface({
   const searchParams = useSearchParams()
   const activeView = getViewByRoute(data, routeKey) ?? views[0] ?? null
   const editable = team ? canEditTeam(data, team.id) : false
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const createTeamId = team?.id ?? data.ui.activeTeamId
 
   useEffect(() => {
     if (!activeView && views[0]) {
@@ -74,13 +77,9 @@ export function WorkSurface({
     useAppStore.getState().setSelectedView(routeKey, requestedViewId)
   }, [routeKey, searchParams, views])
 
-  const filteredItems = activeView
-    ? items.filter((item) => itemMatchesView(data, item, activeView))
+  const visibleItems = activeView
+    ? getVisibleItemsForView(data, items, activeView)
     : items
-  const visibleItems =
-    activeView?.layout === "timeline"
-      ? filteredItems.filter((item) => item.parentId === null)
-      : filteredItems
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
@@ -105,6 +104,28 @@ export function WorkSurface({
                   {view.name}
                 </button>
               ))}
+              {editable && team ? (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() =>
+                    openManagedCreateDialog({
+                      kind: "view",
+                      defaultScopeType: "team",
+                      defaultScopeId: team.id,
+                      defaultEntityKind: "items",
+                      defaultRoute: routeKey,
+                      lockScope: true,
+                      lockEntityKind: true,
+                      initialConfig: activeView
+                        ? cloneViewCreateConfig(activeView)
+                        : undefined,
+                    })
+                  }
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -118,21 +139,21 @@ export function WorkSurface({
           <Button
             size="icon-xs"
             variant="ghost"
-            onClick={() => setDialogOpen(true)}
+            onClick={() => {
+              if (!createTeamId) {
+                return
+              }
+
+              openManagedCreateDialog({
+                kind: "workItem",
+                defaultTeamId: createTeamId,
+              })
+            }}
           >
             <Plus className="size-3.5" />
           </Button>
         </div>
       </div>
-
-      {dialogOpen ? (
-        <CreateWorkItemDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          teamId={team?.id ?? data.ui.activeTeamId}
-          disabled={!editable}
-        />
-      ) : null}
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {activeView ? (
@@ -141,6 +162,7 @@ export function WorkSurface({
               <BoardView
                 data={data}
                 items={visibleItems}
+                scopedItems={items}
                 view={activeView}
                 editable={editable}
               />
@@ -149,6 +171,7 @@ export function WorkSurface({
               <ListView
                 data={data}
                 items={visibleItems}
+                scopedItems={items}
                 view={activeView}
                 editable={editable}
               />

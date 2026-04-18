@@ -271,7 +271,7 @@ export function normalizeUsers<
         : user.status != null,
     status: userStatuses.includes(user.status as UserStatus)
       ? (user.status as UserStatus)
-      : ("active" as const),
+      : ("offline" as const),
     statusMessage:
       typeof user.statusMessage === "string" ? user.statusMessage : "",
   }))

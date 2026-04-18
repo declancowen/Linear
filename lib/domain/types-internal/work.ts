@@ -100,6 +100,22 @@ export function getDefaultRootWorkItemTypesForTeamExperience(
   return getAllowedRootWorkItemTypesForTemplate("software-delivery")
 }
 
+export function getDefaultViewItemLevelForTeamExperience(
+  experience: TeamExperienceType | null | undefined
+): WorkItemType | null {
+  return getDefaultRootWorkItemTypesForTeamExperience(experience)[0] ?? null
+}
+
+export function getDefaultViewItemLevelForProjectTemplate(
+  templateType: TemplateType | null | undefined
+): WorkItemType | null {
+  if (!templateType) {
+    return null
+  }
+
+  return getAllowedRootWorkItemTypesForTemplate(templateType)[0] ?? null
+}
+
 export function getPreferredWorkItemTypeForTeamExperience(
   experience: TeamExperienceType | null | undefined,
   options?: { parent?: boolean }
@@ -438,6 +454,14 @@ export const statusMeta: Record<WorkStatus, { label: string }> = {
   duplicate: { label: "Duplicate" },
 }
 
+export function isCompletedWorkStatus(status: WorkStatus) {
+  return status === "done"
+}
+
+export function isExcludedFromWorkStatusRollup(status: WorkStatus) {
+  return status === "cancelled" || status === "duplicate"
+}
+
 export const priorityMeta: Record<Priority, { label: string; weight: number }> =
   {
     urgent: { label: "Urgent", weight: 4 },
@@ -568,6 +592,41 @@ export function normalizeStoredViewItemTypes(
   return [...normalizedItemTypes]
 }
 
+export function normalizeStoredViewItemLevel(
+  itemLevel: StoredWorkItemType | WorkItemType | null | undefined,
+  experience?: TeamExperienceType | null
+) {
+  if (!itemLevel) {
+    return null
+  }
+
+  if (!experience) {
+    return itemLevel === "bug" ? "issue" : itemLevel
+  }
+
+  return normalizeStoredWorkItemType(itemLevel, experience, {
+    parentId: null,
+  })
+}
+
+export function getSingleChildWorkItemType(
+  parentType: WorkItemType | null | undefined
+) {
+  if (!parentType) {
+    return null
+  }
+
+  const allowedChildTypes = getAllowedChildWorkItemTypes(parentType)
+
+  return allowedChildTypes.length === 1 ? allowedChildTypes[0] : null
+}
+
+export function getDefaultShowChildItemsForItemLevel(
+  itemLevel: WorkItemType | null | undefined
+) {
+  return getSingleChildWorkItemType(itemLevel) !== null
+}
+
 export function getWorkSurfaceCopy(
   experience: TeamExperienceType | null | undefined
 ) {
@@ -662,9 +721,9 @@ export function getChildWorkItemCopy(
     }
   }
 
-  const allowedChildTypes = getAllowedChildWorkItemTypes(parentType)
+  const childType = getSingleChildWorkItemType(parentType)
 
-  if (allowedChildTypes.length !== 1) {
+  if (!childType) {
     return {
       childType: null,
       childLabel: workCopy.singularLabel,
@@ -675,7 +734,6 @@ export function getChildWorkItemCopy(
     }
   }
 
-  const childType = allowedChildTypes[0]
   const childLabel = getDisplayLabelForWorkItemType(childType, experience)
 
   return {

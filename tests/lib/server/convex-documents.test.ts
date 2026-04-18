@@ -74,7 +74,8 @@ describe("convex document server wrappers", () => {
   })
 
   it("updates documents through the consolidated mutation contract", async () => {
-    const { updateDocumentServer } = await import("@/lib/server/convex/documents")
+    const { updateDocumentServer } =
+      await import("@/lib/server/convex/documents")
 
     mutationMock.mockResolvedValue({})
 
@@ -104,6 +105,7 @@ describe("convex document server wrappers", () => {
       addCommentServer,
       deleteDocumentServer,
       sendDocumentMentionNotificationsServer,
+      sendItemDescriptionMentionNotificationsServer,
       toggleCommentReactionServer,
       updateItemDescriptionServer,
     } = await import("@/lib/server/convex/documents")
@@ -121,6 +123,16 @@ describe("convex document server wrappers", () => {
       .mockRejectedValueOnce(
         new Error(
           "One or more mentioned users were already notified for this document"
+        )
+      )
+      .mockRejectedValueOnce(
+        new Error(
+          "One or more mentioned users are not present in this work item"
+        )
+      )
+      .mockRejectedValueOnce(
+        new Error(
+          "One or more mentioned users were already notified for this work item"
         )
       )
 
@@ -205,16 +217,50 @@ describe("convex document server wrappers", () => {
       status: 409,
       code: "DOCUMENT_MENTION_ALREADY_SENT",
     })
+
+    await expect(
+      sendItemDescriptionMentionNotificationsServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        mentions: [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 409,
+      code: "ITEM_DESCRIPTION_MENTION_STATE_STALE",
+    })
+
+    await expect(
+      sendItemDescriptionMentionNotificationsServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        mentions: [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 409,
+      code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
+    })
   })
 
   it("maps document presence failures to application errors", async () => {
-    const {
-      clearDocumentPresenceServer,
-      heartbeatDocumentPresenceServer,
-    } = await import("@/lib/server/convex/documents")
+    const { clearDocumentPresenceServer, heartbeatDocumentPresenceServer } =
+      await import("@/lib/server/convex/documents")
 
     mutationMock
-      .mockRejectedValueOnce(new Error("Document presence session is already in use"))
+      .mockRejectedValueOnce(
+        new Error("Document presence session is already in use")
+      )
       .mockRejectedValueOnce(new Error("Document not found"))
 
     await expect(
@@ -240,6 +286,29 @@ describe("convex document server wrappers", () => {
         documentId: "document_1",
         workosUserId: "workos_1",
         sessionId: "session_12345",
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 404,
+      code: "DOCUMENT_NOT_FOUND",
+    })
+  })
+
+  it("maps wrapped document failures to application errors", async () => {
+    const { updateDocumentServer } =
+      await import("@/lib/server/convex/documents")
+
+    mutationMock.mockRejectedValueOnce(
+      new Error("[Request ID: abc123] Server Error", {
+        cause: new Error("Document not found"),
+      })
+    )
+
+    await expect(
+      updateDocumentServer({
+        currentUserId: "user_1",
+        documentId: "document_1",
+        title: "Updated title",
       })
     ).rejects.toMatchObject({
       name: "ApplicationError",
@@ -311,5 +380,37 @@ describe("convex document server wrappers", () => {
       status: 400,
       code: "TEAM_DOCS_DISABLED",
     })
+  })
+
+  it("passes caller-provided document ids through creation", async () => {
+    const { createDocumentServer } =
+      await import("@/lib/server/convex/documents")
+
+    mutationMock.mockResolvedValue({
+      documentId: "document_custom",
+    })
+
+    await expect(
+      createDocumentServer({
+        currentUserId: "user_1",
+        id: "document_custom",
+        kind: "workspace-document",
+        workspaceId: "workspace_1",
+        title: "Launch doc",
+      })
+    ).resolves.toEqual({
+      documentId: "document_custom",
+    })
+
+    expect(mutationMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        currentUserId: "user_1",
+        id: "document_custom",
+        kind: "workspace-document",
+        workspaceId: "workspace_1",
+        title: "Launch doc",
+      })
+    )
   })
 })

@@ -4,6 +4,8 @@ import {
   extractRichTextMentionCounts,
   extractRichTextMentionUserIds,
   filterPendingDocumentMentionsByContent,
+  getPendingRichTextMentionEntries,
+  mergePendingDocumentMentions,
   summarizePendingDocumentMentions,
 } from "@/lib/content/rich-text-mentions"
 
@@ -101,6 +103,25 @@ describe("rich text mentions", () => {
     ])
   })
 
+  it("clamps pending mention retry counts to the current content counts", () => {
+    expect(
+      filterPendingDocumentMentionsByContent(
+        [
+          {
+            userId: "user_1",
+            count: 3,
+          },
+        ],
+        '<p><span class="editor-mention" data-type="mention" data-id="user_1" data-label="alex">@alex</span></p>'
+      )
+    ).toEqual([
+      {
+        userId: "user_1",
+        count: 1,
+      },
+    ])
+  })
+
   it("summarizes pending mention counts for the send bar", () => {
     expect(
       summarizePendingDocumentMentions([
@@ -117,5 +138,60 @@ describe("rich text mentions", () => {
       recipientCount: 2,
       mentionCount: 4,
     })
+  })
+
+  it("merges retry and newly-added mention entries by recipient", () => {
+    expect(
+      mergePendingDocumentMentions(
+        [
+          {
+            userId: "user_1",
+            count: 1,
+          },
+          {
+            userId: "user_2",
+            count: 2,
+          },
+        ],
+        [
+          {
+            userId: "user_1",
+            count: 3,
+          },
+        ]
+      )
+    ).toEqual([
+      {
+        userId: "user_1",
+        count: 4,
+      },
+      {
+        userId: "user_2",
+        count: 2,
+      },
+    ])
+  })
+
+  it("computes positive mention deltas between persisted and draft content", () => {
+    expect(
+      getPendingRichTextMentionEntries(
+        '<p><span class="editor-mention" data-type="mention" data-id="user_1">@alex</span></p>',
+        [
+          "<p>",
+          '<span class="editor-mention" data-type="mention" data-id="user_1">@alex</span>',
+          '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
+          '<span class="editor-mention" data-type="mention" data-id="user_2">@sam</span>',
+          "</p>",
+        ].join(""),
+        {
+          ignoredUserIds: ["user_3"],
+        }
+      )
+    ).toEqual([
+      {
+        userId: "user_2",
+        count: 2,
+      },
+    ])
   })
 })

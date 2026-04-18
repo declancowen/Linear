@@ -2,8 +2,11 @@
 
 import type {
   AttachmentTargetType,
+  DocumentPresenceViewer,
   DisplayProperty,
+  EntityKind,
   GroupField,
+  HiddenState,
   OrderingField,
   Priority,
   ProjectPresentationConfig,
@@ -29,6 +32,9 @@ import {
 import { runRouteMutation } from "./shared"
 
 type WorkItemPatch = {
+  title?: string
+  description?: string
+  expectedUpdatedAt?: string
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
@@ -45,8 +51,43 @@ type UpdateViewConfigPatch = Partial<{
   grouping: GroupField
   subGrouping: GroupField | null
   ordering: OrderingField
+  itemLevel: WorkItemType | null
+  showChildItems: boolean
   showCompleted: boolean
 }>
+
+type CreateViewInput = {
+  id?: string
+  scopeType: "team" | "workspace"
+  scopeId: string
+  entityKind: EntityKind
+  route: string
+  name: string
+  description: string
+  layout?: "list" | "board" | "timeline"
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
+  filters?: {
+    status: WorkStatus[]
+    priority: Priority[]
+    assigneeIds: string[]
+    creatorIds: string[]
+    leadIds: string[]
+    health: ProjectPresentationConfig["filters"]["health"]
+    milestoneIds: string[]
+    relationTypes: string[]
+    projectIds: string[]
+    itemTypes: WorkItemType[]
+    labelIds: string[]
+    teamIds: string[]
+    showCompleted: boolean
+  }
+  displayProps?: DisplayProperty[]
+  hiddenState?: HiddenState
+}
 
 export function syncMarkNotificationRead(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
@@ -144,6 +185,22 @@ export function syncUpdateViewConfig(
   })
 }
 
+export function syncCreateView(currentUserId: string, input: CreateViewInput) {
+  return runRouteMutation<{
+    ok: true
+    viewId: string | null
+  }>("/api/views", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      currentUserId,
+      ...input,
+    }),
+  })
+}
+
 export function syncToggleViewDisplayProperty(
   viewId: string,
   property: DisplayProperty
@@ -184,9 +241,15 @@ export function syncToggleViewFilterValue(
     | "status"
     | "priority"
     | "assigneeIds"
+    | "creatorIds"
+    | "leadIds"
+    | "health"
+    | "milestoneIds"
+    | "relationTypes"
     | "projectIds"
     | "itemTypes"
-    | "labelIds",
+    | "labelIds"
+    | "teamIds",
   value: string
 ) {
   return runRouteMutation(`/api/views/${viewId}`, {
@@ -228,7 +291,51 @@ export function syncUpdateWorkItem(
   })
 }
 
-export function syncCreateLabel(input: { name: string; color?: string }) {
+export async function syncHeartbeatWorkItemPresence(
+  itemId: string,
+  sessionId: string
+) {
+  const payload = await runRouteMutation<{
+    viewers: DocumentPresenceViewer[]
+  }>(`/api/items/${itemId}/presence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "heartbeat",
+      sessionId,
+    }),
+  })
+
+  return payload?.viewers ?? []
+}
+
+export function syncClearWorkItemPresence(
+  itemId: string,
+  sessionId: string,
+  options?: {
+    keepalive?: boolean
+  }
+) {
+  return runRouteMutation<{ ok: true }>(`/api/items/${itemId}/presence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "leave",
+      sessionId,
+    }),
+    keepalive: options?.keepalive,
+  })
+}
+
+export function syncCreateLabel(input: {
+  workspaceId?: string
+  name: string
+  color?: string
+}) {
   return runRouteMutation<unknown>("/api/labels", {
     method: "POST",
     headers: {
@@ -288,6 +395,28 @@ export function syncSendDocumentMentionNotifications(
   mentionCount: number
 }> {
   return runRouteMutation(`/api/documents/${documentId}/mentions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mentions,
+    }),
+  })
+}
+
+export function syncSendItemDescriptionMentionNotifications(
+  itemId: string,
+  mentions: Array<{
+    userId: string
+    count: number
+  }>
+): Promise<{
+  ok: boolean
+  recipientCount: number
+  mentionCount: number
+}> {
+  return runRouteMutation(`/api/items/${itemId}/description/mentions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -583,17 +712,22 @@ export function syncCreateDocument(
   _currentUserId: string,
   input:
     | {
+        id?: string
         kind: "team-document"
         teamId: string
         title: string
       }
     | {
+        id?: string
         kind: "workspace-document" | "private-document"
         workspaceId: string
         title: string
       }
 ) {
-  return runRouteMutation("/api/documents", {
+  return runRouteMutation<{
+    ok: true
+    documentId: string | null
+  }>("/api/documents", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

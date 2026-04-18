@@ -14,7 +14,10 @@ function toErrorMessage(error) {
 export async function processEmailJobsBatch(input) {
   let sentCount = 0
   let failedCount = 0
-  const resendFrom = normalizeResendFrom(input.resendFromEmail)
+  const resendFrom = normalizeResendFrom(
+    input.resendFromEmail,
+    input.resendFromName
+  )
 
   for (const job of input.jobs) {
     try {
@@ -63,6 +66,7 @@ export async function main() {
   const serverToken = process.env.CONVEX_SERVER_TOKEN
   const resendApiKey = process.env.RESEND_API_KEY
   const resendFromEmail = process.env.RESEND_FROM_EMAIL
+  const resendFromName = process.env.RESEND_FROM_NAME
   const claimId = randomUUID()
 
   if (!convexUrl) {
@@ -90,6 +94,7 @@ export async function main() {
     claimId,
     resend,
     resendFromEmail,
+    resendFromName,
     markEmailJobsSent: (payload) =>
       client.mutation(api.app.markEmailJobsSent, {
         serverToken,

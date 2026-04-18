@@ -4,11 +4,12 @@ import { useDeferredValue, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import {
-  FileText,
+  FrameCorners,
   Kanban,
   MagnifyingGlass,
   Target,
   UsersThree,
+  FileText,
 } from "@phosphor-icons/react"
 
 import {
@@ -17,9 +18,11 @@ import {
   type GlobalSearchResult,
   queryWorkspaceSearchIndex,
 } from "@/lib/domain/selectors"
+import type { GlobalCreateAction } from "@/lib/domain/search-create-actions"
 import { useAppStore } from "@/lib/store/app-store"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
+import { Badge } from "@/components/ui/badge"
 import {
   Command,
   CommandDialog,
@@ -78,17 +81,44 @@ function resultIcon(
   return <Target />
 }
 
+function createActionMatchesQuery(action: GlobalCreateAction, query: string) {
+  const normalizedQuery = query.trim().toLowerCase()
+
+  if (normalizedQuery.length === 0) {
+    return true
+  }
+
+  return [
+    action.title,
+    action.subtitle,
+    action.scopeLabel ?? "",
+    ...(action.keywords ?? []),
+  ].some((value) => value.toLowerCase().includes(normalizedQuery))
+}
+
+function createActionIcon(kind: GlobalCreateAction["kind"]) {
+  if (kind === "view") {
+    return <FrameCorners />
+  }
+
+  return <FileText />
+}
+
 export function GlobalSearchDialog({
   open,
   onOpenChange,
   onQueryChange,
   onOpenFullSearch,
+  createActions,
+  onSelectCreateAction,
   fullSearchShortcutKeys,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onQueryChange: (query: string) => void
   onOpenFullSearch: (query: string) => void
+  createActions: GlobalCreateAction[]
+  onSelectCreateAction: (action: GlobalCreateAction) => void
   fullSearchShortcutKeys: string[]
 }) {
   const router = useRouter()
@@ -120,6 +150,13 @@ export function GlobalSearchDialog({
     }),
     [results]
   )
+  const filteredCreateActions = useMemo(
+    () =>
+      createActions.filter((action) =>
+        createActionMatchesQuery(action, searchQuery)
+      ),
+    [createActions, searchQuery]
+  )
   const resultGroups = [
     {
       key: "navigation",
@@ -142,6 +179,10 @@ export function GlobalSearchDialog({
     router.push(href)
   }
 
+  function handleCreateActionSelect(action: GlobalCreateAction) {
+    onSelectCreateAction(action)
+  }
+
   return (
     <CommandDialog
       open={open}
@@ -160,6 +201,42 @@ export function GlobalSearchDialog({
           <CommandEmpty className="text-muted-foreground">
             No results found.
           </CommandEmpty>
+          {filteredCreateActions.length > 0 ? (
+            <CommandGroup heading="Create">
+              {filteredCreateActions.map((action) => (
+                <CommandItem
+                  key={action.id}
+                  value={action.id}
+                  className="items-start"
+                  onSelect={() => handleCreateActionSelect(action)}
+                >
+                  <span className="mt-0.5 self-start text-muted-foreground">
+                    {"icon" in action && action.icon ? (
+                      <TeamIconGlyph icon={action.icon} />
+                    ) : (
+                      createActionIcon(action.kind)
+                    )}
+                  </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span>{action.title}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {action.subtitle}
+                      </span>
+                    </div>
+                    {action.scopeLabel ? (
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 truncate rounded-full px-2.5"
+                      >
+                        {action.scopeLabel}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ) : null}
           {!hasQuery ? (
             <CommandGroup heading="Jump to">
               {groupedResults.navigation.map((result) => {

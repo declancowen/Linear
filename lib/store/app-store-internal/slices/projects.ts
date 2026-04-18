@@ -48,11 +48,23 @@ export function createProjectSlice(
         return
       }
 
+      if (parsed.data.scopeType !== "team") {
+        toast.error("Projects must belong to a team space")
+        return
+      }
+
+      const role = effectiveRole(get(), parsed.data.scopeId)
+
+      if (role === "viewer" || role === "guest" || !role) {
+        toast.error("Your current role is read-only")
+        return
+      }
+
       set((state) => {
-        const settingsTeamId =
-          parsed.data.settingsTeamId ??
-          (parsed.data.scopeType === "team" ? parsed.data.scopeId : null)
-        const workflowSettings = getTeamWorkflowSettings(state, settingsTeamId)
+        const workflowSettings = getTeamWorkflowSettings(
+          state,
+          parsed.data.scopeId
+        )
         const templateDefaults =
           workflowSettings.templateDefaults[parsed.data.templateType]
         const presentation =

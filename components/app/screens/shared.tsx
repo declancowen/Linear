@@ -1,6 +1,15 @@
 "use client"
 
-import { useState, type ElementType, type ReactNode } from "react"
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ElementType,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react"
 import { GearSix, Kanban, CaretDown, CaretRight, Rows, CheckCircle, Circle, XCircle, CodesandboxLogo, NotePencil } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -30,7 +39,6 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -304,6 +312,7 @@ export function CollapsibleSection({
 }
 
 export function PropertySelect({
+  accessibleLabel,
   label,
   value,
   options,
@@ -312,6 +321,7 @@ export function PropertySelect({
   renderValue,
   renderOption,
 }: {
+  accessibleLabel?: string
   label: string
   value: string
   options: Array<{ value: string; label: string }>
@@ -320,44 +330,256 @@ export function PropertySelect({
   renderValue?: (value: string, label: string) => ReactNode
   renderOption?: (value: string, label: string) => ReactNode
 }) {
+  const [open, setOpen] = useState(false)
+  const [activeValue, setActiveValue] = useState(value)
+  const listboxId = useId()
+  const optionRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const typeaheadBufferRef = useRef("")
+  const typeaheadResetTimeoutRef = useRef<number | null>(null)
+  const selectableOptions = useMemo(
+    () =>
+      options.filter(
+        (option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE
+      ),
+    [options]
+  )
   const selectedOption =
-    options.find(
-      (option) =>
-        option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
-        option.value === value
-    ) ?? null
+    selectableOptions.find((option) => option.value === value) ?? null
+  const selectedValue = selectedOption?.value ?? value
+  const selectedLabel = selectedOption?.label ?? value
+  const resolvedAccessibleLabel = accessibleLabel ?? (label || "Project")
+
+  useEffect(() => {
+    if (!open || !activeValue) {
+      return
+    }
+
+    optionRefs.current[activeValue]?.focus()
+  }, [activeValue, open])
+
+  useEffect(() => {
+    return () => {
+      if (typeaheadResetTimeoutRef.current !== null) {
+        window.clearTimeout(typeaheadResetTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  function resetTypeaheadBuffer() {
+    if (typeaheadResetTimeoutRef.current !== null) {
+      window.clearTimeout(typeaheadResetTimeoutRef.current)
+    }
+
+    typeaheadResetTimeoutRef.current = window.setTimeout(() => {
+      typeaheadBufferRef.current = ""
+      typeaheadResetTimeoutRef.current = null
+    }, 500)
+  }
+
+  function moveActiveOption(direction: 1 | -1) {
+    if (selectableOptions.length === 0) {
+      return
+    }
+
+    const currentIndex = selectableOptions.findIndex(
+      (option) => option.value === activeValue
+    )
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0
+    const nextIndex =
+      (baseIndex + direction + selectableOptions.length) %
+      selectableOptions.length
+    const nextValue = selectableOptions[nextIndex]?.value
+
+    if (nextValue) {
+      setActiveValue(nextValue)
+    }
+  }
+
+  function moveToBoundaryOption(boundary: "first" | "last") {
+    const nextValue =
+      boundary === "first"
+        ? selectableOptions[0]?.value
+        : selectableOptions[selectableOptions.length - 1]?.value
+
+    if (nextValue) {
+      setActiveValue(nextValue)
+    }
+  }
+
+  function selectOption(nextValue: string) {
+    setOpen(false)
+    onValueChange(nextValue)
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      setActiveValue(
+        selectableOptions.some((option) => option.value === selectedValue)
+          ? selectedValue
+          : selectableOptions[0]?.value ?? ""
+      )
+    }
+
+    setOpen(nextOpen)
+  }
+
+  function handleTypeahead(key: string) {
+    if (!key || key.length !== 1 || selectableOptions.length === 0) {
+      return
+    }
+
+    typeaheadBufferRef.current += key.toLowerCase()
+    resetTypeaheadBuffer()
+
+    const currentIndex = selectableOptions.findIndex(
+      (option) => option.value === activeValue
+    )
+    const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0
+    const orderedOptions = [
+      ...selectableOptions.slice(startIndex),
+      ...selectableOptions.slice(0, startIndex),
+    ]
+    const match = orderedOptions.find((option) =>
+      option.label.toLowerCase().startsWith(typeaheadBufferRef.current)
+    )
+
+    if (match) {
+      setActiveValue(match.value)
+    }
+  }
+
+  function handleListboxKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault()
+        moveActiveOption(1)
+        return
+      case "ArrowUp":
+        event.preventDefault()
+        moveActiveOption(-1)
+        return
+      case "Home":
+        event.preventDefault()
+        moveToBoundaryOption("first")
+        return
+      case "End":
+        event.preventDefault()
+        moveToBoundaryOption("last")
+        return
+      case "Enter":
+      case " ":
+        if (!activeValue) {
+          return
+        }
+
+        event.preventDefault()
+        selectOption(activeValue)
+        return
+      default:
+        if (
+          event.key.length === 1 &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey
+        ) {
+          handleTypeahead(event.key)
+        }
+    }
+  }
 
   return (
-    <div className="flex items-center justify-between py-1">
-      {label && <span className="text-sm text-muted-foreground">{label}</span>}
-      <Select disabled={disabled} value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-7 w-auto min-w-28 border-none bg-transparent text-sm shadow-none">
-          {renderValue ? (
-            renderValue(
-              selectedOption?.value ?? value,
-              selectedOption?.label ?? value
-            )
-          ) : (
-            <SelectValue />
+    <Popover
+      open={disabled ? false : open}
+      onOpenChange={disabled ? undefined : handleOpenChange}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={resolvedAccessibleLabel}
+          aria-controls={open ? listboxId : undefined}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          disabled={disabled}
+          className={cn(
+            "flex h-9 w-full items-center justify-between rounded-md border px-2 py-1.5 text-sm shadow-none transition-colors focus-visible:ring-0",
+            disabled
+              ? "cursor-not-allowed border-transparent bg-transparent text-muted-foreground/70 hover:bg-transparent"
+              : "cursor-pointer border-border/40 bg-muted/15 hover:border-border/70 hover:bg-muted/30"
           )}
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {options.map((option, index) =>
-              option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
-                <SelectSeparator key={`separator-${index}`} />
-              ) : (
-                <SelectItem key={option.value} value={option.value}>
+        >
+          {label ? (
+            <span className="min-w-0 shrink-0 text-sm text-muted-foreground">
+              {label}
+            </span>
+          ) : null}
+          <span className="ml-auto flex min-w-0 items-center justify-end gap-2 text-right">
+            {renderValue ? (
+              renderValue(selectedValue, selectedLabel)
+            ) : (
+              <span className="truncate">{selectedLabel}</span>
+            )}
+            <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-64 p-1.5"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+        }}
+      >
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label={resolvedAccessibleLabel}
+          className="flex flex-col gap-0.5"
+          onKeyDown={handleListboxKeyDown}
+        >
+          {options.map((option, index) =>
+            option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
+              <div
+                key={`separator-${index}`}
+                className="my-1 h-px bg-border"
+              />
+            ) : (
+              <button
+                key={option.value}
+                type="button"
+                ref={(element) => {
+                  optionRefs.current[option.value] = element
+                }}
+                id={`${listboxId}-${option.value}`}
+                role="option"
+                aria-selected={option.value === selectedValue}
+                tabIndex={option.value === activeValue ? 0 : -1}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent",
+                  option.value === selectedValue && "bg-accent/60",
+                  option.value === activeValue && "bg-accent"
+                )}
+                onFocus={() => setActiveValue(option.value)}
+                onClick={() => {
+                  selectOption(option.value)
+                }}
+              >
+                <span className="min-w-0 flex-1">
                   {renderOption
                     ? renderOption(option.value, option.label)
                     : option.label}
-                </SelectItem>
-              )
-            )}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
+                </span>
+                {option.value === selectedValue ? (
+                  <CheckCircle
+                    className="size-3.5 shrink-0 text-foreground"
+                    weight="fill"
+                  />
+                ) : null}
+              </button>
+            )
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -368,6 +590,9 @@ export function WorkItemLabelsEditor({
   item: WorkItem
   editable: boolean
 }) {
+  const itemWorkspaceId = useAppStore(
+    (state) => state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
+  )
   const availableLabels = useAppStore(
     useShallow((state) =>
       [...getLabelsForTeamScope(state, item.teamId)].sort((left, right) =>
@@ -391,7 +616,9 @@ export function WorkItemLabelsEditor({
   }
 
   async function handleCreateLabel() {
-    const created = await useAppStore.getState().createLabel(newLabelName)
+    const created = await useAppStore
+      .getState()
+      .createLabel(newLabelName, itemWorkspaceId)
 
     if (!created) {
       return
@@ -524,7 +751,14 @@ export function PropertyDateField({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-md border px-2 py-1.5 transition-colors",
+        disabled
+          ? "border-transparent bg-transparent"
+          : "border-border/40 bg-muted/15 hover:border-border/70 hover:bg-muted/30"
+      )}
+    >
       <span className="text-sm text-muted-foreground">{label}</span>
       <Input
         type="date"
@@ -535,7 +769,7 @@ export function PropertyDateField({
             event.target.value ? `${event.target.value}T00:00:00.000Z` : null
           )
         }
-        className="h-7 w-[9.5rem] border-none bg-transparent px-0 text-right text-sm shadow-none"
+        className="h-7 w-[9.5rem] border-none bg-transparent px-0 text-right text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
       />
     </div>
   )

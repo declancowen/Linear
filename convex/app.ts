@@ -13,6 +13,7 @@ import {
   commentTargetTypeValidator,
   emailJobKindValidator,
   displayPropertyValidator,
+  entityKindValidator,
   groupFieldValidator,
   nullableStringValidator,
   orderingFieldValidator,
@@ -96,6 +97,7 @@ import {
   heartbeatDocumentPresenceHandler,
   renameDocumentHandler,
   sendDocumentMentionNotificationsHandler,
+  sendItemDescriptionMentionNotificationsHandler,
   updateDocumentContentHandler,
   updateDocumentHandler,
   updateItemDescriptionHandler,
@@ -116,6 +118,7 @@ import {
 } from "./app/project_handlers"
 import {
   clearViewFiltersHandler,
+  createViewHandler,
   toggleViewDisplayPropertyHandler,
   toggleViewFilterValueHandler,
   toggleViewHiddenValueHandler,
@@ -123,7 +126,9 @@ import {
 } from "./app/view_handlers"
 import {
   createWorkItemHandler,
+  clearWorkItemPresenceHandler,
   deleteWorkItemHandler,
+  heartbeatWorkItemPresenceHandler,
   shiftTimelineItemHandler,
   updateWorkItemHandler,
 } from "./app/work_item_handlers"
@@ -711,12 +716,45 @@ export const updateViewConfig = mutation({
     layout: v.optional(
       v.union(v.literal("list"), v.literal("board"), v.literal("timeline"))
     ),
+    itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
+    showChildItems: v.optional(v.boolean()),
     grouping: v.optional(groupFieldValidator),
     subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
     ordering: v.optional(orderingFieldValidator),
     showCompleted: v.optional(v.boolean()),
   },
   handler: updateViewConfigHandler,
+})
+
+export const createView = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    id: v.optional(v.string()),
+    scopeType: v.union(v.literal("team"), v.literal("workspace")),
+    scopeId: v.string(),
+    entityKind: entityKindValidator,
+    route: v.string(),
+    name: v.string(),
+    description: v.string(),
+    layout: v.optional(
+      v.union(v.literal("list"), v.literal("board"), v.literal("timeline"))
+    ),
+    itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
+    showChildItems: v.optional(v.boolean()),
+    grouping: v.optional(groupFieldValidator),
+    subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
+    ordering: v.optional(orderingFieldValidator),
+    filters: v.optional(viewFiltersValidator),
+    displayProps: v.optional(v.array(displayPropertyValidator)),
+    hiddenState: v.optional(
+      v.object({
+        groups: v.array(v.string()),
+        subgroups: v.array(v.string()),
+      })
+    ),
+  },
+  handler: createViewHandler,
 })
 
 export const toggleViewDisplayProperty = mutation({
@@ -749,9 +787,15 @@ export const toggleViewFilterValue = mutation({
       v.literal("status"),
       v.literal("priority"),
       v.literal("assigneeIds"),
+      v.literal("creatorIds"),
+      v.literal("leadIds"),
+      v.literal("health"),
+      v.literal("milestoneIds"),
+      v.literal("relationTypes"),
       v.literal("projectIds"),
       v.literal("itemTypes"),
-      v.literal("labelIds")
+      v.literal("labelIds"),
+      v.literal("teamIds")
     ),
     value: v.string(),
   },
@@ -774,6 +818,9 @@ export const updateWorkItem = mutation({
     itemId: v.string(),
     origin: v.string(),
     patch: v.object({
+      title: v.optional(v.string()),
+      description: v.optional(v.string()),
+      expectedUpdatedAt: v.optional(v.string()),
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),
       assigneeId: v.optional(nullableStringValidator),
@@ -844,6 +891,22 @@ export const sendDocumentMentionNotifications = mutation({
   handler: sendDocumentMentionNotificationsHandler,
 })
 
+export const sendItemDescriptionMentionNotifications = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    origin: v.string(),
+    itemId: v.string(),
+    mentions: v.array(
+      v.object({
+        userId: v.string(),
+        count: v.number(),
+      })
+    ),
+  },
+  handler: sendItemDescriptionMentionNotificationsHandler,
+})
+
 export const heartbeatDocumentPresence = convexMutation({
   args: {
     ...serverAccessArgs,
@@ -868,6 +931,32 @@ export const clearDocumentPresence = convexMutation({
     sessionId: v.string(),
   },
   handler: clearDocumentPresenceHandler,
+})
+
+export const heartbeatWorkItemPresence = convexMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    itemId: v.string(),
+    workosUserId: v.string(),
+    email: v.string(),
+    name: v.string(),
+    avatarUrl: v.string(),
+    avatarImageUrl: v.optional(v.union(v.string(), v.null())),
+    sessionId: v.string(),
+  },
+  handler: heartbeatWorkItemPresenceHandler,
+})
+
+export const clearWorkItemPresence = convexMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    itemId: v.string(),
+    workosUserId: v.string(),
+    sessionId: v.string(),
+  },
+  handler: clearWorkItemPresenceHandler,
 })
 
 export const renameDocument = mutation({
@@ -1017,6 +1106,8 @@ export const createProject = mutation({
     settingsTeamId: v.optional(nullableStringValidator),
     presentation: v.optional(
       v.object({
+        itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
+        showChildItems: v.optional(v.boolean()),
         layout: viewLayoutValidator,
         grouping: groupFieldValidator,
         ordering: orderingFieldValidator,
@@ -1045,6 +1136,7 @@ export const createDocument = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    id: v.optional(v.string()),
     kind: v.union(
       v.literal("team-document"),
       v.literal("workspace-document"),

@@ -144,6 +144,7 @@ const themePreferenceLiterals = [
 ] as const
 
 const userStatusLiterals = [
+  v.literal("offline"),
   v.literal("active"),
   v.literal("away"),
   v.literal("busy"),
@@ -446,6 +447,8 @@ export const projectFields = {
   status: projectStatusValidator,
   presentation: v.optional(
     v.object({
+      itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
+      showChildItems: v.optional(v.boolean()),
       layout: viewLayoutValidator,
       grouping: groupFieldValidator,
       ordering: orderingFieldValidator,
@@ -528,6 +531,8 @@ export const viewDefinitionFields = {
   scopeType: viewScopeTypeValidator,
   scopeId: v.string(),
   entityKind: entityKindValidator,
+  itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
+  showChildItems: v.optional(v.boolean()),
   layout: viewLayoutValidator,
   filters: storedViewFiltersValidator,
   grouping: groupFieldValidator,

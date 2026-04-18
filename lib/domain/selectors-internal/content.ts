@@ -11,15 +11,21 @@ export function getWorkspacePersonalViews(
   data: AppData,
   entityKind?: "items" | "projects" | "docs"
 ) {
-  return sortViewsForDisplay(
-    data.views.filter(
-      (view) =>
-        view.scopeType === "personal" &&
-        view.scopeId === data.currentUserId &&
-        view.route.startsWith("/workspace/") &&
-        (entityKind ? view.entityKind === entityKind : true)
-    )
+  const workspaceViews = data.views.filter(
+    (view) =>
+      view.scopeType === "workspace" &&
+      view.scopeId === data.currentWorkspaceId &&
+      (entityKind ? view.entityKind === entityKind : true)
   )
+  const legacyPersonalViews = data.views.filter(
+    (view) =>
+      view.scopeType === "personal" &&
+      view.scopeId === data.currentUserId &&
+      view.route.startsWith("/workspace/") &&
+      (entityKind ? view.entityKind === entityKind : true)
+  )
+
+  return sortViewsForDisplay([...workspaceViews, ...legacyPersonalViews])
 }
 
 export function getDocumentsForScope(

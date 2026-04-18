@@ -1,19 +1,34 @@
 "use client"
 
+import { toast } from "sonner"
+
 import {
   syncClearViewFilters,
+  syncCreateView,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,
   syncUpdateViewConfig,
 } from "@/lib/convex/client"
+import {
+  canEditTeam,
+  canEditWorkspace,
+  getTeam,
+  teamHasFeature,
+} from "@/lib/domain/selectors"
+import {
+  createViewDefinition,
+  isRouteAllowedForViewContext,
+} from "@/lib/domain/default-views"
+import { viewSchema } from "@/lib/domain/types"
 
-import { getNow } from "../helpers"
+import { createId, getNow } from "../helpers"
 import { createStoreRuntime } from "../runtime"
-import type { AppStore, AppStoreSet } from "../types"
+import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 
 type ViewSlice = Pick<
   AppStore,
+  | "createView"
   | "updateViewConfig"
   | "toggleViewDisplayProperty"
   | "toggleViewHiddenValue"
@@ -23,22 +38,179 @@ type ViewSlice = Pick<
 
 export function createViewSlice(
   set: AppStoreSet,
+  get: AppStoreGet,
   runtime: ReturnType<typeof createStoreRuntime>
 ): ViewSlice {
   return {
+    createView(input) {
+      const parsed = viewSchema.safeParse(input)
+
+      if (!parsed.success) {
+        toast.error("View input is invalid")
+        return null
+      }
+
+      const state = get()
+      const team =
+        parsed.data.scopeType === "team"
+          ? getTeam(state, parsed.data.scopeId)
+          : null
+
+      if (parsed.data.scopeType === "team") {
+        if (!team) {
+          toast.error("Team not found")
+          return null
+        }
+
+        if (!canEditTeam(state, team.id)) {
+          toast.error("Your current role is read-only")
+          return null
+        }
+
+        if (!teamHasFeature(team, "views")) {
+          toast.error("Views are disabled for this team")
+          return null
+        }
+
+        if (parsed.data.entityKind === "items" && !teamHasFeature(team, "issues")) {
+          toast.error("Work views are disabled for this team")
+          return null
+        }
+
+        if (
+          parsed.data.entityKind === "projects" &&
+          !teamHasFeature(team, "projects")
+        ) {
+          toast.error("Project views are disabled for this team")
+          return null
+        }
+
+        if (parsed.data.entityKind === "docs" && !teamHasFeature(team, "docs")) {
+          toast.error("Document views are disabled for this team")
+          return null
+        }
+      } else if (!canEditWorkspace(state, parsed.data.scopeId)) {
+        toast.error("Your current role is read-only")
+        return null
+      }
+
+      if (
+        !isRouteAllowedForViewContext({
+          scopeType: parsed.data.scopeType,
+          entityKind: parsed.data.entityKind,
+          route: parsed.data.route,
+          teamSlug: team?.slug,
+        })
+      ) {
+        toast.error("This view route is not supported for the selected scope")
+        return null
+      }
+
+      const viewId = parsed.data.id ?? createId("view")
+      const previousSelectedViewId = state.ui.selectedViewByRoute[parsed.data.route] ?? null
+      const view = createViewDefinition({
+        id: viewId,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        scopeType: parsed.data.scopeType,
+        scopeId: parsed.data.scopeId,
+        entityKind: parsed.data.entityKind,
+        route: parsed.data.route,
+        teamSlug: team?.slug,
+        experience: team?.settings.experience,
+        createdAt: getNow(),
+        overrides: {
+          layout: parsed.data.layout,
+          filters: parsed.data.filters,
+          grouping: parsed.data.grouping,
+          subGrouping: parsed.data.subGrouping,
+          ordering: parsed.data.ordering,
+          itemLevel: parsed.data.itemLevel,
+          showChildItems: parsed.data.showChildItems,
+          displayProps: parsed.data.displayProps,
+          hiddenState: parsed.data.hiddenState,
+        },
+      })
+
+      if (!view) {
+        toast.error("This view target is not supported yet")
+        return null
+      }
+
+      set((current) => ({
+        views: [...current.views, view],
+        ui: {
+          ...current.ui,
+          selectedViewByRoute: {
+            ...current.ui.selectedViewByRoute,
+            [view.route]: view.id,
+          },
+        },
+      }))
+
+      runtime.syncInBackground(
+        syncCreateView(get().currentUserId, {
+          ...parsed.data,
+          id: viewId,
+        })
+          .then(async (result) => {
+            if (result?.viewId && result.viewId !== viewId) {
+              try {
+                await runtime.refreshFromServer()
+              } catch (error) {
+                await runtime.handleSyncFailure(
+                  error,
+                  "View created, but failed to refresh from server"
+                )
+              }
+            }
+          })
+          .catch((error) => {
+            set((current) => {
+              const nextSelectedViewByRoute = {
+                ...current.ui.selectedViewByRoute,
+              }
+
+              if (nextSelectedViewByRoute[view.route] === viewId) {
+                if (previousSelectedViewId) {
+                  nextSelectedViewByRoute[view.route] = previousSelectedViewId
+                } else {
+                  delete nextSelectedViewByRoute[view.route]
+                }
+              }
+
+              return {
+                views: current.views.filter((entry) => entry.id !== viewId),
+                ui: {
+                  ...current.ui,
+                  selectedViewByRoute: nextSelectedViewByRoute,
+                },
+              }
+            })
+
+            throw error
+          }),
+        "Failed to create view"
+      )
+
+      toast.success("View created")
+      return view.id
+    },
     updateViewConfig(viewId, patch) {
+      const { showCompleted, ...viewPatch } = patch
+
       set((state) => ({
         views: state.views.map((view) =>
           view.id === viewId
             ? {
                 ...view,
-                ...patch,
+                ...viewPatch,
                 filters:
-                  patch.showCompleted === undefined
+                  showCompleted === undefined
                     ? view.filters
                     : {
                         ...view.filters,
-                        showCompleted: patch.showCompleted,
+                        showCompleted,
                       },
                 updatedAt: getNow(),
               }
@@ -145,9 +317,15 @@ export function createViewSlice(
               status: [],
               priority: [],
               assigneeIds: [],
+              creatorIds: [],
+              leadIds: [],
+              health: [],
+              milestoneIds: [],
+              relationTypes: [],
               projectIds: [],
               itemTypes: [],
               labelIds: [],
+              teamIds: [],
             },
             updatedAt: getNow(),
           }

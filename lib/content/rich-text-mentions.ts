@@ -95,7 +95,38 @@ export function filterPendingDocumentMentionsByContent(
 ) {
   const mentionCounts = extractRichTextMentionCounts(content)
 
-  return pendingMentions.filter((mention) => (mentionCounts[mention.userId] ?? 0) > 0)
+  return pendingMentions.flatMap((mention) => {
+    const currentCount = mentionCounts[mention.userId] ?? 0
+
+    return currentCount > 0
+      ? [
+          {
+            userId: mention.userId,
+            count: Math.min(mention.count, currentCount),
+          },
+        ]
+      : []
+  })
+}
+
+export function mergePendingDocumentMentions(
+  ...pendingMentionGroups: PendingDocumentMention[][]
+) {
+  const mergedCounts = new Map<string, number>()
+
+  for (const pendingMentions of pendingMentionGroups) {
+    for (const mention of pendingMentions) {
+      mergedCounts.set(
+        mention.userId,
+        (mergedCounts.get(mention.userId) ?? 0) + mention.count
+      )
+    }
+  }
+
+  return [...mergedCounts.entries()].map(([userId, count]) => ({
+    userId,
+    count,
+  }))
 }
 
 export function summarizePendingDocumentMentions(
@@ -109,6 +140,37 @@ export function summarizePendingDocumentMentions(
     {
       recipientCount: 0,
       mentionCount: 0,
+    }
+  )
+}
+
+export function getPendingRichTextMentionEntries(
+  previousContent: string,
+  nextContent: string,
+  options?: {
+    ignoredUserIds?: string[]
+  }
+) {
+  const previousCounts = extractRichTextMentionCounts(previousContent)
+  const nextCounts = extractRichTextMentionCounts(nextContent)
+  const ignoredUserIds = new Set(options?.ignoredUserIds ?? [])
+
+  return Object.entries(nextCounts).flatMap<PendingDocumentMention>(
+    ([userId, nextCount]) => {
+      if (ignoredUserIds.has(userId)) {
+        return []
+      }
+
+      const addedCount = nextCount - (previousCounts[userId] ?? 0)
+
+      return addedCount > 0
+        ? [
+            {
+              userId,
+              count: addedCount,
+            },
+          ]
+        : []
     }
   )
 }

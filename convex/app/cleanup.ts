@@ -1,6 +1,10 @@
 import type { MutationCtx } from "../_generated/server"
 
-import { getNow } from "./core"
+import {
+  defaultUserStatus,
+  defaultUserStatusMessage,
+  getNow,
+} from "./core"
 import {
   findPrimaryWorkspaceChannelConversation,
   getWorkspaceUserIds,
@@ -604,6 +608,23 @@ export async function cleanupUserAccessRemoval(
       userId: input.removedUserId,
       workspaceId: input.workspaceId,
     })
+
+    const remainingWorkspaceIds = await getAccessibleWorkspaceIdsForUser(
+      ctx,
+      input.removedUserId
+    )
+
+    if (remainingWorkspaceIds.size === 0) {
+      const removedUser = await getUserDoc(ctx, input.removedUserId)
+
+      if (removedUser) {
+        await ctx.db.patch(removedUser._id, {
+          status: defaultUserStatus,
+          statusMessage: defaultUserStatusMessage,
+          hasExplicitStatus: false,
+        })
+      }
+    }
   }
 
   return {

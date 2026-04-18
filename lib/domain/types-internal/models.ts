@@ -189,6 +189,8 @@ export interface ViewDefinition {
   scopeType: ViewScopeType
   scopeId: string
   entityKind: EntityKind
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
   layout: ViewLayout
   filters: ViewFilters
   grouping: GroupField
@@ -338,10 +340,42 @@ export interface ChannelPostComment {
   createdAt: string
 }
 
+export type CreateDialogState =
+  | {
+      kind: "workItem"
+      defaultTeamId?: string | null
+      initialType?: WorkItemType | null
+    }
+  | {
+      kind: "project"
+      defaultTeamId?: string | null
+    }
+  | {
+      kind: "view"
+      defaultScopeType?: "team" | "workspace" | null
+      defaultScopeId?: string | null
+      defaultEntityKind?: EntityKind | null
+      defaultRoute?: string | null
+      lockScope?: boolean
+      lockEntityKind?: boolean
+      initialConfig?: Partial<{
+        layout: ViewLayout
+        filters: ViewFilters
+        grouping: GroupField
+        subGrouping: GroupField | null
+        ordering: OrderingField
+        itemLevel: WorkItemType | null
+        showChildItems: boolean
+        displayProps: DisplayProperty[]
+        hiddenState: HiddenState
+      }>
+    }
+
 export interface UiState {
   activeTeamId: string
   activeInboxNotificationId: string | null
   selectedViewByRoute: Record<string, string>
+  activeCreateDialog: CreateDialogState | null
 }
 
 export interface AppData {

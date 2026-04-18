@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
-import { getDocumentPresenceSessionId } from "@/components/app/screens/helpers"
+import {
+  getDocumentPresenceSessionId,
+  getWorkItemPresenceSessionId,
+} from "@/components/app/screens/helpers"
 
 describe("document presence session helpers", () => {
   beforeEach(() => {
@@ -35,5 +38,12 @@ describe("document presence session helpers", () => {
     expect(
       window.sessionStorage.getItem("linear.document-presence-session-user-id")
     ).toBe("user_2")
+  })
+
+  it("reuses the shared presence session for work-item editing", () => {
+    const documentSessionId = getDocumentPresenceSessionId("user_1")
+    const workItemSessionId = getWorkItemPresenceSessionId("user_1")
+
+    expect(workItemSessionId).toBe(documentSessionId)
   })
 })

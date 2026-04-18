@@ -40,20 +40,32 @@ import {
   getAccessibleTeams,
   getCurrentUser,
   getCurrentWorkspace,
+  getTeam,
+  canEditWorkspace,
   getTeamFeatureSettings,
   isWorkspaceOwner,
 } from "@/lib/domain/selectors"
 import {
+  type CreateDialogState,
   getWorkSurfaceCopy,
   resolveUserStatus,
   type UserStatus,
   userStatusMeta,
   userStatuses,
 } from "@/lib/domain/types"
+import { buildGlobalCreateActions } from "@/lib/domain/search-create-actions"
+import {
+  openManagedCreateDialog,
+  openTopLevelDialog,
+} from "@/lib/browser/dialog-transitions"
+import { blurActiveElement } from "@/lib/browser/focus"
 import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import { CreateViewDialog } from "@/components/app/screens/create-view-dialog"
+import { CreateProjectDialog } from "@/components/app/screens/project-creation"
+import { CreateWorkItemDialog } from "@/components/app/screens/create-work-item-dialog"
 import { InviteDialog } from "@/components/app/shell/invite-dialog"
 import { SidebarLink } from "@/components/app/shell/sidebar-link"
 import { StatusDialog } from "@/components/app/shell/status-dialog"
@@ -250,9 +262,15 @@ export function AppShell({ children }: AppShellProps) {
   )
   const currentUserId = useAppStore((state) => state.currentUserId)
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+  const activeCreateDialog = useAppStore((state) => state.ui.activeCreateDialog)
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
   )
+  const canEditCurrentWorkspace = useAppStore((state) =>
+    currentWorkspaceId ? canEditWorkspace(state, currentWorkspaceId) : false
+  )
+  const activeTeam = useAppStore((state) => getTeam(state, activeTeamId))
   const canOpenWorkspaceSettings = useAppStore((state) => {
     const currentWorkspace = getCurrentWorkspace(state)
 
@@ -288,6 +306,24 @@ export function AppShell({ children }: AppShellProps) {
     currentUser?.avatarUrl
   )
   const currentUserStatus = resolveUserStatus(currentUser?.status)
+  const editableTeamIds = new Set(
+    currentMemberships
+      .filter(
+        (membership) =>
+          membership.role === "admin" || membership.role === "member"
+      )
+      .map((membership) => membership.teamId)
+  )
+  const editableTeams = teams.filter((team) => editableTeamIds.has(team.id))
+  const workItemCreateTeams = editableTeams.filter(
+    (team) => getTeamFeatureSettings(team).issues
+  )
+  const projectCreateTeams = editableTeams.filter(
+    (team) => getTeamFeatureSettings(team).projects
+  )
+  const viewCreateTeams = editableTeams.filter(
+    (team) => getTeamFeatureSettings(team).views
+  )
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteMode, setInviteMode] = useState<"workspace" | "team">(
@@ -322,6 +358,10 @@ export function AppShell({ children }: AppShellProps) {
   )
 
   function handleSearchOpenChange(open: boolean) {
+    if (open) {
+      blurActiveElement()
+    }
+
     setSearchOpen(open)
 
     if (!open) {
@@ -339,6 +379,54 @@ export function AppShell({ children }: AppShellProps) {
     handleSearchOpenChange(false)
     router.push(href)
   }
+
+  function openCreateDialog(dialog: CreateDialogState) {
+    openManagedCreateDialog(dialog, {
+      beforeOpen: () => {
+        handleSearchOpenChange(false)
+      },
+    })
+  }
+
+  function closeCreateDialog() {
+    useAppStore.getState().closeCreateDialog()
+  }
+
+  function openWorkspaceInviteDialog() {
+    openTopLevelDialog(() => {
+      setInviteMode("workspace")
+      setInvitePresetTeamIds([])
+      setInviteOpen(true)
+    })
+  }
+
+  function openTeamInviteDialog(teamId: string) {
+    openTopLevelDialog(() => {
+      setInviteMode("team")
+      setInvitePresetTeamIds([teamId])
+      setInviteOpen(true)
+    })
+  }
+
+  function openStatusMessageDialog() {
+    openTopLevelDialog(() => {
+      setStatusDialogOpen(true)
+    })
+  }
+
+  const createActions = buildGlobalCreateActions({
+    activeTeamId: activeTeam?.id ?? null,
+    workItemCreateTeams,
+    projectCreateTeams,
+    viewTeams: viewCreateTeams,
+    workspaceViewOption:
+      workspace && canEditCurrentWorkspace
+        ? {
+            id: workspace.id,
+            name: workspace.name,
+          }
+        : null,
+  })
 
   async function handleLeaveTeam() {
     if (!teamPendingLeave) {
@@ -465,6 +553,40 @@ export function AppShell({ children }: AppShellProps) {
         open={statusDialogOpen}
         onOpenChange={setStatusDialogOpen}
       />
+      {activeCreateDialog?.kind === "workItem" ? (
+        <CreateWorkItemDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              closeCreateDialog()
+            }
+          }}
+          defaultTeamId={activeCreateDialog.defaultTeamId}
+          initialType={activeCreateDialog.initialType}
+        />
+      ) : null}
+      {activeCreateDialog?.kind === "project" ? (
+        <CreateProjectDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              closeCreateDialog()
+            }
+          }}
+          defaultTeamId={activeCreateDialog.defaultTeamId}
+        />
+      ) : null}
+      {activeCreateDialog?.kind === "view" ? (
+        <CreateViewDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              closeCreateDialog()
+            }
+          }}
+          dialog={activeCreateDialog}
+        />
+      ) : null}
       {searchOpen ? (
         <GlobalSearchDialog
           open={searchOpen}
@@ -473,6 +595,31 @@ export function AppShell({ children }: AppShellProps) {
             searchQueryRef.current = query
           }}
           onOpenFullSearch={openFullSearch}
+          createActions={createActions}
+          onSelectCreateAction={(action) => {
+            if (action.kind === "project") {
+              openCreateDialog({
+                kind: "project",
+                defaultTeamId: action.defaultTeamId,
+              })
+              return
+            }
+
+            if (action.kind === "view") {
+              openCreateDialog({
+                kind: "view",
+                defaultScopeType: action.defaultScopeType,
+                defaultScopeId: action.defaultScopeId,
+              })
+              return
+            }
+
+            openCreateDialog({
+              kind: "workItem",
+              defaultTeamId: action.defaultTeamId,
+              initialType: action.workItemType,
+            })
+          }}
           fullSearchShortcutKeys={[searchShortcutModifierLabel, "K"]}
         />
       ) : null}
@@ -532,13 +679,7 @@ export function AppShell({ children }: AppShellProps) {
                           ) : null}
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          setInviteMode("workspace")
-                          setInvitePresetTeamIds([])
-                          setInviteOpen(true)
-                        }}
-                      >
+                      <DropdownMenuItem onSelect={openWorkspaceInviteDialog}>
                         <PaperPlaneTilt />
                         Invite to workspace
                       </DropdownMenuItem>
@@ -572,7 +713,7 @@ export function AppShell({ children }: AppShellProps) {
               size="icon-xs"
               variant="ghost"
               className="ml-auto shrink-0 text-sidebar-foreground/70 hover:text-sidebar-foreground"
-              onClick={() => setSearchOpen(true)}
+              onClick={() => handleSearchOpenChange(true)}
             >
               <MagnifyingGlass className="size-3.5" />
             </Button>
@@ -745,9 +886,7 @@ export function AppShell({ children }: AppShellProps) {
                                   {canInvite ? (
                                     <DropdownMenuItem
                                       onSelect={() => {
-                                        setInviteMode("team")
-                                        setInvitePresetTeamIds([team.id])
-                                        setInviteOpen(true)
+                                        openTeamInviteDialog(team.id)
                                       }}
                                     >
                                       <Plus />
@@ -976,11 +1115,7 @@ export function AppShell({ children }: AppShellProps) {
                         </DropdownMenuRadioGroup>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        setStatusDialogOpen(true)
-                      }}
-                    >
+                    <DropdownMenuItem onSelect={openStatusMessageDialog}>
                       <NotePencil />
                       {currentUser.statusMessage
                         ? "Edit status message"

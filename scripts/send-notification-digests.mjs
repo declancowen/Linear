@@ -253,7 +253,10 @@ async function releaseDigestClaimsWithRetry(input, notificationIds) {
 export async function processNotificationDigestsBatch(input) {
   const emailedNotificationIds = []
   const pendingDigests = [...input.digests]
-  const resendFrom = normalizeResendFrom(input.resendFromEmail)
+  const resendFrom = normalizeResendFrom(
+    input.resendFromEmail,
+    input.resendFromName
+  )
 
   while (pendingDigests.length > 0) {
     const digest = pendingDigests.shift()
@@ -318,6 +321,7 @@ export async function main() {
   const serverToken = process.env.CONVEX_SERVER_TOKEN
   const resendApiKey = process.env.RESEND_API_KEY
   const resendFromEmail = process.env.RESEND_FROM_EMAIL
+  const resendFromName = process.env.RESEND_FROM_NAME
   const dryRun = process.env.DRY_RUN === "1"
 
   if (!convexUrl) {
@@ -351,6 +355,7 @@ export async function main() {
     claimId,
     resend,
     resendFromEmail,
+    resendFromName,
     markNotificationsEmailed: (payload) =>
       client.mutation(api.app.markNotificationsEmailed, {
         serverToken,

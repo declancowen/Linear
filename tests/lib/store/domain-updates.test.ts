@@ -354,6 +354,7 @@ describe("store domain updates", () => {
           selectedViewByRoute: {
             "/workspace/items": "view_1",
           },
+          activeCreateDialog: null,
         },
       },
       "team_1"
@@ -550,6 +551,7 @@ describe("store domain updates", () => {
           activeTeamId: "team_1",
           activeInboxNotificationId: null,
           selectedViewByRoute: {},
+          activeCreateDialog: null,
         },
       },
       "workspace_1"

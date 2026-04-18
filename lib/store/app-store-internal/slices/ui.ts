@@ -17,6 +17,8 @@ type UiSlice = Pick<
   AppStore,
   | "replaceDomainData"
   | "setActiveTeam"
+  | "openCreateDialog"
+  | "closeCreateDialog"
   | "setSelectedView"
   | "setActiveInboxNotification"
 >
@@ -59,6 +61,22 @@ export function createUiSlice(
         ui: {
           ...state.ui,
           activeTeamId: teamId,
+        },
+      }))
+    },
+    openCreateDialog(dialog) {
+      set((state) => ({
+        ui: {
+          ...state.ui,
+          activeCreateDialog: dialog,
+        },
+      }))
+    },
+    closeCreateDialog() {
+      set((state) => ({
+        ui: {
+          ...state.ui,
+          activeCreateDialog: null,
         },
       }))
     },

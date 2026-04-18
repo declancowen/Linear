@@ -12,7 +12,12 @@ import {
 } from "@/lib/convex/client"
 import { getLabelsForWorkspace } from "@/lib/domain/selectors"
 import {
+  buildWorkItemAssignmentNotificationMessage,
+  buildWorkItemStatusChangeNotificationMessage,
+} from "@/lib/domain/notification-copy"
+import {
   getAllowedWorkItemTypesForTemplate,
+  statusMeta,
   workItemSchema,
 } from "@/lib/domain/types"
 
@@ -44,17 +49,23 @@ export function createWorkItemActions({
   | "createWorkItem"
 > {
   return {
-    async createLabel(name) {
+    async createLabel(name, workspaceId) {
       const normalizedName = name.trim()
+      const resolvedWorkspaceId = workspaceId ?? get().currentWorkspaceId
 
       if (normalizedName.length === 0) {
         toast.error("Label name is required")
         return null
       }
 
+      if (!resolvedWorkspaceId) {
+        toast.error("Workspace not found")
+        return null
+      }
+
       const existing = getLabelsForWorkspace(
         get(),
-        get().currentWorkspaceId
+        resolvedWorkspaceId
       ).find(
         (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
       )
@@ -65,6 +76,7 @@ export function createWorkItemActions({
 
       try {
         const result = await syncCreateLabel({
+          workspaceId: resolvedWorkspaceId,
           name: normalizedName,
         })
 
@@ -104,7 +116,7 @@ export function createWorkItemActions({
       const validationMessage = getWorkItemValidationMessage(state, {
         teamId: existing.teamId,
         type: existing.type,
-        title: existing.title,
+        title: patch.title ?? existing.title,
         priority: patch.priority ?? existing.priority,
         assigneeId:
           patch.assigneeId === undefined
@@ -152,6 +164,7 @@ export function createWorkItemActions({
         }
 
         const now = getNow()
+        const nextTitle = patch.title?.trim() || currentItem.title
         const {
           cascadeItemIds,
           resolvedPrimaryProjectId,
@@ -200,23 +213,42 @@ export function createWorkItemActions({
               }
             })
           : currentState.documents
+        const finalDocuments =
+          patch.title !== undefined
+            ? nextDocuments.map((document) =>
+                document.id === currentItem.descriptionDocId
+                  ? {
+                      ...document,
+                      title: `${nextTitle} description`,
+                      updatedBy: currentState.currentUserId,
+                      updatedAt: now,
+                    }
+                  : document
+              )
+            : nextDocuments
 
         const notifications = [...currentState.notifications]
         const actor = currentState.users.find(
           (user) => user.id === currentState.currentUserId
         )
+        const team = currentState.teams.find(
+          (entry) => entry.id === currentItem.teamId
+        )
 
         if (
           patch.assigneeId !== undefined &&
           patch.assigneeId &&
-          patch.assigneeId !== currentItem.assigneeId &&
-          patch.assigneeId !== currentState.currentUserId
+          patch.assigneeId !== currentItem.assigneeId
         ) {
           notifications.unshift(
             createNotification(
               patch.assigneeId,
               currentState.currentUserId,
-              `${actor?.name ?? "Someone"} assigned you ${currentItem.title}`,
+              buildWorkItemAssignmentNotificationMessage(
+                actor?.name ?? "Someone",
+                nextTitle,
+                team?.name
+              ),
               "workItem",
               currentItem.id,
               "assignment"
@@ -224,16 +256,24 @@ export function createWorkItemActions({
           )
         }
 
+        const resolvedAssigneeId =
+          patch.assigneeId === undefined ? currentItem.assigneeId : patch.assigneeId
+
         if (
           patch.status &&
           patch.status !== currentItem.status &&
-          currentItem.creatorId !== currentState.currentUserId
+          resolvedAssigneeId
         ) {
           notifications.unshift(
             createNotification(
-              currentItem.creatorId,
+              resolvedAssigneeId,
               currentState.currentUserId,
-              `${currentItem.title} moved to ${patch.status}`,
+              buildWorkItemStatusChangeNotificationMessage(
+                actor?.name ?? "Someone",
+                nextTitle,
+                statusMeta[patch.status].label,
+                team?.name
+              ),
               "workItem",
               currentItem.id,
               "status-change"
@@ -243,7 +283,7 @@ export function createWorkItemActions({
 
         return {
           ...currentState,
-          documents: nextDocuments,
+          documents: finalDocuments,
           workItems: nextItems,
           notifications,
         }
@@ -446,11 +486,32 @@ export function createWorkItemActions({
           updatedAt: getNow(),
         }
 
+        const actor = state.users.find((user) => user.id === state.currentUserId)
+        const notifications =
+          parsed.data.assigneeId
+            ? [
+                createNotification(
+                  parsed.data.assigneeId,
+                  state.currentUserId,
+                  buildWorkItemAssignmentNotificationMessage(
+                    actor?.name ?? "Someone",
+                    parsed.data.title,
+                    team?.name
+                  ),
+                  "workItem",
+                  workItem.id,
+                  "assignment"
+                ),
+                ...state.notifications,
+              ]
+            : state.notifications
+
         createdItemId = workItem.id
 
         return {
           ...state,
           documents: [descriptionDoc, ...state.documents],
+          notifications,
           workItems: [workItem, ...state.workItems],
         }
       })

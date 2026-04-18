@@ -7,6 +7,7 @@ import type {
   AppData,
   AppSnapshot,
   CommentTargetType,
+  CreateDialogState,
   Conversation,
   DisplayProperty,
   GroupField,
@@ -26,6 +27,7 @@ import type {
 } from "@/lib/domain/types"
 
 export type WorkItemPatch = {
+  title?: string
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
@@ -46,6 +48,25 @@ export type CreateProjectInput = {
   priority: Priority
   settingsTeamId?: string | null
   presentation?: ProjectPresentationConfig
+}
+
+export type CreateViewInput = {
+  id?: string
+  scopeType: "team" | "workspace"
+  scopeId: string
+  entityKind: "items" | "projects" | "docs"
+  route: string
+  name: string
+  description: string
+  layout?: "list" | "board" | "timeline"
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
+  filters?: AppData["views"][number]["filters"]
+  displayProps?: DisplayProperty[]
+  hiddenState?: AppData["views"][number]["hiddenState"]
 }
 
 export type ProjectPatch = {
@@ -184,6 +205,8 @@ export type AddChannelPostCommentInput = {
 export type AppStore = AppData & {
   replaceDomainData: (data: AppSnapshot) => void
   setActiveTeam: (teamId: string) => void
+  openCreateDialog: (dialog: CreateDialogState) => void
+  closeCreateDialog: () => void
   setSelectedView: (route: string, viewId: string) => void
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
@@ -225,6 +248,8 @@ export type AppStore = AppData & {
       grouping: GroupField
       subGrouping: GroupField | null
       ordering: OrderingField
+      itemLevel: WorkItemType | null
+      showChildItems: boolean
       showCompleted: boolean
     }>
   ) => void
@@ -240,13 +265,22 @@ export type AppStore = AppData & {
       | "status"
       | "priority"
       | "assigneeIds"
+      | "creatorIds"
+      | "leadIds"
+      | "health"
+      | "milestoneIds"
+      | "relationTypes"
       | "projectIds"
       | "itemTypes"
-      | "labelIds",
+      | "labelIds"
+      | "teamIds",
     value: string
   ) => void
   clearViewFilters: (viewId: string) => void
-  createLabel: (name: string) => Promise<Label | null>
+  createLabel: (
+    name: string,
+    workspaceId?: string | null
+  ) => Promise<Label | null>
   updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
@@ -255,6 +289,12 @@ export type AppStore = AppData & {
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>
   updateItemDescription: (itemId: string, content: string) => void
+  saveWorkItemMainSection: (input: {
+    itemId: string
+    title: string
+    description: string
+    expectedUpdatedAt: string
+  }) => Promise<boolean>
   uploadAttachment: (
     targetType: AttachmentTargetType,
     targetId: string,
@@ -275,8 +315,9 @@ export type AppStore = AppData & {
   createInvite: (input: CreateInviteInput) => void
   joinTeamByCode: (code: string) => Promise<boolean>
   createProject: (input: CreateProjectInput) => void
+  createView: (input: CreateViewInput) => string | null
   updateProject: (projectId: string, patch: ProjectPatch) => void
-  createDocument: (input: CreateDocumentInput) => void
+  createDocument: (input: CreateDocumentInput) => Promise<string | null>
   createWorkItem: (input: CreateWorkItemInput) => string | null
   updateTeamWorkflowSettings: (
     teamId: string,

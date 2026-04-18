@@ -3,12 +3,36 @@
 import * as React from "react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
+import { blurActiveElement } from "@/lib/browser/focus"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "@phosphor-icons/react"
 
-function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
-  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+function Sheet({
+  open,
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof SheetPrimitive.Root>) {
+  React.useLayoutEffect(() => {
+    if (open === true) {
+      blurActiveElement()
+    }
+  }, [open])
+
+  return (
+    <SheetPrimitive.Root
+      data-slot="sheet"
+      open={open}
+      onOpenChange={(open) => {
+        if (open) {
+          blurActiveElement()
+        }
+
+        onOpenChange?.(open)
+      }}
+      {...props}
+    />
+  )
 }
 
 function SheetTrigger({
@@ -75,8 +99,7 @@ function SheetContent({
               className="absolute top-3 right-3"
               size="icon-sm"
             >
-              <XIcon
-              />
+              <XIcon />
               <span className="sr-only">Close</span>
             </Button>
           </SheetPrimitive.Close>

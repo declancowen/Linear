@@ -22,6 +22,7 @@ export type AssignmentEmail = {
   itemTitle: string
   itemId: string
   actorName: string
+  teamName?: string | null
 }
 
 export type MentionEmail = {
@@ -347,17 +348,24 @@ function renderAssignmentEmail(input: {
   itemTitle: string
   itemId: string
   actorName: string
+  teamName?: string | null
 }): EmailMessage {
   const itemUrl = buildAbsoluteUrl(input.origin, `/items/${input.itemId}`)
+  const teamLine = input.teamName?.trim() ? `Team: ${input.teamName}` : null
 
   return {
-    subject: `${input.actorName} assigned you ${input.itemTitle}`,
+    subject: input.teamName?.trim()
+      ? `${input.actorName} assigned you "${input.itemTitle}" in ${input.teamName}`
+      : `${input.actorName} assigned you "${input.itemTitle}"`,
     text: [
       `Hi ${input.name},`,
       "",
-      `${input.actorName} assigned you ${input.itemTitle}.`,
+      input.teamName?.trim()
+        ? `${input.actorName} assigned you "${input.itemTitle}" in ${input.teamName}.`
+        : `${input.actorName} assigned you "${input.itemTitle}".`,
       "",
       `Work item: ${input.itemTitle}`,
+      ...(teamLine ? [teamLine] : []),
       `Open work item: ${itemUrl}`,
     ].join("\n"),
     html: renderEmailLayout({
@@ -372,6 +380,9 @@ function renderAssignmentEmail(input: {
         '<td style="padding: 16px 18px;">',
         `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Work Item</div>`,
         `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; font-weight: 600; color: ${EMAIL_COLORS.text};">${escapeHtml(input.itemTitle)}</div>`,
+        input.teamName?.trim()
+          ? `<div style="margin-top: 8px; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.secondary};">Team: ${escapeHtml(input.teamName)}</div>`
+          : "",
         "</td>",
         "</tr>",
         "</table>",
@@ -537,6 +548,7 @@ export function buildAssignmentEmailJobs(input: {
       itemTitle: email.itemTitle,
       itemId: email.itemId,
       actorName: email.actorName,
+      teamName: email.teamName,
     })
 
     return {

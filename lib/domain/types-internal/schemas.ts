@@ -6,6 +6,7 @@ import {
   attachmentTargetTypes,
   commentTargetTypes,
   displayProperties,
+  entityKinds,
   groupFields,
   orderingFields,
   priorities,
@@ -24,6 +25,7 @@ import {
 import { getTeamFeatureValidationMessage } from "./work"
 
 export const labelCreateSchema = z.object({
+  workspaceId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1).max(32),
   color: z.string().trim().min(1).max(24).optional(),
 })
@@ -145,6 +147,8 @@ export const projectSchema = z.object({
   settingsTeamId: z.string().nullable().optional(),
   presentation: z
     .object({
+      itemLevel: z.enum(workItemTypes).nullable().optional(),
+      showChildItems: z.boolean().optional(),
       layout: z.enum(viewLayouts),
       grouping: z.enum(groupFields),
       ordering: z.enum(orderingFields),
@@ -168,6 +172,46 @@ export const projectSchema = z.object({
     .optional(),
 })
 
+const viewFiltersSchema = z.object({
+  status: z.array(z.enum(workStatuses)),
+  priority: z.array(z.enum(priorities)),
+  assigneeIds: z.array(z.string()),
+  creatorIds: z.array(z.string()),
+  leadIds: z.array(z.string()),
+  health: z.array(z.enum(projectHealths)),
+  milestoneIds: z.array(z.string()),
+  relationTypes: z.array(z.string()),
+  projectIds: z.array(z.string()),
+  itemTypes: z.array(z.enum(workItemTypes)),
+  labelIds: z.array(z.string()),
+  teamIds: z.array(z.string()),
+  showCompleted: z.boolean(),
+})
+
+export const viewSchema = z.object({
+  id: z.string().trim().min(1).optional(),
+  scopeType: z.enum(["team", "workspace"]),
+  scopeId: z.string().min(1),
+  entityKind: z.enum(entityKinds),
+  route: z.string().trim().min(1),
+  name: z.string().trim().min(2).max(64),
+  description: z.string().trim().max(160).default(""),
+  layout: z.enum(viewLayouts).optional(),
+  grouping: z.enum(groupFields).optional(),
+  subGrouping: z.enum(groupFields).nullable().optional(),
+  ordering: z.enum(orderingFields).optional(),
+  itemLevel: z.enum(workItemTypes).nullable().optional(),
+  showChildItems: z.boolean().optional(),
+  filters: viewFiltersSchema.optional(),
+  displayProps: z.array(z.enum(displayProperties)).optional(),
+  hiddenState: z
+    .object({
+      groups: z.array(z.string()),
+      subgroups: z.array(z.string()),
+    })
+    .optional(),
+})
+
 export const workItemSchema = z.object({
   teamId: z.string().min(1),
   type: z.enum(workItemTypes),
@@ -181,6 +225,7 @@ export const workItemSchema = z.object({
 })
 
 const createDocumentBaseSchema = {
+  id: z.string().trim().min(1).optional(),
   title: z.string().trim().min(2).max(80),
 }
 

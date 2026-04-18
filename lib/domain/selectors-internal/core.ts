@@ -39,6 +39,29 @@ export function getAccessibleTeams(data: AppData) {
   return data.teams.filter((team) => membershipTeamIds.has(team.id))
 }
 
+export function getEditableTeams(data: AppData) {
+  const editableTeamIds = new Set(
+    data.teamMemberships
+      .filter(
+        (membership) =>
+          membership.userId === data.currentUserId &&
+          canEditRole(membership.role)
+      )
+      .map((membership) => membership.teamId)
+  )
+
+  return data.teams.filter((team) => editableTeamIds.has(team.id))
+}
+
+export function getEditableTeamsForFeature(
+  data: AppData,
+  feature: keyof TeamFeatureSettings
+) {
+  return getEditableTeams(data).filter(
+    (team) => getTeamFeatureSettings(team)[feature]
+  )
+}
+
 export function getTeamBySlug(data: AppData, teamSlug: string) {
   return data.teams.find((team) => team.slug === teamSlug) ?? null
 }

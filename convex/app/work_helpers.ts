@@ -1,4 +1,8 @@
-import { buildTeamWorkViews } from "../../lib/domain/default-views"
+import {
+  buildTeamProjectViews,
+  buildTeamWorkViews,
+  buildWorkspaceProjectViews,
+} from "../../lib/domain/default-views"
 import {
   canParentWorkItemTypeAcceptChild,
   normalizeStoredWorkItemType,
@@ -139,6 +143,9 @@ export async function ensureTeamWorkViews(
     existing.name !== canonicalView.name ||
     existing.description !== canonicalView.description ||
     existing.layout !== canonicalView.layout ||
+    (existing.itemLevel ?? null) !== (canonicalView.itemLevel ?? null) ||
+    (existing.showChildItems ?? false) !==
+      (canonicalView.showChildItems ?? false) ||
     JSON.stringify(existing.filters) !==
       JSON.stringify(canonicalView.filters) ||
     existing.grouping !== canonicalView.grouping ||
@@ -172,6 +179,8 @@ export async function ensureTeamWorkViews(
           name: canonicalView.name,
           description: canonicalView.description,
           layout: canonicalView.layout,
+          itemLevel: canonicalView.itemLevel ?? null,
+          showChildItems: canonicalView.showChildItems ?? false,
           filters: canonicalView.filters,
           grouping: canonicalView.grouping,
           subGrouping: canonicalView.subGrouping,
@@ -185,6 +194,146 @@ export async function ensureTeamWorkViews(
         updatedViewCount += 1
       }
       existingByName.set(canonicalView.name, existing)
+      continue
+    }
+
+    await ctx.db.insert("views", canonicalView)
+    updatedViewCount += 1
+  }
+
+  return updatedViewCount
+}
+
+export async function ensureTeamProjectViews(
+  ctx: MutationCtx,
+  team: Awaited<ReturnType<typeof getTeamDoc>>
+) {
+  if (!team) {
+    return 0
+  }
+
+  const normalizedTeam = normalizeTeam(team)
+
+  if (
+    !normalizedTeam.settings.features.projects ||
+    !normalizedTeam.settings.features.views
+  ) {
+    return 0
+  }
+
+  const existingViews = (
+    await listViewsByScopeEntity(ctx, "team", team.id, "projects")
+  ).filter((view) => view.route === `/team/${team.slug}/projects`)
+  const existingByName = new Map(existingViews.map((view) => [view.name, view]))
+  let updatedViewCount = 0
+  const now = getNow()
+  const canonicalViews = buildTeamProjectViews({
+    teamId: team.id,
+    teamSlug: team.slug,
+    createdAt: now,
+    updatedAt: now,
+  })
+
+  for (const canonicalView of canonicalViews) {
+    const existing = existingByName.get(canonicalView.name) ?? null
+
+    if (existing) {
+      const needsPatch =
+        existing.description !== canonicalView.description ||
+        existing.layout !== canonicalView.layout ||
+        JSON.stringify(existing.filters) !==
+          JSON.stringify(canonicalView.filters) ||
+        existing.grouping !== canonicalView.grouping ||
+        existing.subGrouping !== canonicalView.subGrouping ||
+        existing.ordering !== canonicalView.ordering ||
+        JSON.stringify(existing.displayProps) !==
+          JSON.stringify(canonicalView.displayProps) ||
+        JSON.stringify(existing.hiddenState) !==
+          JSON.stringify(canonicalView.hiddenState) ||
+        existing.isShared !== canonicalView.isShared ||
+        existing.route !== canonicalView.route
+
+      if (needsPatch) {
+        await ctx.db.patch(existing._id, {
+          name: canonicalView.name,
+          description: canonicalView.description,
+          layout: canonicalView.layout,
+          filters: canonicalView.filters,
+          grouping: canonicalView.grouping,
+          subGrouping: canonicalView.subGrouping,
+          ordering: canonicalView.ordering,
+          displayProps: canonicalView.displayProps,
+          hiddenState: canonicalView.hiddenState,
+          isShared: canonicalView.isShared,
+          route: canonicalView.route,
+          updatedAt: now,
+        })
+        updatedViewCount += 1
+      }
+
+      continue
+    }
+
+    await ctx.db.insert("views", canonicalView)
+    updatedViewCount += 1
+  }
+
+  return updatedViewCount
+}
+
+export async function ensureWorkspaceProjectViews(
+  ctx: MutationCtx,
+  workspaceId: string
+) {
+  const existingViews = (
+    await listViewsByScopeEntity(ctx, "workspace", workspaceId, "projects")
+  ).filter((view) => view.route === "/workspace/projects")
+  const existingByName = new Map(existingViews.map((view) => [view.name, view]))
+  let updatedViewCount = 0
+  const now = getNow()
+  const canonicalViews = buildWorkspaceProjectViews({
+    workspaceId,
+    createdAt: now,
+    updatedAt: now,
+  })
+
+  for (const canonicalView of canonicalViews) {
+    const existing = existingByName.get(canonicalView.name) ?? null
+
+    if (existing) {
+      const needsPatch =
+        existing.description !== canonicalView.description ||
+        existing.layout !== canonicalView.layout ||
+        JSON.stringify(existing.filters) !==
+          JSON.stringify(canonicalView.filters) ||
+        existing.grouping !== canonicalView.grouping ||
+        existing.subGrouping !== canonicalView.subGrouping ||
+        existing.ordering !== canonicalView.ordering ||
+        JSON.stringify(existing.displayProps) !==
+          JSON.stringify(canonicalView.displayProps) ||
+        JSON.stringify(existing.hiddenState) !==
+          JSON.stringify(canonicalView.hiddenState) ||
+        existing.isShared !== canonicalView.isShared ||
+        existing.route !== canonicalView.route
+
+      if (needsPatch) {
+        await ctx.db.patch(existing._id, {
+          name: canonicalView.name,
+          description: canonicalView.description,
+          layout: canonicalView.layout,
+          filters: canonicalView.filters,
+          grouping: canonicalView.grouping,
+          subGrouping: canonicalView.subGrouping,
+          ordering: canonicalView.ordering,
+          displayProps: canonicalView.displayProps,
+          hiddenState: canonicalView.hiddenState,
+          isShared: canonicalView.isShared,
+          route: canonicalView.route,
+          updatedAt: now,
+        })
+        updatedViewCount += 1
+      }
+
       continue
     }
 

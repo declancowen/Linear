@@ -142,7 +142,13 @@ export const orderingFields = [
 ] as const
 export type OrderingField = (typeof orderingFields)[number]
 
-export const userStatuses = ["active", "away", "busy", "out-of-office"] as const
+export const userStatuses = [
+  "offline",
+  "active",
+  "away",
+  "busy",
+  "out-of-office",
+] as const
 export type UserStatus = (typeof userStatuses)[number]
 export const userStatusMessageMaxLength = 80
 export const userStatusMeta: Record<
@@ -153,6 +159,11 @@ export const userStatusMeta: Record<
     colorClassName: string
   }
 > = {
+  offline: {
+    label: "Offline",
+    description: "Not currently active in the workspace.",
+    colorClassName: "bg-zinc-400",
+  },
   active: {
     label: "Online",
     description: "Available and following along.",
@@ -180,7 +191,7 @@ export function resolveUserStatus(
 ): UserStatus {
   return userStatuses.includes(status as UserStatus)
     ? (status as UserStatus)
-    : "active"
+    : "offline"
 }
 
 export const themePreferences = ["light", "dark", "system"] as const
@@ -256,6 +267,8 @@ export type ViewFilters = {
 }
 
 export interface ProjectPresentationConfig {
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
   layout: ViewLayout
   grouping: GroupField
   ordering: OrderingField
@@ -296,6 +309,7 @@ export function createDefaultProjectPresentationConfig(
         : "board")
 
   return {
+    showChildItems: false,
     layout,
     grouping: "status",
     ordering: layout === "timeline" ? "targetDate" : "priority",

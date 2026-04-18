@@ -42,9 +42,15 @@ export type PersistedViewFilterKey =
   | "status"
   | "priority"
   | "assigneeIds"
+  | "creatorIds"
+  | "leadIds"
+  | "health"
+  | "milestoneIds"
+  | "relationTypes"
   | "projectIds"
   | "itemTypes"
   | "labelIds"
+  | "teamIds"
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
   return createDefaultViewFilters()
@@ -57,9 +63,15 @@ export function isPersistedViewFilterKey(
     "status",
     "priority",
     "assigneeIds",
+    "creatorIds",
+    "leadIds",
+    "health",
+    "milestoneIds",
+    "relationTypes",
     "projectIds",
     "itemTypes",
     "labelIds",
+    "teamIds",
   ].includes(key)
 }
 
@@ -81,6 +93,52 @@ export function cloneViewFilters(
     teamIds: [...filters.teamIds],
     showCompleted: filters.showCompleted,
   }
+}
+
+export function cloneViewCreateConfig(
+  view: Pick<
+    ViewDefinition,
+    | "layout"
+    | "filters"
+    | "grouping"
+    | "subGrouping"
+    | "ordering"
+    | "itemLevel"
+    | "showChildItems"
+    | "displayProps"
+    | "hiddenState"
+  >
+) {
+  return {
+    layout: view.layout,
+    filters: cloneViewFilters(view.filters),
+    grouping: view.grouping,
+    subGrouping: view.subGrouping,
+    ordering: view.ordering,
+    itemLevel: view.itemLevel ?? null,
+    showChildItems: Boolean(view.showChildItems),
+    displayProps: [...view.displayProps],
+    hiddenState: {
+      groups: [...view.hiddenState.groups],
+      subgroups: [...view.hiddenState.subgroups],
+    },
+  }
+}
+
+export function getContainerItemsForDisplay(
+  items: WorkItem[],
+  visibleItems: WorkItem[],
+  showChildItems: boolean
+) {
+  if (!showChildItems) {
+    return items
+  }
+
+  const visibleItemIds = new Set(visibleItems.map((item) => item.id))
+
+  return items.filter(
+    (item) => !item.parentId || !visibleItemIds.has(item.parentId)
+  )
 }
 
 export function countActiveViewFilters(filters: ViewDefinition["filters"]) {
@@ -255,6 +313,10 @@ export function getDocumentPresenceSessionId(currentUserId?: string | null) {
 
     return documentPresenceSessionFallbackState.sessionId
   }
+}
+
+export function getWorkItemPresenceSessionId(currentUserId?: string | null) {
+  return getDocumentPresenceSessionId(currentUserId)
 }
 
 export function getEligibleParentWorkItems(data: AppData, item: WorkItem) {

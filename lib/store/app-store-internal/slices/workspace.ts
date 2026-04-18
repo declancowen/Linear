@@ -676,7 +676,7 @@ export function createWorkspaceSlice(
             ? {
                 ...user,
                 hasExplicitStatus: false,
-                status: "active" as const,
+                status: "offline" as const,
                 statusMessage: "",
               }
             : user

@@ -1,8 +1,11 @@
 import { api } from "@/convex/_generated/api"
 import type {
+  DocumentPresenceViewer,
+  DisplayProperty,
   GroupField,
   OrderingField,
   Priority,
+  ProjectHealth,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -79,6 +82,16 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     code: "WORK_ITEM_PARENT_CYCLE",
   },
   {
+    match: "Work item title must be between 2 and 96 characters",
+    status: 400,
+    code: "WORK_ITEM_TITLE_INVALID",
+  },
+  {
+    match: "Work item changed while you were editing",
+    status: 409,
+    code: "WORK_ITEM_EDIT_CONFLICT",
+  },
+  {
     match: (message: string) =>
       message === "Your current role is read-only" ||
       message === "You do not have access to this team" ||
@@ -102,6 +115,33 @@ const SHIFT_TIMELINE_ITEM_ERROR_MAPPINGS = [
   },
 ] as const
 
+const WORK_ITEM_PRESENCE_ERROR_MAPPINGS = [
+  {
+    match: "Work item not found",
+    status: 404,
+    code: "WORK_ITEM_NOT_FOUND",
+  },
+  {
+    match: /Could not find public function for 'app:(heartbeatWorkItemPresence|clearWorkItemPresence)'/i,
+    status: 503,
+    code: "WORK_ITEM_PRESENCE_UNAVAILABLE",
+    message: "Work item presence is unavailable",
+  },
+  {
+    match: "Document presence session is already in use",
+    status: 409,
+    code: "WORK_ITEM_PRESENCE_SESSION_CONFLICT",
+  },
+  {
+    match: (message: string) =>
+      message === "Your current role is read-only" ||
+      message === "You do not have access to this team" ||
+      message === "You do not have access to this workspace",
+    status: 403,
+    code: "WORK_ITEM_ACCESS_DENIED",
+  },
+] as const
+
 const VIEW_MUTATION_ERROR_MAPPINGS = [
   {
     match: "View not found",
@@ -122,6 +162,16 @@ const VIEW_MUTATION_ERROR_MAPPINGS = [
     match: "One or more labels are invalid",
     status: 400,
     code: "VIEW_LABELS_INVALID",
+  },
+  {
+    match: (message: string) =>
+      message === "Views are disabled for this team" ||
+      message === "Work views are disabled for this team" ||
+      message === "Project views are disabled for this team" ||
+      message === "Document views are disabled for this team" ||
+      message === "View route is not valid for the selected scope",
+    status: 400,
+    code: "VIEW_CONFIGURATION_INVALID",
   },
   {
     match: (message: string) =>
@@ -163,6 +213,9 @@ export async function updateWorkItemServer(input: {
   currentUserId: string
   itemId: string
   patch: {
+    title?: string
+    description?: string
+    expectedUpdatedAt?: string
     status?:
       | "backlog"
       | "todo"
@@ -238,11 +291,59 @@ export async function updateViewConfigServer(input: {
   grouping?: GroupField
   subGrouping?: GroupField | null
   ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
   showCompleted?: boolean
 }) {
   try {
     return await getConvexServerClient().mutation(
       api.app.updateViewConfig,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function createViewServer(input: {
+  currentUserId: string
+  id?: string
+  scopeType: "team" | "workspace"
+  scopeId: string
+  entityKind: "items" | "projects" | "docs"
+  route: string
+  name: string
+  description: string
+  layout?: "list" | "board" | "timeline"
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
+  filters?: {
+    status: WorkStatus[]
+    priority: Priority[]
+    assigneeIds: string[]
+    creatorIds: string[]
+    leadIds: string[]
+    health: ProjectHealth[]
+    milestoneIds: string[]
+    relationTypes: string[]
+    projectIds: string[]
+    itemTypes: WorkItemType[]
+    labelIds: string[]
+    teamIds: string[]
+    showCompleted: boolean
+  }
+  displayProps?: DisplayProperty[]
+  hiddenState?: {
+    groups: string[]
+    subgroups: string[]
+  }
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.createView,
       withServerToken(input)
     )
   } catch (error) {
@@ -299,9 +400,15 @@ export async function toggleViewFilterValueServer(input: {
     | "status"
     | "priority"
     | "assigneeIds"
+    | "creatorIds"
+    | "leadIds"
+    | "health"
+    | "milestoneIds"
+    | "relationTypes"
     | "projectIds"
     | "itemTypes"
     | "labelIds"
+    | "teamIds"
   value: string
 }) {
   try {
@@ -341,6 +448,48 @@ export async function shiftTimelineItemServer(input: {
   } catch (error) {
     throw (
       coerceApplicationError(error, [...SHIFT_TIMELINE_ITEM_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function heartbeatWorkItemPresenceServer(input: {
+  currentUserId: string
+  itemId: string
+  workosUserId: string
+  email: string
+  name: string
+  avatarUrl: string
+  avatarImageUrl?: string | null
+  sessionId: string
+}): Promise<DocumentPresenceViewer[]> {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.heartbeatWorkItemPresence,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_PRESENCE_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function clearWorkItemPresenceServer(input: {
+  currentUserId: string
+  itemId: string
+  workosUserId: string
+  sessionId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.clearWorkItemPresence,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_PRESENCE_ERROR_MAPPINGS]) ??
       error
     )
   }

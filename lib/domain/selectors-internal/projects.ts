@@ -14,10 +14,15 @@ import {
 
 import {
   getProject,
+  getProjectHref,
   getProjectTeam,
   getUser,
 } from "@/lib/domain/selectors-internal/core"
-import { sortItems } from "@/lib/domain/selectors-internal/work-items"
+import {
+  comparePriority,
+  sortItems,
+} from "@/lib/domain/selectors-internal/work-items"
+import type { OrderingField, ViewDefinition } from "@/lib/domain/types"
 
 export function getProjectProgress(data: AppData, projectId: string) {
   const items = data.workItems.filter(
@@ -32,6 +37,102 @@ export function getProjectProgress(data: AppData, projectId: string) {
     percent:
       items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
   }
+}
+
+function projectMatchesView(
+  project: Project,
+  view: Pick<ViewDefinition, "filters">
+) {
+  if (
+    view.filters.priority.length > 0 &&
+    !view.filters.priority.includes(project.priority)
+  ) {
+    return false
+  }
+
+  if (
+    view.filters.leadIds.length > 0 &&
+    !view.filters.leadIds.includes(project.leadId)
+  ) {
+    return false
+  }
+
+  if (
+    view.filters.health.length > 0 &&
+    !view.filters.health.includes(project.health)
+  ) {
+    return false
+  }
+
+  if (
+    view.filters.projectIds.length > 0 &&
+    !view.filters.projectIds.includes(project.id)
+  ) {
+    return false
+  }
+
+  if (view.filters.teamIds.length > 0) {
+    const projectTeamId = project.scopeType === "team" ? project.scopeId : ""
+
+    if (!view.filters.teamIds.includes(projectTeamId)) {
+      return false
+    }
+  }
+
+  if (!view.filters.showCompleted && project.status === "completed") {
+    return false
+  }
+
+  return true
+}
+
+export function sortProjects(projects: Project[], ordering: OrderingField) {
+  return [...projects].sort((left, right) => {
+    if (ordering === "priority") {
+      return comparePriority(left.priority, right.priority)
+    }
+
+    if (ordering === "title") {
+      return left.name.localeCompare(right.name)
+    }
+
+    const leftValue =
+      ordering === "dueDate" ? left.targetDate : left[ordering]
+    const rightValue =
+      ordering === "dueDate" ? right.targetDate : right[ordering]
+
+    if (!leftValue && !rightValue) {
+      return left.name.localeCompare(right.name)
+    }
+
+    if (!leftValue) {
+      return 1
+    }
+
+    if (!rightValue) {
+      return -1
+    }
+
+    const comparison =
+      typeof leftValue === "string" && typeof rightValue === "string"
+        ? rightValue.localeCompare(leftValue)
+        : 0
+
+    return comparison !== 0
+      ? comparison
+      : left.name.localeCompare(right.name)
+  })
+}
+
+export function getVisibleProjectsForView(
+  _data: AppData,
+  projects: Project[],
+  view: ViewDefinition
+) {
+  return sortProjects(
+    projects.filter((project) => projectMatchesView(project, view)),
+    view.ordering
+  )
 }
 
 export function getProjectDetailModel(data: AppData, projectId: string) {
@@ -83,6 +184,7 @@ export function getProjectDetailModel(data: AppData, projectId: string) {
     members,
     contextLabel: team ? `${team.name} projects` : "Workspace projects",
     backHref: team ? `/team/${team.slug}/projects` : "/workspace/projects",
+    detailHref: getProjectHref(data, project) ?? `/projects/${project.id}`,
     teamTypeLabel: team
       ? teamIconMeta[
           normalizeTeamIconToken(team.icon, team.settings.experience)

@@ -40,13 +40,14 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    await createDocumentServer({
+    const result = await createDocumentServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
 
     return jsonOk({
       ok: true,
+      documentId: result?.documentId ?? null,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {
