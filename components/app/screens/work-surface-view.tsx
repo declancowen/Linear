@@ -253,6 +253,7 @@ export function BoardView({
                                     <WorkItemChildDisclosure
                                       data={data}
                                       item={item}
+                                      view={view}
                                       ordering={view.ordering}
                                       expanded={expandedItemIds.has(item.id)}
                                       onToggle={() => toggleExpandedItem(item.id)}
@@ -454,6 +455,7 @@ export function ListView({
                                 <WorkItemChildDisclosure
                                   data={data}
                                   item={item}
+                                  view={view}
                                   ordering={view.ordering}
                                   expanded={expandedItemIds.has(item.id)}
                                   onToggle={() => toggleExpandedItem(item.id)}
@@ -950,6 +952,7 @@ function BoardCardBody({
 function WorkItemChildDisclosure({
   data,
   item,
+  view,
   ordering,
   expanded,
   onToggle,
@@ -957,6 +960,7 @@ function WorkItemChildDisclosure({
 }: {
   data: AppData
   item: WorkItem
+  view: ViewDefinition
   ordering: ViewDefinition["ordering"]
   expanded: boolean
   onToggle: () => void
@@ -964,7 +968,12 @@ function WorkItemChildDisclosure({
 }) {
   const team = getTeam(data, item.teamId)
   const childCopy = getChildWorkItemCopy(item.type, team?.settings.experience)
-  const childItems = getDirectChildWorkItemsForDisplay(data, item, ordering)
+  const childItems = getDirectChildWorkItemsForDisplay(
+    data,
+    item,
+    ordering,
+    view
+  )
 
   if (!childCopy.childType || childItems.length === 0) {
     return null

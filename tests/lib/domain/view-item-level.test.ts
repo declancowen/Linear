@@ -162,6 +162,47 @@ describe("view item levels", () => {
     ).toEqual(["requirement-high", "requirement-low"])
   })
 
+  it("applies active view filters to direct child disclosure rows without reapplying the parent level filter", () => {
+    const state = createEmptyState()
+    const parent = createItem("task-parent", { type: "task" })
+    const view = createView({
+      itemLevel: "task",
+      filters: {
+        ...createView().filters,
+        showCompleted: false,
+        assigneeIds: ["user_1"],
+      },
+    })
+
+    state.workItems = [
+      parent,
+      createItem("subtask-visible", {
+        type: "sub-task",
+        parentId: parent.id,
+        assigneeId: "user_1",
+        status: "todo",
+      }),
+      createItem("subtask-hidden-complete", {
+        type: "sub-task",
+        parentId: parent.id,
+        assigneeId: "user_1",
+        status: "done",
+      }),
+      createItem("subtask-hidden-assignee", {
+        type: "sub-task",
+        parentId: parent.id,
+        assigneeId: "user_2",
+        status: "todo",
+      }),
+    ]
+
+    expect(
+      getDirectChildWorkItemsForDisplay(state, parent, "priority", view).map(
+        (item) => item.id
+      )
+    ).toEqual(["subtask-visible"])
+  })
+
   it("includes workspace-scoped views when listing workspace views", () => {
     const state = createEmptyState()
     state.currentWorkspaceId = "workspace_1"

@@ -64,7 +64,8 @@ export function getDirectChildWorkItems(data: AppData, itemId: string) {
 export function getDirectChildWorkItemsForDisplay(
   data: AppData,
   item: WorkItem,
-  ordering: OrderingField
+  ordering: OrderingField,
+  view?: ViewDefinition
 ) {
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(item)
 
@@ -75,7 +76,9 @@ export function getDirectChildWorkItemsForDisplay(
   return sortItems(
     data.workItems.filter(
       (candidate) =>
-        candidate.parentId === item.id && allowedChildTypes.includes(candidate.type)
+        candidate.parentId === item.id &&
+        allowedChildTypes.includes(candidate.type) &&
+        (!view || itemMatchesView(data, candidate, view, { ignoreItemLevel: true }))
     ),
     ordering
   )
@@ -105,9 +108,12 @@ export function getWorkItemChildProgress(data: AppData, itemId: string) {
 export function itemMatchesView(
   data: AppData,
   item: WorkItem,
-  view: ViewDefinition
+  view: ViewDefinition,
+  options?: {
+    ignoreItemLevel?: boolean
+  }
 ) {
-  if (view.itemLevel && item.type !== view.itemLevel) {
+  if (!options?.ignoreItemLevel && view.itemLevel && item.type !== view.itemLevel) {
     return false
   }
 

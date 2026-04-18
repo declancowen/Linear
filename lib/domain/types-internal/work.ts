@@ -106,6 +106,16 @@ export function getDefaultViewItemLevelForTeamExperience(
   return getDefaultRootWorkItemTypesForTeamExperience(experience)[0] ?? null
 }
 
+export function getDefaultViewItemLevelForProjectTemplate(
+  templateType: TemplateType | null | undefined
+): WorkItemType | null {
+  if (!templateType) {
+    return null
+  }
+
+  return getAllowedRootWorkItemTypesForTemplate(templateType)[0] ?? null
+}
+
 export function getPreferredWorkItemTypeForTeamExperience(
   experience: TeamExperienceType | null | undefined,
   options?: { parent?: boolean }

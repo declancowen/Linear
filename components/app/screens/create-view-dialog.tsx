@@ -1,11 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useShallow } from "zustand/react/shallow"
 
 import {
-  canEditTeam,
   canEditWorkspace,
-  getTeam,
+  getEditableTeamsForFeature,
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import {
@@ -50,14 +50,17 @@ export function CreateViewDialog({
   onOpenChange: (open: boolean) => void
   dialog: CreateViewDialogState
 }) {
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const workspace = useAppStore((state) =>
-    state.workspaces.find((entry) => entry.id === state.currentWorkspaceId) ?? null
+    state.workspaces.find((entry) => entry.id === currentWorkspaceId) ?? null
   )
-  const teams = useAppStore((state) => state.teams)
+  const canEditCurrentWorkspace = useAppStore((state) =>
+    currentWorkspaceId ? canEditWorkspace(state, currentWorkspaceId) : false
+  )
+  const editableTeams = useAppStore(
+    useShallow((state) => getEditableTeamsForFeature(state, "views"))
+  )
   const scopeOptions = useMemo(() => {
-    const editableTeams = teams.filter(
-      (team) => canEditTeam(useAppStore.getState(), team.id) && teamHasFeature(team, "views")
-    )
     const nextOptions: Array<{
       key: string
       scopeType: "team" | "workspace"
@@ -65,7 +68,7 @@ export function CreateViewDialog({
       label: string
     }> = []
 
-    if (workspace && canEditWorkspace(useAppStore.getState(), workspace.id)) {
+    if (workspace && canEditCurrentWorkspace) {
       nextOptions.push({
         key: getScopeKey("workspace", workspace.id),
         scopeType: "workspace",
@@ -96,7 +99,8 @@ export function CreateViewDialog({
     dialog.defaultScopeId,
     dialog.defaultScopeType,
     dialog.lockScope,
-    teams,
+    editableTeams,
+    canEditCurrentWorkspace,
     workspace,
   ])
   const defaultScopeKey =
@@ -128,8 +132,13 @@ export function CreateViewDialog({
   }, [dialog.defaultEntityKind, initialScopeKey, open])
 
   const selectedScope = scopeOptions.find((option) => option.key === selectedScopeKey) ?? null
-  const selectedTeam =
-    selectedScope?.scopeType === "team" ? getTeam(useAppStore.getState(), selectedScope.scopeId) : null
+  const selectedTeam = useMemo(
+    () =>
+      selectedScope?.scopeType === "team"
+        ? (editableTeams.find((team) => team.id === selectedScope.scopeId) ?? null)
+        : null,
+    [editableTeams, selectedScope]
+  )
   const entityOptions = useMemo(() => {
     if (!selectedScope) {
       return []

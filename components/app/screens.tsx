@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import {
   useEffect,
+  useMemo,
   useState,
 } from "react"
 import { useShallow } from "zustand/react/shallow"
@@ -248,23 +249,27 @@ export function ProjectsScreen({
   )
   const canCreateProject = Boolean(team && editable)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const fallbackProjectViewTimestamp = new Date().toISOString()
-  const fallbackProjectView =
-    createViewDefinition({
-      id: `fallback-project-view-${scopeType}-${scopeId}`,
-      name: "All projects",
-      description: "All projects in this scope.",
-      scopeType: team ? "team" : "workspace",
-      scopeId,
-      entityKind: "projects",
-      route: routeKey,
-      teamSlug: team?.slug,
-      createdAt: fallbackProjectViewTimestamp,
-      updatedAt: fallbackProjectViewTimestamp,
-      overrides: {
-        layout,
-      },
-    }) ?? null
+  const fallbackProjectView = useMemo(() => {
+    const timestamp = new Date().toISOString()
+
+    return (
+      createViewDefinition({
+        id: `fallback-project-view-${scopeType}-${scopeId}`,
+        name: "All projects",
+        description: "All projects in this scope.",
+        scopeType: team ? "team" : "workspace",
+        scopeId,
+        entityKind: "projects",
+        route: routeKey,
+        teamSlug: team?.slug,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        overrides: {
+          layout,
+        },
+      }) ?? null
+    )
+  }, [layout, routeKey, scopeId, scopeType, team])
   const effectiveProjectView = activeView ?? fallbackProjectView
   const displayedProjectViews =
     projectViews.length > 0

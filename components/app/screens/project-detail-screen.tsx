@@ -16,6 +16,7 @@ import {
 } from "@/lib/domain/selectors"
 import {
   createDefaultProjectPresentationConfig,
+  getDefaultViewItemLevelForProjectTemplate,
   getDefaultViewItemLevelForTeamExperience,
   type DisplayProperty,
   type GroupField,
@@ -203,7 +204,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   }`
   const effectiveProjectItemsLevel =
     projectItemsLevel === undefined
-      ? getDefaultViewItemLevelForTeamExperience(team?.settings.experience)
+      ? (team
+          ? getDefaultViewItemLevelForTeamExperience(team.settings.experience)
+          : getDefaultViewItemLevelForProjectTemplate(project.templateType))
       : projectItemsLevel
 
   const projectItemsView: ViewDefinition = {

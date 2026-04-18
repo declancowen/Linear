@@ -107,6 +107,7 @@ export function createViewSlice(
       }
 
       const viewId = parsed.data.id ?? createId("view")
+      const previousSelectedViewId = state.ui.selectedViewByRoute[parsed.data.route] ?? null
       const view = createViewDefinition({
         id: viewId,
         name: parsed.data.name,
@@ -151,11 +152,37 @@ export function createViewSlice(
         syncCreateView(get().currentUserId, {
           ...parsed.data,
           id: viewId,
-        }).then(async (result) => {
-          if (result?.viewId && result.viewId !== viewId) {
-            await runtime.refreshFromServer()
-          }
-        }),
+        })
+          .then(async (result) => {
+            if (result?.viewId && result.viewId !== viewId) {
+              await runtime.refreshFromServer()
+            }
+          })
+          .catch((error) => {
+            set((current) => {
+              const nextSelectedViewByRoute = {
+                ...current.ui.selectedViewByRoute,
+              }
+
+              if (nextSelectedViewByRoute[view.route] === viewId) {
+                if (previousSelectedViewId) {
+                  nextSelectedViewByRoute[view.route] = previousSelectedViewId
+                } else {
+                  delete nextSelectedViewByRoute[view.route]
+                }
+              }
+
+              return {
+                views: current.views.filter((entry) => entry.id !== viewId),
+                ui: {
+                  ...current.ui,
+                  selectedViewByRoute: nextSelectedViewByRoute,
+                },
+              }
+            })
+
+            throw error
+          }),
         "Failed to create view"
       )
 

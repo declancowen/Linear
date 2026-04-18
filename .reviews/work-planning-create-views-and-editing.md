@@ -22,11 +22,15 @@ Files and areas reviewed across all turns:
 - `components/app/global-search-dialog.tsx` — command-palette create action rendering
 - `lib/domain/search-create-actions.ts` — team/workspace-scoped create-action policy
 - `components/app/screens.tsx` — workspace/team projects surface permissions and fallback views
+- `components/app/screens/create-view-dialog.tsx` — view-create scope selection and permission gating
 - `components/app/screens/create-work-item-dialog.tsx` — work-item create flow, selected-team label creation
 - `components/app/screens/helpers.ts` — persisted view-filter cloning/guard helpers
 - `components/app/screens/project-detail-screen.tsx` — project detail item views, saved view routing, create-view launch path
+- `components/app/screens/work-surface-view.tsx` — board/list parent containers and child disclosure rendering
 - `lib/domain/selectors-internal/projects.ts` — project detail route model
+- `lib/domain/selectors-internal/work-items.ts` — visible-item and child-disclosure filtering
 - `lib/domain/default-views.ts` — view-route constraints and fallback view semantics
+- `lib/domain/types-internal/work.ts` — view-level defaults for team and project contexts
 - `components/app/screens/work-item-detail-screen.tsx` — main-section edit/save flow, mention-delivery follow-up, live concurrent editing UI
 - `components/app/screens/shared.tsx` — full-row sidebar property controls, workspace-aware work-item label creation
 - `components/app/screens/work-surface-controls.tsx` — highest-parent configuration options
@@ -60,10 +64,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 18:21:27 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-04-18 18:40:38 BST` |
+| **Total turns** | `8` |
 | **Open findings** | `0` |
-| **Resolved findings** | `12` |
+| **Resolved findings** | `16` |
 | **Accepted findings** | `0` |
 
 ---
@@ -395,4 +399,96 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint components/app/screens/create-work-item-dialog.tsx components/app/screens/helpers.ts components/app/screens.tsx lib/store/app-store-internal/slices/views.ts tests/components/create-dialogs.test.tsx tests/components/screen-helpers.test.ts tests/lib/store/view-slice.test.ts`
   - `pnpm exec vitest run tests/components/create-dialogs.test.tsx tests/components/screen-helpers.test.ts tests/lib/store/view-slice.test.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/project-views.test.ts tests/lib/store/work-item-actions.test.ts tests/components/work-item-detail-screen.test.tsx`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 8 — 2026-04-18 18:40:38 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `6a69029` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-reviewed the next PR-analysis batch and fixed the live defects in the view stack. The optimistic view-create path still had no rollback on server failure, so a rejected create could leave a ghost view selected locally. Project detail was still deriving the fallback item level from team experience even for workspace-scoped projects, which silently defaulted workspace project views to software-delivery. Child disclosure rows were still bypassing the active view filters, so hidden children could leak under visible parents. I fixed all three, and I also hardened the create-view dialog so its scope options react to current membership state instead of memoizing against `useAppStore.getState()`, plus memoized the fallback project view object to avoid a new object on every render.
+
+| Status | Count |
+|--------|-------|
+| New findings | 4 |
+| Resolved during Turn 8 | 4 |
+| Carried from Turn 7 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 8
+
+#### F8-01 ~~[BUG] High~~ → RESOLVED — Optimistic views were never rolled back when server-side creation failed
+**Where:** [lib/store/app-store-internal/slices/views.ts](../lib/store/app-store-internal/slices/views.ts:88), [tests/lib/store/view-slice.test.ts](../tests/lib/store/view-slice.test.ts:118)
+
+**What was wrong:** `createView()` optimistically appended the new view and selected it for the route, but the background sync path only showed a toast on failure. If the create mutation was rejected on the server, the local view stayed in `state.views` and remained selected until a later full refresh.
+
+**How it was fixed:** [createView](../lib/store/app-store-internal/slices/views.ts:88) now snapshots the previously selected route view, and the background create promise explicitly rolls back both the optimistic view record and the route selection before rethrowing into the standard sync-failure handler. The store now behaves like the document create flow: optimistic first, but reverted locally if persistence fails.
+
+**Verified:** Added rollback coverage in [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:118), then ran:
+- `pnpm exec vitest run tests/lib/store/view-slice.test.ts`
+- `pnpm exec eslint lib/store/app-store-internal/slices/views.ts tests/lib/store/view-slice.test.ts`
+
+#### F8-02 ~~[BUG] High~~ → RESOLVED — Workspace-scoped project detail views still defaulted to software-delivery item levels
+**Where:** [components/app/screens/project-detail-screen.tsx](../components/app/screens/project-detail-screen.tsx:205), [lib/domain/types-internal/work.ts](../lib/domain/types-internal/work.ts:107), [tests/lib/domain/project-views.test.ts](../tests/lib/domain/project-views.test.ts:203)
+
+**What was wrong:** When a project presentation omitted `itemLevel`, project detail always derived the default from `team?.settings.experience`. For workspace-scoped projects, `team` is `null`, so the helper fell back to `software-development` and defaulted the fallback view to `epic`, even for task-based or issue-based project templates.
+
+**How it was fixed:** I moved the fallback rule into the domain layer by adding [getDefaultViewItemLevelForProjectTemplate](../lib/domain/types-internal/work.ts:107). [ProjectDetailScreen](../components/app/screens/project-detail-screen.tsx:205) now prefers team experience when a team exists, but falls back to the project’s own `templateType` when it does not. That keeps workspace project detail views aligned with the actual project model instead of a team-only assumption.
+
+**Verified:** Added workspace-project coverage in [project-views.test.ts](../tests/lib/domain/project-views.test.ts:203), then ran:
+- `pnpm exec vitest run tests/lib/domain/project-views.test.ts`
+- `pnpm exec eslint components/app/screens/project-detail-screen.tsx lib/domain/types-internal/work.ts tests/lib/domain/project-views.test.ts`
+
+#### F8-03 ~~[BUG] High~~ → RESOLVED — Child disclosure rows ignored active view filters
+**Where:** [lib/domain/selectors-internal/work-items.ts](../lib/domain/selectors-internal/work-items.ts:64), [components/app/screens/work-surface-view.tsx](../components/app/screens/work-surface-view.tsx:253), [tests/lib/domain/view-item-level.test.ts](../tests/lib/domain/view-item-level.test.ts:175)
+
+**What was wrong:** The child-disclosure selector only filtered by `parentId` and allowed child type. That meant children excluded by `showCompleted`, assignee filters, labels, or other view predicates could still appear under a visible parent, which diverged from the active view semantics.
+
+**How it was fixed:** [itemMatchesView](../lib/domain/selectors-internal/work-items.ts:92) now supports an `ignoreItemLevel` mode, and [getDirectChildWorkItemsForDisplay](../lib/domain/selectors-internal/work-items.ts:64) uses it when a view is supplied. [WorkItemChildDisclosure](../components/app/screens/work-surface-view.tsx:954) now passes the active view down to the selector, so child rows respect the same filters as the parent container while still bypassing the parent-level `itemLevel` restriction that would otherwise suppress all children.
+
+**Verified:** Added disclosure-filter coverage in [view-item-level.test.ts](../tests/lib/domain/view-item-level.test.ts:175), then ran:
+- `pnpm exec vitest run tests/lib/domain/view-item-level.test.ts`
+- `pnpm exec eslint lib/domain/selectors-internal/work-items.ts components/app/screens/work-surface-view.tsx tests/lib/domain/view-item-level.test.ts`
+
+#### F8-04 ~~[BUG] Medium~~ → RESOLVED — Create-view scope options could go stale because they were memoized against `useAppStore.getState()`
+**Where:** [components/app/screens/create-view-dialog.tsx](../components/app/screens/create-view-dialog.tsx:41)
+
+**What was wrong:** `CreateViewDialog` built `scopeOptions` from `teams` and `workspace`, but permission checks were reading from `useAppStore.getState()` inside `useMemo()`. That meant membership or role changes could leave the dialog using stale scope/editability decisions until some unrelated dependency changed.
+
+**How it was fixed:** [CreateViewDialog](../components/app/screens/create-view-dialog.tsx:41) now derives editable teams through the reactive `getEditableTeamsForFeature()` selector and reads workspace editability from a dedicated store selector. The dialog no longer closes over a static store snapshot for permission decisions.
+
+**Verified:** Covered indirectly in the focused lint/test pass below:
+- `pnpm exec eslint components/app/screens/create-view-dialog.tsx`
+
+### Remaining notes classified
+
+- The dialog/sheet blur change is a deliberate cross-cutting fix for the aria-hidden focus warnings that were surfacing when modals opened over focused inputs. This pass did not confirm a new behavioral regression from that change.
+- The label-route workspace override remains safe because [createLabelHandler](../convex/app/workspace_team_handlers.ts:148) still enforces editable workspace access on the target workspace.
+- Assignee-targeted status notifications are intentional and match the requested product behavior.
+- Excluding `activeCreateDialog` from persistence is correct-by-design.
+- Including workspace-scoped views in workspace view queries is intentional and required for the newer shared workspace views.
+- Defaulting new or re-bootstrapped users to `offline` is intentional.
+- The `normalizeResendFrom` behavioral note is still not confirmed as a new code defect in this branch.
+- The `createDocument` async return type remains intentional.
+- Team-only project creation remains an intentional contract tightening.
+- The work-item title spread-order note is fragile style, but this pass did not surface a live correctness regression from it.
+- Self-assignment notifications are intentional.
+- Pending mention retry loss across full unmount/navigation remains an accepted best-effort trade-off for local retry state.
+- The persisted-filter-key and `cloneViewFilters` notes were already resolved/stale in prior turns.
+- The previous hardcoded fallback project-view timestamp note was already resolved in Turn 7; this pass further memoized the fallback view object in [screens.tsx](../components/app/screens.tsx:248) so it no longer re-materializes on every render.
+- The previous presence dependency concern was already handled in an earlier turn.
+
+### Verification approach
+
+- Re-reviewed the current diff against the new PR-analysis notes instead of assuming the earlier fixes covered them
+- Applied the fixes in the correct layer for each problem:
+  - optimistic-create rollback in the application/store slice
+  - project-detail default-level rules in the domain/work helper layer
+  - child disclosure filtering in the selector layer
+  - reactive permission gating in the create-view presentation layer
+- Re-ran focused verification:
+  - `pnpm exec eslint lib/store/app-store-internal/slices/views.ts components/app/screens/create-view-dialog.tsx components/app/screens/project-detail-screen.tsx components/app/screens/work-surface-view.tsx components/app/screens.tsx lib/domain/selectors-internal/work-items.ts lib/domain/types-internal/work.ts tests/lib/store/view-slice.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-item-level.test.ts`
+  - `pnpm exec vitest run tests/lib/store/view-slice.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-item-level.test.ts tests/components/work-item-detail-screen.test.tsx tests/lib/store/work-item-actions.test.ts`
   - `git diff --check -- . ':!.reviews/'`

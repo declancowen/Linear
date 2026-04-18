@@ -5,6 +5,7 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import { getProjectDetailModel, getVisibleProjectsForView } from "@/lib/domain/selectors"
 import {
   createDefaultProjectPresentationConfig,
+  getDefaultViewItemLevelForProjectTemplate,
   getDefaultViewItemLevelForTeamExperience,
   type Project,
   type ViewDefinition,
@@ -229,6 +230,44 @@ describe("project views", () => {
 
     expect(presentation.itemLevel).toBeUndefined()
     expect(view?.itemLevel).toBe("epic")
+  })
+
+  it("falls back to the project template level for workspace-scoped project detail views", () => {
+    const presentation = createDefaultProjectPresentationConfig("project-management")
+    const effectiveItemLevel =
+      presentation.itemLevel === undefined
+        ? getDefaultViewItemLevelForProjectTemplate("project-management")
+        : presentation.itemLevel
+    const view = createViewDefinition({
+      id: "workspace-project-items-default",
+      name: "All items",
+      description: "All items linked to this project.",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+      entityKind: "items",
+      route: "/workspace/projects/project_1",
+      isShared: false,
+      createdAt: "2026-04-18T09:00:00.000Z",
+      overrides: {
+        layout: presentation.layout,
+        filters: presentation.filters,
+        grouping: presentation.grouping,
+        subGrouping: null,
+        ordering: presentation.ordering,
+        ...(effectiveItemLevel !== undefined
+          ? { itemLevel: effectiveItemLevel }
+          : {}),
+        showChildItems: presentation.showChildItems ?? false,
+        displayProps: presentation.displayProps,
+        hiddenState: {
+          groups: [],
+          subgroups: [],
+        },
+      },
+    })
+
+    expect(presentation.itemLevel).toBeUndefined()
+    expect(view?.itemLevel).toBe("task")
   })
 
   it("uses the project detail route for project item views", () => {

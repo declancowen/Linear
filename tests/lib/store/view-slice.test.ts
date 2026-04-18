@@ -185,6 +185,59 @@ describe("view slice", () => {
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
   })
 
+  it("rolls back the optimistic view when server creation fails", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    state.ui.selectedViewByRoute = {
+      "/team/platform/work": "view_existing",
+    }
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockRejectedValue(new Error("server rejected"))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task?.catch(() => undefined) ?? null
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      route: "/team/platform/work",
+      name: "Delivery view",
+      description: "Tracks delivery work",
+    })
+
+    expect(createdViewId).toBeTruthy()
+    expect(state.views.map((view) => view.id)).toContain(createdViewId)
+    expect(state.ui.selectedViewByRoute["/team/platform/work"]).toBe(createdViewId)
+
+    await backgroundTask
+
+    expect(state.views.map((view) => view.id)).not.toContain(createdViewId)
+    expect(state.ui.selectedViewByRoute["/team/platform/work"]).toBe(
+      "view_existing"
+    )
+  })
+
   it("keeps showCompleted inside filters when updating view config", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"
