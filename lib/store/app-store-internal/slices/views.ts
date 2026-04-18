@@ -106,8 +106,9 @@ export function createViewSlice(
         return null
       }
 
+      const viewId = parsed.data.id ?? createId("view")
       const view = createViewDefinition({
-        id: createId("view"),
+        id: viewId,
         name: parsed.data.name,
         description: parsed.data.description,
         scopeType: parsed.data.scopeType,
@@ -147,7 +148,14 @@ export function createViewSlice(
       }))
 
       runtime.syncInBackground(
-        syncCreateView(get().currentUserId, parsed.data),
+        syncCreateView(get().currentUserId, {
+          ...parsed.data,
+          id: viewId,
+        }).then(async (result) => {
+          if (result?.viewId && result.viewId !== viewId) {
+            await runtime.refreshFromServer()
+          }
+        }),
         "Failed to create view"
       )
 

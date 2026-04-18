@@ -574,6 +574,7 @@ describe("work route contracts", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          id: "view_client_1",
           scopeType: "team",
           scopeId: "team_1",
           entityKind: "items",
@@ -587,6 +588,7 @@ describe("work route contracts", () => {
 
     expect(createViewServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
+      id: "view_client_1",
       scopeType: "team",
       scopeId: "team_1",
       entityKind: "items",

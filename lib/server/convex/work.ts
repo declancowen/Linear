@@ -307,6 +307,7 @@ export async function updateViewConfigServer(input: {
 
 export async function createViewServer(input: {
   currentUserId: string
+  id?: string
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"

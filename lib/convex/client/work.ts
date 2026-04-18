@@ -57,6 +57,7 @@ type UpdateViewConfigPatch = Partial<{
 }>
 
 type CreateViewInput = {
+  id?: string
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
@@ -185,7 +186,10 @@ export function syncUpdateViewConfig(
 }
 
 export function syncCreateView(currentUserId: string, input: CreateViewInput) {
-  return runRouteMutation("/api/views", {
+  return runRouteMutation<{
+    ok: true
+    viewId: string | null
+  }>("/api/views", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

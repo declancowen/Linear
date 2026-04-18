@@ -29,23 +29,33 @@ Files and areas reviewed across all turns:
 - `components/app/screens/shared.tsx` — full-row sidebar property controls
 - `components/app/screens/work-surface-controls.tsx` — highest-parent configuration options
 - `components/app/screens/work-surface-view.tsx` — parent-container rendering for child rows/cards
+- `lib/content/rich-text-mentions.ts` — pending mention merge/filter helpers for retry-safe delivery
 - `lib/store/app-store-internal/slices/work-document-actions.ts` — main-section persistence contract
+- `lib/store/app-store-internal/slices/views.ts` — optimistic view creation and canonical ID sync
+- `lib/store/app-store-internal/types.ts` — view-create input contract
 - `app/api/items/[itemId]/description/mentions/route.ts` and `lib/server/convex/documents.ts` — post-save mention-delivery contract
+- `app/api/views/route.ts` — view creation route contract
 - `convex/app/document_handlers.ts` — work-item self-mention delivery semantics
+- `convex/app.ts` and `convex/app/view_handlers.ts` — canonical view create mutation contract
+- `lib/domain/types-internal/schemas.ts` — validated view create payload shape
+- `lib/convex/client/work.ts` and `lib/server/convex/work.ts` — typed view-create route/server wrappers
 - `tests/lib/domain/search-create-actions.test.ts` — command-palette create-action regression coverage
 - `tests/lib/domain/project-views.test.ts` — project view routing/fallback regression coverage
 - `tests/components/work-item-detail-screen.test.tsx` — work-item edit recovery/concurrency regression coverage
 - `tests/convex/document-handlers.test.ts` — work-item self-mention server regression coverage
+- `tests/lib/content/rich-text-mentions.test.ts` — pending mention merge/filter regression coverage
+- `tests/lib/store/view-slice.test.ts` — canonical optimistic-view ID regression coverage
+- `tests/app/api/work-route-contracts.test.ts` — view-create route contract coverage
 
 ## Review status (updated every turn)
 
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 15:28:51 BST` |
-| **Total turns** | `4` |
+| **Last reviewed** | `2026-04-18 17:40:27 BST` |
+| **Total turns** | `5` |
 | **Open findings** | `0` |
-| **Resolved findings** | `4` |
+| **Resolved findings** | `6` |
 | **Accepted findings** | `0` |
 
 ---
@@ -176,4 +186,55 @@ Files and areas reviewed across all turns:
 - Re-ran focused regression coverage:
   - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/convex/document-handlers.test.ts tests/lib/server/convex-documents.test.ts tests/lib/content/rich-text-mentions.test.ts tests/lib/domain/search-create-actions.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-item-level.test.ts tests/lib/domain/work-item-progress.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/project-slice.test.ts tests/app/api/work-route-contracts.test.ts tests/scripts/resend-from.test.ts tests/scripts/send-email-jobs.test.ts tests/scripts/send-notification-digests.test.ts`
 - Verified patch formatting and whitespace:
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 5 — 2026-04-18 17:40:27 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `8a3f6f5` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Reviewed the external PR analysis against the current branch and confirmed both findings as real correctness bugs. The create-view flow was generating one ID optimistically and persisting another on the server, which made immediate follow-up mutations target a non-existent view until a refresh. Separately, the work-item main-section save path still treated mention delivery as an untracked post-save side effect, so a failed notification batch was lost once the edit session baseline advanced. Both paths were fixed with cleaner application boundaries: a single canonical view ID now flows from optimistic create through persistence, and failed work-item mention deliveries now persist as explicit retry work instead of being inferred from the edit baseline.
+
+| Status | Count |
+|--------|-------|
+| New findings | 2 |
+| Resolved during Turn 5 | 2 |
+| Carried from Turn 4 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 5
+
+#### F5-01 ~~[BUG] High~~ → RESOLVED — View creation used different optimistic and persisted IDs, so immediate follow-up mutations could target a missing view
+**Where:** [lib/store/app-store-internal/slices/views.ts](../lib/store/app-store-internal/slices/views.ts:110), [lib/domain/types-internal/schemas.ts](../lib/domain/types-internal/schemas.ts:190), [convex/app/view_handlers.ts](../convex/app/view_handlers.ts:257)
+
+**What was wrong:** `createView()` generated a local `view_*` ID for the optimistic record, but `syncCreateView()` only sent the parsed payload without that ID. The server then created a second ID when persisting the view. Until a full snapshot refresh happened, any follow-up mutations in the same session still used the optimistic local ID and could fail with `VIEW_NOT_FOUND`.
+
+**How it was fixed:** The view-create contract now accepts an optional `id` end to end. [createView](../lib/store/app-store-internal/slices/views.ts:110) generates one canonical ID, uses it for the optimistic record, and sends the same ID through [syncCreateView](../lib/convex/client/work.ts:188), [viewSchema](../lib/domain/types-internal/schemas.ts:190), [createViewServer](../lib/server/convex/work.ts:308), and the Convex mutation in [createViewHandler](../convex/app/view_handlers.ts:257). A defensive refresh remains in place if the server ever returns a different ID anyway.
+
+**Verified:** Added regression coverage in [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:69) and extended the route contract check in [work-route-contracts.test.ts](../tests/app/api/work-route-contracts.test.ts:564), then ran:
+- `pnpm exec vitest run tests/lib/store/view-slice.test.ts tests/app/api/work-route-contracts.test.ts`
+- `pnpm exec eslint lib/store/app-store-internal/slices/views.ts lib/store/app-store-internal/types.ts lib/domain/types-internal/schemas.ts lib/convex/client/work.ts lib/server/convex/work.ts convex/app.ts convex/app/view_handlers.ts tests/lib/store/view-slice.test.ts tests/app/api/work-route-contracts.test.ts`
+
+#### F5-02 ~~[BUG] High~~ → RESOLVED — Work-item mention notifications were still dropped after a post-save delivery failure
+**Where:** [components/app/screens/work-item-detail-screen.tsx](../components/app/screens/work-item-detail-screen.tsx:132), [lib/content/rich-text-mentions.ts](../lib/content/rich-text-mentions.ts:92)
+
+**What was wrong:** The work-item screen still derived pending mention notifications from the current edit baseline only. After a successful save, the component exited edit mode and the saved content became the new baseline. If `syncSendItemDescriptionMentionNotifications()` then failed, those saved mentions no longer appeared as “new” on the next edit unless the user reintroduced them manually, so the missed notifications were effectively lost.
+
+**How it was fixed:** The save boundary now keeps failed mention deliveries as explicit retry work instead of relying on the edit baseline to rediscover them. [WorkItemDetailScreen](../components/app/screens/work-item-detail-screen.tsx:132) stores unresolved mention entries per item, filters them against the latest draft content, and merges them with newly-added mentions before the next save. The merge/filter logic lives in [rich-text-mentions.ts](../lib/content/rich-text-mentions.ts:92), so retry semantics stay deterministic without reopening the old false-unsaved-state bug.
+
+**Verified:** Added retry regression coverage in [work-item-detail-screen.test.tsx](../tests/components/work-item-detail-screen.test.tsx:418) and helper coverage in [rich-text-mentions.test.ts](../tests/lib/content/rich-text-mentions.test.ts:107), then ran:
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts`
+- `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx lib/content/rich-text-mentions.ts tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts`
+
+### Verification approach
+
+- Re-reviewed the current code paths identified by the external PR analysis rather than assuming the findings were stale
+- Applied the fixes using the existing architecture boundaries already present elsewhere in the repo:
+  - canonical client/server IDs for optimistic creates, matching the document create flow
+  - explicit retry state for post-save side effects, rather than coupling notification delivery to edit baselines
+- Re-ran focused verification:
+  - `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx lib/content/rich-text-mentions.ts lib/store/app-store-internal/slices/views.ts lib/store/app-store-internal/types.ts lib/domain/types-internal/schemas.ts lib/convex/client/work.ts lib/server/convex/work.ts convex/app.ts convex/app/view_handlers.ts tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts tests/lib/store/view-slice.test.ts tests/app/api/work-route-contracts.test.ts`
+  - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts tests/lib/store/view-slice.test.ts tests/app/api/work-route-contracts.test.ts`
   - `git diff --check -- . ':!.reviews/'`

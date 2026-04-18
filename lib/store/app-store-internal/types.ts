@@ -51,6 +51,7 @@ export type CreateProjectInput = {
 }
 
 export type CreateViewInput = {
+  id?: string
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"

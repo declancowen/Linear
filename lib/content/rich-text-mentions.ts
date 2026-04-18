@@ -98,6 +98,26 @@ export function filterPendingDocumentMentionsByContent(
   return pendingMentions.filter((mention) => (mentionCounts[mention.userId] ?? 0) > 0)
 }
 
+export function mergePendingDocumentMentions(
+  ...pendingMentionGroups: PendingDocumentMention[][]
+) {
+  const mergedCounts = new Map<string, number>()
+
+  for (const pendingMentions of pendingMentionGroups) {
+    for (const mention of pendingMentions) {
+      mergedCounts.set(
+        mention.userId,
+        (mergedCounts.get(mention.userId) ?? 0) + mention.count
+      )
+    }
+  }
+
+  return [...mergedCounts.entries()].map(([userId, count]) => ({
+    userId,
+    count,
+  }))
+}
+
 export function summarizePendingDocumentMentions(
   pendingMentions: PendingDocumentMention[]
 ) {

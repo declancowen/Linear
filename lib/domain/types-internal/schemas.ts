@@ -188,6 +188,7 @@ const viewFiltersSchema = z.object({
 })
 
 export const viewSchema = z.object({
+  id: z.string().trim().min(1).optional(),
   scopeType: z.enum(["team", "workspace"]),
   scopeId: z.string().min(1),
   entityKind: z.enum(entityKinds),

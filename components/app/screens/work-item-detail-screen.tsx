@@ -14,7 +14,12 @@ import {
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
-import { getPendingRichTextMentionEntries } from "@/lib/content/rich-text-mentions"
+import {
+  filterPendingDocumentMentionsByContent,
+  getPendingRichTextMentionEntries,
+  mergePendingDocumentMentions,
+  type PendingDocumentMention,
+} from "@/lib/content/rich-text-mentions"
 import {
   syncClearWorkItemPresence,
   syncHeartbeatWorkItemPresence,
@@ -126,10 +131,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   )
   const [mainDraftTitle, setMainDraftTitle] = useState("")
   const [mainDraftDescription, setMainDraftDescription] = useState("")
-  const [mainMentionBaselineItemId, setMainMentionBaselineItemId] = useState<
+  const [mainPendingMentionRetryItemId, setMainPendingMentionRetryItemId] = useState<
     string | null
   >(null)
-  const [mainMentionBaselineContent, setMainMentionBaselineContent] = useState("")
+  const [mainPendingMentionRetryEntries, setMainPendingMentionRetryEntries] =
+    useState<PendingDocumentMention[]>([])
   const [savingMainSection, setSavingMainSection] = useState(false)
   const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
     DocumentPresenceViewer[]
@@ -334,18 +340,21 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     childItems.length > 0 || allowedChildTypes.length > 0
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
   const isMainEditing = mainEditing && mainDraftItemId === currentItem.id
-  const activeMainMentionBaselineContent =
-    isMainEditing && mainMentionBaselineItemId === currentItem.id
-      ? mainMentionBaselineContent
-      : descriptionContent
+  const activeMainPendingMentionRetryEntries =
+    mainPendingMentionRetryItemId === currentItem.id
+      ? filterPendingDocumentMentionsByContent(
+          mainPendingMentionRetryEntries,
+          mainDraftDescription
+        )
+      : []
   const otherWorkItemEditors = workItemPresenceViewers.filter(
     (viewer) => viewer.userId !== data.currentUserId
   )
   const concurrentEditorLabel = formatConcurrentEditorLabel(otherWorkItemEditors)
   const pendingMainMentionEntries = isMainEditing
-    ? getPendingRichTextMentionEntries(
-        activeMainMentionBaselineContent,
-        mainDraftDescription
+    ? mergePendingDocumentMentions(
+        activeMainPendingMentionRetryEntries,
+        getPendingRichTextMentionEntries(descriptionContent, mainDraftDescription)
       )
     : []
   const normalizedMainDraftTitle = mainDraftTitle.trim()
@@ -441,8 +450,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     setMainDraftUpdatedAt(currentItem.updatedAt)
     setMainDraftTitle(currentItem.title)
     setMainDraftDescription(descriptionContent)
-    setMainMentionBaselineItemId(currentItem.id)
-    setMainMentionBaselineContent(descriptionContent)
     setMainEditing(true)
   }
 
@@ -451,8 +458,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     setMainDraftUpdatedAt(null)
     setMainDraftTitle(currentItem.title)
     setMainDraftDescription(descriptionContent)
-    setMainMentionBaselineItemId(currentItem.id)
-    setMainMentionBaselineContent(descriptionContent)
     setMainEditing(false)
   }
 
@@ -460,8 +465,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     setMainDraftUpdatedAt(currentItem.updatedAt)
     setMainDraftTitle(currentItem.title)
     setMainDraftDescription(descriptionContent)
-    setMainMentionBaselineItemId(currentItem.id)
-    setMainMentionBaselineContent(descriptionContent)
   }
 
   async function handleSaveMainEdit() {
@@ -488,8 +491,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
-    setMainMentionBaselineItemId(savedItemId)
-    setMainMentionBaselineContent(savedDescription)
     setMainEditing(false)
 
     if (pendingMentionEntries.length > 0) {
@@ -499,16 +500,24 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           pendingMentionEntries
         )
 
+        setMainPendingMentionRetryItemId(savedItemId)
+        setMainPendingMentionRetryEntries([])
+
         toast.success(
           `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
         )
       } catch (error) {
+        setMainPendingMentionRetryItemId(savedItemId)
+        setMainPendingMentionRetryEntries(pendingMentionEntries)
         toast.error(
           error instanceof Error
             ? error.message
             : "Saved changes but failed to notify mentions"
         )
       }
+    } else {
+      setMainPendingMentionRetryItemId(savedItemId)
+      setMainPendingMentionRetryEntries([])
     }
 
     setSavingMainSection(false)

@@ -416,6 +416,89 @@ describe("work item detail screen", () => {
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
   })
 
+  it("retries failed mention delivery on the next save without reintroducing the mention", async () => {
+    let saveCount = 0
+    const saveWorkItemMainSectionMock = vi.fn().mockImplementation(
+      async ({
+        description,
+        title,
+      }: {
+        description: string
+        title: string
+      }) => {
+        saveCount += 1
+        useAppStore.setState((state) => ({
+          workItems: state.workItems.map((item) =>
+            item.id === "item_1"
+              ? {
+                  ...item,
+                  title,
+                  updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
+                }
+              : item
+          ),
+          documents: state.documents.map((document) =>
+            document.id === "document_1"
+              ? {
+                  ...document,
+                  content: description,
+                  updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
+                }
+              : document
+          ),
+        }))
+
+        return true
+      }
+    )
+    syncSendItemDescriptionMentionNotificationsMock
+      .mockRejectedValueOnce(new Error("Saved changes but failed to notify mentions"))
+      .mockResolvedValueOnce({
+        recipientCount: 1,
+        mentionCount: 1,
+      })
+    useAppStore.setState({
+      saveWorkItemMainSection: saveWorkItemMainSectionMock,
+    } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.change(screen.getByLabelText("Description editor"), {
+      target: {
+        value:
+          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
+      },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Edit" })
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+
+    const saveButton = screen.getByRole("button", { name: "Save" })
+    expect(saveButton).not.toBeDisabled()
+
+    fireEvent.click(saveButton)
+
+    await waitFor(() =>
+      expect(
+        syncSendItemDescriptionMentionNotificationsMock
+      ).toHaveBeenNthCalledWith(2, "item_1", [
+        {
+          userId: "user_2",
+          count: 1,
+        },
+      ])
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
   it("sends self-mentions after saving the main section", async () => {
     const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
     syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({

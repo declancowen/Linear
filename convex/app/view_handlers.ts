@@ -66,6 +66,7 @@ type ViewConfigArgs = ServerAccessArgs & {
 
 type CreateViewArgs = ServerAccessArgs & {
   currentUserId: string
+  id?: string
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"
@@ -255,7 +256,7 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
   await assertWorkspaceLabelIds(ctx, workspaceId, args.filters?.labelIds)
 
   const view = createViewDefinition({
-    id: createId("view"),
+    id: args.id ?? createId("view"),
     name: args.name,
     description: args.description,
     scopeType: args.scopeType,

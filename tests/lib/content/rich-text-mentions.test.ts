@@ -5,6 +5,7 @@ import {
   extractRichTextMentionUserIds,
   filterPendingDocumentMentionsByContent,
   getPendingRichTextMentionEntries,
+  mergePendingDocumentMentions,
   summarizePendingDocumentMentions,
 } from "@/lib/content/rich-text-mentions"
 
@@ -118,6 +119,38 @@ describe("rich text mentions", () => {
       recipientCount: 2,
       mentionCount: 4,
     })
+  })
+
+  it("merges retry and newly-added mention entries by recipient", () => {
+    expect(
+      mergePendingDocumentMentions(
+        [
+          {
+            userId: "user_1",
+            count: 1,
+          },
+          {
+            userId: "user_2",
+            count: 2,
+          },
+        ],
+        [
+          {
+            userId: "user_1",
+            count: 3,
+          },
+        ]
+      )
+    ).toEqual([
+      {
+        userId: "user_1",
+        count: 4,
+      },
+      {
+        userId: "user_2",
+        count: 2,
+      },
+    ])
   })
 
   it("computes positive mention deltas between persisted and draft content", () => {

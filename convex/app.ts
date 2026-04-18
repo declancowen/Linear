@@ -730,6 +730,7 @@ export const createView = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    id: v.optional(v.string()),
     scopeType: v.union(v.literal("team"), v.literal("workspace")),
     scopeId: v.string(),
     entityKind: entityKindValidator,
