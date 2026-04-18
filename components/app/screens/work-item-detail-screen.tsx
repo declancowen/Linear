@@ -25,6 +25,7 @@ import {
   syncHeartbeatWorkItemPresence,
   syncSendItemDescriptionMentionNotifications,
 } from "@/lib/convex/client"
+import { RouteMutationError } from "@/lib/convex/client/shared"
 import {
   canEditTeam,
   getDirectChildWorkItems,
@@ -111,6 +112,13 @@ function formatConcurrentEditorLabel(viewers: DocumentPresenceViewer[]) {
   }
 
   return `${names[0]} and ${names.length - 1} others are also editing this item`
+}
+
+function isAlreadyDeliveredMentionConflict(error: unknown) {
+  return (
+    error instanceof RouteMutationError &&
+    error.code === "ITEM_DESCRIPTION_MENTION_ALREADY_SENT"
+  )
 }
 
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
@@ -294,6 +302,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const team = getTeam(data, currentItem.teamId)
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const editable = team ? canEditTeam(data, team.id) : false
+  // Title and description stay behind explicit edit mode; sidebar properties do not.
+  const sidebarEditable = editable
   const statusOptions = buildPropertyStatusOptions(getStatusOrderForTeam(team))
   const teamMembers = team ? getTeamMembers(data, team.id) : []
   const teamProjects = getTeamProjectOptions(
@@ -365,6 +375,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const canSaveMainSection =
     isMainEditing &&
     normalizedMainDraftTitle.length >= 2 &&
+    normalizedMainDraftTitle.length <= 96 &&
     (mainDirty || pendingMainMentionEntries.length > 0) &&
     !savingMainSection &&
     !mainDraftStale
@@ -505,15 +516,24 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
         )
       } catch (error) {
-        setMainPendingMentionRetryEntriesByItemId((current) => ({
-          ...current,
-          [savedItemId]: pendingMentionEntries,
-        }))
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Saved changes but failed to notify mentions"
-        )
+        if (isAlreadyDeliveredMentionConflict(error)) {
+          setMainPendingMentionRetryEntriesByItemId((current) => {
+            const next = { ...current }
+            delete next[savedItemId]
+            return next
+          })
+          toast.success("Saved changes and delivered mention notifications.")
+        } else {
+          setMainPendingMentionRetryEntriesByItemId((current) => ({
+            ...current,
+            [savedItemId]: pendingMentionEntries,
+          }))
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Saved changes but failed to notify mentions"
+          )
+        }
       }
     } else {
       setMainPendingMentionRetryEntriesByItemId((current) => {
@@ -871,7 +891,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   <PropertySelect
                     label="Status"
                     value={currentItem.status}
-                    disabled={!editable}
+                    disabled={!sidebarEditable}
                     options={statusOptions}
                     renderValue={(value, label) => (
                       <div className="flex min-w-0 items-center gap-2">
@@ -894,7 +914,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   <PropertySelect
                     label="Priority"
                     value={currentItem.priority}
-                    disabled={!editable}
+                    disabled={!sidebarEditable}
                     options={Object.entries(priorityMeta).map(
                       ([value, meta]) => ({
                         value,
@@ -919,10 +939,29 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       })
                     }
                   />
+                  {currentItem.parentId || parentOptions.length > 1 ? (
+                    <PropertySelect
+                      label="Parent"
+                      value={currentItem.parentId ?? "none"}
+                      disabled={!sidebarEditable}
+                      options={parentOptions}
+                      onValueChange={(value) =>
+                        useAppStore.getState().updateWorkItem(currentItem.id, {
+                          parentId: value === "none" ? null : value,
+                        })
+                      }
+                    />
+                  ) : null}
+                </CollapsibleSection>
+
+                <Separator className="my-3" />
+
+                <CollapsibleSection title="Assigned" defaultOpen>
                   <PropertySelect
-                    label="Assignee"
+                    accessibleLabel="Assignee"
+                    label=""
                     value={currentItem.assigneeId ?? "unassigned"}
-                    disabled={!editable}
+                    disabled={!sidebarEditable}
                     options={[
                       { value: "unassigned", label: "Assign" },
                       ...teamMembers.map((user) => ({
@@ -970,19 +1009,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       })
                     }
                   />
-                  {currentItem.parentId || parentOptions.length > 1 ? (
-                    <PropertySelect
-                      label="Parent"
-                      value={currentItem.parentId ?? "none"}
-                      disabled={!editable}
-                      options={parentOptions}
-                      onValueChange={(value) =>
-                        useAppStore.getState().updateWorkItem(currentItem.id, {
-                          parentId: value === "none" ? null : value,
-                        })
-                      }
-                    />
-                  ) : null}
                 </CollapsibleSection>
 
                 <Separator className="my-3" />
@@ -991,13 +1017,13 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   <PropertyDateField
                     label="Start date"
                     value={currentItem.startDate}
-                    disabled={!editable}
+                    disabled={!sidebarEditable}
                     onValueChange={handleStartDateChange}
                   />
                   <PropertyDateField
                     label="End date"
                     value={displayedEndDate}
-                    disabled={!editable}
+                    disabled={!sidebarEditable}
                     onValueChange={handleEndDateChange}
                   />
                 </CollapsibleSection>
@@ -1007,7 +1033,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 <CollapsibleSection title="Labels" defaultOpen>
                   <WorkItemLabelsEditor
                     item={currentItem}
-                    editable={editable}
+                    editable={sidebarEditable}
                   />
                 </CollapsibleSection>
 
@@ -1017,7 +1043,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   <PropertySelect
                     label=""
                     value={currentItem.primaryProjectId ?? "none"}
-                    disabled={!editable}
+                    disabled={!sidebarEditable}
                     options={[
                       { value: "none", label: "No project" },
                       ...teamProjects.map((project) => ({

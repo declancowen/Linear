@@ -47,24 +47,13 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { IssueActionMenu, IssueContextMenu, stopMenuEvent } from "./work-item-menus"
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import { StatusIcon, getPatchForField } from "./shared"
+import { getContainerItemsForDisplay } from "./helpers"
 import {
   getGroupValueAdornment,
   getGroupValueLabel,
 } from "./work-surface-view/shared"
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
-
-function getContainerItemsForDisplay(items: WorkItem[], showChildItems: boolean) {
-  if (!showChildItems) {
-    return items
-  }
-
-  const visibleItemIds = new Set(items.map((item) => item.id))
-
-  return items.filter(
-    (item) => !item.parentId || !visibleItemIds.has(item.parentId)
-  )
-}
 
 function parseGroupDropTarget(id: string, scope: "board" | "list") {
   const [dropScope, groupValue, subgroupValue] = id.split("::")
@@ -243,6 +232,7 @@ export function BoardView({
                           >
                             {getContainerItemsForDisplay(
                               subItems,
+                              items,
                               showChildItems
                             ).map((item) => (
                               <DraggableWorkCard
@@ -454,6 +444,7 @@ export function ListView({
                           >
                             {getContainerItemsForDisplay(
                               subItems,
+                              items,
                               showChildItems
                             ).map((item) => {
                               const details = showChildItems ? (

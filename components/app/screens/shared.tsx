@@ -30,7 +30,6 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -304,6 +303,7 @@ export function CollapsibleSection({
 }
 
 export function PropertySelect({
+  accessibleLabel,
   label,
   value,
   options,
@@ -312,6 +312,7 @@ export function PropertySelect({
   renderValue,
   renderOption,
 }: {
+  accessibleLabel?: string
   label: string
   value: string
   options: Array<{ value: string; label: string }>
@@ -320,46 +321,84 @@ export function PropertySelect({
   renderValue?: (value: string, label: string) => ReactNode
   renderOption?: (value: string, label: string) => ReactNode
 }) {
+  const [open, setOpen] = useState(false)
   const selectedOption =
     options.find(
       (option) =>
         option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
         option.value === value
     ) ?? null
+  const selectedValue = selectedOption?.value ?? value
+  const selectedLabel = selectedOption?.label ?? value
+  const resolvedAccessibleLabel = accessibleLabel ?? (label || "Project")
 
   return (
-    <Select disabled={disabled} value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-9 w-full cursor-pointer justify-between rounded-md border-none bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-muted/20 focus-visible:ring-0">
-        <span className="min-w-0 shrink-0 text-sm text-muted-foreground">
-          {label}
-        </span>
-        <span className="ml-auto flex min-w-0 items-center justify-end gap-2 text-right">
-          {renderValue ? (
-            renderValue(
-              selectedOption?.value ?? value,
-              selectedOption?.label ?? value
-            )
-          ) : (
-            <SelectValue />
+    <Popover open={disabled ? false : open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={resolvedAccessibleLabel}
+          disabled={disabled}
+          className={cn(
+            "flex h-9 w-full items-center justify-between rounded-md border px-2 py-1.5 text-sm shadow-none transition-colors focus-visible:ring-0",
+            disabled
+              ? "cursor-not-allowed border-transparent bg-transparent text-muted-foreground/70 hover:bg-transparent"
+              : "cursor-pointer border-border/40 bg-muted/15 hover:border-border/70 hover:bg-muted/30"
           )}
-        </span>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
+        >
+          {label ? (
+            <span className="min-w-0 shrink-0 text-sm text-muted-foreground">
+              {label}
+            </span>
+          ) : null}
+          <span className="ml-auto flex min-w-0 items-center justify-end gap-2 text-right">
+            {renderValue ? (
+              renderValue(selectedValue, selectedLabel)
+            ) : (
+              <span className="truncate">{selectedLabel}</span>
+            )}
+            <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-1.5">
+        <div className="flex flex-col gap-0.5">
           {options.map((option, index) =>
             option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
-              <SelectSeparator key={`separator-${index}`} />
+              <div
+                key={`separator-${index}`}
+                className="my-1 h-px bg-border"
+              />
             ) : (
-              <SelectItem key={option.value} value={option.value}>
-                {renderOption
-                  ? renderOption(option.value, option.label)
-                  : option.label}
-              </SelectItem>
+              <button
+                key={option.value}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent",
+                  option.value === selectedValue && "bg-accent/60"
+                )}
+                onClick={() => {
+                  setOpen(false)
+                  onValueChange(option.value)
+                }}
+              >
+                <span className="min-w-0 flex-1">
+                  {renderOption
+                    ? renderOption(option.value, option.label)
+                    : option.label}
+                </span>
+                {option.value === selectedValue ? (
+                  <CheckCircle
+                    className="size-3.5 shrink-0 text-foreground"
+                    weight="fill"
+                  />
+                ) : null}
+              </button>
             )
           )}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -531,7 +570,14 @@ export function PropertyDateField({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-muted/20">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-md border px-2 py-1.5 transition-colors",
+        disabled
+          ? "border-transparent bg-transparent"
+          : "border-border/40 bg-muted/15 hover:border-border/70 hover:bg-muted/30"
+      )}
+    >
       <span className="text-sm text-muted-foreground">{label}</span>
       <Input
         type="date"

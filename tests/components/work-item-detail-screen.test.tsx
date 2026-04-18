@@ -14,6 +14,7 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
+import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
@@ -21,11 +22,13 @@ const {
   syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresenceMock,
   syncSendItemDescriptionMentionNotificationsMock,
+  syncUpdateWorkItemMock,
 } = vi.hoisted(() => ({
   routerReplaceMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
   syncHeartbeatWorkItemPresenceMock: vi.fn(),
   syncSendItemDescriptionMentionNotificationsMock: vi.fn(),
+  syncUpdateWorkItemMock: vi.fn(),
 }))
 
 vi.mock("next/link", () => ({
@@ -61,6 +64,7 @@ vi.mock("@/lib/convex/client", () => ({
   syncHeartbeatWorkItemPresence: syncHeartbeatWorkItemPresenceMock,
   syncSendItemDescriptionMentionNotifications:
     syncSendItemDescriptionMentionNotificationsMock,
+  syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
 vi.mock("@/components/app/rich-text-editor", () => ({
@@ -96,11 +100,74 @@ vi.mock("@/components/app/screens/shared", () => ({
   CollapsibleSection: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   MissingState: ({ title }: { title: string }) => <div>{title}</div>,
   PriorityDot: () => null,
-  PropertyDateField: () => null,
-  PropertyRow: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  PropertySelect: () => null,
+  PropertyDateField: ({
+    label,
+    value,
+    disabled,
+    onValueChange,
+  }: {
+    label: string
+    value: string | null
+    disabled?: boolean
+    onValueChange: (value: string | null) => void
+  }) => (
+    <input
+      aria-label={label}
+      disabled={disabled}
+      value={value ?? ""}
+      onChange={(event) => onValueChange(event.target.value || null)}
+    />
+  ),
+  PropertyRow: ({
+    label,
+    value,
+  }: {
+    label: string
+    value: string
+  }) => (
+    <div>
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  ),
+  PropertySelect: ({
+    accessibleLabel,
+    label,
+    value,
+    options,
+    disabled,
+    onValueChange,
+  }: {
+    accessibleLabel?: string
+    label: string
+    value: string
+    options: Array<{ value: string; label: string }>
+    disabled?: boolean
+    onValueChange: (value: string) => void
+  }) => (
+    <button
+      type="button"
+      aria-label={accessibleLabel ?? (label || "Project")}
+      disabled={disabled}
+      onClick={() => {
+        const nextOption = options.find(
+          (option) => option.value !== "__separator__" && option.value !== value
+        )
+
+        if (nextOption) {
+          onValueChange(nextOption.value)
+        }
+      }}
+    >
+      {label || "Project"}:{value}
+    </button>
+  ),
   StatusIcon: () => null,
-  WorkItemLabelsEditor: () => null,
+  WorkItemLabelsEditor: ({ editable }: { editable: boolean }) => (
+    <button type="button" aria-label="Manage labels" disabled={!editable}>
+      Manage labels
+    </button>
+  ),
 }))
 
 vi.mock("@/components/app/screens/work-item-ui", () => ({
@@ -339,8 +406,10 @@ describe("work item detail screen", () => {
     syncClearWorkItemPresenceMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockReset()
     syncSendItemDescriptionMentionNotificationsMock.mockReset()
+    syncUpdateWorkItemMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockResolvedValue([])
     syncClearWorkItemPresenceMock.mockResolvedValue({ ok: true })
+    syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
     seedState()
   })
 
@@ -667,5 +736,130 @@ describe("work item detail screen", () => {
         },
       ])
     )
+  })
+
+  it("clears mention retries when the server reports they were already delivered", async () => {
+    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
+    syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
+      new RouteMutationError(
+        "One or more mentioned users were already notified for this work item",
+        409,
+        {
+          code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
+        }
+      )
+    )
+    useAppStore.setState({
+      saveWorkItemMainSection: saveWorkItemMainSectionMock,
+    } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.change(screen.getByLabelText("Description editor"), {
+      target: {
+        value:
+          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
+      },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Edit" })
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
+  it("keeps sidebar properties editable for root and child items without entering main edit mode", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        documents: [
+          ...state.documents,
+          {
+            id: "document_3",
+            kind: "item-description",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            title: "Child item",
+            content: "<p>Child description</p>",
+            linkedProjectIds: [],
+            linkedWorkItemIds: ["item_3"],
+            createdBy: "user_1",
+            updatedBy: "user_1",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+        workItems: [
+          ...state.workItems,
+          {
+            id: "item_3",
+            key: "PLA-3",
+            teamId: "team_1",
+            type: "sub-task",
+            title: "Child item",
+            descriptionDocId: "document_3",
+            status: "todo",
+            priority: "medium",
+            assigneeId: null,
+            creatorId: "user_1",
+            parentId: "item_1",
+            primaryProjectId: null,
+            linkedProjectIds: [],
+            linkedDocumentIds: [],
+            labelIds: [],
+            milestoneId: null,
+            startDate: null,
+            dueDate: null,
+            targetDate: null,
+            subscriberIds: [],
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+      }))
+    })
+
+    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
+
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Status" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Priority" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Assignee" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
+    expect(screen.getByLabelText("Start date")).not.toBeDisabled()
+    expect(screen.getByLabelText("End date")).not.toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Manage labels" })
+    ).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Status" }))
+    expect(
+      useAppStore.getState().workItems.find((item) => item.id === "item_1")?.status
+    ).not.toBe("todo")
+
+    fireEvent.click(screen.getByRole("button", { name: "Priority" }))
+    expect(
+      useAppStore.getState().workItems.find((item) => item.id === "item_1")
+        ?.priority
+    ).not.toBe("medium")
+
+    rerender(<WorkItemDetailScreen itemId="item_3" />)
+
+    expect(screen.getByRole("button", { name: "Status" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Priority" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Assignee" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Parent" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Assignee" }))
+    expect(
+      useAppStore.getState().workItems.find((item) => item.id === "item_3")
+        ?.assigneeId
+    ).toBe("user_1")
   })
 })

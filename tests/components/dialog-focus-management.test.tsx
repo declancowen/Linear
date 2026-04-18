@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { blurActiveElement } from "@/lib/browser/focus"
 
 describe("dialog focus management", () => {
   it("blurs the previously focused element when a controlled dialog opens", () => {
@@ -46,5 +47,17 @@ describe("dialog focus management", () => {
     )
 
     expect(document.activeElement).not.toBe(outsideInput)
+  })
+
+  it("does not blur non-text interactive elements", () => {
+    render(<button type="button" data-testid="outside-button">Open</button>)
+
+    const outsideButton = screen.getByTestId("outside-button")
+    const blurSpy = vi.spyOn(outsideButton, "blur")
+
+    outsideButton.focus()
+    blurActiveElement()
+
+    expect(blurSpy).not.toHaveBeenCalled()
   })
 })

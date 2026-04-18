@@ -125,6 +125,22 @@ export function cloneViewCreateConfig(
   }
 }
 
+export function getContainerItemsForDisplay(
+  items: WorkItem[],
+  visibleItems: WorkItem[],
+  showChildItems: boolean
+) {
+  if (!showChildItems) {
+    return items
+  }
+
+  const visibleItemIds = new Set(visibleItems.map((item) => item.id))
+
+  return items.filter(
+    (item) => !item.parentId || !visibleItemIds.has(item.parentId)
+  )
+}
+
 export function countActiveViewFilters(filters: ViewDefinition["filters"]) {
   return (
     filters.status.length +

@@ -15,5 +15,15 @@ export function blurActiveElement() {
     return
   }
 
+  const shouldBlur =
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLTextAreaElement ||
+    activeElement instanceof HTMLSelectElement ||
+    activeElement.isContentEditable
+
+  if (!shouldBlur) {
+    return
+  }
+
   activeElement.blur()
 }
