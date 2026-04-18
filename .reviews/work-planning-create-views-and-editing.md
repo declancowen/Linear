@@ -57,6 +57,7 @@ Files and areas reviewed across all turns:
 - `tests/app/api/asset-notification-invite-route-contracts.test.ts` — label route workspace contract coverage
 - `tests/app/api/work-route-contracts.test.ts` — view-create route contract coverage
 - `tests/components/create-dialogs.test.tsx` — create-dialog render regression coverage
+- `tests/components/project-detail-screen.test.tsx` — project-detail fallback presentation regression coverage
 - `tests/components/screen-helpers.test.ts` — persisted filter-key regression coverage
 
 ## Review status (updated every turn)
@@ -64,10 +65,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 19:03:28 BST` |
-| **Total turns** | `9` |
+| **Last reviewed** | `2026-04-18 19:17:41 BST` |
+| **Total turns** | `10` |
 | **Open findings** | `0` |
-| **Resolved findings** | `18` |
+| **Resolved findings** | `19` |
 | **Accepted findings** | `0` |
 
 ---
@@ -557,4 +558,61 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint lib/store/app-store-internal/slices/views.ts tests/lib/store/view-slice.test.ts components/app/shell.tsx`
   - `pnpm exec vitest run tests/lib/store/view-slice.test.ts`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 10 — 2026-04-18 19:17:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `6b4bf6b` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-reviewed the next batch and confirmed one live UI bug in project detail. When a project had no persisted presentation, the screen rebuilt the fallback presentation object on every render and included that unstable object in the reset-effect dependency list. That could keep resetting the local items layout/filter state and effectively block interaction with the project items tab until a real presentation was persisted. I memoized the fallback presentation and added a component-level regression test. The rest of the list was stale, already fixed, intentionally changed behavior, or a previously accepted trade-off.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 10 | 1 |
+| Carried from Turn 9 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 10
+
+#### F10-01 ~~[BUG] High~~ → RESOLVED — Project-detail reset effect depended on an unstable fallback presentation object
+**Where:** [components/app/screens/project-detail-screen.tsx](../components/app/screens/project-detail-screen.tsx:70), [tests/components/project-detail-screen.test.tsx](../tests/components/project-detail-screen.test.tsx:1)
+
+**What was wrong:** For projects without a persisted `presentation`, the screen created a fresh fallback presentation object inline every render and then used `defaultProjectPresentation` in the reset effect dependency list. Because the effect re-applied cloned filters and layout state, unrelated rerenders could keep snapping the local project-items configuration back to the default fallback values.
+
+**How it was fixed:** [ProjectDetailScreen](../components/app/screens/project-detail-screen.tsx:70) now memoizes `defaultProjectPresentation` and `initialProjectPresentation` so the fallback presentation stays referentially stable until the actual project or team inputs change. The new component regression test in [project-detail-screen.test.tsx](../tests/components/project-detail-screen.test.tsx:1) verifies that switching the local item layout away from the fallback default survives an unrelated store rerender when the project has no persisted presentation.
+
+**Verified:** Added component coverage in [project-detail-screen.test.tsx](../tests/components/project-detail-screen.test.tsx:1), then ran:
+- `pnpm exec eslint components/app/screens/project-detail-screen.tsx tests/components/project-detail-screen.test.tsx`
+- `pnpm exec vitest run tests/components/project-detail-screen.test.tsx tests/lib/domain/project-views.test.ts`
+
+### Remaining notes classified
+
+- The dialog/sheet blur behavior remains an intentional cross-cutting fix for modal focus handoff.
+- The label-route workspace override remains safe because the downstream mutation still enforces editable workspace access.
+- Assignee-targeted status notifications are intentional.
+- The work-item main-section save path preserving the local draft until reconciliation is still an acceptable trade-off for this editing flow and keeps the user’s unsaved content visible after a failure.
+- The top-level fallback in `getVisibleItemsForView()` is intentional under the new highest-parent view model.
+- `activeCreateDialog` non-persistence is correct-by-design.
+- Workspace view queries including workspace-scoped views are intentional.
+- Offline default status remains intentional.
+- `normalizeResendFrom` is still a behavioral change, but no new code defect was confirmed from it in this branch.
+- The async `createDocument` return type is intentional.
+- Team-only project creation remains an intentional contract tightening.
+- The work-item title spread-order note is still a style concern, not a live bug in the current flow.
+- Self-assignment notifications are intentional.
+- The presence lifecycle note is positive, not a defect.
+- Pending mention retry loss across full unmount/navigation remains an accepted best-effort trade-off.
+- The persisted-filter-key, clone-view-filter, shell reactivity, create-view-dialog reactivity, hardcoded fallback timestamp, `showCompleted` leakage, and presence dependency notes are all stale because those were fixed in earlier turns.
+
+### Verification approach
+
+- Re-reviewed the latest batch against the current branch rather than assuming the most recent diff-review turn covered it
+- Applied the fix in the presentation layer where the unstable object was being created
+- Re-ran focused verification:
+  - `pnpm exec eslint components/app/screens/project-detail-screen.tsx tests/components/project-detail-screen.test.tsx`
+  - `pnpm exec vitest run tests/components/project-detail-screen.test.tsx tests/lib/domain/project-views.test.ts`
   - `git diff --check -- . ':!.reviews/'`

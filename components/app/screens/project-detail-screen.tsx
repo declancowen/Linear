@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { CaretRight, Plus, SidebarSimple } from "@phosphor-icons/react"
 
@@ -75,8 +75,13 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       )
     })
   )
-  const defaultProjectPresentation = projectModel?.project
-    ? (projectModel.project.presentation ??
+  const defaultProjectPresentation = useMemo(() => {
+    if (!projectModel?.project) {
+      return null
+    }
+
+    return (
+      projectModel.project.presentation ??
       createDefaultProjectPresentationConfig(
         projectModel.project.templateType,
         {
@@ -85,11 +90,18 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
             projectModel.project.templateType
           ).defaultViewLayout,
         }
-      ))
-    : null
-  const initialProjectPresentation =
-    defaultProjectPresentation ??
-    createDefaultProjectPresentationConfig("software-delivery")
+      )
+    )
+  }, [
+    projectModel?.project,
+    projectModel?.team,
+  ])
+  const initialProjectPresentation = useMemo(
+    () =>
+      defaultProjectPresentation ??
+      createDefaultProjectPresentationConfig("software-delivery"),
+    [defaultProjectPresentation]
+  )
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [projectTab, setProjectTab] = useState<
     "overview" | "activity" | "issues"
