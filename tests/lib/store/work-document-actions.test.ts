@@ -451,6 +451,18 @@ describe("work document actions", () => {
       description: "<p>Updated details</p>",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
+    expect(state.workItems.find((item) => item.id === "item_1")).toMatchObject({
+      title: "Plan launch",
+      updatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(
+      state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      content: "<h1>Spec</h1>",
+      title: "Spec",
+      updatedAt: "2026-04-17T10:00:00.000Z",
+      updatedBy: "user_1",
+    })
     expect(handleSyncFailureMock).toHaveBeenCalledWith(
       expect.any(RouteMutationError),
       "This work item changed while you were editing. Review the latest version and try again."

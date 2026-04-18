@@ -289,6 +289,8 @@ export function createWorkDocumentActions({
       const titleChanged = normalizedTitle !== item.title
       const descriptionChanged =
         input.description !== descriptionDocument.content
+      const previousItem = item
+      const previousDescriptionDocument = descriptionDocument
 
       if (!titleChanged && !descriptionChanged) {
         return true
@@ -335,6 +337,17 @@ export function createWorkDocumentActions({
 
         return true
       } catch (error) {
+        set((current) => ({
+          documents: current.documents.map((document) =>
+            document.id === previousDescriptionDocument.id
+              ? previousDescriptionDocument
+              : document
+          ),
+          workItems: current.workItems.map((entry) =>
+            entry.id === previousItem.id ? previousItem : entry
+          ),
+        }))
+
         const fallbackMessage =
           error instanceof RouteMutationError &&
           error.code === "WORK_ITEM_EDIT_CONFLICT"

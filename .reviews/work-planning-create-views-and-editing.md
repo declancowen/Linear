@@ -65,10 +65,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 19:33:41 BST` |
-| **Total turns** | `11` |
+| **Last reviewed** | `2026-04-18 19:46:59 BST` |
+| **Total turns** | `12` |
 | **Open findings** | `0` |
-| **Resolved findings** | `20` |
+| **Resolved findings** | `21` |
 | **Accepted findings** | `0` |
 
 ---
@@ -675,4 +675,63 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx tests/components/work-item-detail-screen.test.tsx`
   - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/lib/content/rich-text-mentions.test.ts`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 12 — 2026-04-18 19:46:59 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `ec98c06` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-reviewed the newest batch and confirmed one additional live bug in the optimistic work-item main-section save flow. A failed optimistic save could leave the local `updatedAt` ahead of the server, which in turn poisoned the component’s stale-draft detection and could trap the user in a conflict/reload loop. I fixed that by rolling the optimistic work item and description document back inside the slice before surfacing the failure. The rest of this batch was stale, intentional, or previously accepted/documented.
+
+| Status | Count |
+|--------|-------|
+| New findings | 1 |
+| Resolved during Turn 12 | 1 |
+| Carried from Turn 11 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 12
+
+#### F12-01 ~~[BUG] High~~ → RESOLVED — Failed optimistic main-section saves could poison `updatedAt` locally and trap the editor in a false stale/conflict loop
+**Where:** [lib/store/app-store-internal/slices/work-document-actions.ts](../lib/store/app-store-internal/slices/work-document-actions.ts:306), [tests/lib/store/work-document-actions.test.ts](../tests/lib/store/work-document-actions.test.ts:427)
+
+**What was wrong:** `saveWorkItemMainSection()` optimistically updated both the work item and its description document before calling `syncUpdateWorkItem()`, but on failure it only delegated to `runtime.handleSyncFailure()`. That meant the locally optimistic `updatedAt`, title, and description could remain in the store until a later refresh reconciled them. In the work-item screen, this could make the user’s own failed save look like a remote change and disable Save behind a misleading stale-draft warning.
+
+**How it was fixed:** [saveWorkItemMainSection](../lib/store/app-store-internal/slices/work-document-actions.ts:306) now snapshots the previous work item and description document and restores both immediately in the `catch` path before surfacing the sync failure. The optimistic write is therefore owned and reversed within the same application-layer action that created it, which keeps the local `updatedAt` aligned with the server when the mutation fails.
+
+**Verified:** Strengthened the existing conflict regression in [work-document-actions.test.ts](../tests/lib/store/work-document-actions.test.ts:427) to assert rollback of both the work item and the description document, then ran:
+- `pnpm exec eslint lib/store/app-store-internal/slices/work-document-actions.ts tests/lib/store/work-document-actions.test.ts`
+- `pnpm exec vitest run tests/lib/store/work-document-actions.test.ts`
+
+### Remaining notes classified
+
+- The older notes about optimistic view rollback, refresh-after-create rollback, project-detail `itemLevel`, shell reactivity, create-view dialog reactivity, hardcoded fallback timestamps, `showCompleted` leakage, persisted filter keys, clone-view filters, and work-item mention retry ownership are all stale because they were fixed in earlier turns.
+- The dialog/sheet blur behavior remains an intentional cross-cutting fix for modal focus handoff.
+- The label-route workspace override remains safe because the downstream mutation still enforces editable workspace access.
+- Assignee-targeted status notifications are intentional.
+- The top-level fallback in `getVisibleItemsForView()` remains intentional under the highest-parent model.
+- `activeCreateDialog` non-persistence is correct-by-design.
+- Workspace view queries including workspace-scoped views are intentional.
+- Offline default status remains intentional.
+- The create-work-item parent-options performance note is a valid future optimization, not a correctness bug.
+- The `normalizeResendFrom` note is still a behavioral change without a newly confirmed defect in this branch.
+- The fallback project-view `createdAt` timestamp note is only a minor transient-object detail now that the fallback is memoized.
+- The async `createDocument` return type is intentional.
+- Team-only project creation remains an intentional contract tightening.
+- Optimistic success toasts before server confirmation are part of the existing optimistic UX pattern.
+- `clearViewFilters` preserving `showCompleted` is a consistent design choice, not a bug.
+- The work-item title spread-order note remains a style concern, not a live defect in the current flow.
+- Self-assignment notifications are intentional.
+- The positive presence-lifecycle note is not a defect.
+
+### Verification approach
+
+- Re-reviewed the newest note set against the current branch instead of assuming the latest push had closed everything
+- Applied the fix at the application/store boundary where the optimistic write is owned
+- Re-ran focused verification:
+  - `pnpm exec eslint lib/store/app-store-internal/slices/work-document-actions.ts tests/lib/store/work-document-actions.test.ts`
+  - `pnpm exec vitest run tests/lib/store/work-document-actions.test.ts`
   - `git diff --check -- . ':!.reviews/'`
