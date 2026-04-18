@@ -417,7 +417,7 @@ export function AppShell({ children }: AppShellProps) {
     projectCreateTeams,
     viewTeams: viewCreateTeams,
     workspaceViewOption:
-      workspace && canEditWorkspace(useAppStore.getState(), workspace.id)
+      workspace && canEditWorkspace(data, workspace.id)
         ? {
             id: workspace.id,
             name: workspace.name,

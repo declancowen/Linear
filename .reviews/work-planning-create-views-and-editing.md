@@ -64,10 +64,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-18 14:22:31 BST` |
-| **Last reviewed** | `2026-04-18 18:40:38 BST` |
-| **Total turns** | `8` |
+| **Last reviewed** | `2026-04-18 19:03:28 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `16` |
+| **Resolved findings** | `18` |
 | **Accepted findings** | `0` |
 
 ---
@@ -491,4 +491,70 @@ Files and areas reviewed across all turns:
 - Re-ran focused verification:
   - `pnpm exec eslint lib/store/app-store-internal/slices/views.ts components/app/screens/create-view-dialog.tsx components/app/screens/project-detail-screen.tsx components/app/screens/work-surface-view.tsx components/app/screens.tsx lib/domain/selectors-internal/work-items.ts lib/domain/types-internal/work.ts tests/lib/store/view-slice.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-item-level.test.ts`
   - `pnpm exec vitest run tests/lib/store/view-slice.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-item-level.test.ts tests/components/work-item-detail-screen.test.tsx tests/lib/store/work-item-actions.test.ts`
+  - `git diff --check -- . ':!.reviews/'`
+
+## Turn 9 — 2026-04-18 19:03:28 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `a4e93c4` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+
+**Summary:** Re-reviewed the newest note set against the current branch. Most of the list was already resolved or intentionally changed in earlier turns. Two live issues remained: the optimistic view-create rollback now also caught reconciliation failures after a successful create, and the shell still had one non-reactive `useAppStore.getState()` permission check for workspace view creation. I fixed both. Everything else in this batch was either stale, already documented as intentional, or a known trade-off rather than a new regression.
+
+| Status | Count |
+|--------|-------|
+| New findings | 2 |
+| Resolved during Turn 9 | 2 |
+| Carried from Turn 8 | 0 |
+| Accepted | 0 |
+
+### Resolved during Turn 9
+
+#### F9-01 ~~[BUG] High~~ → RESOLVED — View-create rollback was also firing on reconciliation refresh failure after a successful create
+**Where:** [lib/store/app-store-internal/slices/views.ts](../lib/store/app-store-internal/slices/views.ts:118), [tests/lib/store/view-slice.test.ts](../tests/lib/store/view-slice.test.ts:118)
+
+**What was wrong:** The new rollback logic correctly handled server-side create failures, but the chained `.catch()` also caught errors thrown by `refreshFromServer()` when the server returned a different persisted ID. In that case the view had already been created successfully on the server, yet the client removed the optimistic view and restored the previous selection as if creation had failed.
+
+**How it was fixed:** [createView](../lib/store/app-store-internal/slices/views.ts:118) now handles post-create reconciliation failures inside the success branch and reports them as a refresh problem without rethrowing into the rollback path. Only a failed `syncCreateView()` call now triggers optimistic rollback. The regression test in [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:118) covers the successful-create / failed-refresh case directly.
+
+**Verified:** Added refresh-failure coverage in [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:118), then ran:
+- `pnpm exec vitest run tests/lib/store/view-slice.test.ts`
+- `pnpm exec eslint lib/store/app-store-internal/slices/views.ts tests/lib/store/view-slice.test.ts`
+
+#### F9-02 ~~[BUG] Low~~ → RESOLVED — Shell still used a non-reactive store snapshot for workspace view-create permissions
+**Where:** [components/app/shell.tsx](../components/app/shell.tsx:420)
+
+**What was wrong:** `buildGlobalCreateActions()` still built `workspaceViewOption` from `canEditWorkspace(useAppStore.getState(), workspace.id)` inside the shell render path. That left one stale permission check in the main create-action surface even after the create-view dialog had been corrected to use reactive selectors.
+
+**How it was fixed:** [AppShell](../components/app/shell.tsx:420) now uses the existing reactive app snapshot (`data`) for the workspace editability check, so the create-action policy no longer mixes reactive and non-reactive permission sources in the same flow.
+
+**Verified:** Covered by focused lint:
+- `pnpm exec eslint components/app/shell.tsx`
+
+### Remaining notes classified
+
+- The older “optimistic view not rolled back on server failure” note is now stale; that rollback path was fixed in Turn 8 and remains covered by [view-slice.test.ts](../tests/lib/store/view-slice.test.ts:167).
+- The project-detail `null` `itemLevel` note is stale; that path was fixed in Turns 6 and 8.
+- The dialog/sheet blur behavior remains an intentional cross-cutting fix for modal focus handoff.
+- The label-route workspace override remains safe because the downstream Convex mutation still enforces editable workspace access.
+- Status-change notifications targeting the assignee are intentional.
+- The main-section save path keeping optimistic draft state until reconciliation is an acceptable trade-off in this UI: the user remains in edit mode with their draft preserved, and the failure path already triggers reconciliation from the server rather than silently committing bad state.
+- The top-level fallback in [getVisibleItemsForView](../lib/domain/selectors-internal/work-items.ts:208) is intentional under the new “highest parent” model, with normalization/defaulting covering the supported view types.
+- `activeCreateDialog` non-persistence is correct-by-design.
+- Workspace view queries including workspace-scoped views are intentional.
+- Offline default status remains intentional.
+- The `CreateViewDialog` `getState()` note is stale; it was fixed in Turn 8.
+- The fallback project-view memoization note is an acceptable minor efficiency trade-off now that the object is memoized; it only re-materializes when its effective layout input changes.
+- The remaining notes about `createDocument`, project scope tightening, title spread order, self-assignment notifications, pending mention retry loss on full unmount, helper filter keys, clone-view filters, hardcoded timestamps, `showCompleted` leakage, and the presence dependency are all already resolved, intentional, or previously classified.
+
+### Verification approach
+
+- Re-reviewed the newest note set against the current branch rather than assuming older comments still applied
+- Applied the fixes in the right boundaries:
+  - optimistic-create success vs rollback paths separated inside the view store slice
+  - workspace create-action permission check aligned with the reactive app snapshot already used elsewhere in the shell
+- Re-ran focused verification:
+  - `pnpm exec eslint lib/store/app-store-internal/slices/views.ts tests/lib/store/view-slice.test.ts components/app/shell.tsx`
+  - `pnpm exec vitest run tests/lib/store/view-slice.test.ts`
   - `git diff --check -- . ':!.reviews/'`

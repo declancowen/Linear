@@ -155,7 +155,14 @@ export function createViewSlice(
         })
           .then(async (result) => {
             if (result?.viewId && result.viewId !== viewId) {
-              await runtime.refreshFromServer()
+              try {
+                await runtime.refreshFromServer()
+              } catch (error) {
+                await runtime.handleSyncFailure(
+                  error,
+                  "View created, but failed to refresh from server"
+                )
+              }
             }
           })
           .catch((error) => {

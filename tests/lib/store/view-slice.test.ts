@@ -185,6 +185,68 @@ describe("view slice", () => {
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
   })
 
+  it("does not roll back the optimistic view when refresh fails after a successful create", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    state.ui.selectedViewByRoute = {
+      "/team/platform/work": "view_existing",
+    }
+    const refreshFromServerMock = vi
+      .fn()
+      .mockRejectedValue(new Error("refresh failed"))
+    const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockResolvedValue({
+      ok: true,
+      viewId: "view_server_1",
+    })
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: refreshFromServerMock,
+        handleSyncFailure: handleSyncFailureMock,
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      route: "/team/platform/work",
+      name: "Delivery view",
+      description: "Tracks delivery work",
+    })
+
+    expect(createdViewId).toBeTruthy()
+
+    await backgroundTask
+
+    expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
+    expect(handleSyncFailureMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      "View created, but failed to refresh from server"
+    )
+    expect(state.views.map((view) => view.id)).toContain(createdViewId)
+    expect(state.ui.selectedViewByRoute["/team/platform/work"]).toBe(createdViewId)
+  })
+
   it("rolls back the optimistic view when server creation fails", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"
