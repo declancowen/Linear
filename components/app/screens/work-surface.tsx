@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
-import { DotsThree, MagnifyingGlass, Plus } from "@phosphor-icons/react"
+import { Plus } from "@phosphor-icons/react"
 
 import {
   canEditTeam,
@@ -143,14 +143,6 @@ export function WorkSurface({
             ) : null}
           </div>
         ) : null}
-        <div className="ml-auto flex items-center gap-0.5">
-          <IconButton aria-label="Search">
-            <MagnifyingGlass className="size-3.5" />
-          </IconButton>
-          <IconButton aria-label="More options">
-            <DotsThree className="size-4" weight="bold" />
-          </IconButton>
-        </div>
       </Topbar>
 
       {activeView ? (

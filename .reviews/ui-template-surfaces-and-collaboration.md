@@ -20,6 +20,7 @@
 Files and areas reviewed across all turns:
 - `components/app/screens/create-work-item-dialog.tsx` — create-work modal surface and property chips
 - `components/app/screens/work-surface-view.tsx` — list/board interaction affordances
+- `components/app/screens/work-surface.tsx` — work surface topbar controls
 - `components/app/screens/work-item-detail-screen.tsx` — work-item detail sidebar rendering
 - `components/app/screens/collection-boards.tsx` — project board visual tokens
 - `components/app/collaboration-screens/channel-ui.tsx` — channel post cards and new-post composer affordances
@@ -33,10 +34,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-19 19:29:09 BST` |
-| **Total turns** | `5` |
+| **Last reviewed** | `2026-04-19 19:39:50 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
-| **Resolved findings** | `9` |
+| **Resolved findings** | `12` |
 | **Accepted findings** | `0` |
 
 ---
@@ -362,3 +363,128 @@ No new findings in this turn.
 ### Recommendations
 
 1. No open findings remain in this review slice after the blocker fixes.
+
+---
+
+## Turn 6 — 2026-04-19 19:37:25 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `03de1e1` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** A fresh batch of PR comments included several items already resolved by the recent blocker-fix commit, plus a mix of observations and new branch-current issues. Three new findings hold up against the current code: label colors in list/board surfaces no longer reflect the actual label model, due dates still render even when the property is hidden, and the main work-surface topbar still contains two dead buttons. The remaining comments in that batch were either already fixed, downgraded to observations, or too speculative to promote without a repro.
+
+| Status | Count |
+|--------|-------|
+| Findings | `3` |
+
+### Findings
+
+#### B6-01 [BUG] Medium — `components/app/screens/work-surface-view.tsx:125` — Label color rendering ignores the actual label color model
+
+**What's happening:**
+`getLabelColor()` hashes the label ID into one of five theme tokens instead of using the actual `label.color` value from app data. Other surfaces in this branch — including the create-work dialog and the work-item sidebar — render labels with `label.color` directly.
+
+**Root cause:**
+The table/board template port introduced a display-only helper based on template palette slots rather than reusing the real label color source already present in the domain model.
+
+**Codebase implication:**
+The same label can render with different colors depending on which surface you view it in. That makes labels visually inconsistent across the product and weakens the usefulness of color as an identifier.
+
+**Solution options:**
+1. **Quick fix:** Replace `getLabelColor(labelId)` with a lookup that returns `label.color` when the label exists.
+2. **Proper fix:** Centralize label-color rendering in a shared helper/component so all surfaces use the same source of truth.
+
+**Investigate:**
+Check whether any other template-derived surfaces also replaced `label.color` with derived palette hashes. If so, fix them together to keep labels consistent product-wide.
+
+> The hash-based helper remains at `work-surface-view.tsx:125-127`, while real label colors are used at `create-work-item-dialog.tsx:1246` and `work-item-detail-screen.tsx:462`.
+
+#### B6-02 [BUG] Medium — `components/app/screens/work-surface-view.tsx:766` — Due-date cell ignores the active property selection
+
+**What's happening:**
+List rows still render the due-date cell whenever an item has a date, even if `dueDate` has been removed from the active `displayProps`.
+
+**Root cause:**
+The template row structure made the due-date slot unconditional, but the property-toggle behavior from the original work surface was not carried over to that cell.
+
+**Codebase implication:**
+The Properties control no longer matches what the list actually renders. Users can disable due dates in the view config and still see dates (or the placeholder dash) in every row, which makes the configuration UI unreliable.
+
+**Solution options:**
+1. **Quick fix:** Guard the due-date cell with `displayProps.includes("dueDate")` and keep the row layout aligned with an empty spacer when hidden.
+2. **Proper fix:** Derive the row cells from a single display-property-driven layout model so column visibility and rendered cells cannot drift apart.
+
+**Investigate:**
+Check whether the board card metadata area and any timeline/list variants have similar unconditional due-date rendering now that the template layouts are in place.
+
+> The unconditional due-date branch remains at `work-surface-view.tsx:766-779`.
+
+#### B6-03 [BUG] Medium — `components/app/screens/work-surface.tsx:147` — Main work-surface topbar still contains dead interactive controls
+
+**What's happening:**
+The topbar renders `Search` and `More options` as clickable icon buttons, but neither has an `onClick` handler or any wired behavior.
+
+**Root cause:**
+The template topbar chrome was ported directly into the live work surface without mapping those controls to current product functionality.
+
+**Codebase implication:**
+This reintroduces the same kind of dead affordance the earlier cleanup removed from create/chat/channel surfaces. On a primary screen, those inert buttons look like broken functionality rather than harmless decoration.
+
+**Solution options:**
+1. **Quick fix:** Remove the buttons until real actions exist.
+2. **Proper fix:** Wire them to actual work-surface search and overflow actions once the underlying product behavior exists.
+
+**Investigate:**
+Search the other template-ported topbars for similar inert icon buttons. The same pattern may exist in sibling surfaces.
+
+> The inert topbar controls remain at `work-surface.tsx:147-151`.
+
+### Notes on external comments
+
+The following comments were reviewed but not promoted to findings in this turn:
+- `collection-boards.tsx` undefined CSS variables — already fixed in the current branch
+- `work-item-detail-screen.tsx` raw `dangerouslySetInnerHTML` — already fixed in the current branch
+- `create-work-item-dialog.tsx` hand-maintained shortcut deps — still a maintenance smell, but the correctness bug previously tracked as `B4-03` is resolved
+- `project-creation.tsx` duplicated create logic in the keyboard shortcut — maintainability issue, not a current correctness bug
+- `collapsible-right-sidebar.tsx` unmounting children on close — intentional behavior tradeoff and not a correctness bug by itself
+- `collection-boards.tsx` stacked progress bars — visual/design observation
+- `work-surface-view.tsx` whole-card drag target and click interference — plausible UX risk, but still needs an actual repro before promotion to a branch-current bug
+- `work-surface-view.tsx` O(n²) child-count scans — performance observation worth future cleanup, but not a blocker for this diff without evidence of user-visible slowdown
+
+### Recommendations
+
+1. **Fix next:** Restore real label colors in `work-surface-view.tsx` and make due-date rendering respect `displayProps`.
+2. **Then fix:** Remove or wire the dead `Search` / `More options` buttons in `work-surface.tsx`.
+3. **After that:** Re-run this review slice to confirm the work-surface surfaces are back to 0 open findings.
+
+---
+
+## Turn 7 — 2026-04-19 19:39:50 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `03de1e1` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The three work-surface findings from Turn 6 are now resolved in the working tree. Label chips in list and board views use the actual label model color again, due-date rendering is gated by `displayProps`, and the inert `Search` / `More options` topbar buttons have been removed. A focused rerun of the review slice did not uncover any additional open findings.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B6-01` Resolved — `work-surface-view.tsx` now uses `label.color` for label chip dots in both list and board surfaces.
+- `B6-02` Resolved — due-date rendering in `work-surface-view.tsx` now respects `displayProps.includes("dueDate")`.
+- `B6-03` Resolved — the inert `Search` and `More options` buttons were removed from `work-surface.tsx`.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain in this review slice after the work-surface cleanup.

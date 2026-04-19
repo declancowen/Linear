@@ -114,18 +114,6 @@ function buildGroupedWorkItemPatch({
   }
 }
 
-function hashLabelIndex(id: string) {
-  let hash = 0
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (hash * 31 + id.charCodeAt(i)) | 0
-  }
-  return Math.abs(hash) % 5
-}
-
-function getLabelColor(labelId: string) {
-  return `var(--label-${hashLabelIndex(labelId) + 1})`
-}
-
 function countChildItems(data: AppData, item: WorkItem) {
   return data.workItems.filter((entry) => entry.parentId === item.id).length
 }
@@ -744,7 +732,7 @@ function ListRowBody({
                 <span
                   aria-hidden
                   className="size-[7px] rounded-full"
-                  style={{ background: getLabelColor(labelId) }}
+                  style={{ background: label.color }}
                 />
                 {label.name}
               </span>
@@ -763,22 +751,24 @@ function ListRowBody({
       ) : (
         <span aria-hidden className="size-3.5 shrink-0" />
       )}
-      {dueDate ? (
-        <span
-          className={cn(
-            "shrink-0 text-[12px] tabular-nums",
-            isOverdue && "text-[color:var(--priority-urgent)]",
-            !isOverdue && isSoon && "text-[color:var(--priority-high)]",
-            !isOverdue && !isSoon && "text-fg-3"
-          )}
-        >
-          {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
-        </span>
-      ) : (
-        <span aria-hidden className="shrink-0 text-[12px] text-fg-4">
-          —
-        </span>
-      )}
+      {displayProps.includes("dueDate") ? (
+        dueDate ? (
+          <span
+            className={cn(
+              "shrink-0 text-[12px] tabular-nums",
+              isOverdue && "text-[color:var(--priority-urgent)]",
+              !isOverdue && isSoon && "text-[color:var(--priority-high)]",
+              !isOverdue && !isSoon && "text-fg-3"
+            )}
+          >
+            {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
+          </span>
+        ) : (
+          <span aria-hidden className="shrink-0 text-[12px] text-fg-4">
+            —
+          </span>
+        )
+      ) : null}
       {displayProps.includes("assignee") ? (
         assignee ? (
           <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
@@ -1084,7 +1074,7 @@ function BoardCardBody({
                     <span
                       aria-hidden
                       className="size-[7px] rounded-full"
-                      style={{ background: getLabelColor(labelId) }}
+                      style={{ background: label.color }}
                     />
                     {label.name}
                   </span>
@@ -1097,21 +1087,23 @@ function BoardCardBody({
               <ListBullets className="size-3" />
               {subCount > 0 ? `${doneSubCount}/${subCount}` : "0"}
             </span>
-            {dueDate ? (
-              <span
-                className={cn(
-                  "ml-auto inline-flex items-center gap-1 tabular-nums",
-                  isOverdue && "text-[color:var(--priority-urgent)]",
-                  !isOverdue && isSoon && "text-[color:var(--priority-high)]"
-                )}
-              >
-                {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
-              </span>
-            ) : (
-              <span aria-hidden className="ml-auto text-fg-4">
-                —
-              </span>
-            )}
+            {displayProps.includes("dueDate") ? (
+              dueDate ? (
+                <span
+                  className={cn(
+                    "ml-auto inline-flex items-center gap-1 tabular-nums",
+                    isOverdue && "text-[color:var(--priority-urgent)]",
+                    !isOverdue && isSoon && "text-[color:var(--priority-high)]"
+                  )}
+                >
+                  {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
+                </span>
+              ) : (
+                <span aria-hidden className="ml-auto text-fg-4">
+                  —
+                </span>
+              )
+            ) : null}
             {assignee ? (
               <WorkItemAssigneeAvatar user={assignee} className="size-5" />
             ) : (
