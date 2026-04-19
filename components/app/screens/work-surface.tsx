@@ -206,8 +206,19 @@ export function WorkSurface({
             ) : null}
           </>
         ) : (
-          <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
-            {emptyLabel}
+          <div className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-muted-foreground">
+            <div>{emptyLabel}</div>
+            {createTeamId ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 px-2.5 text-[12px]"
+                onClick={handleCreateWorkItem}
+              >
+                <Plus className="size-3.5" />
+                New
+              </Button>
+            ) : null}
           </div>
         )}
         {activeView && visibleItems.length === 0 ? (

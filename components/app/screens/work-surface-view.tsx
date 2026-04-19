@@ -20,6 +20,7 @@ import {
   DotsSixVertical,
   DotsThree,
   Flame,
+  FolderSimple,
   ListBullets,
   TreeStructure,
 } from "@phosphor-icons/react"
@@ -27,6 +28,7 @@ import {
 import {
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
+  getProject,
   getTeam,
   getUser,
 } from "@/lib/domain/selectors"
@@ -701,6 +703,8 @@ function ListRowBody({
     : null
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
+  const project = getProject(data, item.primaryProjectId)
+  const showProject = displayProps.includes("project") && Boolean(project)
   const showLabels = displayProps.includes("labels") && item.labelIds.length > 0
   const labelsToShow = showLabels ? item.labelIds.slice(0, 2) : []
   const labelLookup = data.labels
@@ -716,8 +720,14 @@ function ListRowBody({
       <div className="min-w-0" style={{ paddingLeft: depth * 16 }}>
         <div className="truncate text-[13px] text-foreground">{item.title}</div>
       </div>
-      {showLabels ? (
+      {showProject || showLabels ? (
         <div className="hidden shrink-0 items-center gap-1 md:flex">
+          {showProject ? (
+            <span className="inline-flex h-5 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2">
+              <FolderSimple className="size-[11px]" />
+              <span className="max-w-[120px] truncate">{project?.name}</span>
+            </span>
+          ) : null}
           {labelsToShow.map((labelId) => {
             const label = labelLookup.find((entry) => entry.id === labelId)
             if (!label) {
@@ -768,7 +778,11 @@ function ListRowBody({
             —
           </span>
         )
-      ) : null}
+      ) : (
+        <span aria-hidden className="shrink-0 text-[12px] text-transparent">
+          —
+        </span>
+      )}
       {displayProps.includes("assignee") ? (
         assignee ? (
           <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
@@ -994,10 +1008,24 @@ function DraggableWorkCard({
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(isDragging ? "opacity-60" : "opacity-100")}
-      {...listeners}
-      {...attributes}
     >
-      <BoardCardBody data={data} item={item} displayProps={displayProps} details={details} />
+      <BoardCardBody
+        data={data}
+        item={item}
+        displayProps={displayProps}
+        details={details}
+        dragHandle={
+          <button
+            type="button"
+            aria-label={`Drag ${item.title}`}
+            className="inline-grid size-5 place-items-center rounded-sm text-fg-4 transition-colors hover:bg-surface-3 hover:text-foreground"
+            {...listeners}
+            {...attributes}
+          >
+            <DotsSixVertical className="size-3.5" />
+          </button>
+        }
+      />
     </div>
   )
 }
@@ -1007,11 +1035,13 @@ function BoardCardBody({
   item,
   displayProps,
   details,
+  dragHandle,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   details?: ReactNode
+  dragHandle?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDate = item.dueDate ? new Date(item.dueDate) : null
@@ -1021,6 +1051,8 @@ function BoardCardBody({
     : null
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
+  const project = getProject(data, item.primaryProjectId)
+  const showProject = displayProps.includes("project") && Boolean(project)
   const labelIds =
     displayProps.includes("labels") ? item.labelIds.slice(0, 3) : []
   const labelLookup = data.labels
@@ -1028,12 +1060,13 @@ function BoardCardBody({
   const doneSubCount = data.workItems.filter(
     (entry) => entry.parentId === item.id && entry.status === "done"
   ).length
-  const showMeta = labelIds.length > 0
+  const showMeta = showProject || labelIds.length > 0
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div className="group/card flex cursor-grab flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
+      <div className="group/card flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
         <div className="flex items-center gap-2 text-[11.5px] text-fg-3">
+          {dragHandle ?? null}
           <span className="font-mono tracking-[0.01em]">{item.key}</span>
           <div className="ml-auto flex items-center gap-1">
             {item.priority !== "none" ? (
@@ -1061,6 +1094,12 @@ function BoardCardBody({
           </div>
           {showMeta ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
+              {showProject ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5 text-fg-2">
+                  <FolderSimple className="size-[11px]" />
+                  <span className="max-w-[140px] truncate">{project?.name}</span>
+                </span>
+              ) : null}
               {labelIds.map((labelId) => {
                 const label = labelLookup.find(
                   (entry) => entry.id === labelId
