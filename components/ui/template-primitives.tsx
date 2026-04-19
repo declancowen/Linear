@@ -82,7 +82,7 @@ export function StatusRing({
       <span
         aria-hidden
         className={cn(
-          "inline-block size-3 shrink-0 rounded-full border-[1.5px]",
+          "inline-block size-[11px] shrink-0 rounded-full border-[1.25px]",
           className
         )}
         style={{

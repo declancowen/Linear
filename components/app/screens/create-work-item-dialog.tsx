@@ -3,23 +3,15 @@
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
-  At,
   CalendarBlank,
   CaretDown,
   Check,
-  Circle,
   Clock,
   Flag,
-  Flame,
   FolderSimple,
-  Link as LinkIcon,
-  ListBullets,
   MagnifyingGlass,
-  Paperclip,
   Plus,
   Tag,
-  TextB,
-  TextItalic,
   TreeStructure,
   X,
 } from "@phosphor-icons/react"
@@ -69,7 +61,11 @@ import {
   PropertyPopoverSearch,
 } from "@/components/ui/template-primitives"
 import { Textarea } from "@/components/ui/textarea"
-import { PriorityDot, StatusIcon } from "@/components/app/screens/shared"
+import {
+  PriorityDot,
+  PriorityIcon,
+  StatusIcon,
+} from "@/components/app/screens/shared"
 import {
   formatInlineDescriptionContent,
   getPreferredCreateDialogType,
@@ -140,33 +136,6 @@ const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
 const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
 const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
 
-const PRIORITY_TOKEN: Record<Priority, string> = {
-  urgent: "var(--priority-urgent)",
-  high: "var(--priority-high)",
-  medium: "var(--priority-medium)",
-  low: "var(--priority-low)",
-  none: "var(--text-3)",
-}
-
-function PriorityIcon({ priority }: { priority: Priority }) {
-  if (priority === "none") {
-    return (
-      <Circle
-        className="size-[14px] shrink-0"
-        style={{ color: PRIORITY_TOKEN.none }}
-      />
-    )
-  }
-
-  return (
-    <Flame
-      className="size-[14px] shrink-0"
-      weight="fill"
-      style={{ color: PRIORITY_TOKEN[priority] }}
-    />
-  )
-}
-
 function matchesQuery(value: string, query: string) {
   if (!query) {
     return true
@@ -182,9 +151,6 @@ const chipTriggerDashedClass =
 
 const crumbTriggerClass =
   "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
-
-const toolbarIconClass =
-  "inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
 
 function KbdHint({
   className,
@@ -319,7 +285,6 @@ export function CreateWorkItemDialog({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [newLabelName, setNewLabelName] = useState("")
   const [creatingLabel, setCreatingLabel] = useState(false)
-  const [createAnother, setCreateAnother] = useState(false)
   const selectedProject =
     projectId === "none"
       ? null
@@ -389,27 +354,6 @@ export function CreateWorkItemDialog({
         ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
   const teamDotColor = getTeamDotColor(team?.id ?? null)
-
-  function resetFormFields(nextTeam = team) {
-    const nextStatuses = getStatusOrderForTeam(nextTeam)
-    const nextTemplate = getDefaultTemplateTypeForTeamExperience(
-      nextTeam?.settings.experience
-    )
-    setTitle("")
-    setDescription("")
-    setStatus(
-      nextStatuses.includes("todo") ? "todo" : (nextStatuses[0] ?? "backlog")
-    )
-    setPriority(
-      getTemplateDefaultsForTeam(nextTeam, nextTemplate).defaultPriority
-    )
-    setAssigneeId("none")
-    setProjectId("none")
-    setSelectedParentId("none")
-    setSelectedLabelIds([])
-    setNewLabelName("")
-    setCreatingLabel(false)
-  }
 
   function syncTeamSelection(nextTeamId: string) {
     const nextTeam =
@@ -505,11 +449,6 @@ export function CreateWorkItemDialog({
         )
     }
 
-    if (createAnother) {
-      resetFormFields()
-      return
-    }
-
     onOpenChange(false)
   }
 
@@ -544,7 +483,6 @@ export function CreateWorkItemDialog({
     selectedLabelIds,
     assigneeId,
     effectiveProjectId,
-    createAnother,
   ])
 
   return (
@@ -735,29 +673,6 @@ export function CreateWorkItemDialog({
             className="mt-0.5 min-h-[60px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
           />
 
-          <div className="flex items-center gap-0.5 pt-1 pb-2 text-fg-3">
-            <button type="button" className={toolbarIconClass} disabled aria-label="Bold">
-              <TextB className="size-[13px]" />
-            </button>
-            <button type="button" className={toolbarIconClass} disabled aria-label="Italic">
-              <TextItalic className="size-[13px]" />
-            </button>
-            <button type="button" className={toolbarIconClass} disabled aria-label="List">
-              <ListBullets className="size-[13px]" />
-            </button>
-            <button type="button" className={toolbarIconClass} disabled aria-label="Mention">
-              <At className="size-[13px]" />
-            </button>
-            <button type="button" className={toolbarIconClass} disabled aria-label="Link">
-              <LinkIcon className="size-[13px]" />
-            </button>
-            <button type="button" className={toolbarIconClass} disabled aria-label="Attach">
-              <Paperclip className="size-[13px]" />
-            </button>
-            <span className="ml-auto text-[11.5px] text-fg-4">
-              Markdown supported
-            </span>
-          </div>
         </div>
 
         {/* Props row */}
@@ -867,10 +782,6 @@ export function CreateWorkItemDialog({
               </PropertyPopoverList>
               <PropertyPopoverFoot>
                 <span>↑↓ to navigate · ↵ to select</span>
-                <span className="inline-flex items-center gap-1">
-                  <KbdHint className="ml-0">S</KbdHint>
-                  shortcut
-                </span>
               </PropertyPopoverFoot>
             </PopoverContent>
           </Popover>
@@ -1477,15 +1388,6 @@ export function CreateWorkItemDialog({
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-fg-3 select-none">
-              <input
-                type="checkbox"
-                checked={createAnother}
-                onChange={(event) => setCreateAnother(event.target.checked)}
-                className="size-3.5 rounded border-line accent-[color:var(--accent-fg)]"
-              />
-              Create another
-            </label>
             <Button
               variant="ghost"
               size="sm"

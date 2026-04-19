@@ -450,7 +450,7 @@ export function CreateViewDialog({
               disabled={!canCreate || creating}
               onClick={handleCreate}
             >
-              Create view <KbdHint className="bg-[oklch(0.32_0_0)] text-background border-[oklch(0.38_0_0)]">⌘⏎</KbdHint>
+              Create view
             </Button>
           </div>
         </div>

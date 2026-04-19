@@ -39,7 +39,7 @@ export function CollapsibleRightSidebar({
         style={{ width }}
         {...props}
       >
-        {children}
+        {open ? children : null}
       </aside>
     </div>
   )

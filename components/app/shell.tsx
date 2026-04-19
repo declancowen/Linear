@@ -200,7 +200,7 @@ function SidebarInsetResizeHandle() {
       type="button"
       aria-label="Resize sidebar"
       onPointerDown={handlePointerDown}
-      className="absolute inset-y-0 left-0 z-30 hidden w-8 cursor-col-resize touch-none bg-transparent outline-hidden select-none peer-data-[state=collapsed]:hidden md:block"
+      className="absolute inset-y-0 left-0 z-30 hidden w-4 -translate-x-1/2 cursor-col-resize touch-none bg-transparent outline-hidden select-none peer-data-[state=collapsed]:hidden md:block"
     />
   )
 }

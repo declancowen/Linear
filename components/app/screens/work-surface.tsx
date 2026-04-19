@@ -178,9 +178,6 @@ export function WorkSurface({
             >
               <Plus className="size-3.5" />
               New
-              <kbd className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] border border-white/20 bg-white/10 px-1 text-[10px] font-medium text-primary-foreground/90">
-                N
-              </kbd>
             </Button>
           </div>
         </Viewbar>

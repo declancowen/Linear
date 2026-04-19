@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState, type ReactNode } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
-  At,
   CalendarBlank,
   CaretDown,
   CaretRight,
@@ -15,14 +14,10 @@ import {
   Flag,
   FolderSimple,
   LinkSimple,
-  ListBullets,
-  Paperclip,
   PaperPlaneTilt,
   Plus,
   SidebarSimple,
   Tag,
-  TextB,
-  TextItalic,
   Trash,
   X,
 } from "@phosphor-icons/react"
@@ -101,7 +96,7 @@ import {
 import {
   MissingState,
   PROPERTY_SELECT_SEPARATOR_VALUE,
-  PriorityDot,
+  PriorityIcon,
   StatusIcon,
   buildPropertyStatusOptions,
 } from "./shared"
@@ -143,9 +138,6 @@ function isAlreadyDeliveredMentionConflict(error: unknown) {
 }
 
 const detailIconButtonClassName =
-  "inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-
-const detailToolbarButtonClassName =
   "inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
 
 const detailPropertyValueClassName =
@@ -733,26 +725,9 @@ function DetailSidebarActivity({
           placeholder="Leave a comment…"
           className="min-h-10 w-full resize-none border-0 bg-transparent text-[13px] leading-[1.55] outline-none placeholder:text-fg-4 disabled:cursor-not-allowed"
         />
-        <div className="mt-1.5 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5">
-          <button type="button" disabled className={detailToolbarButtonClassName} aria-label="Bold">
-            <TextB className="size-[13px]" />
-          </button>
-          <button type="button" disabled className={detailToolbarButtonClassName} aria-label="Italic">
-            <TextItalic className="size-[13px]" />
-          </button>
-          <button type="button" disabled className={detailToolbarButtonClassName} aria-label="List">
-            <ListBullets className="size-[13px]" />
-          </button>
-          <button type="button" disabled className={detailToolbarButtonClassName} aria-label="Mention">
-            <At className="size-[13px]" />
-          </button>
-          <button type="button" disabled className={detailToolbarButtonClassName} aria-label="Attach">
-            <Paperclip className="size-[13px]" />
-          </button>
-          <span className="ml-auto text-[11.5px] text-fg-4">⌘⏎</span>
+        <div className="mt-1.5 flex items-center justify-end border-t border-dashed border-line pt-1.5">
           <Button
             size="sm"
-            className="ml-1"
             disabled={!editable || content.trim().length === 0}
             onClick={() => {
               useAppStore
@@ -1356,12 +1331,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         </div>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div
-            className={cn(
-              "min-w-0 flex-1 overflow-y-auto transition-opacity duration-200",
-              propertiesOpen && "pointer-events-none opacity-[0.55] select-none"
-            )}
-          >
+          <div className="min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl px-8 py-8">
               {parentItem ? (
                 <Link
@@ -1570,14 +1540,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             className="border-l border-line bg-surface"
           >
             <div className="flex items-center gap-1 border-b border-line-soft px-3 py-2">
-              <button
-                type="button"
-                className={detailIconButtonClassName}
-                aria-label="Sidebar options"
-                disabled
-              >
-                <CaretDown className="size-[14px]" />
-              </button>
               <span className="mr-2 font-mono text-[12px] text-fg-3">
                 {currentItem.key}
               </span>
@@ -1661,13 +1623,17 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   options={statusOptions}
                   renderValue={(value, optionLabel) => (
                     <div className="flex min-w-0 items-center gap-2">
-                      <StatusIcon status={value} />
+                      <span className="inline-grid size-3.5 shrink-0 place-items-center">
+                        <StatusIcon status={value} />
+                      </span>
                       <span className="truncate">{optionLabel}</span>
                     </div>
                   )}
                   renderOption={(value, optionLabel) => (
                     <div className="flex items-center gap-2">
-                      <StatusIcon status={value} />
+                      <span className="inline-grid size-3.5 shrink-0 place-items-center">
+                        <StatusIcon status={value} />
+                      </span>
                       <span>{optionLabel}</span>
                     </div>
                   )}
@@ -1688,13 +1654,13 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   }))}
                   renderValue={(value, optionLabel) => (
                     <div className="flex min-w-0 items-center gap-2">
-                      <PriorityDot priority={value} />
+                      <PriorityIcon priority={value as Priority} />
                       <span className="truncate">{optionLabel}</span>
                     </div>
                   )}
                   renderOption={(value, optionLabel) => (
                     <div className="flex items-center gap-2">
-                      <PriorityDot priority={value} />
+                      <PriorityIcon priority={value as Priority} />
                       <span>{optionLabel}</span>
                     </div>
                   )}

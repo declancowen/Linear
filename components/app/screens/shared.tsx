@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react"
-import { GearSix, Kanban, CaretDown, CaretRight, Rows, CheckCircle, Circle, XCircle, CodesandboxLogo, NotePencil } from "@phosphor-icons/react"
+import { GearSix, Kanban, CaretDown, CaretRight, Rows, CheckCircle, Circle, XCircle, CodesandboxLogo, NotePencil, Flame } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
 import { getLabelsForTeamScope } from "@/lib/domain/selectors"
@@ -231,14 +231,16 @@ export function StatusIcon({ status }: { status: string }) {
   }
   if (statusLower === "in-progress" || statusLower === "in progress") {
     return (
-      <span
-        aria-hidden
-        className="inline-block size-3.5 shrink-0 rounded-full border-[1.5px] border-status-doing"
-        style={{
-          background:
-            "conic-gradient(var(--status-doing) 0 65%, transparent 65% 100%)",
-        }}
-      />
+      <span className="inline-grid size-3.5 shrink-0 place-items-center">
+        <span
+          aria-hidden
+          className="inline-block size-[11px] rounded-full border-[1.25px] border-status-doing"
+          style={{
+            background:
+              "conic-gradient(var(--status-doing) 0 50%, transparent 50% 100%)",
+          }}
+        />
+      </span>
     )
   }
   if (statusLower === "in-review" || statusLower === "in review") {
@@ -259,6 +261,33 @@ export function StatusIcon({ status }: { status: string }) {
   }
 
   return <Circle className="size-3.5 shrink-0 text-status-backlog/70" />
+}
+
+const PRIORITY_ICON_TOKEN: Record<Priority, string> = {
+  urgent: "var(--priority-urgent)",
+  high: "var(--priority-high)",
+  medium: "var(--priority-medium)",
+  low: "var(--priority-low)",
+  none: "var(--text-3)",
+}
+
+export function PriorityIcon({ priority }: { priority: Priority }) {
+  if (priority === "none") {
+    return (
+      <Circle
+        className="size-[14px] shrink-0"
+        style={{ color: PRIORITY_ICON_TOKEN.none }}
+      />
+    )
+  }
+
+  return (
+    <Flame
+      className="size-[14px] shrink-0"
+      weight="fill"
+      style={{ color: PRIORITY_ICON_TOKEN[priority] }}
+    />
+  )
 }
 
 export function buildPropertyStatusOptions(statuses: WorkStatus[]) {
