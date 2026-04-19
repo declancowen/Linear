@@ -288,7 +288,7 @@ export function CreateViewDialog({
     >
       <DialogContent
         showCloseButton={false}
-        className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:max-w-[640px]"
+        className="top-[42%] max-h-[calc(100vh-2rem)] gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[40%] sm:max-w-[640px]"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>New view</DialogTitle>
