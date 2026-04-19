@@ -456,6 +456,7 @@ export function WorkspaceChatsScreen() {
             title={activeChat?.title ?? "Chat"}
             description={activeChat?.description || "Workspace conversation"}
             members={members}
+            heroMember={welcomeParticipant}
           />
         </div>
       )}
@@ -471,6 +472,7 @@ export function WorkspaceChatsScreen() {
               title={activeChat?.title ?? "Chat"}
               description={activeChat?.description || "Workspace conversation"}
               members={members}
+              heroMember={welcomeParticipant}
             />
           </ScrollArea>
         </SheetContent>

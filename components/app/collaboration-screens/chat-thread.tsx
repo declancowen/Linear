@@ -5,7 +5,10 @@ import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ArrowSquareOut,
+  At,
+  Link as LinkIcon,
   PaperPlaneTilt,
+  Paperclip,
   Smiley,
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
@@ -31,8 +34,10 @@ import {
 } from "@/components/app/collaboration-screens/shared-ui"
 import {
   buildCallJoinHref,
+  formatDayDivider,
   formatTimestamp,
   getChatMessageMarkup,
+  getLocalDayKey,
   parseCallInviteMessage,
 } from "@/components/app/collaboration-screens/utils"
 import { Button } from "@/components/ui/button"
@@ -76,8 +81,8 @@ function ChatComposer({
   }
 
   return (
-    <div className="px-4 py-3">
-      <div className="flex min-h-[2.75rem] items-end gap-2 rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+    <div className="px-4 pt-2.5 pb-3.5">
+      <div className="rounded-md border border-line bg-surface px-3 pt-2 pb-1.5 transition-colors focus-within:border-fg-3">
         <RichTextEditor
           key={composerKey}
           content={content}
@@ -94,37 +99,63 @@ function ChatComposer({
           mentionCandidates={filteredMentionCandidates}
           onSubmitShortcut={handleSend}
           submitOnEnter
-          className="min-w-0 flex-1 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.5rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-5 [&_.ProseMirror]:outline-none"
+          className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
         />
-        <div className="flex shrink-0 items-center gap-1.5">
-          {action ?? null}
+        <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
+          <button
+            type="button"
+            disabled
+            aria-label="Attach"
+            className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+          >
+            <Paperclip className="size-[13px]" />
+          </button>
           <EmojiPickerPopover
-            align="end"
+            align="start"
             side="top"
             onEmojiSelect={handleInsertEmoji}
             trigger={
               <button
                 type="button"
                 disabled={!editable}
-                className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                aria-label="Emoji"
+                className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
               >
-                <Smiley className="size-4" />
+                <Smiley className="size-[13px]" />
               </button>
             }
           />
           <button
             type="button"
+            disabled
+            aria-label="Mention"
+            className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+          >
+            <At className="size-[13px]" />
+          </button>
+          <button
+            type="button"
+            disabled
+            aria-label="Link item"
+            className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+          >
+            <LinkIcon className="size-[13px]" />
+          </button>
+          <span className="flex-1" />
+          {action ? <span className="shrink-0">{action}</span> : null}
+          <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
+            ⏎
+          </kbd>
+          <Button
+            type="button"
+            size="sm"
             onClick={handleSend}
             disabled={!editable || !contentText}
-            className={cn(
-              "flex size-7 items-center justify-center rounded-full transition-colors",
-              editable && contentText
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground/50"
-            )}
+            className="h-7 gap-1.5 rounded-md px-2.5 text-[12px]"
           >
-            <ArrowUp className="size-3.5" weight="bold" />
-          </button>
+            <ArrowUp className="size-3" weight="bold" />
+            Send
+          </Button>
         </div>
       </div>
       {!editable && disabledReason ? (
@@ -446,6 +477,11 @@ export function ChatThread({
                 const prevMessage = messages[idx - 1]
                 const nextMessage = messages[idx + 1]
                 const isCurrentUser = message.createdBy === currentUserId
+                const dayKey = getLocalDayKey(message.createdAt)
+                const prevDayKey = prevMessage
+                  ? getLocalDayKey(prevMessage.createdAt)
+                  : null
+                const showDayDivider = dayKey !== prevDayKey
                 const legacyCallInvite =
                   message.callId || message.kind === "call"
                     ? null
@@ -470,6 +506,7 @@ export function ChatThread({
                     parseCallInviteMessage(nextMessage.content))
                 )
                 const groupedWithPrev =
+                  !showDayDivider &&
                   !isCallMessage &&
                   !prevIsCall &&
                   prevMessage?.createdBy === message.createdBy &&
@@ -485,12 +522,30 @@ export function ChatThread({
                     5 * 60_000
 
                 return (
-                  <div
-                    key={message.id}
+                  <div key={message.id}>
+                    {showDayDivider ? (
+                      <div
+                        className={cn(
+                          "flex items-center gap-2.5 px-4 pb-1 text-[11.5px] text-fg-3",
+                          idx === 0 ? "pt-1" : "pt-3"
+                        )}
+                      >
+                        <span
+                          aria-hidden
+                          className="h-px flex-1 bg-line-soft"
+                        />
+                        <span>{formatDayDivider(message.createdAt)}</span>
+                        <span
+                          aria-hidden
+                          className="h-px flex-1 bg-line-soft"
+                        />
+                      </div>
+                    ) : null}
+                    <div
                     className={cn(
                       "group/msg grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
                       groupedWithPrev ? "py-0" : "py-0.5",
-                      idx > 0 && !groupedWithPrev && "mt-2"
+                      !showDayDivider && idx > 0 && !groupedWithPrev && "mt-2"
                     )}
                     style={{ gridTemplateColumns: "32px 1fr" }}
                   >
@@ -553,6 +608,7 @@ export function ChatThread({
                           className="max-w-full text-[13.5px] leading-[1.55] text-foreground [overflow-wrap:anywhere] break-words [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
                         />
                       )}
+                    </div>
                     </div>
                   </div>
                 )

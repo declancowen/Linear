@@ -83,11 +83,13 @@ export function SurfaceSidebarContent({
   title,
   description,
   members,
+  heroMember,
 }: {
   label?: string
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
+  heroMember?: ReturnType<typeof getConversationParticipants>[number] | null
 }) {
   const {
     currentUserId,
@@ -107,25 +109,70 @@ export function SurfaceSidebarContent({
     }))
   )
 
+  const heroView = heroMember
+    ? buildWorkspaceUserPresenceView(
+        heroMember,
+        !currentWorkspaceId
+          ? "unknown"
+          : hasWorkspaceAccessInCollections(
+                workspaces,
+                workspaceMemberships,
+                teams,
+                teamMemberships,
+                currentWorkspaceId,
+                heroMember.id
+              )
+            ? "active"
+            : "former"
+      )
+    : null
+
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div className={cn(!label && "border-b pb-4")}>
-        {label ? (
-          <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-            {label}
-          </h3>
-        ) : null}
-        <p className={cn("text-sm font-medium", label && "mt-2")}>{title}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {description}
-        </p>
+    <div className="flex flex-col">
+      <div className="border-b border-line-soft px-4 py-3.5">
+        <h3 className="text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
+          {label ?? (heroMember ? "Details" : "About")}
+        </h3>
       </div>
 
-      <div className={cn(!label && "pt-0.5")}>
-        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+      {heroMember ? (
+        <div className="flex flex-col items-center gap-2 border-b border-line-soft px-4 py-5 text-center">
+          <UserAvatar
+            name={heroView?.name ?? heroMember.name}
+            avatarImageUrl={heroView?.avatarImageUrl}
+            avatarUrl={heroView?.avatarUrl}
+            status={heroView?.status ?? undefined}
+            showStatus={!heroView?.isFormerMember}
+            size="lg"
+            className="size-14 text-[18px]"
+          />
+          <div>
+            <div className="text-[15px] font-semibold text-foreground">
+              {heroView?.name ?? heroMember.name ?? title}
+            </div>
+            {description ? (
+              <div className="mt-0.5 text-[12px] text-fg-3">
+                {description}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="border-b border-line-soft px-4 py-3.5">
+          <p className="text-[13px] font-semibold text-foreground">{title}</p>
+          {description ? (
+            <p className="mt-1 text-[12px] leading-relaxed text-fg-3">
+              {description}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <div className="px-4 py-3.5">
+        <h4 className="mb-1.5 text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
           Members · {members.length}
-        </h3>
-        <div className="mt-3 flex flex-col gap-0.5">
+        </h4>
+        <div className="flex flex-col gap-0.5">
           {members.map((member) => {
             const displayMember = buildWorkspaceUserPresenceView(
               member,
@@ -142,6 +189,7 @@ export function SurfaceSidebarContent({
                   ? "active"
                   : "former"
             )
+            const isSelf = member.id === currentUserId
 
             return (
               <UserHoverCard
@@ -152,7 +200,7 @@ export function SurfaceSidebarContent({
                 currentUserId={currentUserId}
                 workspaceId={currentWorkspaceId}
               >
-                <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50">
+                <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-surface-2">
                   <div className="shrink-0">
                     <UserAvatar
                       name={displayMember?.name ?? member.name}
@@ -160,18 +208,22 @@ export function SurfaceSidebarContent({
                       avatarUrl={displayMember?.avatarUrl}
                       status={displayMember?.status ?? undefined}
                       showStatus={!displayMember?.isFormerMember}
+                      size="sm"
                     />
                   </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12.5px] text-foreground">
                       {displayMember?.name ?? member.name}
                     </div>
                     {displayMember?.secondaryText ? (
-                      <div className="truncate text-[11px] text-muted-foreground">
+                      <div className="truncate text-[11px] text-fg-3">
                         {displayMember.secondaryText}
                       </div>
                     ) : null}
                   </div>
+                  {isSelf ? (
+                    <span className="shrink-0 text-[11px] text-fg-3">You</span>
+                  ) : null}
                 </div>
               </UserHoverCard>
             )
@@ -187,23 +239,27 @@ export function MembersSidebar({
   title,
   description,
   members,
+  heroMember,
 }: {
   open: boolean
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
+  heroMember?: ReturnType<typeof getConversationParticipants>[number] | null
 }) {
   return (
     <CollapsibleRightSidebar
       open={open}
-      width="16rem"
+      width="17.5rem"
       containerClassName="hidden xl:block"
+      className="border-line bg-bg-sunken"
     >
       <ScrollArea className="min-h-0 flex-1">
         <SurfaceSidebarContent
           title={title}
           description={description}
           members={members}
+          heroMember={heroMember}
         />
       </ScrollArea>
     </CollapsibleRightSidebar>
@@ -226,8 +282,9 @@ export function TeamSurfaceSidebar({
   return (
     <CollapsibleRightSidebar
       open={open}
-      width="19rem"
+      width="18rem"
       containerClassName="hidden xl:block"
+      className="border-line bg-bg-sunken"
     >
       <ScrollArea className="min-h-0 flex-1">
         <SurfaceSidebarContent
