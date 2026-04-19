@@ -19,8 +19,13 @@
 
 Files and areas reviewed across all turns:
 - `components/app/screens/create-work-item-dialog.tsx` — create-work modal surface and property chips
+- `components/app/screens/work-surface-view.tsx` — list/board interaction affordances
+- `components/app/screens/work-item-detail-screen.tsx` — work-item detail sidebar rendering
+- `components/app/screens/collection-boards.tsx` — project board visual tokens
 - `components/app/collaboration-screens/channel-ui.tsx` — channel post cards and new-post composer affordances
 - `components/app/collaboration-screens/chat-thread.tsx` — chat composer affordances
+- `components/app/screens/project-creation.tsx` — project create shortcut path
+- `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
 ## Review status (updated every turn)
@@ -28,10 +33,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-19 19:02:00 BST` |
-| **Total turns** | `3` |
+| **Last reviewed** | `2026-04-19 19:29:09 BST` |
+| **Total turns** | `5` |
 | **Open findings** | `0` |
-| **Resolved findings** | `5` |
+| **Resolved findings** | `9` |
 | **Accepted findings** | `0` |
 
 ---
@@ -215,3 +220,145 @@ No new findings in this turn.
 ### Recommendations
 
 1. No further issues found in this review slice after the route-chip cleanup.
+
+---
+
+## Turn 4 — 2026-04-19 19:25:17 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `068ca96` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** External PR analysis surfaced several additional concerns. After re-checking them against the current branch, four hold up as actionable findings: one security regression in the new item sidebar, one stale-closure bug in the create-work shortcut, one dead affordance in the list surface, and one project-board token bug caused by template CSS variable names leaking into the app. The remaining comments are valid observations but not blockers.
+
+| Status | Count |
+|--------|-------|
+| Findings | `4` |
+
+### Findings
+
+#### B4-01 [BUG] High — `components/app/screens/work-item-detail-screen.tsx:1607` — Detail sidebar bypasses rich-text sanitization and injects description HTML directly
+
+**What's happening:**
+The new work-item detail sidebar renders `sidebarDescription` with `dangerouslySetInnerHTML`, while the established rich-text display path uses `RichTextContent`, which sanitizes through `sanitizeRichTextContent`.
+
+**Root cause:**
+The sidebar template port introduced a standalone HTML render block instead of reusing the existing sanitized rich-text component.
+
+**Codebase implication:**
+Any unsanitized description HTML that makes it into item content would now execute in the sidebar surface, even though the main description renderer already protects against that class of input. This creates an inconsistent and weaker security boundary for the same content field.
+
+**Solution options:**
+1. **Quick fix:** Replace the raw `<div dangerouslySetInnerHTML>` block with `RichTextContent`.
+2. **Proper fix:** Consolidate all item-description rendering through a single shared rich-text renderer so sidebar/template variants cannot bypass sanitization.
+
+**Investigate:**
+Check whether any other template-derived surfaces render rich text directly instead of going through `RichTextContent` or `sanitizeRichTextContent`.
+
+> Raw HTML injection remains at `work-item-detail-screen.tsx:1607-1609`, while `RichTextContent` sanitizes at `components/app/rich-text-content.tsx:15-26`.
+
+#### B4-02 [BUG] High — `components/app/screens/collection-boards.tsx:33` — Project board token maps reference CSS variables that do not exist in the app
+
+**What's happening:**
+`projectHealthAccent` uses `var(--fg-3)` for `"no-update"`, and `projectIconTint` uses `var(--lbl-*)`. Those variables are not defined in `app/globals.css`; the app defines `--text-3` and `--label-*` instead.
+
+**Root cause:**
+Template token names from the standalone reference CSS (`--lbl-*`) leaked into app code instead of being mapped to the app’s actual variable names.
+
+**Codebase implication:**
+Inline styles that depend on those variables can resolve to nothing, causing missing icon tinting and invisible/incorrect health indicators for project cards. Because these are inline `style` values, Tailwind token aliases like `--color-fg-3` do not rescue them.
+
+**Solution options:**
+1. **Quick fix:** Swap `var(--fg-3)` to `var(--text-3)` and `var(--lbl-*)` to `var(--label-*)`.
+2. **Proper fix:** Centralize these accent/token maps in a shared helper so board surfaces cannot accidentally mix template-only variable names with app tokens.
+
+**Investigate:**
+Search the branch for other uses of `--lbl-*` or `--fg-*` inside inline styles. The same leak pattern may exist in other template-ported surfaces.
+
+> Broken mappings remain at `collection-boards.tsx:33-44`.
+
+#### B4-03 [BUG] Medium — `components/app/screens/create-work-item-dialog.tsx:452` — Cmd/Ctrl+Enter submit can use stale parent state
+
+**What's happening:**
+The create-work dialog’s keyboard-submit effect calls `handleCreate()`, but the effect dependency list omits parent selection state even though `handleCreate` reads `selectedParentItem` when building the create payload.
+
+**Root cause:**
+The effect intentionally suppresses exhaustive-deps and manually lists state inputs. That list includes `effectiveProjectId` but not `selectedParentId` / `selectedParentItem`, so parent-only changes can leave the keydown handler closure stale.
+
+**Codebase implication:**
+If the user changes the selected parent and immediately presses Cmd/Ctrl+Enter without changing another tracked field, the shortcut path can create the item under the previous parent (or no parent) while the click path uses the current form state.
+
+**Solution options:**
+1. **Quick fix:** Add parent selection state to the effect dependencies or depend directly on `handleCreate`.
+2. **Proper fix:** Move the submission callback behind a stable event helper so keyboard submit and button submit always share the exact same live closure without handwritten dependency management.
+
+**Investigate:**
+Check whether the create-work dialog is the only create surface using a manually-maintained keyboard-submit dependency list. Similar stale-closure risk may exist in sibling dialogs.
+
+> The stale shortcut effect remains at `create-work-item-dialog.tsx:452-483`, while `handleCreate` reads `selectedParentItem` at `create-work-item-dialog.tsx:419-433`.
+
+#### B4-04 [BUG] Medium — `components/app/screens/work-surface-view.tsx:547` — List view exposes an “Add an item” row with no behavior
+
+**What's happening:**
+Editable grouped list sections render `ListAddItemRow`, but its `onClick` handler is intentionally empty.
+
+**Root cause:**
+The template row was carried over as visible UI before the actual add-item flow for grouped lists was wired up.
+
+**Codebase implication:**
+This puts a dead affordance directly in the main list workflow. Users are invited to add an item from the group body, but clicking the control does nothing, which undermines trust in the rest of the surface.
+
+**Solution options:**
+1. **Quick fix:** Hide the row until the behavior exists.
+2. **Proper fix:** Wire the row into the same create-item flow as the main `New` action, ideally pre-scoped to the current group/subgroup.
+
+**Investigate:**
+Check whether grouped board columns or timeline groups have matching placeholder add-item affordances. If so, treat them consistently rather than only removing the list version.
+
+> The inert add row remains at `work-surface-view.tsx:547-550`.
+
+### Notes on external comments
+
+The following external comments were reviewed but not promoted to findings in this turn:
+- the project-creation Cmd/Ctrl+Enter path duplicates create logic instead of calling a shared helper — maintainability issue, not a current correctness bug
+- the board card drag target now covers the whole card — worth QA, but no repro-backed regression yet
+- the sidebar unmount behavior can reset local state — intentional tradeoff for fixing the broken close/reopen interaction
+- the project progress-bar layering is a visual/design observation rather than a correctness issue
+
+### Recommendations
+
+1. **Fix first:** Replace the unsafe sidebar description renderer and correct the broken CSS variable names in `collection-boards.tsx`.
+2. **Then fix:** Resolve the stale create-work keyboard-submit closure and either wire up or remove the inert list `Add an item` row.
+3. **After that:** Re-run the diff review on this same file to confirm the external-analysis findings are fully closed.
+
+---
+
+## Turn 5 — 2026-04-19 19:29:09 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `068ca96` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The four blocker findings from Turn 4 are now resolved in the working tree. The detail sidebar uses the sanitized rich-text renderer, project-board token names match the app theme variables, the create-work keyboard-submit effect now tracks parent selection changes, and the dead list/board add-item affordances have been removed. A focused rerun of this review slice did not surface any additional open findings.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `4` |
+
+### Status updates
+
+- `B4-01` Resolved — the work-item detail sidebar now renders descriptions through `RichTextContent` instead of raw `dangerouslySetInnerHTML`.
+- `B4-02` Resolved — the project board token maps now use `--text-3` and `--label-*` instead of undefined template-only CSS variables.
+- `B4-03` Resolved — the create-work Cmd/Ctrl+Enter effect now tracks parent selection changes through `selectedParentId`.
+- `B4-04` Resolved — the inert list `Add an item` row was removed, and the matching dead board add-item affordances were removed in the same cleanup.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain in this review slice after the blocker fixes.

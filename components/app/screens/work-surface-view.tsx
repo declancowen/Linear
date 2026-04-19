@@ -21,7 +21,6 @@ import {
   DotsThree,
   Flame,
   ListBullets,
-  Plus,
   TreeStructure,
 } from "@phosphor-icons/react"
 
@@ -317,13 +316,6 @@ export function BoardView({
                     </div>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 px-3 pt-1.5 pb-3 text-left text-[12px] text-fg-3 transition-colors hover:text-foreground"
-                >
-                  <Plus className="size-3" />
-                  Add an item
-                </button>
               </div>
             )
           })}
@@ -543,13 +535,6 @@ export function ListView({
                               )
                             })}
                           </ListDropLane>
-                          {editable ? (
-                            <ListAddItemRow
-                              onClick={() => {
-                                // Placeholder — real add-flow is via "New" button
-                              }}
-                            />
-                          ) : null}
                         </div>
                       )
                     }
@@ -700,19 +685,6 @@ function ListDropLane({
     >
       {children}
     </div>
-  )
-}
-
-function ListAddItemRow({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group/add flex h-[34px] items-center gap-2.5 border-b border-line-soft pl-9 text-left text-[12.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-    >
-      <Plus className="size-3" />
-      <span>Add an item</span>
-    </button>
   )
 }
 
@@ -978,12 +950,6 @@ function BoardGroupHeader({
         </span>
       </div>
       <div className="flex items-center gap-0.5 opacity-55 transition-opacity hover:opacity-100">
-        <button
-          type="button"
-          className="inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-        >
-          <Plus className="size-3.5" />
-        </button>
         <button
           type="button"
           className="inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"

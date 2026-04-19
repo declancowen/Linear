@@ -473,6 +473,7 @@ export function CreateWorkItemDialog({
     canCreate,
     selectedType,
     selectedTeamId,
+    selectedParentId,
     normalizedTitle,
     normalizedDescription,
     priority,

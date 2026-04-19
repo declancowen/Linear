@@ -34,14 +34,14 @@ const projectHealthAccent: Record<Project["health"], string> = {
   "on-track": "var(--status-done)",
   "at-risk": "var(--priority-high)",
   "off-track": "var(--priority-urgent)",
-  "no-update": "var(--fg-3)",
+  "no-update": "var(--text-3)",
 }
 
 const projectIconTint: Record<Project["health"], string> = {
-  "on-track": "var(--lbl-4)",
-  "at-risk": "var(--lbl-2)",
-  "off-track": "var(--lbl-1)",
-  "no-update": "var(--lbl-5)",
+  "on-track": "var(--label-4)",
+  "at-risk": "var(--label-2)",
+  "off-track": "var(--label-1)",
+  "no-update": "var(--label-5)",
 }
 
 export function ProjectBoard({

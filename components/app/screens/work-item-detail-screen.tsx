@@ -64,6 +64,7 @@ import {
   type Priority,
   type WorkItem,
 } from "@/lib/domain/types"
+import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -1604,9 +1605,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               </h2>
 
               {sidebarHasDescription ? (
-                <div
+                <RichTextContent
+                  content={sidebarDescription}
                   className="text-[13.5px] leading-[1.6] text-fg-2 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mb-2.5 [&_ul]:ml-[18px] [&_ul]:list-disc [&_li]:mb-1"
-                  dangerouslySetInnerHTML={{ __html: sidebarDescription }}
                 />
               ) : (
                 <p className="text-[13.5px] leading-[1.6] text-fg-4">
