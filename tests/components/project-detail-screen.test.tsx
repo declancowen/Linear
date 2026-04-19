@@ -79,6 +79,7 @@ vi.mock("@/components/app/screens/project-detail-ui", () => ({
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: () => null,
+  LevelChipPopover: () => null,
   ViewConfigPopover: ({
     onUpdateView,
   }: {

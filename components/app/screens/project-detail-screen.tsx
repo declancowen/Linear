@@ -45,7 +45,9 @@ import {
 } from "@/components/app/screens/project-detail-ui"
 import {
   FilterPopover,
+  getAvailableGroupOptions,
   type ViewConfigPatch,
+  LevelChipPopover,
   ViewConfigPopover,
 } from "@/components/app/screens/work-surface-controls"
 import {
@@ -189,6 +191,11 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 
     useAppStore.getState().setSelectedView(projectRoute, requestedViewId)
   }, [projectRoute, savedProjectItemViews, searchParams])
+
+  const projectGroupOptions = useMemo(
+    () => getAvailableGroupOptions(projectModel?.project.templateType),
+    [projectModel?.project.templateType]
+  )
 
   if (!projectModel) {
     return <MissingState title="Project not found" />
@@ -482,8 +489,15 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                       activeSavedProjectView ? undefined : clearProjectItemsFilters
                     }
                   />
+                  <LevelChipPopover
+                    view={activeProjectItemsView}
+                    onUpdateView={
+                      activeSavedProjectView ? undefined : updateProjectItemsView
+                    }
+                  />
                   <ViewConfigPopover
                     view={activeProjectItemsView}
+                    groupOptions={projectGroupOptions}
                     onUpdateView={
                       activeSavedProjectView ? undefined : updateProjectItemsView
                     }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import { Plus } from "@phosphor-icons/react"
@@ -11,6 +11,7 @@ import {
   getViewByRoute,
 } from "@/lib/domain/selectors"
 import {
+  getDefaultTemplateTypeForTeamExperience,
   type Team,
   type ViewDefinition,
   type WorkItem,
@@ -30,8 +31,10 @@ import {
 } from "@/components/app/screens/helpers"
 import {
   FilterPopover,
+  getAvailableGroupOptions,
   GroupChipPopover,
   LayoutTabs,
+  LevelChipPopover,
   PropertiesChipPopover,
   SortChipPopover,
   ViewConfigPopover,
@@ -63,6 +66,15 @@ export function WorkSurface({
   const activeView = getViewByRoute(data, routeKey) ?? views[0] ?? null
   const editable = team ? canEditTeam(data, team.id) : false
   const createTeamId = team?.id ?? data.ui.activeTeamId
+  const groupOptions = useMemo(
+    () =>
+      getAvailableGroupOptions(
+        team
+          ? getDefaultTemplateTypeForTeamExperience(team.settings.experience)
+          : null
+      ),
+    [team]
+  )
 
   useEffect(() => {
     if (!activeView && views[0]) {
@@ -82,6 +94,34 @@ export function WorkSurface({
 
     useAppStore.getState().setSelectedView(routeKey, requestedViewId)
   }, [routeKey, searchParams, views])
+
+  useEffect(() => {
+    if (!activeView) {
+      return
+    }
+
+    const nextGrouping = groupOptions.includes(activeView.grouping)
+      ? activeView.grouping
+      : "status"
+    const nextSubGrouping =
+      activeView.subGrouping &&
+      groupOptions.includes(activeView.subGrouping) &&
+      activeView.subGrouping !== nextGrouping
+        ? activeView.subGrouping
+        : null
+
+    if (
+      nextGrouping === activeView.grouping &&
+      nextSubGrouping === (activeView.subGrouping ?? null)
+    ) {
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(activeView.id, {
+      grouping: nextGrouping,
+      subGrouping: nextSubGrouping,
+    })
+  }, [activeView, groupOptions])
 
   const visibleItems = activeView
     ? getVisibleItemsForView(data, items, activeView)
@@ -157,11 +197,18 @@ export function WorkSurface({
             items={items}
             variant="chip"
           />
-          <GroupChipPopover view={activeView} />
+          <LevelChipPopover view={activeView} />
+          <GroupChipPopover
+            view={activeView}
+            groupOptions={groupOptions}
+          />
           <SortChipPopover view={activeView} />
           <PropertiesChipPopover view={activeView} />
           <div className="ml-auto flex items-center gap-1.5">
-            <ViewConfigPopover view={activeView} />
+            <ViewConfigPopover
+              view={activeView}
+              groupOptions={groupOptions}
+            />
             <Button
               size="sm"
               variant="default"
