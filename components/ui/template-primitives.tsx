@@ -236,8 +236,8 @@ export function PropertyPopoverSearch({
   trailing?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2.5 text-fg-3">
-      <span aria-hidden className="flex size-[14px] items-center justify-center">
+    <div className="flex items-center gap-2 border-b border-line-soft px-2.5 py-1.5 text-fg-3">
+      <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
         {icon}
       </span>
       <input
@@ -246,7 +246,7 @@ export function PropertyPopoverSearch({
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="h-5 flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-fg-4"
+        className="h-5 flex-1 border-0 bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-fg-4"
       />
       {trailing}
     </div>
@@ -280,7 +280,7 @@ export function PropertyPopoverGroup({
   trailing?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-1 px-3 pt-2 pb-1 text-[11px] font-medium text-fg-3">
+    <div className="flex items-center gap-1 px-2 pt-1.5 pb-1 text-[10.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
       <span className="flex-1">{children}</span>
       {trailing}
     </div>
@@ -308,14 +308,14 @@ export function PropertyPopoverItem({
       data-selected={selected ? "" : undefined}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-1.5 text-left text-[13px] transition-colors",
+        "flex h-7 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[12.5px] leading-none transition-colors",
         muted ? "text-fg-3" : "text-fg-2",
         "hover:bg-surface-3 hover:text-foreground",
         selected && "text-foreground",
         className
       )}
     >
-      <span className="flex min-w-0 flex-1 items-center gap-2.5">
+      <span className="flex min-w-0 flex-1 items-center gap-2">
         {children}
       </span>
       {trailing}
@@ -333,7 +333,7 @@ export function PropertyPopoverFoot({
   return (
     <div
       className={cn(
-        "flex items-center justify-between border-t border-line-soft px-3 py-2 text-[11.5px] text-fg-3",
+        "flex items-center justify-between border-t border-line-soft px-3 py-1.5 text-[11px] text-fg-3",
         className
       )}
     >
@@ -343,4 +343,4 @@ export function PropertyPopoverFoot({
 }
 
 export const PROPERTY_POPOVER_CLASS =
-  "w-[280px] overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"
+  "w-[240px] overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"
