@@ -31,11 +31,19 @@ export function getProjectProgress(data: AppData, projectId: string) {
       item.linkedProjectIds.includes(projectId)
   )
   const completed = items.filter((item) => item.status === "done").length
+  const inProgress = items.filter(
+    (item) => item.status === "in-progress"
+  ).length
   return {
     scope: items.length,
     completed,
+    inProgress,
     percent:
       items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
+    inProgressPercent:
+      items.length === 0
+        ? 0
+        : Math.round(((completed + inProgress) / items.length) * 100),
   }
 }
 

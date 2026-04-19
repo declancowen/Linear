@@ -77,7 +77,7 @@ function ChatComposer({
 
   return (
     <div className="px-4 py-3">
-      <div className="flex min-h-[2.75rem] items-end gap-2 rounded-lg border bg-background px-3 py-2.5 shadow-sm focus-within:ring-1 focus-within:ring-ring/40">
+      <div className="flex min-h-[2.75rem] items-end gap-2 rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
         <RichTextEditor
           key={composerKey}
           content={content}
@@ -352,7 +352,7 @@ export function ChatThread({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {showHeader ? (
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
+        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-medium">{title}</span>
             {description ? (
@@ -436,7 +436,7 @@ export function ChatThread({
                 })()
               : null}
             <div className="mt-auto" />
-            <div className="flex flex-col gap-0.5 px-4 py-3">
+            <div className="flex flex-col py-3">
               {messages.map((message, idx) => {
                 const author = usersById.get(message.createdBy)
                 const authorView = buildWorkspaceUserPresenceView(
@@ -488,112 +488,71 @@ export function ChatThread({
                   <div
                     key={message.id}
                     className={cn(
-                      "flex px-4 py-0.5",
-                      isCurrentUser ? "justify-end" : "justify-start",
-                      idx > 0 && !groupedWithPrev && "mt-3"
+                      "group/msg grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
+                      groupedWithPrev ? "py-0" : "py-0.5",
+                      idx > 0 && !groupedWithPrev && "mt-2"
                     )}
+                    style={{ gridTemplateColumns: "32px 1fr" }}
                   >
-                    <div
-                      className={cn(
-                        "flex w-fit max-w-[min(100%,42rem)] min-w-0 items-end gap-2",
-                        isCurrentUser && "flex-row-reverse"
-                      )}
-                    >
-                      {!isCurrentUser ? (
-                        groupedWithPrev ? (
-                          <div className="size-8 shrink-0" />
-                        ) : (
-                          <UserAvatar
-                            name={authorView?.name ?? author?.name}
-                            avatarImageUrl={authorView?.avatarImageUrl}
-                            avatarUrl={authorView?.avatarUrl}
-                            status={authorView?.status ?? undefined}
-                            showStatus={!authorView?.isFormerMember}
-                            size="default"
-                          />
-                        )
-                      ) : null}
-                      <div
-                        className={cn(
-                          "flex max-w-full min-w-0 flex-col",
-                          isCurrentUser ? "items-end" : "items-start"
-                        )}
-                      >
-                        {!groupedWithPrev ? (
-                          <div
-                            className={cn(
-                              "mb-1 flex items-center gap-2 px-1",
-                              isCurrentUser ? "justify-end" : "justify-start"
-                            )}
-                          >
-                            {!isCurrentUser ? (
-                              <UserHoverCard
-                                user={author}
-                                userId={author?.id}
-                                currentUserId={currentUserId}
-                                workspaceId={currentWorkspaceId}
-                              >
-                                <span className="text-[11px] font-medium">
-                                  {authorView?.name ??
-                                    author?.name ??
-                                    "Unknown"}
-                                </span>
-                              </UserHoverCard>
-                            ) : null}
-                            <span className="text-[10px] text-muted-foreground">
-                              {formatTimestamp(message.createdAt)}
-                            </span>
-                          </div>
-                        ) : null}
-                        <div
-                          className={cn(
-                            "max-w-full rounded-2xl px-3 py-2.5 text-[13px] leading-5 shadow-sm",
-                            isCurrentUser
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground",
-                            isCurrentUser
-                              ? groupedWithPrev && "rounded-tr-md"
-                              : groupedWithPrev && "rounded-tl-md",
-                            isCurrentUser
-                              ? groupedWithNext && "rounded-br-md"
-                              : groupedWithNext && "rounded-bl-md"
-                          )}
-                        >
-                          {callJoinHref ? (
-                            <div className="max-w-full space-y-2 [overflow-wrap:anywhere] break-words whitespace-normal">
-                              <p className="text-[13px] leading-5">
-                                Started a call
-                              </p>
-                              <Button
-                                asChild
-                                size="sm"
-                                variant={
-                                  isCurrentUser ? "secondary" : "outline"
-                                }
-                                className="h-7 text-xs"
-                              >
-                                <a
-                                  href={callJoinHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <ArrowSquareOut className="size-3.5" />
-                                  Join call
-                                </a>
-                              </Button>
-                            </div>
-                          ) : (
-                            <RichTextContent
-                              content={getChatMessageMarkup(message.content)}
-                              className={cn(
-                                "max-w-full text-[13px] leading-5 [overflow-wrap:anywhere] break-words [&_.editor-mention]:max-w-full [&_.editor-mention]:[overflow-wrap:anywhere] [&_.editor-mention]:whitespace-normal [&_a]:break-all [&_p]:leading-5 [&_p+p]:mt-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre_code]:whitespace-pre-wrap",
-                                isCurrentUser &&
-                                  "[&_a]:text-primary-foreground hover:[&_a]:text-primary-foreground/90"
-                              )}
-                            />
-                          )}
-                        </div>
+                    {groupedWithPrev ? (
+                      <div aria-hidden />
+                    ) : (
+                      <div className="mt-[3px]">
+                        <UserAvatar
+                          name={authorView?.name ?? author?.name}
+                          avatarImageUrl={authorView?.avatarImageUrl}
+                          avatarUrl={authorView?.avatarUrl}
+                          status={authorView?.status ?? undefined}
+                          showStatus={!authorView?.isFormerMember}
+                          size="default"
+                        />
                       </div>
+                    )}
+                    <div className="flex min-w-0 flex-col">
+                      {!groupedWithPrev ? (
+                        <div className="-mt-px flex items-baseline gap-2">
+                          <UserHoverCard
+                            user={author}
+                            userId={author?.id}
+                            currentUserId={currentUserId}
+                            workspaceId={currentWorkspaceId}
+                          >
+                            <span className="text-[13.5px] font-semibold text-foreground">
+                              {authorView?.name ??
+                                author?.name ??
+                                (isCurrentUser ? "You" : "Unknown")}
+                            </span>
+                          </UserHoverCard>
+                          <span className="text-[11.5px] text-fg-3">
+                            {formatTimestamp(message.createdAt)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {callJoinHref ? (
+                        <div className="mt-0.5 flex flex-col items-start gap-2 [overflow-wrap:anywhere] text-[13.5px] leading-[1.55] text-foreground">
+                          <p>Started a call</p>
+                          <Button
+                            asChild
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                          >
+                            <a
+                              href={callJoinHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <ArrowSquareOut className="size-3.5" />
+                              Join call
+                            </a>
+                          </Button>
+                        </div>
+                      ) : (
+                        <RichTextContent
+                          content={getChatMessageMarkup(message.content)}
+                          className="max-w-full text-[13.5px] leading-[1.55] text-foreground [overflow-wrap:anywhere] break-words [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
+                        />
+                      )}
                     </div>
                   </div>
                 )
@@ -610,7 +569,7 @@ export function ChatThread({
           </div>
         ) : null
       ) : (
-        <div className="shrink-0 border-t bg-background/95 backdrop-blur">
+        <div className="shrink-0 border-t border-line-soft bg-background">
           <ChatComposer
             placeholder={`Message ${title}…`}
             mentionCandidates={messageableMembers}

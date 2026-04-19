@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Channel</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    .app { grid-template-columns: 248px 272px 1fr 288px; }
+
+    /* ── Channel list ─────────────────────────────────────── */
+    .chl {
+      background: var(--bg);
+      border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .chl__head {
+      padding: 12px 14px; border-bottom: 1px solid var(--line-soft);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .chl__head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+    .chl__head .right { margin-left: auto; display:flex; gap: 2px; }
+
+    .chl__section { padding: 10px 12px 2px; font-size: 11px; color: var(--text-3); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; display:flex; align-items:center; gap:6px; }
+    .chl__section .actions { margin-left: auto; opacity: 0; transition: opacity 0.1s var(--ease); }
+    .chl__section:hover .actions { opacity: 1; }
+
+    .chl__item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 12px;
+      color: var(--text-2); font-size: 13px;
+      cursor: pointer;
+    }
+    .chl__item:hover { background: var(--surface-2); color: var(--text); }
+    .chl__item.active { background: var(--surface-3); color: var(--text); font-weight: 500; }
+    .chl__item .hash { color: var(--text-4); width: 14px; }
+    .chl__item.active .hash { color: var(--accent-fg); }
+    .chl__item.unread { color: var(--text); font-weight: 500; }
+    .chl__item .count { margin-left: auto; font-size: 10.5px; padding: 0 5px; height: 16px; border-radius: 999px; background: var(--accent); color: white; display: inline-grid; place-items: center; }
+    .chl__item .mute { margin-left: auto; color: var(--text-4); font-size: 11px; }
+
+    /* ── Channel thread ───────────────────────────────────── */
+    .room { display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+    .room__head {
+      padding: 10px 18px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+    }
+    .room__who { display: flex; flex-direction: column; min-width: 0; }
+    .room__who .t { font-size: 14px; font-weight: 600; display:flex; align-items:center; gap:6px; }
+    .room__who .t .hash { color: var(--text-4); }
+    .room__who .t .lock { color: var(--text-4); }
+    .room__who .topic { color: var(--text-3); font-size: 11.5px; }
+    .room__head .actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+
+    .room__tabs {
+      padding: 0 18px; display: flex; gap: 2px;
+      border-bottom: 1px solid var(--line-soft); flex: 0 0 auto;
+    }
+    .room__tabs .tab { margin-bottom: 6px; margin-top: 6px; }
+
+    .scroll.room__body { flex: 1; padding: 14px 0 10px; }
+
+    .post {
+      padding: 10px 18px; display: grid;
+      grid-template-columns: 36px 1fr; gap: 10px;
+      position: relative;
+      border-radius: 0;
+    }
+    .post:hover { background: var(--surface-2); }
+    .post .avatar { width: 36px; height: 36px; font-size: 13px; margin-top: 1px; }
+    .post__row1 { display: flex; align-items: baseline; gap: 8px; }
+    .post__who { font-size: 14px; font-weight: 600; }
+    .post__time { color: var(--text-3); font-size: 11.5px; }
+    .post__badge {
+      font-size: 10.5px; color: var(--text-3);
+      padding: 1px 6px; border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+    .post__body {
+      font-size: 13.5px; color: var(--text); line-height: 1.55;
+    }
+    .post__body p { margin: 3px 0; }
+    .post__body .mention { color: var(--accent-fg); background: var(--accent-bg); padding: 0 4px; border-radius: 4px; font-weight: 500; }
+
+    .post__reacts { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+    .react {
+      font-size: 11.5px; padding: 1px 7px; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--line);
+      color: var(--text-2); display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+    }
+    .react.me { background: var(--accent-bg); border-color: transparent; color: var(--accent-fg); }
+    .react.add { color: var(--text-4); border-style: dashed; }
+
+    /* Replies */
+    .replies {
+      margin-top: 8px; padding: 4px 0 0 0;
+      border-left: 2px solid var(--line-soft);
+      padding-left: 12px;
+    }
+    .reply { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 4px 0; }
+    .reply .avatar { width: 24px; height: 24px; font-size: 10.5px; margin-top: 2px; }
+    .reply .rwho { font-size: 12.5px; font-weight: 600; }
+    .reply .rtime { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+    .reply .rbody { font-size: 13px; color: var(--text); line-height: 1.5; }
+    .replies__more {
+      font-size: 12px; color: var(--accent-fg); cursor: pointer;
+      padding: 4px 0 0; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .replies__compose {
+      margin-top: 6px; padding: 6px 10px;
+      display: flex; align-items: center; gap: 8px;
+      border: 1px dashed var(--line); border-radius: var(--radius-sm);
+      color: var(--text-3); font-size: 12px; cursor: text;
+    }
+    .replies__compose:hover { border-color: var(--text-4); color: var(--text-2); }
+
+    .post__hover {
+      position: absolute; top: 6px; right: 16px; display: none;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--radius-sm); padding: 2px;
+      box-shadow: var(--shadow-sm);
+    }
+    .post:hover .post__hover { display: flex; gap: 2px; }
+
+    /* New post composer */
+    .newpost {
+      flex: 0 0 auto;
+      padding: 14px 18px 18px;
+      border-top: 1px solid var(--line-soft);
+    }
+    .newpost__box {
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--surface);
+      padding: 12px 14px 8px;
+      transition: border-color 0.1s var(--ease);
+    }
+    .newpost__box:focus-within { border-color: var(--text-3); }
+    .newpost__box input.t {
+      width: 100%; border: 0; outline: 0; background: transparent;
+      font-size: 14px; font-weight: 600;
+      padding: 0 0 4px;
+    }
+    .newpost__box textarea {
+      width: 100%; border: 0; outline: 0; background: transparent;
+      font-size: 13.5px; line-height: 1.55; resize: none;
+      min-height: 42px;
+    }
+    .newpost__bar {
+      display: flex; align-items: center; gap: 2px;
+      padding-top: 6px; border-top: 1px dashed var(--line);
+    }
+    .newpost__bar .spacer { flex: 1; }
+
+    /* Right members panel */
+    .members {
+      background: var(--bg-sunken); border-left: 1px solid var(--line);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .members__head { padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+    .members__head h3 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+    .members__head .sub { color: var(--text-3); font-size: 11.5px; }
+
+    .members__section { padding: 12px 14px 4px; font-size: 11px; color: var(--text-3); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+    .member { display: flex; align-items: center; gap: 10px; padding: 5px 14px; font-size: 12.5px; cursor: pointer; }
+    .member:hover { background: var(--surface-2); }
+    .member .avatar { position: relative; }
+    .member .presence { position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px; border-radius: 999px; background: var(--st-done); border: 2px solid var(--bg-sunken); }
+    .member .presence.off { background: var(--text-4); }
+    .member .role { margin-left: auto; color: var(--text-3); font-size: 11px; }
+  </style>
+</head>
+<body data-active="channel">
+  <div class="app">
+    <aside id="nav"></aside>
+
+    <!-- Channel list -->
+    <aside class="chl">
+      <div class="chl__head">
+        <h2>Channels</h2>
+        <div class="right">
+          <i class="iconbtn" data-i="search" data-sz="14"></i>
+          <i class="iconbtn" data-i="plus" data-sz="15"></i>
+        </div>
+      </div>
+
+      <div class="scroll" style="flex:1">
+        <div class="chl__section">
+          Pinned
+          <div class="actions"><i class="iconbtn" data-i="plus" data-sz="12"></i></div>
+        </div>
+        <div class="chl__item unread"><span class="hash">#</span>general<span class="count">4</span></div>
+        <div class="chl__item active"><span class="hash">#</span>billing-v2<span class="count">12</span></div>
+        <div class="chl__item unread"><span class="hash">#</span>eng-releases<span class="count">2</span></div>
+
+        <div class="chl__section">
+          Teams
+          <div class="actions"><i class="iconbtn" data-i="plus" data-sz="12"></i></div>
+        </div>
+        <div class="chl__item"><span class="hash">#</span>core-engineering<span class="mute">muted</span></div>
+        <div class="chl__item"><span class="hash">#</span>design-system</div>
+        <div class="chl__item"><span class="hash">#</span>product</div>
+        <div class="chl__item"><i data-i="lock" data-sz="12" class="hash"></i>leads-only</div>
+
+        <div class="chl__section">
+          Topics
+          <div class="actions"><i class="iconbtn" data-i="plus" data-sz="12"></i></div>
+        </div>
+        <div class="chl__item"><span class="hash">#</span>watercooler</div>
+        <div class="chl__item"><span class="hash">#</span>kudos</div>
+        <div class="chl__item"><span class="hash">#</span>ship-it</div>
+
+        <div class="chl__section">Direct channels</div>
+        <div class="chl__item"><span class="hash" style="color:var(--st-done)">●</span>Kasia Mikkel</div>
+        <div class="chl__item"><span class="hash" style="color:var(--text-4)">●</span>Amir Forouzan</div>
+      </div>
+    </aside>
+
+    <!-- Channel thread -->
+    <main class="room">
+      <div class="room__head">
+        <div class="room__who">
+          <div class="t"><span class="hash">#</span>billing-v2 <i data-i="star" data-sz="13" style="color:var(--p-med)"></i></div>
+          <div class="topic">Working group for the billing portal rewrite · <a style="color:var(--accent-fg); cursor:pointer">Set topic</a></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn--sm"><div class="avatar-stack"><span class="avatar avatar--sm">KM</span><span class="avatar avatar--sm">AF</span><span class="avatar avatar--sm">SR</span></div> 12 members</button>
+          <i class="iconbtn" data-i="bell" data-sz="15"></i>
+          <i class="iconbtn" data-i="search" data-sz="15"></i>
+          <i class="iconbtn" data-i="more" data-sz="15"></i>
+        </div>
+      </div>
+
+      <div class="room__tabs">
+        <div class="tab active"><i data-i="channel" data-sz="13"></i> Posts</div>
+        <div class="tab"><i data-i="doc" data-sz="13"></i> Files</div>
+        <div class="tab"><i data-i="link" data-sz="13"></i> Linked work</div>
+        <div class="tab"><i data-i="settings" data-sz="13"></i> About</div>
+      </div>
+
+      <div class="scroll room__body">
+
+        <div class="post">
+          <div class="avatar" style="background:var(--lbl-4); color:white; border-color:transparent">KM</div>
+          <div>
+            <div class="post__row1">
+              <span class="post__who">Kasia Mikkel</span>
+              <span class="post__time">Today · 10:02 AM</span>
+              <span class="post__badge">Pinned</span>
+            </div>
+            <div class="post__body">
+              <p><b>Kickoff — billing v2 sprint</b></p>
+              <p>We're splitting the work into three streams: portal proxy, invoice history, and dunning. <span class="mention">@Amir</span> leads proxy, <span class="mention">@Kasia</span> owns the history table, and <span class="mention">@Sara</span> runs dunning + copy.</p>
+              <p>Target ship: <b>Release 42</b> · Apr 28. Any questions here — don't DM 🙏</p>
+            </div>
+            <div class="post__reacts">
+              <span class="react me">🚀 6</span>
+              <span class="react">👍 4</span>
+              <span class="react">🎯 2</span>
+              <span class="react add"><i data-i="smile" data-sz="12"></i></span>
+            </div>
+
+            <div class="replies">
+              <div class="reply">
+                <div class="avatar" style="background:var(--lbl-2); color:white; border-color:transparent">AF</div>
+                <div>
+                  <div><span class="rwho">Amir Forouzan</span><span class="rtime">· 10:14 AM</span></div>
+                  <div class="rbody">On it — proxy PR opened, waiting on review. Tests green locally.</div>
+                </div>
+              </div>
+              <div class="reply">
+                <div class="avatar" style="background:var(--lbl-3); color:white; border-color:transparent">SR</div>
+                <div>
+                  <div><span class="rwho">Sara Rees</span><span class="rtime">· 10:22 AM</span></div>
+                  <div class="rbody">Copy draft lives in the doc — <span class="mention">@Declan</span> your eyes when you have a sec.</div>
+                </div>
+              </div>
+              <div class="reply">
+                <div class="avatar">DC</div>
+                <div>
+                  <div><span class="rwho">Declan</span><span class="rtime">· just now</span></div>
+                  <div class="rbody">Looks good. One nit: "Manage subscription" reads better than "Billing portal" on the button.</div>
+                </div>
+              </div>
+              <div class="replies__more"><i data-i="chevDown" data-sz="12"></i> 5 earlier replies</div>
+              <div class="replies__compose"><i data-i="chat" data-sz="12"></i> Reply to this thread…</div>
+            </div>
+          </div>
+          <div class="post__hover">
+            <i class="iconbtn" data-i="smile" data-sz="14"></i>
+            <i class="iconbtn" data-i="chat" data-sz="14"></i>
+            <i class="iconbtn" data-i="link" data-sz="14"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="14"></i>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <div class="post">
+          <div class="avatar">DC</div>
+          <div>
+            <div class="post__row1">
+              <span class="post__who">Declan Cowen</span>
+              <span class="post__time">Today · 11:34 AM</span>
+            </div>
+            <div class="post__body">
+              <p>Redirects for <code>/billing → /settings/billing</code> are live on staging. Please try the old URL and flag anything weird in this thread.</p>
+              <div class="chip" style="margin-top:4px">
+                <i data-i="link" data-sz="12"></i>
+                <span class="muted">Linked</span>
+                <span class="mono" style="color:var(--text-2)">CORE-248</span>
+                <span class="truncate">Ship new billing portal</span>
+              </div>
+            </div>
+            <div class="post__reacts">
+              <span class="react">👀 3</span>
+              <span class="react">✅ 1</span>
+              <span class="react add"><i data-i="smile" data-sz="12"></i></span>
+            </div>
+            <div class="replies">
+              <div class="replies__compose"><i data-i="chat" data-sz="12"></i> Reply to this thread…</div>
+            </div>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <div class="post">
+          <div class="avatar" style="background:var(--lbl-3); color:white; border-color:transparent">SR</div>
+          <div>
+            <div class="post__row1">
+              <span class="post__who">Sara Rees</span>
+              <span class="post__time">Today · 1:02 PM</span>
+            </div>
+            <div class="post__body">
+              <p>Accessibility sweep on the invoice table found 2 issues — annotated in Figma. Quick fixes, mostly heading order.</p>
+            </div>
+            <div class="post__reacts">
+              <span class="react me">👍 2</span>
+              <span class="react add"><i data-i="smile" data-sz="12"></i></span>
+            </div>
+            <div class="replies">
+              <div class="reply">
+                <div class="avatar" style="background:var(--lbl-4); color:white; border-color:transparent">KM</div>
+                <div>
+                  <div><span class="rwho">Kasia</span><span class="rtime">· 1:18 PM</span></div>
+                  <div class="rbody">Got it — folding into the same PR.</div>
+                </div>
+              </div>
+              <div class="replies__compose"><i data-i="chat" data-sz="12"></i> Reply to this thread…</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="newpost">
+        <div class="newpost__box">
+          <input class="t" placeholder="Start a new thread — add a headline…" />
+          <textarea placeholder="Write something the whole channel can read and reply to…"></textarea>
+          <div class="newpost__bar">
+            <button class="iconbtn"><i data-i="bold" data-sz="13"></i></button>
+            <button class="iconbtn"><i data-i="italic" data-sz="13"></i></button>
+            <button class="iconbtn"><i data-i="listBullet" data-sz="13"></i></button>
+            <button class="iconbtn"><i data-i="at" data-sz="13"></i></button>
+            <button class="iconbtn"><i data-i="link" data-sz="13"></i></button>
+            <button class="iconbtn"><i data-i="paperclip" data-sz="13"></i></button>
+            <button class="iconbtn"><i data-i="smile" data-sz="13"></i></button>
+            <span class="spacer"></span>
+            <button class="chip chip--ghost muted"><i data-i="eye" data-sz="12"></i> Preview</button>
+            <button class="btn btn--primary btn--sm" style="margin-left:6px">
+              <i data-i="send" data-sz="12"></i> Post
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Members panel -->
+    <aside class="members scroll">
+      <div class="members__head">
+        <h3>About #billing-v2</h3>
+        <div class="sub">12 members · 3 linked items · created Apr 10</div>
+      </div>
+
+      <div class="members__section">Pinned posts</div>
+      <div style="padding: 0 14px 10px">
+        <div class="chip" style="width: fit-content; margin: 4px 0"><i data-i="flag" data-sz="11"></i> Kickoff · Kasia</div>
+      </div>
+
+      <div class="members__section">Linked work</div>
+      <div style="padding: 0 14px 10px">
+        <div class="linked" style="padding:6px 8px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--line); margin-bottom: 4px; font-size: 12.5px; display: flex; gap: 8px; align-items: center">
+          <span class="ring ring--filled"></span><span class="mono">CORE-248</span><span class="truncate">Ship new billing portal</span>
+        </div>
+        <div class="linked" style="padding:6px 8px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--line); margin-bottom: 4px; font-size: 12.5px; display: flex; gap: 8px; align-items: center">
+          <span class="ring"></span><span class="mono">CORE-260</span><span class="truncate">Dunning v3 email system</span>
+        </div>
+      </div>
+
+      <div class="members__section">Members · 12</div>
+      <div class="member"><div class="avatar" style="background:var(--lbl-4); color:white; border-color:transparent">KM<div class="presence"></div></div>Kasia Mikkel<span class="role">Lead</span></div>
+      <div class="member"><div class="avatar" style="background:var(--lbl-2); color:white; border-color:transparent">AF<div class="presence"></div></div>Amir Forouzan</div>
+      <div class="member"><div class="avatar" style="background:var(--lbl-3); color:white; border-color:transparent">SR<div class="presence"></div></div>Sara Rees</div>
+      <div class="member"><div class="avatar">DC<div class="presence"></div></div>Declan Cowen<span class="role">You</span></div>
+      <div class="member"><div class="avatar" style="background:var(--lbl-1); color:white; border-color:transparent">NT<div class="presence off"></div></div>Nico Tavares</div>
+      <div class="member"><div class="avatar" style="background:var(--lbl-5); color:white; border-color:transparent">JE<div class="presence off"></div></div>Jenn Edwards</div>
+      <div class="member muted"><i data-i="plus" data-sz="12"></i> Invite someone</div>
+    </aside>
+  </div>
+
+  <script src="_icons.js"></script>
+  <script src="_nav.js"></script>
+</body>
+</html>

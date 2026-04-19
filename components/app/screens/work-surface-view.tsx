@@ -18,8 +18,10 @@ import {
 import {
   CaretDown,
   CaretRight,
+  Circle,
   DotsSixVertical,
   DotsThree,
+  Flame,
   Plus,
 } from "@phosphor-icons/react"
 
@@ -49,6 +51,8 @@ import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import { StatusIcon, getPatchForField } from "./shared"
 import { getContainerItemsForDisplay } from "./helpers"
 import {
+  computeGroupDoneRatio,
+  getGroupAccentVar,
   getGroupValueAdornment,
   getGroupValueLabel,
 } from "./work-surface-view/shared"
@@ -179,38 +183,47 @@ export function BoardView({
       onDragEnd={handleDragEnd}
     >
       <ScrollArea className="w-full">
-        <div className="flex min-w-max gap-2 p-3">
+        <div className="flex min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
           {visibleGroups.map(([groupName, subgroups]) => {
-            const groupCount = Array.from(subgroups.values()).flat().length
+            const groupItems = Array.from(subgroups.values()).flat()
+            const groupCount = groupItems.length
             const groupLabel = getGroupValueLabel(view.grouping, groupName)
             const groupAdornment = getGroupValueAdornment(
               view.grouping,
               groupName
             )
+            const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
 
             return (
               <div
                 key={groupName}
-                className="flex w-[20rem] shrink-0 flex-col rounded-lg bg-muted/50"
+                className="flex w-[18.5rem] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken"
               >
                 <BoardGroupHeader id={`board-group::${groupName}`}>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.01em]">
                     {groupAdornment}
-                    <span className="text-sm font-medium">{groupLabel}</span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-foreground">{groupLabel}</span>
+                    <span className="text-[11.5px] font-normal tabular-nums text-fg-3">
                       {groupCount}
                     </span>
                   </div>
-                  <div className="flex items-center gap-0.5">
-                    <Button size="icon-xs" variant="ghost">
-                      <DotsThree className="size-3.5" />
-                    </Button>
+                  <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/col:opacity-100">
                     <Button size="icon-xs" variant="ghost">
                       <Plus className="size-3.5" />
                     </Button>
+                    <Button size="icon-xs" variant="ghost">
+                      <DotsThree className="size-3.5" />
+                    </Button>
                   </div>
                 </BoardGroupHeader>
-                <div className="flex flex-col gap-1.5 px-2 pb-2">
+                {groupAccentVar ? (
+                  <div
+                    aria-hidden
+                    className="mx-3 h-0.5 rounded-full"
+                    style={{ background: groupAccentVar }}
+                  />
+                ) : null}
+                <div className="flex flex-1 flex-col gap-1.5 p-2">
                   {Array.from(subgroups.entries()).map(
                     ([subgroupName, subItems]) => {
                       const hidden =
@@ -262,7 +275,7 @@ export function BoardView({
                     }
                   )}
                   {subgroups.size === 0 ? (
-                    <div className="flex min-h-20 items-center justify-center rounded-md border border-dashed border-border/60 px-3 text-xs text-muted-foreground">
+                    <div className="flex min-h-20 items-center justify-center rounded-lg border-[1.5px] border-dashed border-line px-3 text-xs text-fg-4">
                       {editable ? "Drop items onto the header" : "No items"}
                     </div>
                   ) : null}
@@ -402,21 +415,26 @@ export function ListView({
             return null
           }
 
-          const groupCount = Array.from(subgroups.values()).flat().length
+          const groupItems = Array.from(subgroups.values()).flat()
+          const groupCount = groupItems.length
           const isCollapsed = collapsedGroups.has(groupName)
           const groupLabel = getGroupValueLabel(view.grouping, groupName)
           const groupAdornment = getGroupValueAdornment(
             view.grouping,
             groupName
           )
+          const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
+          const groupProgress = computeGroupDoneRatio(groupItems)
 
           return (
             <div key={groupName}>
               <ListGroupHeader
                 id={`list-group::${groupName}`}
+                accentVar={groupAccentVar}
                 groupAdornment={groupAdornment}
                 groupCount={groupCount}
                 groupLabel={groupLabel}
+                progressPercent={groupProgress.percent}
                 isCollapsed={isCollapsed}
                 onClick={() => toggleGroup(groupName)}
               />
@@ -432,7 +450,7 @@ export function ListView({
                       return (
                         <div key={`${groupName}-${subgroupName}`}>
                           {view.subGrouping ? (
-                            <div className="border-b bg-accent/30 px-8 py-1.5 text-xs font-medium text-muted-foreground">
+                            <div className="border-b border-line-soft bg-surface-2 px-8 py-1 text-[11.5px] font-medium tracking-[0.02em] text-fg-3 uppercase">
                               {getGroupValueLabel(
                                 view.subGrouping,
                                 subgroupName
@@ -541,16 +559,20 @@ export function ListView({
 
 function ListGroupHeader({
   id,
+  accentVar,
   groupAdornment,
   groupCount,
   groupLabel,
+  progressPercent,
   isCollapsed,
   onClick,
 }: {
   id: string
+  accentVar?: string | null
   groupAdornment: ReactNode
   groupCount: number
   groupLabel: string
+  progressPercent: number
   isCollapsed: boolean
   onClick: () => void
 }) {
@@ -559,21 +581,47 @@ function ListGroupHeader({
   return (
     <div
       ref={setNodeRef}
-      className={cn("transition-colors", isOver && "bg-accent/50")}
+      className={cn(
+        "sticky top-0 z-[2] border-b border-line-soft backdrop-blur-[6px] transition-colors",
+        isOver ? "bg-surface-2" : "bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)]"
+      )}
     >
       <button
         type="button"
-        className="flex w-full items-center gap-2 border-b px-4 py-2 transition-colors hover:bg-accent/50"
+        className="group/grp flex w-full items-center gap-2.5 px-3.5 pt-2 pb-1.5 text-left"
         onClick={onClick}
       >
-        {isCollapsed ? (
-          <CaretRight className="size-3 text-muted-foreground" />
-        ) : (
-          <CaretDown className="size-3 text-muted-foreground" />
-        )}
-        {groupAdornment}
-        <span className="text-sm font-medium">{groupLabel}</span>
-        <span className="text-xs text-muted-foreground">{groupCount}</span>
+        <span className="grid size-5 place-items-center text-fg-3">
+          {isCollapsed ? (
+            <CaretRight className="size-3" />
+          ) : (
+            <CaretDown className="size-3" />
+          )}
+        </span>
+        <span className="flex min-w-0 items-center gap-2.5 text-[12.5px] font-semibold text-foreground">
+          {groupAdornment}
+          <span className="truncate">{groupLabel}</span>
+        </span>
+        <span className="text-[12px] tabular-nums text-fg-3">{groupCount}</span>
+        {groupCount > 0 ? (
+          <div className="ml-auto flex items-center gap-2">
+            <div
+              className="h-1 w-[120px] overflow-hidden rounded-full bg-surface-3"
+              aria-label="Completion"
+            >
+              <div
+                className="block h-full rounded-full transition-all"
+                style={{
+                  width: `${progressPercent}%`,
+                  background: accentVar ?? "var(--text-2)",
+                }}
+              />
+            </div>
+            <span className="w-9 text-right text-[11.5px] tabular-nums text-fg-3">
+              {progressPercent}%
+            </span>
+          </div>
+        ) : null}
       </button>
     </div>
   )
@@ -593,7 +641,7 @@ function ListDropLane({
       ref={setNodeRef}
       className={cn(
         "flex flex-col transition-colors",
-        isOver && "bg-accent/20"
+        isOver && "bg-surface-2"
       )}
     >
       {children}
@@ -619,74 +667,109 @@ function ListRowBody({
   details?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
+  const dueDate = item.dueDate ? new Date(item.dueDate) : null
+  const now = new Date()
+  const daysUntilDue = dueDate
+    ? Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    : null
+  const isOverdue = daysUntilDue !== null && daysUntilDue < 0
+  const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
+  const labelText =
+    displayProps.includes("labels")
+      ? formatDisplayValue(data, item, "labels")
+      : ""
+
   const content = (
     <>
-      <span className="w-20 shrink-0 text-xs text-muted-foreground">
+      <span className="font-mono text-[11.5px] tracking-[0.01em] text-fg-3">
         {item.key}
       </span>
       <StatusIcon status={item.status} />
-      <div className="min-w-0 flex-1" style={{ paddingLeft: depth * 16 }}>
-        <div className="truncate text-sm">{item.title}</div>
+      <div
+        className="min-w-0"
+        style={{ paddingLeft: depth * 16 }}
+      >
+        <div className="truncate text-[13px] text-foreground">
+          {item.title}
+        </div>
       </div>
-      <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
-      {displayProps.includes("priority") ? (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {priorityMeta[item.priority].label}
+      {labelText ? (
+        <span className="hidden max-w-40 truncate text-[11.5px] text-fg-3 md:inline">
+          {labelText}
         </span>
       ) : null}
+      <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
+      {displayProps.includes("priority") && item.priority !== "none" ? (
+        <Flame
+          className="size-3.5 shrink-0"
+          style={{ color: priorityColorVar[item.priority] }}
+          weight="fill"
+        />
+      ) : (
+        <span className="size-3.5 shrink-0" />
+      )}
+      {dueDate ? (
+        <span
+          className={cn(
+            "shrink-0 text-[12px]",
+            isOverdue && "text-[color:var(--priority-urgent)]",
+            !isOverdue && isSoon && "text-[color:var(--priority-high)]",
+            !isOverdue && !isSoon && "text-fg-3"
+          )}
+        >
+          {format(dueDate, "MMM d")}
+        </span>
+      ) : (
+        <span className="shrink-0 text-[12px] text-fg-4">—</span>
+      )}
       {displayProps.includes("assignee") ? (
         assignee ? (
           <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
         ) : (
-          <span className="size-5 shrink-0" />
+          <span
+            aria-hidden
+            className="inline-grid size-5 shrink-0 place-items-center rounded-full border border-dashed border-line text-fg-4"
+          >
+            <Circle className="size-2.5" />
+          </span>
         )
-      ) : null}
-      {displayProps.includes("project") ? (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {getProject(data, item.primaryProjectId)?.name ?? ""}
-        </span>
-      ) : null}
-      {displayProps.includes("labels") ? (
-        <span className="max-w-40 truncate text-xs text-muted-foreground">
-          {formatDisplayValue(data, item, "labels")}
-        </span>
-      ) : null}
-      {displayProps.includes("created") ? (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {format(new Date(item.createdAt), "MMM d")}
-        </span>
-      ) : null}
-      {displayProps.includes("updated") ? (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {format(new Date(item.updatedAt), "MMM d")}
-        </span>
       ) : null}
     </>
   )
 
   const body = (
-    <div className="group border-b transition-colors hover:bg-accent/50">
-      <div className="flex items-center gap-3 px-4 py-2">
-        {interactive ? (
-          <IssueActionMenu
-            data={data}
-            item={item}
-            triggerClassName="opacity-0 transition-opacity group-hover:opacity-100"
-          />
-        ) : (
-          <span className="size-4 shrink-0" />
-        )}
-        {dragHandle}
+    <div className="group/row relative border-b border-line-soft transition-colors hover:bg-surface-2">
+      <div
+        className="grid h-[34px] items-center gap-2.5 px-5 pl-3.5"
+        style={{
+          gridTemplateColumns:
+            "18px 82px 16px minmax(0,1fr) auto auto auto auto auto",
+        }}
+      >
+        <div className="flex items-center justify-center">
+          {dragHandle ?? (
+            <span aria-hidden className="size-4" />
+          )}
+        </div>
         {interactive ? (
           <Link
             href={`/items/${item.id}`}
-            className="flex min-w-0 flex-1 items-center gap-3"
+            className="contents"
           >
             {content}
           </Link>
         ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-3">{content}</div>
+          <>{content}</>
         )}
+        {interactive ? (
+          <div className="absolute top-1/2 right-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100">
+            <IssueActionMenu
+              data={data}
+              item={item}
+              triggerClassName="rounded-md border border-line bg-surface px-1.5 py-0.5 shadow-sm hover:bg-surface-3"
+            />
+          </div>
+        ) : null}
       </div>
       {details}
     </div>
@@ -785,8 +868,8 @@ function BoardGroupHeader({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex items-center justify-between px-3 py-2.5 transition-colors",
-        isOver && "bg-accent/50"
+        "group/col flex items-center justify-between gap-2 px-3 pt-2.5 pb-2 transition-colors",
+        isOver && "bg-surface-2"
       )}
     >
       {children}
@@ -859,6 +942,14 @@ function DraggableWorkCard({
   )
 }
 
+const priorityColorVar: Record<string, string> = {
+  urgent: "var(--priority-urgent)",
+  high: "var(--priority-high)",
+  medium: "var(--priority-medium)",
+  low: "var(--priority-low)",
+  none: "var(--text-4)",
+}
+
 function BoardCardBody({
   data,
   item,
@@ -873,71 +964,95 @@ function BoardCardBody({
   details?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
+  const dueDate = item.dueDate ? new Date(item.dueDate) : null
+  const now = new Date()
+  const daysUntilDue = dueDate
+    ? Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    : null
+  const isOverdue = daysUntilDue !== null && daysUntilDue < 0
+  const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
+  const labelNames = item.labelIds
+    .slice(0, 3)
+    .map((labelId) =>
+      formatDisplayValue(data, { ...item, labelIds: [labelId] }, "labels")
+    )
+    .filter(Boolean) as string[]
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div className="rounded-md border border-border/50 bg-card p-3 shadow-xs transition-shadow hover:shadow-sm">
-        <div className="mb-2 flex items-start justify-between gap-2">
-          <span className="text-xs text-muted-foreground">{item.key}</span>
-          <div className="flex items-center gap-1.5">
-            {assignee ? (
-              <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
-            ) : (
-              <span className="size-5 shrink-0" />
-            )}
+      <div className="group/card flex cursor-grab flex-col gap-2 rounded-lg border border-line bg-surface p-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
+        <div className="flex items-center gap-2 text-[11px] text-fg-3">
+          <span className="font-mono tracking-[0.01em]">{item.key}</span>
+          {item.priority !== "none" ? (
+            <Flame
+              className="ml-auto size-3.5"
+              style={{ color: priorityColorVar[item.priority] }}
+              weight="fill"
+            />
+          ) : null}
+          <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover/card:opacity-100">
             <IssueActionMenu
               data={data}
               item={item}
-              triggerClassName="rounded-md p-1 transition-colors hover:bg-muted"
+              triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
             />
             {dragHandle}
           </div>
         </div>
         <Link
-          className="flex flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex min-w-0 flex-col gap-2 focus-visible:outline-none"
           href={`/items/${item.id}`}
         >
-          <div className="text-sm leading-snug font-medium hover:underline">
+          <div className="text-[13.5px] leading-[1.4] font-medium text-foreground">
             {item.title}
           </div>
-          <div className="mt-2 flex items-center gap-1.5">
-            <StatusIcon status={item.status} />
-            <WorkItemTypeBadge data={data} item={item} />
-            {displayProps.includes("project") && item.primaryProjectId ? (
-              <Badge
-                variant="secondary"
-                className="h-4 px-1.5 py-0 text-[10px]"
-              >
-                {getProject(data, item.primaryProjectId)?.name}
-              </Badge>
-            ) : null}
-          </div>
-          {displayProps.includes("labels") && item.labelIds.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {item.labelIds.slice(0, 3).map((labelId) => {
-                const labelName = formatDisplayValue(data, {
-                  ...item,
-                  labelIds: [labelId],
-                }, "labels")
-
-                if (!labelName) {
-                  return null
-                }
-
-                return (
-                  <Badge
-                    key={`${item.id}-${labelId}`}
-                    variant="outline"
-                    className="h-4 px-1.5 py-0 text-[10px]"
-                  >
-                    {labelName}
-                  </Badge>
-                )
-              })}
+          {displayProps.includes("labels") && labelNames.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
+              {labelNames.map((name, index) => (
+                <span
+                  key={`${item.id}-label-${index}`}
+                  className="inline-flex items-center gap-1 rounded-full bg-surface-3 px-1.5 py-0.5 text-fg-2"
+                >
+                  <span
+                    aria-hidden
+                    className="size-[7px] rounded-full"
+                    style={{
+                      background: `var(--label-${(index % 5) + 1})`,
+                    }}
+                  />
+                  {name}
+                </span>
+              ))}
             </div>
           ) : null}
-          <div className="mt-2 text-xs text-muted-foreground">
-            Created {format(new Date(item.createdAt), "MMM d")}
+          <div className="flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11px] text-fg-3">
+            <span className="inline-flex items-center gap-1">
+              <StatusIcon status={item.status} />
+              <WorkItemTypeBadge data={data} item={item} className="ml-0.5" />
+            </span>
+            {dueDate ? (
+              <span
+                className={cn(
+                  "ml-auto inline-flex items-center gap-1",
+                  isOverdue && "text-[color:var(--priority-urgent)]",
+                  !isOverdue && isSoon && "text-[color:var(--priority-high)]"
+                )}
+              >
+                {format(dueDate, "MMM d")}
+              </span>
+            ) : (
+              <span className="ml-auto">—</span>
+            )}
+            {assignee ? (
+              <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
+            ) : (
+              <span
+                aria-hidden
+                className="inline-grid size-5 place-items-center rounded-full border border-dashed border-line text-fg-4"
+              >
+                <Circle className="size-2.5" />
+              </span>
+            )}
           </div>
         </Link>
         {details}

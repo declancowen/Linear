@@ -223,27 +223,42 @@ export function StatusIcon({ status }: { status: string }) {
   const statusLower = status.toLowerCase()
   if (statusLower === "done" || statusLower === "completed") {
     return (
-      <CheckCircle className="size-3.5 shrink-0 text-green-600" weight="fill" />
+      <CheckCircle
+        className="size-3.5 shrink-0 text-status-done"
+        weight="fill"
+      />
     )
   }
   if (statusLower === "in-progress" || statusLower === "in progress") {
     return (
-      <Circle className="size-3.5 shrink-0 text-yellow-500" weight="fill" />
+      <span
+        aria-hidden
+        className="inline-block size-3.5 shrink-0 rounded-full border-[1.5px] border-status-doing"
+        style={{
+          background:
+            "conic-gradient(var(--status-doing) 0 65%, transparent 65% 100%)",
+        }}
+      />
+    )
+  }
+  if (statusLower === "in-review" || statusLower === "in review") {
+    return (
+      <Circle className="size-3.5 shrink-0 text-status-review" weight="fill" />
     )
   }
   if (statusLower === "cancelled" || statusLower === "duplicate") {
     return (
       <XCircle
-        className="size-3.5 shrink-0 text-muted-foreground"
+        className="size-3.5 shrink-0 text-status-cancel"
         weight="fill"
       />
     )
   }
   if (statusLower === "todo") {
-    return <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+    return <Circle className="size-3.5 shrink-0 text-status-todo" />
   }
 
-  return <Circle className="size-3.5 shrink-0 text-muted-foreground/50" />
+  return <Circle className="size-3.5 shrink-0 text-status-backlog/70" />
 }
 
 export function buildPropertyStatusOptions(statuses: WorkStatus[]) {
@@ -264,10 +279,10 @@ export function buildPropertyStatusOptions(statuses: WorkStatus[]) {
 }
 
 function getPriorityDotClassName(priority: string) {
-  if (priority === "urgent") return "bg-red-500"
-  if (priority === "high") return "bg-orange-500"
-  if (priority === "medium") return "bg-yellow-500"
-  if (priority === "low") return "bg-blue-500"
+  if (priority === "urgent") return "bg-priority-urgent"
+  if (priority === "high") return "bg-priority-high"
+  if (priority === "medium") return "bg-priority-medium"
+  if (priority === "low") return "bg-priority-low"
   return "bg-muted-foreground/30"
 }
 
@@ -286,17 +301,19 @@ export function CollapsibleSection({
   title,
   defaultOpen = true,
   children,
+  layout = "stack",
 }: {
   title: string
   defaultOpen?: boolean
   children: ReactNode
+  layout?: "stack" | "grid"
 }) {
   const [open, setOpen] = useState(defaultOpen)
 
   return (
     <div className="flex flex-col">
       <button
-        className="flex items-center gap-1.5 py-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase transition-colors hover:text-foreground"
+        className="flex items-center gap-2 pt-4 pb-2 text-[11.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase transition-colors hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         {open ? (
@@ -306,7 +323,15 @@ export function CollapsibleSection({
         )}
         {title}
       </button>
-      {open && <div className="mt-0.5 flex flex-col gap-0.5">{children}</div>}
+      {open ? (
+        layout === "grid" ? (
+          <dl className="mt-1 grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-[12.5px]">
+            {children}
+          </dl>
+        ) : (
+          <div className="mt-0.5 flex flex-col gap-0.5">{children}</div>
+        )
+      ) : null}
     </div>
   )
 }
@@ -487,7 +512,7 @@ export function PropertySelect({
     }
   }
 
-  return (
+  const trigger = (
     <Popover
       open={disabled ? false : open}
       onOpenChange={disabled ? undefined : handleOpenChange}
@@ -501,30 +526,25 @@ export function PropertySelect({
           aria-haspopup="listbox"
           disabled={disabled}
           className={cn(
-            "flex h-9 w-full items-center justify-between rounded-md border px-2 py-1.5 text-sm shadow-none transition-colors focus-visible:ring-0",
+            "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12.5px] text-foreground transition-colors focus-visible:ring-0 focus-visible:outline-none",
             disabled
-              ? "cursor-not-allowed border-transparent bg-transparent text-muted-foreground/70 hover:bg-transparent"
-              : "cursor-pointer border-border/40 bg-muted/15 hover:border-border/70 hover:bg-muted/30"
+              ? "cursor-not-allowed text-fg-4 hover:bg-transparent"
+              : "cursor-pointer hover:bg-surface-3"
           )}
         >
-          {label ? (
-            <span className="min-w-0 shrink-0 text-sm text-muted-foreground">
-              {label}
-            </span>
-          ) : null}
-          <span className="ml-auto flex min-w-0 items-center justify-end gap-2 text-right">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
             {renderValue ? (
               renderValue(selectedValue, selectedLabel)
             ) : (
               <span className="truncate">{selectedLabel}</span>
             )}
-            <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
           </span>
+          <CaretDown className="size-3 shrink-0 text-fg-4" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-64 p-1.5"
+        className="w-[280px] overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-lg"
         onOpenAutoFocus={(event) => {
           event.preventDefault()
         }}
@@ -533,14 +553,14 @@ export function PropertySelect({
           id={listboxId}
           role="listbox"
           aria-label={resolvedAccessibleLabel}
-          className="flex flex-col gap-0.5"
+          className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto p-1"
           onKeyDown={handleListboxKeyDown}
         >
           {options.map((option, index) =>
             option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
               <div
                 key={`separator-${index}`}
-                className="my-1 h-px bg-border"
+                className="my-1 h-px bg-line-soft"
               />
             ) : (
               <button
@@ -554,9 +574,9 @@ export function PropertySelect({
                 aria-selected={option.value === selectedValue}
                 tabIndex={option.value === activeValue ? 0 : -1}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent",
-                  option.value === selectedValue && "bg-accent/60",
-                  option.value === activeValue && "bg-accent"
+                  "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
+                  option.value === activeValue &&
+                    "bg-surface-3 text-foreground"
                 )}
                 onFocus={() => setActiveValue(option.value)}
                 onClick={() => {
@@ -570,7 +590,7 @@ export function PropertySelect({
                 </span>
                 {option.value === selectedValue ? (
                   <CheckCircle
-                    className="size-3.5 shrink-0 text-foreground"
+                    className="size-3.5 shrink-0 text-accent-fg"
                     weight="fill"
                   />
                 ) : null}
@@ -580,6 +600,23 @@ export function PropertySelect({
         </div>
       </PopoverContent>
     </Popover>
+  )
+
+  if (label) {
+    return (
+      <>
+        <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
+          {label}
+        </dt>
+        <dd className="m-0">{trigger}</dd>
+      </>
+    )
+  }
+
+  return (
+    <dd className="col-span-2 m-0">
+      {trigger}
+    </dd>
   )
 }
 
@@ -732,10 +769,14 @@ export function PropertyRow({
   value: string
 }) {
   return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm">{value}</span>
-    </div>
+    <>
+      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
+        {label}
+      </dt>
+      <dd className="m-0 flex min-h-7 items-center gap-2 rounded-md px-1.5 py-1 text-foreground">
+        <span className="truncate">{value}</span>
+      </dd>
+    </>
   )
 }
 
@@ -751,27 +792,31 @@ export function PropertyDateField({
   disabled?: boolean
 }) {
   return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-3 rounded-md border px-2 py-1.5 transition-colors",
-        disabled
-          ? "border-transparent bg-transparent"
-          : "border-border/40 bg-muted/15 hover:border-border/70 hover:bg-muted/30"
-      )}
-    >
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <Input
-        type="date"
-        disabled={disabled}
-        value={value ? value.slice(0, 10) : ""}
-        onChange={(event) =>
-          onValueChange(
-            event.target.value ? `${event.target.value}T00:00:00.000Z` : null
-          )
-        }
-        className="h-7 w-[9.5rem] border-none bg-transparent px-0 text-right text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
-      />
-    </div>
+    <>
+      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "m-0 flex min-h-7 items-center gap-2 rounded-md px-1.5 py-1 transition-colors",
+          !disabled && "hover:bg-surface-3"
+        )}
+      >
+        <Input
+          type="date"
+          disabled={disabled}
+          value={value ? value.slice(0, 10) : ""}
+          onChange={(event) =>
+            onValueChange(
+              event.target.value
+                ? `${event.target.value}T00:00:00.000Z`
+                : null
+            )
+          }
+          className="h-6 w-full border-none bg-transparent px-0 text-[12.5px] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
+        />
+      </dd>
+    </>
   )
 }
 
@@ -819,7 +864,7 @@ export function FilterChip({
   return (
     <button
       className={cn(
-        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs transition-colors",
         active
           ? "border-primary/30 bg-primary/10 font-medium text-foreground"
           : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"

@@ -198,10 +198,10 @@ export function ProjectPropertiesSidebar({
   }))
 
   return (
-    <CollapsibleRightSidebar open={open} width="18rem">
+    <CollapsibleRightSidebar open={open} width="20rem">
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col p-4">
-          <CollapsibleSection title="Properties" defaultOpen>
+          <CollapsibleSection title="Properties" defaultOpen layout="grid">
             <PropertyRow label="Team" value={team?.name ?? "Workspace"} />
             <PropertySelect
               label="Status"

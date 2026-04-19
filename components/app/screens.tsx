@@ -417,53 +417,48 @@ export function ProjectsScreen({
               return (
                 <Link
                   key={project.id}
-                  className="group flex items-center gap-4 border-b px-6 py-2.5 transition-colors hover:bg-accent/40"
+                  className="group flex items-center gap-4 border-b border-line-soft px-7 py-2 transition-colors hover:bg-surface-2"
                   href={getProjectHref(data, project) ?? "/workspace/projects"}
                 >
-                  {/* Health dot */}
                   <div
+                    aria-hidden
                     className={cn(
-                      "size-2 shrink-0 rounded-full",
+                      "size-1.5 shrink-0 rounded-full",
                       project.health === "on-track"
-                        ? "bg-green-500"
+                        ? "bg-[color:var(--status-done)]"
                         : project.health === "at-risk"
-                          ? "bg-yellow-500"
+                          ? "bg-[color:var(--priority-high)]"
                           : project.health === "off-track"
-                            ? "bg-red-500"
-                            : "bg-muted-foreground/30"
+                            ? "bg-[color:var(--priority-urgent)]"
+                            : "bg-fg-4"
                     )}
                   />
 
-                  {/* Name */}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:underline">
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-foreground group-hover:underline">
                     {project.name}
                   </span>
 
-                  {/* Progress bar */}
-                  <div className="flex w-20 shrink-0 items-center gap-2">
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div className="flex w-[120px] shrink-0 items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-3">
                       <div
-                        className="h-full rounded-full bg-primary/60 transition-all"
+                        className="h-full rounded-full bg-[color:var(--text-2)] transition-all"
                         style={{ width: `${progress.percent}%` }}
                       />
                     </div>
-                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                    <span className="w-8 text-right text-[11.5px] text-fg-3 tabular-nums">
                       {progress.percent}%
                     </span>
                   </div>
 
-                  {/* Priority */}
-                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                  <span className="w-16 shrink-0 text-[12.5px] text-fg-3">
                     {priorityMeta[project.priority].label}
                   </span>
 
-                  {/* Lead */}
-                  <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
+                  <span className="w-24 shrink-0 truncate text-[12.5px] text-fg-3">
                     {getUser(data, project.leadId)?.name ?? "—"}
                   </span>
 
-                  {/* Target date */}
-                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                  <span className="w-16 shrink-0 text-[12.5px] text-fg-3 tabular-nums">
                     {project.targetDate
                       ? format(new Date(project.targetDate), "MMM d")
                       : "—"}

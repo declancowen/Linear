@@ -96,33 +96,36 @@ export function ForumPostCard({ postId }: { postId: string }) {
   return (
     <div
       id={post.id}
-      className="group/post relative rounded-lg border border-border/70 bg-card shadow-sm transition-shadow hover:shadow-md"
+      className="group/post relative grid gap-2.5 border-b border-line-soft px-[18px] py-3 transition-colors hover:bg-surface-2"
+      style={{ gridTemplateColumns: "36px 1fr" }}
     >
-      <div className="px-4 py-4">
+      <div className="mt-[1px]">
+        <UserAvatar
+          name={author?.name}
+          avatarImageUrl={author?.avatarImageUrl}
+          avatarUrl={author?.avatarUrl}
+          status={author?.status}
+          size="default"
+        />
+      </div>
+      <div className="min-w-0">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <UserAvatar
-              name={author?.name}
-              avatarImageUrl={author?.avatarImageUrl}
-              avatarUrl={author?.avatarUrl}
-              status={author?.status}
-              size="default"
-            />
+          <div className="flex min-w-0 items-baseline gap-2">
             <UserHoverCard
               user={author}
               userId={author?.id}
               currentUserId={currentUserId}
               workspaceId={currentWorkspaceId}
             >
-              <span className="truncate text-sm font-semibold">
+              <span className="truncate text-[14px] font-semibold text-foreground">
                 {author?.name ?? "Unknown"}
               </span>
             </UserHoverCard>
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span className="shrink-0 text-[11.5px] text-fg-3">
               {formatTimestamp(post.createdAt)}
             </span>
           </div>
-          <div className="flex shrink-0 items-center gap-0.5 rounded-md border bg-background p-0.5 opacity-0 shadow-sm transition-opacity group-hover/post:opacity-100">
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 opacity-0 shadow-sm transition-opacity group-hover/post:opacity-100">
             <button
               type="button"
               onClick={() => {
@@ -158,7 +161,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
         </div>
 
         {post.title ? (
-          <h3 className="mt-3 text-base leading-snug font-bold">
+          <h3 className="mt-2 text-[15px] leading-snug font-semibold tracking-[-0.005em] text-foreground">
             {post.title}
           </h3>
         ) : null}
@@ -166,12 +169,12 @@ export function ForumPostCard({ postId }: { postId: string }) {
         <RichTextContent
           content={post.content}
           className={cn(
-            "text-sm leading-relaxed text-foreground/90 [&_p]:leading-relaxed",
-            post.title ? "mt-2" : "mt-3"
+            "text-[13.5px] leading-[1.55] text-foreground [&_p]:leading-[1.55]",
+            post.title ? "mt-1.5" : "mt-2"
           )}
         />
 
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {reactions.map((reaction) => {
             const active = reaction.userIds.includes(currentUserId)
 
@@ -185,10 +188,10 @@ export function ForumPostCard({ postId }: { postId: string }) {
                     .toggleChannelPostReaction(post.id, reaction.emoji)
                 }
                 className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors",
+                  "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
                   active
                     ? "border-primary/40 bg-primary/10 text-foreground"
-                    : "bg-background hover:bg-accent"
+                    : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
                 )}
               >
                 <span>{reaction.emoji}</span>
@@ -206,7 +209,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
             trigger={
               <button
                 type="button"
-                className="flex h-7 items-center gap-1.5 rounded-full border border-dashed bg-background px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
               >
                 <Smiley className="size-3.5" />
                 <span>React</span>
@@ -214,14 +217,13 @@ export function ForumPostCard({ postId }: { postId: string }) {
             }
           />
         </div>
-      </div>
 
-      <div className="border-t px-4 py-3">
+        <div className="mt-3 border-l-2 border-line-soft pl-3">
         {hiddenCount > 0 ? (
           <button
             type="button"
             onClick={() => setShowReplies(!showReplies)}
-            className="mb-2.5 text-xs font-medium text-primary hover:underline"
+            className="mb-2 text-[11.5px] font-medium text-fg-3 hover:text-foreground"
           >
             {showReplies
               ? "Show less"
@@ -237,33 +239,37 @@ export function ForumPostCard({ postId }: { postId: string }) {
               return (
                 <div
                   key={comment.id}
-                  className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
+                  className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
+                  style={{ gridTemplateColumns: "24px 1fr" }}
                 >
-                  <UserAvatar
-                    name={commentAuthor?.name}
-                    avatarImageUrl={commentAuthor?.avatarImageUrl}
-                    avatarUrl={commentAuthor?.avatarUrl}
-                    status={commentAuthor?.status}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="mt-[2px]">
+                    <UserAvatar
+                      name={commentAuthor?.name}
+                      avatarImageUrl={commentAuthor?.avatarImageUrl}
+                      avatarUrl={commentAuthor?.avatarUrl}
+                      status={commentAuthor?.status}
+                      size="sm"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
                       <UserHoverCard
                         user={commentAuthor}
                         userId={commentAuthor?.id}
                         currentUserId={currentUserId}
                         workspaceId={currentWorkspaceId}
                       >
-                        <span className="text-xs font-medium">
+                        <span className="text-[12.5px] font-semibold text-foreground">
                           {commentAuthor?.name ?? "Unknown"}
                         </span>
                       </UserHoverCard>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[11px] text-fg-3">
                         {formatTimestamp(comment.createdAt)}
                       </span>
                     </div>
                     <RichTextContent
                       content={comment.content}
-                      className="mt-0.5 text-sm leading-relaxed"
+                      className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
                     />
                   </div>
                 </div>
@@ -280,33 +286,37 @@ export function ForumPostCard({ postId }: { postId: string }) {
               return (
                 <div
                   key={comment.id}
-                  className="flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/30"
+                  className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
+                  style={{ gridTemplateColumns: "24px 1fr" }}
                 >
-                  <UserAvatar
-                    name={commentAuthor?.name}
-                    avatarImageUrl={commentAuthor?.avatarImageUrl}
-                    avatarUrl={commentAuthor?.avatarUrl}
-                    status={commentAuthor?.status}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="mt-[2px]">
+                    <UserAvatar
+                      name={commentAuthor?.name}
+                      avatarImageUrl={commentAuthor?.avatarImageUrl}
+                      avatarUrl={commentAuthor?.avatarUrl}
+                      status={commentAuthor?.status}
+                      size="sm"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
                       <UserHoverCard
                         user={commentAuthor}
                         userId={commentAuthor?.id}
                         currentUserId={currentUserId}
                         workspaceId={currentWorkspaceId}
                       >
-                        <span className="text-xs font-medium">
+                        <span className="text-[12.5px] font-semibold text-foreground">
                           {commentAuthor?.name ?? "Unknown"}
                         </span>
                       </UserHoverCard>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[11px] text-fg-3">
                         {formatTimestamp(comment.createdAt)}
                       </span>
                     </div>
                     <RichTextContent
                       content={comment.content}
-                      className="mt-0.5 text-sm leading-relaxed"
+                      className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
                     />
                   </div>
                 </div>
@@ -316,8 +326,8 @@ export function ForumPostCard({ postId }: { postId: string }) {
         ) : null}
 
         {replyOpen ? (
-          <div className={cn(previewComments.length > 0 && "mt-3")}>
-            <div className="rounded-md border bg-background px-3 py-2">
+          <div className={cn(previewComments.length > 0 && "mt-2")}>
+            <div className="rounded-md border border-line bg-surface px-3 py-2">
               <RichTextEditor
                 content={reply}
                 onChange={setReply}
@@ -328,7 +338,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
                 editorInstanceRef={replyEditorRef}
                 mentionCandidates={mentionCandidates}
                 onSubmitShortcut={handleReply}
-                className="[&_.ProseMirror]:min-h-[2.5rem]"
+                className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
               />
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
@@ -340,13 +350,13 @@ export function ForumPostCard({ postId }: { postId: string }) {
                   trigger={
                     <button
                       type="button"
-                      className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                      className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
                     >
                       <Smiley className="size-4" />
                     </button>
                   }
                 />
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11.5px] text-fg-3">
                   Use `@` to mention people. Press Cmd/Ctrl + Enter to send.
                 </span>
               </div>
@@ -382,7 +392,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
               setReplyOpen(true)
             }}
             className={cn(
-              "mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+              "mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-fg-3 transition-colors hover:text-foreground",
               previewComments.length === 0 && "mt-0"
             )}
           >
@@ -390,6 +400,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
             Add comment
           </button>
         )}
+        </div>
       </div>
       <ConfirmDialog
         open={deletePostOpen}

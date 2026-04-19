@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Work · Table</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    /* ── Table ───────────────────────────────────────────────── */
+    .tbl { padding: 2px 0 40px; }
+
+    .grp {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr) auto auto auto auto auto auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 20px 6px 14px;
+      position: sticky; top: 0; z-index: 2;
+      background: color-mix(in oklch, var(--bg) 92%, transparent);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .grp__caret { color: var(--text-3); cursor: pointer; }
+    .grp__title { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; }
+    .grp__title .pill { font-weight: 600; }
+    .grp__count { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .grp__progress { width: 120px; height: 4px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+    .grp__progress span { display: block; height: 100%; background: var(--text-2); border-radius: 999px; }
+    .grp__meta { color: var(--text-3); font-size: 11.5px; }
+    .grp__actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s var(--ease); }
+    .grp:hover .grp__actions { opacity: 1; }
+
+    .row {
+      display: grid;
+      grid-template-columns:
+        18px                          /* grip */
+        18px                          /* caret/indent */
+        82px                          /* id */
+        16px                          /* status */
+        minmax(0, 1fr)                /* title */
+        auto                          /* labels */
+        auto                          /* priority */
+        auto                          /* due */
+        auto                          /* assignee */
+        auto;                         /* subtask count */
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px 0 14px;
+      height: 34px;
+      border-bottom: 1px solid var(--line-soft);
+      cursor: pointer;
+      position: relative;
+      transition: background 0.08s var(--ease);
+    }
+    .row:hover { background: var(--surface-2); }
+    .row .grip { color: transparent; transition: color 0.1s var(--ease); }
+    .row:hover .grip { color: var(--text-4); }
+    .row .caret { color: var(--text-4); }
+    .row .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--text-3); letter-spacing: 0.01em; }
+    .row .title { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .title .parent { color: var(--text-4); }
+    .row .prio { color: var(--text-3); }
+    .row .due { color: var(--text-3); font-size: 12px; display: flex; align-items: center; gap: 5px; }
+    .row .due.soon { color: var(--p-high); }
+    .row .due.over { color: var(--p-urgent); }
+    .row .sub-count { color: var(--text-4); font-size: 11.5px; display: flex; align-items: center; gap: 3px; }
+    .row--child { padding-left: 48px; background: var(--bg); }
+    .row--child .title { color: var(--text-2); }
+    .row--grand { padding-left: 82px; }
+
+    .tree-line {
+      position: absolute;
+      left: 52px; top: 0; bottom: 0;
+      border-left: 1px solid var(--line);
+    }
+    .row--grand .tree-line { left: 86px; }
+
+    /* Peek actions on hover */
+    .row-peek {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      display: none; gap: 2px;
+      background: var(--surface); padding: 2px;
+      border-radius: var(--radius-sm); border: 1px solid var(--line);
+      box-shadow: var(--shadow-sm);
+    }
+    .row:hover .row-peek { display: flex; }
+
+    /* New-row inline */
+    .row--add {
+      display: grid; grid-template-columns: 18px 18px 82px 16px minmax(0,1fr);
+      align-items: center; gap: 10px; height: 34px; padding: 0 20px 0 14px;
+      color: var(--text-3); font-size: 12.5px; cursor: text;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .row--add:hover { color: var(--text-2); background: var(--surface-2); }
+  </style>
+</head>
+<body data-active="table">
+  <div class="app">
+    <aside id="nav"></aside>
+
+    <main class="main">
+      <!-- Top chrome -->
+      <div class="topbar">
+        <i class="iconbtn" data-i="chevLeft" data-sz="15"></i>
+        <span class="crumb">Core <span class="sep">›</span> <b>Work</b></span>
+        <div class="right">
+          <button class="btn btn--sm"><i data-i="doubleCheck" data-sz="14"></i> Subscribe</button>
+          <i class="iconbtn" data-i="star" data-sz="15"></i>
+          <i class="iconbtn" data-i="bell" data-sz="15"></i>
+          <i class="iconbtn" data-i="more" data-sz="15"></i>
+        </div>
+      </div>
+
+      <!-- View controls -->
+      <div class="viewbar">
+        <div class="tab active"><i data-i="rows" data-sz="13"></i> Table</div>
+        <a class="tab" href="board.html"><i data-i="board" data-sz="13"></i> Board</a>
+        <div class="tab"><i data-i="timeline" data-sz="13"></i> Timeline</div>
+        <div class="tab"><i data-i="calendar" data-sz="13"></i> Calendar</div>
+
+        <div style="width:1px; height:18px; background:var(--line); margin: 0 6px"></div>
+
+        <button class="chip chip--ghost"><i data-i="filter" data-sz="13"></i> Filter</button>
+        <button class="chip chip--accent">
+          Group · <span style="font-weight:600">Status</span>
+          <i data-i="chevDown" data-sz="12"></i>
+        </button>
+        <button class="chip"><i data-i="sort" data-sz="13"></i> Priority</button>
+        <button class="chip chip--ghost muted"><i data-i="eye" data-sz="13"></i> 8 properties</button>
+
+        <div style="margin-left:auto; display:flex; gap:4px; align-items:center">
+          <button class="btn btn--sm btn--ghost"><i data-i="search" data-sz="13"></i></button>
+          <button class="btn btn--sm"><i data-i="plus" data-sz="13"></i> New <kbd style="margin-left:4px">N</kbd></button>
+        </div>
+      </div>
+
+      <!-- Table body -->
+      <div class="scroll tbl">
+
+        <!-- Group: In Progress -->
+        <div class="grp">
+          <i class="grp__caret" data-i="caretDown" data-sz="12"></i>
+          <div class="grp__title">
+            <span class="pill" data-status="doing"><span class="dot" style="background:var(--st-doing)"></span>In progress</span>
+            <span class="grp__count">8</span>
+          </div>
+          <div class="grp__progress" aria-label="Completion"><span style="width: 46%"></span></div>
+          <span class="grp__meta">46% complete</span>
+          <span></span><span></span><span></span>
+          <div class="grp__actions">
+            <i class="iconbtn" data-i="plus" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <i class="caret" data-i="caretDown" data-sz="10"></i>
+          <span class="id">CORE-248</span>
+          <span class="ring ring--filled" title="In progress"></span>
+          <span class="title">Ship new billing portal with invoices &amp; receipts</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-4)"></span>billing</span>
+          <span class="prio"><i data-i="flame" data-sz="13" style="color:var(--p-high)"></i></span>
+          <span class="due">Apr 24</span>
+          <span class="avatar">KM</span>
+          <span class="sub-count"><i data-i="subtask" data-sz="12"></i> 3</span>
+        </div>
+
+        <div class="row row--child">
+          <span></span>
+          <i class="caret" data-i="caretDown" data-sz="10"></i>
+          <span class="id">CORE-248.1</span>
+          <span class="ring ring--done"></span>
+          <span class="title">Add Stripe customer portal proxy endpoint</span>
+          <span></span>
+          <span class="prio"><i data-i="priority" data-sz="13" style="color:var(--text-3)"></i></span>
+          <span class="due">Apr 21</span>
+          <span class="avatar">AF</span>
+          <span></span>
+        </div>
+        <div class="row row--child">
+          <span></span>
+          <i class="caret" data-i="caretRight" data-sz="10"></i>
+          <span class="id">CORE-248.2</span>
+          <span class="ring ring--filled"></span>
+          <span class="title">Build invoice history table with filtering</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-2)"></span>frontend</span>
+          <span class="prio"><i data-i="flame" data-sz="13" style="color:var(--p-med)"></i></span>
+          <span class="due soon">Tomorrow</span>
+          <span class="avatar">KM</span>
+          <span class="sub-count"><i data-i="subtask" data-sz="12"></i> 2</span>
+        </div>
+        <div class="row row--grand row--child">
+          <span></span>
+          <span></span>
+          <span class="id">CORE-248.2.1</span>
+          <span class="ring"></span>
+          <span class="title">Wire pagination to list endpoint</span>
+          <span></span><span></span>
+          <span class="due over">Overdue</span>
+          <span class="avatar" style="background: var(--lbl-4); color: white; border-color: transparent">KM</span>
+          <span></span>
+        </div>
+        <div class="row row--child">
+          <span></span>
+          <span></span>
+          <span class="id">CORE-248.3</span>
+          <span class="ring"></span>
+          <span class="title">Update dunning emails to reflect new flow</span>
+          <span></span><span></span>
+          <span class="due">Apr 26</span>
+          <span class="avatar" style="background: var(--lbl-3); color: white; border-color: transparent">SR</span>
+          <span></span>
+        </div>
+
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <i class="caret" data-i="caretRight" data-sz="10"></i>
+          <span class="id">CORE-251</span>
+          <span class="ring ring--filled"></span>
+          <span class="title">Replace polling with server-sent events on activity feed</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-5)"></span>infra</span>
+          <span class="prio"><i data-i="flame" data-sz="13" style="color:var(--p-urgent)"></i></span>
+          <span class="due soon">Apr 20</span>
+          <span class="avatar">DC</span>
+          <span class="sub-count"><i data-i="subtask" data-sz="12"></i> 5</span>
+        </div>
+
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <span></span>
+          <span class="id">CORE-244</span>
+          <span class="ring ring--filled"></span>
+          <span class="title">Empty states for zero-result views <span class="parent">· Polish</span></span>
+          <span class="label"><span class="dot" style="background:var(--lbl-2)"></span>ui</span>
+          <span class="prio"><i data-i="priority" data-sz="13" style="color:var(--text-3)"></i></span>
+          <span class="due muted">—</span>
+          <span class="avatar" style="background:var(--lbl-1); color:white; border-color:transparent">NT</span>
+          <span></span>
+        </div>
+
+        <div class="row--add">
+          <span></span><span></span><span></span>
+          <i data-i="plus" data-sz="12"></i>
+          <span>Add an item</span>
+        </div>
+
+        <!-- Group: Todo -->
+        <div class="grp">
+          <i class="grp__caret" data-i="caretDown" data-sz="12"></i>
+          <div class="grp__title">
+            <span class="pill" data-status="todo"><span class="dot" style="background:var(--st-todo)"></span>Todo</span>
+            <span class="grp__count">14</span>
+          </div>
+          <div class="grp__progress"><span style="width: 0%"></span></div>
+          <span class="grp__meta">Queued for this cycle</span>
+          <span></span><span></span><span></span>
+          <div class="grp__actions">
+            <i class="iconbtn" data-i="plus" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <i class="caret" data-i="caretRight" data-sz="10"></i>
+          <span class="id">CORE-255</span>
+          <span class="ring"></span>
+          <span class="title">Native notifications for mentions across channels</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-4)"></span>native</span>
+          <span class="prio"><i data-i="flame" data-sz="13" style="color:var(--p-high)"></i></span>
+          <span class="due">Apr 29</span>
+          <span class="avatar">AF</span>
+          <span class="sub-count"><i data-i="subtask" data-sz="12"></i> 4</span>
+        </div>
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <span></span>
+          <span class="id">CORE-256</span>
+          <span class="ring"></span>
+          <span class="title">Audit mentions &amp; emoji reactions for accessibility</span>
+          <span></span>
+          <span class="prio"><i data-i="priority" data-sz="13" style="color:var(--text-3)"></i></span>
+          <span class="due muted">—</span>
+          <span class="avatar" style="background:var(--lbl-3); color:white; border-color:transparent">SR</span>
+          <span></span>
+        </div>
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <span></span>
+          <span class="id">CORE-259</span>
+          <span class="ring"></span>
+          <span class="title">Consolidate filter chips + grouping popovers</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-2)"></span>ui</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-5)"></span>infra</span>
+          <span class="prio"><i data-i="flame" data-sz="13" style="color:var(--p-med)"></i></span>
+          <span class="due">May 2</span>
+          <span class="avatar">DC</span>
+          <span></span>
+        </div>
+
+        <!-- Group: Review -->
+        <div class="grp">
+          <i class="grp__caret" data-i="caretDown" data-sz="12"></i>
+          <div class="grp__title">
+            <span class="pill" data-status="review"><span class="dot" style="background:var(--st-review)"></span>In review</span>
+            <span class="grp__count">3</span>
+          </div>
+          <div class="grp__progress"><span style="width: 100%"></span></div>
+          <span class="grp__meta">Awaiting approval</span>
+          <span></span><span></span><span></span>
+          <div class="grp__actions">
+            <i class="iconbtn" data-i="plus" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="row">
+          <i class="grip" data-i="grip" data-sz="12"></i>
+          <span></span>
+          <span class="id">CORE-239</span>
+          <span class="ring" style="border-color:var(--st-review); background:var(--st-review)"></span>
+          <span class="title">Migrate activity timeline to cursor pagination</span>
+          <span class="label"><span class="dot" style="background:var(--lbl-5)"></span>infra</span>
+          <span class="prio"><i data-i="flame" data-sz="13" style="color:var(--p-high)"></i></span>
+          <span class="due">Today</span>
+          <span class="avatar-stack"><span class="avatar">KM</span><span class="avatar">AF</span></span>
+          <span></span>
+        </div>
+
+        <!-- Group: Done (collapsed) -->
+        <div class="grp">
+          <i class="grp__caret" data-i="caretRight" data-sz="12"></i>
+          <div class="grp__title">
+            <span class="pill" data-status="done"><span class="dot" style="background:var(--st-done)"></span>Done</span>
+            <span class="grp__count">22</span>
+          </div>
+          <div class="grp__progress"><span style="width:100%; background:var(--st-done)"></span></div>
+          <span class="grp__meta">Last shipped 6h ago</span>
+          <span></span><span></span><span></span>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="_icons.js"></script>
+  <script src="_nav.js"></script>
+</body>
+</html>

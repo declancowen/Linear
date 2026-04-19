@@ -30,6 +30,20 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
+const projectHealthAccent: Record<Project["health"], string> = {
+  "on-track": "var(--status-done)",
+  "at-risk": "var(--priority-high)",
+  "off-track": "var(--priority-urgent)",
+  "no-update": "var(--fg-3)",
+}
+
+const projectIconTint: Record<Project["health"], string> = {
+  "on-track": "var(--lbl-4)",
+  "at-risk": "var(--lbl-2)",
+  "off-track": "var(--lbl-1)",
+  "no-update": "var(--lbl-5)",
+}
+
 export function ProjectBoard({
   data,
   projects,
@@ -37,74 +51,116 @@ export function ProjectBoard({
   data: AppData
   projects: Project[]
 }) {
+  const today = new Date()
+
   return (
-    <div className="grid gap-3 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3.5 px-7 py-4 sm:grid-cols-2 xl:grid-cols-3">
       {projects.map((project) => {
         const progress = getProjectProgress(data, project.id)
+        const lead = getUser(data, project.leadId)
+        const accent = projectHealthAccent[project.health]
+        const tint = projectIconTint[project.health]
+        const targetDate = project.targetDate ? new Date(project.targetDate) : null
+        const daysUntilDue = targetDate
+          ? Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          : null
+        const isOverdue = daysUntilDue !== null && daysUntilDue < 0
+        const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 14
 
         return (
           <Link
             key={project.id}
-            className="group flex h-full flex-col rounded-lg border border-border/70 bg-card p-4 transition-shadow hover:shadow-md"
+            className="group flex min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
             href={getProjectHref(data, project) ?? "/workspace/projects"}
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span
+                aria-hidden
+                className="grid size-8 shrink-0 place-items-center rounded-md text-[15px]"
+                style={{
+                  background: `color-mix(in oklch, ${tint} 22%, transparent)`,
+                  color: tint,
+                }}
+              >
+                {project.name.charAt(0).toUpperCase()}
+              </span>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={cn(
-                      "size-2 shrink-0 rounded-full",
-                      project.health === "on-track"
-                        ? "bg-green-500"
-                        : project.health === "at-risk"
-                          ? "bg-yellow-500"
-                          : project.health === "off-track"
-                            ? "bg-red-500"
-                            : "bg-muted-foreground/30"
-                    )}
-                  />
-                  <span className="text-[11px] text-muted-foreground">
-                    {projectHealthMeta[project.health].label}
-                  </span>
-                </div>
-                <h2 className="mt-1.5 text-sm leading-snug font-medium group-hover:underline">
+                <h2 className="truncate text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground group-hover:underline">
                   {project.name}
                 </h2>
+                <div className="mt-px truncate text-[11.5px] text-fg-3">
+                  {priorityMeta[project.priority].label} · {lead?.name ?? "Unassigned"}
+                </div>
               </div>
-              <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
+              <ArrowSquareOut className="size-3.5 shrink-0 text-fg-4 opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
-            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-              {project.summary}
-            </p>
 
-            <div className="mt-3 flex items-center gap-2">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+            {project.summary ? (
+              <p className="line-clamp-2 text-[12.5px] leading-[1.5] text-fg-2">
+                {project.summary}
+              </p>
+            ) : null}
+
+            <div className="flex items-center gap-2.5 text-[11.5px] text-fg-3">
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full"
+                  style={{ background: accent }}
+                />
+                {projectHealthMeta[project.health].label}
+              </span>
+              <div className="relative h-[5px] flex-1 overflow-hidden rounded-full bg-surface-3">
                 <div
-                  className="h-full rounded-full bg-primary/60 transition-all"
-                  style={{ width: `${progress.percent}%` }}
+                  className="absolute inset-y-0 left-0 rounded-full opacity-90 transition-all"
+                  style={{
+                    width: `${progress.inProgressPercent}%`,
+                    background: "var(--status-doing)",
+                  }}
+                />
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full transition-all"
+                  style={{
+                    width: `${progress.percent}%`,
+                    background: "var(--status-done)",
+                  }}
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground tabular-nums">
-                {progress.percent}%
-              </span>
+              <span className="tabular-nums">{progress.percent}%</span>
             </div>
 
-            <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>{priorityMeta[project.priority].label}</span>
-              <span className="truncate">
-                {getUser(data, project.leadId)?.name ?? "Unassigned"}
-              </span>
-              <span>
-                {project.targetDate
-                  ? format(new Date(project.targetDate), "MMM d")
-                  : "No date"}
-              </span>
+            <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
+              <span className="truncate">{lead?.name ?? "Unassigned"}</span>
+              {progress.scope > 0 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="shrink-0">{progress.scope} items</span>
+                </>
+              ) : null}
+              {targetDate ? (
+                <span
+                  className={cn(
+                    "ml-auto shrink-0 tabular-nums",
+                    isOverdue && "text-[color:var(--priority-urgent)]",
+                    !isOverdue && isSoon && "text-[color:var(--priority-high)]"
+                  )}
+                >
+                  {isOverdue ? "Overdue · " : ""}
+                  {format(targetDate, "MMM d")}
+                </span>
+              ) : null}
             </div>
           </Link>
         )
       })}
     </div>
   )
+}
+
+const viewLayoutAccent: Record<ViewDefinition["layout"], string> = {
+  list: "var(--status-todo)",
+  board: "var(--status-doing)",
+  timeline: "var(--status-review)",
 }
 
 export function SavedViewsBoard({
@@ -115,47 +171,60 @@ export function SavedViewsBoard({
   showDescriptions: boolean
 }) {
   return (
-    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3.5 px-7 py-4 sm:grid-cols-2 xl:grid-cols-3">
       {views.map((view) => (
         <Link
           key={view.id}
-          className="group flex h-full flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+          className="group flex h-full min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
           href={getViewHref(view)}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="text-muted-foreground">
-                {getEntityKindIcon(view.entityKind)}
-              </span>
-              <h2 className="truncate text-base leading-tight font-medium">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="grid size-8 shrink-0 place-items-center rounded-md text-white"
+              style={{ background: viewLayoutAccent[view.layout] }}
+            >
+              {getEntityKindIcon(view.entityKind)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground">
                 {view.name}
               </h2>
+              <div className="mt-px truncate text-[11.5px] text-fg-3">
+                {formatEntityKind(view.entityKind)} · {view.layout}
+              </div>
             </div>
-            <ArrowSquareOut className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+            <ArrowSquareOut className="size-3.5 shrink-0 text-fg-4 opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
-          {showDescriptions ? (
-            <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">
+          {showDescriptions && view.description ? (
+            <p className="line-clamp-2 text-[12.5px] leading-[1.5] text-fg-2">
               {view.description}
             </p>
           ) : null}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Badge variant="secondary">
-              {formatEntityKind(view.entityKind)}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
+            <Badge
+              variant="secondary"
+              className="h-5 rounded-md border border-line bg-surface-2 px-1.5 text-[10.5px] font-normal text-fg-2"
+            >
+              Group by {view.grouping}
             </Badge>
-            <Badge variant="outline">{view.layout}</Badge>
+            {view.subGrouping ? (
+              <Badge
+                variant="outline"
+                className="h-5 rounded-md border-line bg-transparent px-1.5 text-[10.5px] font-normal text-fg-3"
+              >
+                / {view.subGrouping}
+              </Badge>
+            ) : null}
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <div className="text-xs text-muted-foreground">Grouping</div>
-              <div className="truncate">
-                {view.grouping}
-                {view.subGrouping ? ` / ${view.subGrouping}` : ""}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Sharing</div>
-              <div>{view.isShared ? "Shared" : "Personal"}</div>
-            </div>
+          <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
+            <span>{view.isShared ? "Shared" : "Personal"}</span>
+            {view.ordering ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="truncate">Sort {view.ordering}</span>
+              </>
+            ) : null}
           </div>
         </Link>
       ))}
@@ -171,7 +240,7 @@ export function DocumentBoard({
   documents: Document[]
 }) {
   return (
-    <div className="grid gap-4 px-6 py-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className="grid gap-3.5 px-7 py-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       {documents.map((document) => {
         const preview = getDocumentPreview(document)
         const author = getUser(data, document.updatedBy ?? document.createdBy)
@@ -183,28 +252,28 @@ export function DocumentBoard({
             document={document}
           >
             <Link
-              className="flex flex-col self-start rounded-lg border bg-card p-0 transition-colors hover:border-foreground/15 hover:bg-accent/30"
+              className="group flex flex-col self-start rounded-xl border border-line bg-surface transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
               href={`/docs/${document.id}`}
             >
               <div className="px-4 pt-4 pb-3">
-                <h3 className="text-sm leading-snug font-medium">
+                <h3 className="text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground group-hover:underline">
                   {document.title}
                 </h3>
                 {preview ? (
-                  <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                  <p className="mt-2 line-clamp-3 text-[12.5px] leading-[1.5] text-fg-2">
                     {preview}
                   </p>
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-2 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2 border-t border-line-soft px-4 py-2.5 text-[11.5px] text-fg-3">
                 <DocumentAuthorAvatar
                   avatarImageUrl={author?.avatarImageUrl}
                   avatarUrl={author?.avatarUrl}
                   name={author?.name ?? "Unknown"}
                 />
                 <span className="truncate">{author?.name ?? "Unknown"}</span>
-                <span className="ml-auto shrink-0">
+                <span className="ml-auto shrink-0 tabular-nums">
                   {format(new Date(document.updatedAt), "MMM d")}
                 </span>
               </div>

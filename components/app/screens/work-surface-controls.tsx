@@ -252,9 +252,9 @@ export function FilterPopover({
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-0">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">
+      <PopoverContent align="end" className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+        <div className="flex items-center justify-between border-b border-line-soft px-3 py-2.5">
+          <span className="text-[11px] font-semibold tracking-[0.04em] text-fg-3 uppercase">
             Filters
           </span>
           {activeCount > 0 ? (
@@ -266,9 +266,9 @@ export function FilterPopover({
             </button>
           ) : null}
         </div>
-        <div className="flex flex-col divide-y p-0">
+        <div className="flex flex-col divide-y divide-line-soft p-0">
           <div className="px-3 py-2.5">
-            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            <div className="mb-2 text-[11px] font-medium text-fg-3">
               Status
             </div>
             <div className="flex flex-wrap gap-1">
@@ -283,7 +283,7 @@ export function FilterPopover({
             </div>
           </div>
           <div className="px-3 py-2.5">
-            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            <div className="mb-2 text-[11px] font-medium text-fg-3">
               Priority
             </div>
             <div className="flex flex-wrap gap-1">
@@ -299,7 +299,7 @@ export function FilterPopover({
           </div>
           {itemTypes.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Type
               </div>
               <div className="flex flex-wrap gap-1">
@@ -321,7 +321,7 @@ export function FilterPopover({
           ) : null}
           {assignees.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Assignee
               </div>
               <div className="flex flex-wrap gap-1">
@@ -340,7 +340,7 @@ export function FilterPopover({
           ) : null}
           {filteredProjects.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Project
               </div>
               <div className="flex flex-wrap gap-1">
@@ -359,7 +359,7 @@ export function FilterPopover({
           ) : null}
           {filteredLabels.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Labels
               </div>
               <div className="flex flex-wrap gap-1">
@@ -445,9 +445,9 @@ export function ViewConfigPopover({
           <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-0">
-        <div className="border-b px-3 py-2.5">
-          <div className="flex rounded-md bg-muted/50 p-0.5">
+      <PopoverContent align="end" className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+        <div className="border-b border-line-soft px-3 py-2.5">
+          <div className="flex rounded-md bg-surface-2 p-0.5">
             {[
               {
                 value: "list",
@@ -684,9 +684,9 @@ export function ProjectFilterPopover({
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-0">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">
+      <PopoverContent align="end" className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+        <div className="flex items-center justify-between border-b border-line-soft px-3 py-2.5">
+          <span className="text-[11px] font-semibold tracking-[0.04em] text-fg-3 uppercase">
             Filters
           </span>
           {activeCount > 0 ? (
@@ -698,9 +698,9 @@ export function ProjectFilterPopover({
             </button>
           ) : null}
         </div>
-        <div className="flex flex-col divide-y p-0">
+        <div className="flex flex-col divide-y divide-line-soft p-0">
           <div className="px-3 py-2.5">
-            <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            <div className="mb-2 text-[11px] font-medium text-fg-3">
               Priority
             </div>
             <div className="flex flex-wrap gap-1">
@@ -716,7 +716,7 @@ export function ProjectFilterPopover({
           </div>
           {healthOptions.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Health
               </div>
               <div className="flex flex-wrap gap-1">
@@ -737,7 +737,7 @@ export function ProjectFilterPopover({
           ) : null}
           {leads.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Lead
               </div>
               <div className="flex flex-wrap gap-1">
@@ -754,7 +754,7 @@ export function ProjectFilterPopover({
           ) : null}
           {projectTeams.length > 0 ? (
             <div className="px-3 py-2.5">
-              <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="mb-2 text-[11px] font-medium text-fg-3">
                 Team
               </div>
               <div className="flex flex-wrap gap-1">
@@ -789,9 +789,9 @@ export function ProjectViewConfigPopover({
           <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-0">
-        <div className="border-b px-3 py-2.5">
-          <div className="flex rounded-md bg-muted/50 p-0.5">
+      <PopoverContent align="end" className="w-64 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+        <div className="border-b border-line-soft px-3 py-2.5">
+          <div className="flex rounded-md bg-surface-2 p-0.5">
             {[
               {
                 value: "list",

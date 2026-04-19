@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Views</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    .main { background: var(--bg); }
+
+    .page-head {
+      padding: 22px 28px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .page-head .crumbs { color: var(--text-3); font-size: 12px; margin-bottom: 4px; }
+    .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+    .page-head .sub { color: var(--text-3); font-size: 13px; margin-top: 4px; }
+
+    .bar {
+      padding: 10px 28px;
+      display: flex; align-items: center; gap: 6px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .bar .right { margin-left: auto; display:flex; gap: 6px; align-items: center; }
+
+    .scope-row {
+      padding: 18px 28px 10px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .scope-row .title {
+      font-size: 11.5px; color: var(--text-3); font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .scope-row .count { color: var(--text-4); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .scope-row .add { margin-left: auto; color: var(--text-3); font-size: 12px; display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
+    .scope-row .add:hover { color: var(--text); }
+
+    /* List rows */
+    .vlist {
+      display: flex; flex-direction: column;
+      border-top: 1px solid var(--line-soft);
+    }
+    .vrow {
+      display: grid;
+      grid-template-columns: 28px 2fr 1fr 1fr auto auto auto;
+      align-items: center; gap: 14px;
+      padding: 8px 28px;
+      border-bottom: 1px solid var(--line-soft);
+      cursor: pointer;
+      transition: background 0.08s var(--ease);
+    }
+    .vrow:hover { background: var(--surface-2); }
+    .vrow__icon {
+      width: 28px; height: 28px; border-radius: var(--radius-sm);
+      display: grid; place-items: center;
+      color: var(--text-2); background: var(--surface-3);
+    }
+    .vrow__name { display: flex; flex-direction: column; min-width: 0; }
+    .vrow__name .t { font-size: 13.5px; font-weight: 500; letter-spacing: -0.005em; }
+    .vrow__name .d { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
+    .vrow__meta { color: var(--text-3); font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .vrow .time { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .vrow .peek { opacity: 0; transition: opacity 0.1s var(--ease); display:flex; gap:2px; }
+    .vrow:hover .peek { opacity: 1; }
+
+    /* Grid option for a second scope */
+    .grid {
+      padding: 14px 28px 24px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .vcard {
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      background: var(--surface); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 8px;
+      cursor: pointer;
+      transition: transform 0.12s var(--ease), box-shadow 0.12s var(--ease), border-color 0.12s var(--ease);
+    }
+    .vcard:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); border-color: var(--text-4); }
+    .vcard__head { display: flex; align-items: center; gap: 10px; }
+    .vcard__icon {
+      width: 30px; height: 30px; border-radius: var(--radius-sm);
+      display: grid; place-items: center;
+      color: var(--text-2); background: var(--surface-3);
+    }
+    .vcard__title { font-size: 13.5px; font-weight: 600; }
+    .vcard__sub { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
+    .vcard__meta {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      color: var(--text-3); font-size: 11.5px;
+    }
+    .vcard__foot {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--text-3); font-size: 11.5px;
+      padding-top: 8px; border-top: 1px dashed var(--line);
+    }
+    .vcard__foot .count { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .vcard--add {
+      display: grid; place-items: center;
+      border-style: dashed; color: var(--text-3); min-height: 110px;
+    }
+    .vcard--add:hover { color: var(--text); }
+
+    .vcard__actions { margin-left: auto; opacity: 0; transition: opacity 0.1s var(--ease); display: flex; gap: 2px; }
+    .vcard:hover .vcard__actions { opacity: 1; }
+
+    .vlayout {
+      width: 24px; height: 24px; border-radius: var(--radius-sm);
+      display: grid; place-items: center; color: white;
+      flex: 0 0 auto;
+    }
+    .vlayout[data-k="table"]  { background: var(--st-todo); }
+    .vlayout[data-k="board"]  { background: var(--st-doing); }
+    .vlayout[data-k="timeline"]{ background: var(--st-review); }
+    .vlayout[data-k="calendar"]{ background: var(--st-done); }
+    .vlayout[data-k="custom"] { background: var(--text-3); }
+  </style>
+</head>
+<body data-active="views">
+  <div class="app">
+    <aside id="nav"></aside>
+
+    <main class="main scroll">
+
+      <div class="page-head">
+        <div class="crumbs">Workspace</div>
+        <h1>Views</h1>
+        <div class="sub">Saved filters + layouts that you (or your team) return to often.</div>
+      </div>
+
+      <div class="bar">
+        <button class="chip chip--accent">Scope · <b style="font-weight:600">All</b> <i data-i="chevDown" data-sz="12"></i></button>
+        <button class="chip"><i data-i="filter" data-sz="13"></i> Layout</button>
+        <button class="chip"><i data-i="team" data-sz="13"></i> Any owner</button>
+        <button class="chip chip--dashed"><i data-i="plus" data-sz="12"></i> Add filter</button>
+
+        <div class="right">
+          <div class="chip chip--ghost muted" style="padding:0">
+            <button class="btn btn--sm btn--ghost"><i data-i="search" data-sz="13"></i></button>
+          </div>
+          <button class="chip chip--ghost muted"><i data-i="sort" data-sz="13"></i> Recent</button>
+          <button class="btn btn--primary btn--sm"><i data-i="plus" data-sz="13"></i> New view <kbd style="margin-left:4px; background:oklch(0.32 0 0); border-color:oklch(0.38 0 0); color:var(--bg)">⌘⇧N</kbd></button>
+        </div>
+      </div>
+
+      <!-- Pinned / favourites as grid -->
+      <div class="scope-row">
+        <span class="title">Favourites</span>
+        <span class="count">· 4</span>
+        <span class="add"><i data-i="plus" data-sz="12"></i> Pin another</span>
+      </div>
+      <div class="grid">
+
+        <div class="vcard">
+          <div class="vcard__head">
+            <div class="vcard__icon" style="color:var(--st-todo); background: color-mix(in oklch, var(--st-todo) 18%, transparent)"><i data-i="rows" data-sz="14"></i></div>
+            <div>
+              <div class="vcard__title">My active work</div>
+              <div class="vcard__sub">You · last opened 4m ago</div>
+            </div>
+            <div class="vcard__actions">
+              <i class="iconbtn" data-i="star" data-sz="14" style="color:var(--p-med)"></i>
+              <i class="iconbtn" data-i="moreV" data-sz="14"></i>
+            </div>
+          </div>
+          <div class="vcard__meta">
+            <span class="chip chip--ghost" style="padding: 1px 6px">Status · 3</span>
+            <span class="chip chip--ghost" style="padding: 1px 6px">Assignee · me</span>
+            <span class="chip chip--ghost" style="padding: 1px 6px">Group · Status</span>
+          </div>
+          <div class="vcard__foot">
+            <i data-i="rows" data-sz="11"></i> Table
+            <span class="count">26 items</span>
+          </div>
+        </div>
+
+        <div class="vcard">
+          <div class="vcard__head">
+            <div class="vcard__icon" style="color:var(--st-doing); background: color-mix(in oklch, var(--st-doing) 18%, transparent)"><i data-i="board" data-sz="14"></i></div>
+            <div>
+              <div class="vcard__title">This cycle · board</div>
+              <div class="vcard__sub">Core · Kasia · 2h ago</div>
+            </div>
+            <div class="vcard__actions">
+              <i class="iconbtn" data-i="star" data-sz="14" style="color:var(--p-med)"></i>
+              <i class="iconbtn" data-i="moreV" data-sz="14"></i>
+            </div>
+          </div>
+          <div class="vcard__meta">
+            <span class="chip chip--ghost" style="padding: 1px 6px">Cycle · current</span>
+            <span class="chip chip--ghost" style="padding: 1px 6px">Team · Core</span>
+          </div>
+          <div class="vcard__foot">
+            <i data-i="board" data-sz="11"></i> Board · by status
+            <span class="count">48 items</span>
+          </div>
+        </div>
+
+        <div class="vcard">
+          <div class="vcard__head">
+            <div class="vcard__icon" style="color:var(--st-review); background: color-mix(in oklch, var(--st-review) 18%, transparent)"><i data-i="timeline" data-sz="14"></i></div>
+            <div>
+              <div class="vcard__title">Release 42 timeline</div>
+              <div class="vcard__sub">Workspace · yesterday</div>
+            </div>
+            <div class="vcard__actions">
+              <i class="iconbtn" data-i="star" data-sz="14" style="color:var(--p-med)"></i>
+              <i class="iconbtn" data-i="moreV" data-sz="14"></i>
+            </div>
+          </div>
+          <div class="vcard__meta">
+            <span class="chip chip--ghost" style="padding: 1px 6px">Milestone · R42</span>
+            <span class="chip chip--ghost" style="padding: 1px 6px">All teams</span>
+          </div>
+          <div class="vcard__foot">
+            <i data-i="timeline" data-sz="11"></i> Timeline
+            <span class="count">18 items</span>
+          </div>
+        </div>
+
+        <div class="vcard vcard--add">
+          <span><i data-i="plus" data-sz="14"></i> Pin a view</span>
+        </div>
+      </div>
+
+      <!-- Team views as list -->
+      <div class="scope-row">
+        <span class="title">Core team</span>
+        <span class="count">· 6</span>
+        <span class="add"><i data-i="plus" data-sz="12"></i> New team view</span>
+      </div>
+
+      <div class="vlist">
+        <div class="vrow">
+          <span class="vlayout" data-k="table"><i data-i="rows" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Backlog triage</span>
+            <span class="d">Status · Backlog · Group by Priority</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Status</span>
+            <span class="chip chip--ghost" style="padding:1px 6px">Priority</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="avatar-stack"><span class="avatar avatar--sm">KM</span></span>
+            <span class="muted">Kasia</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="team" data-sz="11"></i> Team</span>
+          <span class="time">2h ago</span>
+          <div class="peek">
+            <i class="iconbtn" data-i="star" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="vrow">
+          <span class="vlayout" data-k="board"><i data-i="board" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Ready for review</span>
+            <span class="d">Status · In review · Group by Reviewer</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Status · review</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="avatar-stack"><span class="avatar avatar--sm">AF</span><span class="avatar avatar--sm">DC</span></span>
+            <span class="muted">+2 editors</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="team" data-sz="11"></i> Team</span>
+          <span class="time">Yesterday</span>
+          <div class="peek">
+            <i class="iconbtn" data-i="star" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="vrow">
+          <span class="vlayout" data-k="calendar"><i data-i="calendar" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Due this week</span>
+            <span class="d">Due between Mon–Sun · Any assignee</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Due · 7d</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="avatar-stack"><span class="avatar avatar--sm">DC</span></span>
+            <span class="muted">Declan</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="team" data-sz="11"></i> Team</span>
+          <span class="time">Apr 10</span>
+          <div class="peek">
+            <i class="iconbtn" data-i="star" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="vrow">
+          <span class="vlayout" data-k="table"><i data-i="rows" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Overdue work</span>
+            <span class="d">Due &lt; today · Not done · Group by Assignee</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Due · over</span>
+            <span class="chip chip--ghost" style="padding:1px 6px">Status · open</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="muted" style="color: var(--p-urgent)">4 items red</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="globe" data-sz="11"></i> Workspace</span>
+          <span class="time">Apr 6</span>
+          <div class="peek">
+            <i class="iconbtn" data-i="star" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+
+        <div class="vrow">
+          <span class="vlayout" data-k="custom"><i data-i="view" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Bugs by severity</span>
+            <span class="d">Type · Bug · Group by Priority · Sort updated</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Type · bug</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="avatar-stack"><span class="avatar avatar--sm">SR</span></span>
+            <span class="muted">Sara</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="team" data-sz="11"></i> Team</span>
+          <span class="time">Mar 30</span>
+          <div class="peek">
+            <i class="iconbtn" data-i="star" data-sz="13"></i>
+            <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Workspace views -->
+      <div class="scope-row">
+        <span class="title">Workspace</span>
+        <span class="count">· 3</span>
+      </div>
+
+      <div class="vlist">
+        <div class="vrow">
+          <span class="vlayout" data-k="timeline"><i data-i="timeline" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Roadmap · Q2 2026</span>
+            <span class="d">All projects · Group by team</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Quarter · Q2</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="avatar-stack"><span class="avatar avatar--sm">JE</span><span class="avatar avatar--sm">DC</span></span>
+            <span class="muted">Leadership</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="globe" data-sz="11"></i> Workspace</span>
+          <span class="time">Apr 15</span>
+          <div class="peek"><i class="iconbtn" data-i="moreV" data-sz="13"></i></div>
+        </div>
+
+        <div class="vrow">
+          <span class="vlayout" data-k="board"><i data-i="board" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Eng on-call queue</span>
+            <span class="d">Label · oncall · Priority first</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Label · oncall</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="avatar-stack"><span class="avatar avatar--sm">DC</span></span>
+            <span class="muted">Declan</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="globe" data-sz="11"></i> Workspace</span>
+          <span class="time">Apr 12</span>
+          <div class="peek"><i class="iconbtn" data-i="moreV" data-sz="13"></i></div>
+        </div>
+
+        <div class="vrow">
+          <span class="vlayout" data-k="table"><i data-i="rows" data-sz="14"></i></span>
+          <div class="vrow__name">
+            <span class="t">Customer-impact items</span>
+            <span class="d">Label · customer · Not done</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="chip chip--ghost" style="padding:1px 6px">Label · customer</span>
+          </div>
+          <div class="vrow__meta">
+            <span class="muted">Open to all</span>
+          </div>
+          <span class="chip chip--ghost muted" style="padding:1px 6px"><i data-i="globe" data-sz="11"></i> Workspace</span>
+          <span class="time">Feb 28</span>
+          <div class="peek"><i class="iconbtn" data-i="moreV" data-sz="13"></i></div>
+        </div>
+      </div>
+
+      <div style="padding: 18px 28px 48px">
+        <button class="btn"><i data-i="plus" data-sz="13"></i> New workspace view</button>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="_icons.js"></script>
+  <script src="_nav.js"></script>
+</body>
+</html>

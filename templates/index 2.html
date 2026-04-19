@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Templates · Design previews</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    body { background: var(--bg-sunken); }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 64px 28px 120px; }
+    header { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 36px; }
+    header h1 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.015em; }
+    header p { margin: 6px 0 0; color: var(--text-3); font-size: 13.5px; max-width: 56ch; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .tile {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 16px 18px; border-radius: var(--radius-lg);
+      background: var(--surface); border: 1px solid var(--line);
+      transition: transform 0.12s var(--ease), box-shadow 0.12s var(--ease), border-color 0.12s var(--ease);
+    }
+    .tile:hover { border-color: var(--text-4); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+    .tile .glyph {
+      width: 36px; height: 36px; border-radius: var(--radius);
+      background: var(--surface-3); color: var(--text-2);
+      display: grid; place-items: center; flex: 0 0 auto;
+    }
+    .tile h3 { margin: 0 0 3px; font-size: 14px; font-weight: 600; }
+    .tile p { margin: 0; color: var(--text-3); font-size: 12.5px; line-height: 1.5; }
+    .tile .num { color: var(--text-4); font-variant-numeric: tabular-nums; margin-left: auto; font-size: 12px; }
+    .legend { margin-top: 40px; padding: 18px 20px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--line); color: var(--text-2); font-size: 12.5px; line-height: 1.6; }
+    .legend b { color: var(--text); }
+    .legend code { padding: 1px 5px; background: var(--surface-3); border-radius: 4px; font-size: 11.5px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Design previews</h1>
+        <p>Standalone HTML — open any tile to preview a redesigned surface. These files are isolated from the live app and intentionally kept in this folder only.</p>
+      </div>
+    </header>
+
+    <div class="grid">
+      <a class="tile" href="table.html"><div class="glyph"><i data-i="rows" data-sz="18"></i></div><div><h3>Work · Table</h3><p>Grouped rows, nested subtasks, inline properties</p></div><span class="num">01</span></a>
+      <a class="tile" href="board.html"><div class="glyph"><i data-i="board" data-sz="18"></i></div><div><h3>Work · Board</h3><p>Kanban columns with nested work cards</p></div><span class="num">02</span></a>
+      <a class="tile" href="item-sidebar.html"><div class="glyph"><i data-i="view" data-sz="18"></i></div><div><h3>Item detail sidebar</h3><p>Right-side drawer with properties, activity, subtasks</p></div><span class="num">03</span></a>
+      <a class="tile" href="property-dropdown.html"><div class="glyph"><i data-i="filter" data-sz="18"></i></div><div><h3>Property &amp; filter dropdowns</h3><p>Pickers, filter chips, grouping controls</p></div><span class="num">04</span></a>
+      <a class="tile" href="create-modal.html"><div class="glyph"><i data-i="plus" data-sz="18"></i></div><div><h3>Create modal</h3><p>New work item with inline property row</p></div><span class="num">05</span></a>
+      <a class="tile" href="chat.html"><div class="glyph"><i data-i="chat" data-sz="18"></i></div><div><h3>Chat</h3><p>DM list + conversation thread</p></div><span class="num">06</span></a>
+      <a class="tile" href="channel.html"><div class="glyph"><i data-i="channel" data-sz="18"></i></div><div><h3>Channel</h3><p>Threaded channel + member list</p></div><span class="num">07</span></a>
+      <a class="tile" href="projects.html"><div class="glyph"><i data-i="project" data-sz="18"></i></div><div><h3>Project list</h3><p>All projects across the workspace</p></div><span class="num">08</span></a>
+      <a class="tile" href="views.html"><div class="glyph"><i data-i="view" data-sz="18"></i></div><div><h3>View list</h3><p>Saved views grouped by scope</p></div><span class="num">09</span></a>
+    </div>
+
+    <div class="legend">
+      <p style="margin:0 0 6px"><b>How to preview</b></p>
+      Open <code>templates/index.html</code> in a browser — or serve the folder with <code>python3 -m http.server</code> from this directory and visit <code>http://localhost:8000/templates/</code>. No build step, no dependency on the Next.js app.
+    </div>
+  </div>
+
+  <script src="_icons.js"></script>
+</body>
+</html>

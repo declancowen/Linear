@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Create modal</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    body { background: var(--bg); }
+    /* Dim backdrop */
+    .backdrop {
+      position: fixed; inset: 0;
+      background: color-mix(in oklch, oklch(0.15 0 0) 35%, transparent);
+      backdrop-filter: blur(2px);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 72px;
+      z-index: 10;
+    }
+    .page-dim { filter: saturate(0.7); opacity: 0.6; pointer-events: none; }
+
+    .modal {
+      width: min(640px, calc(100% - 32px));
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+      animation: pop 0.18s var(--ease);
+    }
+    @keyframes pop { from { transform: translateY(-4px) scale(0.985); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    .modal__top {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      font-size: 12.5px; color: var(--text-3);
+    }
+    .modal__top .chip { font-weight: 500; }
+    .modal__top .right { margin-left: auto; display: flex; gap: 2px; }
+    .modal__top .crumb-toggle {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: var(--radius-sm);
+      cursor: pointer; color: var(--text-2);
+    }
+    .modal__top .crumb-toggle:hover { background: var(--surface-3); }
+
+    .modal__body {
+      padding: 14px 18px 2px;
+    }
+    .title-input {
+      width: 100%; font-size: 20px; font-weight: 600;
+      border: 0; outline: 0; background: transparent;
+      letter-spacing: -0.01em;
+      padding: 8px 0 4px;
+    }
+    .title-input::placeholder { color: var(--text-4); font-weight: 500; }
+    .desc-input {
+      width: 100%; border: 0; outline: 0; background: transparent;
+      font-size: 13.5px; color: var(--text-2); line-height: 1.6;
+      resize: none; padding: 4px 0 8px;
+      min-height: 60px;
+    }
+    .desc-input::placeholder { color: var(--text-4); }
+
+    .toolbar {
+      display: flex; align-items: center; gap: 2px;
+      padding-bottom: 10px;
+      color: var(--text-3);
+    }
+
+    /* Inline property row */
+    .props-row {
+      display: flex; align-items: center; gap: 6px;
+      flex-wrap: wrap;
+      padding: 10px 18px 12px;
+      border-top: 1px solid var(--line-soft);
+      background: var(--bg);
+    }
+    .pchip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px; border-radius: var(--radius-sm);
+      border: 1px solid var(--line); background: var(--surface);
+      font-size: 12.5px; color: var(--text-2); cursor: pointer;
+    }
+    .pchip:hover { color: var(--text); background: var(--surface-3); }
+    .pchip--dashed { border-style: dashed; color: var(--text-3); }
+    .pchip--filled { color: var(--text); }
+    .pchip--filled b { font-weight: 500; }
+
+    .modal__foot {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--line-soft);
+      background: var(--bg);
+    }
+    .modal__foot .left { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; }
+    .modal__foot .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text-3);
+    }
+    .toggle input { accent-color: var(--accent); }
+
+    /* Page behind */
+    .app.dim .main { background: var(--bg-sunken); }
+  </style>
+</head>
+<body data-active="table" class="app.dim">
+  <div class="app page-dim">
+    <aside id="nav"></aside>
+    <main class="main">
+      <div class="topbar">
+        <span class="crumb">Core <span class="sep">›</span> <b>Work</b></span>
+      </div>
+      <div class="viewbar">
+        <div class="tab active"><i data-i="rows" data-sz="13"></i> Table</div>
+      </div>
+      <div style="padding:16px; color:var(--text-3); font-size:12px">(preview of list behind modal)</div>
+    </main>
+  </div>
+
+  <!-- Modal overlay -->
+  <div class="backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Create work item">
+
+      <div class="modal__top">
+        <span class="crumb-toggle">
+          <span class="dot" style="background:var(--lbl-4)"></span>
+          <b style="color:var(--text); font-weight:500">Core</b>
+          <i data-i="chevDown" data-sz="11"></i>
+        </span>
+        <span class="crumb-toggle">
+          <i data-i="rows" data-sz="12"></i>
+          <b style="color:var(--text); font-weight:500">Task</b>
+          <i data-i="chevDown" data-sz="11"></i>
+        </span>
+        <span class="muted">→ Team inbox</span>
+        <div class="right">
+          <i class="iconbtn" data-i="moreV" data-sz="14"></i>
+          <i class="iconbtn" data-i="close" data-sz="15"></i>
+        </div>
+      </div>
+
+      <div class="modal__body">
+        <input class="title-input" placeholder="Task title" autofocus value="Unify property popovers across table and board" />
+        <textarea class="desc-input" placeholder="Add description…">Consolidate filter, status, priority, assignee, and label pickers behind a shared popover primitive. Goal: consistent 280×auto size, searchable, keyboard-first.</textarea>
+
+        <div class="toolbar">
+          <button class="iconbtn"><i data-i="bold" data-sz="13"></i></button>
+          <button class="iconbtn"><i data-i="italic" data-sz="13"></i></button>
+          <button class="iconbtn"><i data-i="listBullet" data-sz="13"></i></button>
+          <button class="iconbtn"><i data-i="at" data-sz="13"></i></button>
+          <button class="iconbtn"><i data-i="link" data-sz="13"></i></button>
+          <button class="iconbtn"><i data-i="paperclip" data-sz="13"></i></button>
+          <div style="margin-left:auto; color:var(--text-4); font-size:11.5px">Markdown supported</div>
+        </div>
+      </div>
+
+      <div class="props-row">
+        <span class="pchip pchip--filled"><span class="ring" style="border-color:var(--st-todo)"></span><b>Todo</b></span>
+        <span class="pchip pchip--filled"><i data-i="flame" data-sz="13" style="color:var(--p-med)"></i><b>Medium</b></span>
+        <span class="pchip pchip--filled"><span class="avatar avatar--sm">KM</span><b>Kasia</b></span>
+        <span class="pchip pchip--dashed"><i data-i="dueDate" data-sz="13"></i>Due date</span>
+        <span class="pchip pchip--filled"><span class="dot" style="background:var(--lbl-2)"></span><b>ui</b></span>
+        <span class="pchip pchip--dashed"><i data-i="tag" data-sz="13"></i>Add label</span>
+        <span class="pchip pchip--dashed"><i data-i="flag" data-sz="13"></i>Milestone</span>
+        <span class="pchip pchip--dashed"><i data-i="subtask" data-sz="13"></i>Parent</span>
+        <span class="pchip pchip--dashed"><i data-i="clock" data-sz="13"></i>Estimate</span>
+      </div>
+
+      <div class="modal__foot">
+        <div class="left">
+          <i data-i="project" data-sz="13"></i>
+          Adding to <b style="color:var(--text); font-weight:500">Billing v2</b>
+        </div>
+        <div class="right">
+          <label class="toggle"><input type="checkbox" />Create another</label>
+          <button class="btn btn--ghost">Cancel <kbd style="margin-left:6px">Esc</kbd></button>
+          <button class="btn btn--primary">Create task <kbd style="margin-left:6px; background:oklch(0.32 0 0); border-color:oklch(0.38 0 0); color:var(--bg)">⌘⏎</kbd></button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="_icons.js"></script>
+  <script src="_nav.js"></script>
+</body>
+</html>

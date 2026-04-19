@@ -43,6 +43,32 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-status-backlog: var(--status-backlog);
+  --color-status-todo: var(--status-todo);
+  --color-status-doing: var(--status-doing);
+  --color-status-review: var(--status-review);
+  --color-status-done: var(--status-done);
+  --color-status-cancel: var(--status-cancel);
+  --color-priority-urgent: var(--priority-urgent);
+  --color-priority-high: var(--priority-high);
+  --color-priority-medium: var(--priority-medium);
+  --color-priority-low: var(--priority-low);
+  --color-label-1: var(--label-1);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-label-4: var(--label-4);
+  --color-label-5: var(--label-5);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-bg-sunken: var(--bg-sunken);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-fg-2: var(--text-2);
+  --color-fg-3: var(--text-3);
+  --color-fg-4: var(--text-4);
+  --color-accent-bg: var(--accent-bg);
+  --color-accent-fg: var(--accent-fg);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -54,9 +80,20 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.995 0 0);
+  --foreground: oklch(0.18 0 0);
   --card: oklch(1 0 0);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.985 0 0);
+  --surface-3: oklch(0.965 0 0);
+  --bg-sunken: oklch(0.975 0 0);
+  --line: oklch(0.925 0 0);
+  --line-soft: oklch(0.955 0 0);
+  --text-2: oklch(0.42 0 0);
+  --text-3: oklch(0.58 0 0);
+  --text-4: oklch(0.7 0 0);
+  --accent-bg: oklch(0.96 0.02 265);
+  --accent-fg: oklch(0.38 0.17 265);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -86,13 +123,39 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --status-backlog: oklch(0.7 0 0);
+  --status-todo: oklch(0.7 0.1 250);
+  --status-doing: oklch(0.72 0.15 90);
+  --status-review: oklch(0.68 0.16 310);
+  --status-done: oklch(0.68 0.15 155);
+  --status-cancel: oklch(0.65 0 0);
+  --priority-urgent: oklch(0.6 0.22 27);
+  --priority-high: oklch(0.7 0.18 55);
+  --priority-medium: oklch(0.72 0.12 90);
+  --priority-low: oklch(0.7 0 0);
+  --label-1: oklch(0.7 0.17 25);
+  --label-2: oklch(0.75 0.15 85);
+  --label-3: oklch(0.72 0.15 160);
+  --label-4: oklch(0.7 0.16 230);
+  --label-5: oklch(0.7 0.17 300);
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --background: oklch(0.155 0 0);
+  --foreground: oklch(0.97 0 0);
+  --card: oklch(0.185 0 0);
+  --surface: oklch(0.185 0 0);
+  --surface-2: oklch(0.205 0 0);
+  --surface-3: oklch(0.235 0 0);
+  --bg-sunken: oklch(0.135 0 0);
+  --line: oklch(0.285 0 0);
+  --line-soft: oklch(0.245 0 0);
+  --text-2: oklch(0.75 0 0);
+  --text-3: oklch(0.6 0 0);
+  --text-4: oklch(0.48 0 0);
+  --accent-bg: oklch(0.28 0.05 265);
+  --accent-fg: oklch(0.78 0.1 265);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -121,6 +184,21 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --status-backlog: oklch(0.68 0 0);
+  --status-todo: oklch(0.72 0.1 250);
+  --status-doing: oklch(0.78 0.15 90);
+  --status-review: oklch(0.74 0.16 310);
+  --status-done: oklch(0.72 0.15 155);
+  --status-cancel: oklch(0.62 0 0);
+  --priority-urgent: oklch(0.66 0.22 27);
+  --priority-high: oklch(0.76 0.18 55);
+  --priority-medium: oklch(0.78 0.12 90);
+  --priority-low: oklch(0.68 0 0);
+  --label-1: oklch(0.74 0.17 25);
+  --label-2: oklch(0.8 0.15 85);
+  --label-3: oklch(0.76 0.15 160);
+  --label-4: oklch(0.74 0.16 230);
+  --label-5: oklch(0.74 0.17 300);
 }
 
 @layer base {
