@@ -5,10 +5,7 @@ import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ArrowSquareOut,
-  At,
-  Link as LinkIcon,
   PaperPlaneTilt,
-  Paperclip,
   Smiley,
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
@@ -102,14 +99,6 @@ function ChatComposer({
           className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
         />
         <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
-          <button
-            type="button"
-            disabled
-            aria-label="Attach"
-            className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-          >
-            <Paperclip className="size-[13px]" />
-          </button>
           <EmojiPickerPopover
             align="start"
             side="top"
@@ -125,22 +114,6 @@ function ChatComposer({
               </button>
             }
           />
-          <button
-            type="button"
-            disabled
-            aria-label="Mention"
-            className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-          >
-            <At className="size-[13px]" />
-          </button>
-          <button
-            type="button"
-            disabled
-            aria-label="Link item"
-            className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-          >
-            <LinkIcon className="size-[13px]" />
-          </button>
           <span className="flex-1" />
           {action ? <span className="shrink-0">{action}</span> : null}
           <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
@@ -475,7 +448,6 @@ export function ChatThread({
                   getWorkspaceMembershipState(author?.id)
                 )
                 const prevMessage = messages[idx - 1]
-                const nextMessage = messages[idx + 1]
                 const isCurrentUser = message.createdBy === currentUserId
                 const dayKey = getLocalDayKey(message.createdAt)
                 const prevDayKey = prevMessage
@@ -499,12 +471,6 @@ export function ChatThread({
                     prevMessage.callId ||
                     parseCallInviteMessage(prevMessage.content))
                 )
-                const nextIsCall = Boolean(
-                  nextMessage &&
-                  (nextMessage.kind === "call" ||
-                    nextMessage.callId ||
-                    parseCallInviteMessage(nextMessage.content))
-                )
                 const groupedWithPrev =
                   !showDayDivider &&
                   !isCallMessage &&
@@ -513,14 +479,6 @@ export function ChatThread({
                   new Date(message.createdAt).getTime() -
                     new Date(prevMessage.createdAt).getTime() <
                     5 * 60_000
-                const groupedWithNext =
-                  !isCallMessage &&
-                  !nextIsCall &&
-                  nextMessage?.createdBy === message.createdBy &&
-                  new Date(nextMessage.createdAt).getTime() -
-                    new Date(message.createdAt).getTime() <
-                    5 * 60_000
-
                 return (
                   <div key={message.id}>
                     {showDayDivider ? (

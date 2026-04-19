@@ -4,17 +4,10 @@ import { useMemo, useRef, useState } from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
-  At,
   ChatCircle,
   DotsThree,
-  Eye,
-  LinkSimple,
-  ListBullets,
   PaperPlaneTilt,
-  Paperclip,
   Smiley,
-  TextB,
-  TextItalic,
   Trash,
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
@@ -162,14 +155,6 @@ export function ForumPostCard({ postId }: { postId: string }) {
             aria-label="Reply"
           >
             <ChatCircle className="size-[14px]" />
-          </button>
-          <button
-            type="button"
-            aria-label="Copy link"
-            disabled
-            className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-          >
-            <LinkSimple className="size-[14px]" />
           </button>
           {canDeletePost ? (
             <DropdownMenu>
@@ -555,54 +540,6 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
         className="min-w-0 [&_.ProseMirror]:min-h-[2.625rem] [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
       />
       <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
-        <button
-          type="button"
-          disabled
-          aria-label="Bold"
-          className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <TextB className="size-[13px]" />
-        </button>
-        <button
-          type="button"
-          disabled
-          aria-label="Italic"
-          className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <TextItalic className="size-[13px]" />
-        </button>
-        <button
-          type="button"
-          disabled
-          aria-label="Bulleted list"
-          className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <ListBullets className="size-[13px]" />
-        </button>
-        <button
-          type="button"
-          disabled
-          aria-label="Mention"
-          className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <At className="size-[13px]" />
-        </button>
-        <button
-          type="button"
-          disabled
-          aria-label="Link item"
-          className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <LinkSimple className="size-[13px]" />
-        </button>
-        <button
-          type="button"
-          disabled
-          aria-label="Attach"
-          className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <Paperclip className="size-[13px]" />
-        </button>
         <EmojiPickerPopover
           align="start"
           side="top"
@@ -628,14 +565,6 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
           className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-fg-3 transition-colors hover:text-foreground"
         >
           Cancel
-        </button>
-        <button
-          type="button"
-          disabled
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-line px-2 text-[11.5px] text-fg-3 transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-60"
-        >
-          <Eye className="size-[12px]" />
-          Preview
         </button>
         <Button
           type="button"

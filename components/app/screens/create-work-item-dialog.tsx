@@ -3,11 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
-  CalendarBlank,
   CaretDown,
   Check,
-  Clock,
-  Flag,
   FolderSimple,
   MagnifyingGlass,
   Plus,
@@ -1321,35 +1318,6 @@ export function CreateWorkItemDialog({
             </PopoverContent>
           </Popover>
 
-          <button
-            type="button"
-            className={cn(chipTriggerClass, chipTriggerDashedClass)}
-            disabled
-            aria-label="Due date (coming soon)"
-          >
-            <CalendarBlank className="size-[13px]" />
-            <span>Due date</span>
-          </button>
-
-          <button
-            type="button"
-            className={cn(chipTriggerClass, chipTriggerDashedClass)}
-            disabled
-            aria-label="Milestone (coming soon)"
-          >
-            <Flag className="size-[13px]" />
-            <span>Milestone</span>
-          </button>
-
-          <button
-            type="button"
-            className={cn(chipTriggerClass, chipTriggerDashedClass)}
-            disabled
-            aria-label="Estimate (coming soon)"
-          >
-            <Clock className="size-[13px]" />
-            <span>Estimate</span>
-          </button>
         </div>
 
         {filteredTeams.length === 0 ? (
