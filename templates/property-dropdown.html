@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Property &amp; filter dropdowns</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    .main { background: var(--bg-sunken); }
+    .page-head {
+      padding: 22px 28px 14px;
+      border-bottom: 1px solid var(--line-soft); background: var(--bg);
+    }
+    .page-head h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    .page-head p { margin: 4px 0 0; color: var(--text-3); font-size: 13px; max-width: 60ch; }
+
+    .grid {
+      padding: 28px; display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 22px;
+    }
+    .demo {
+      background: var(--bg); border: 1px solid var(--line);
+      border-radius: var(--radius-lg); padding: 20px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .demo h3 {
+      margin: 0; font-size: 12.5px; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-3); font-weight: 600;
+    }
+    .demo p { margin: -4px 0 0; color: var(--text-3); font-size: 12.5px; }
+    .demo__stage {
+      background: var(--bg-sunken); border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      padding: 22px 18px;
+      display: flex; align-items: flex-start; justify-content: center; gap: 16px;
+      position: relative;
+      min-height: 100px;
+      flex-wrap: wrap;
+    }
+
+    /* Popovers re-use _shell.css .popover */
+    .popover { width: 280px; }
+
+    .filter-bar {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      background: var(--bg); border: 1px solid var(--line);
+      padding: 8px 10px; border-radius: var(--radius);
+    }
+    .filter-bar .chip--dashed { cursor: pointer; }
+    .filter-divider { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+
+    /* Inline property cell demos */
+    .prop-cell {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 4px 8px; border-radius: var(--radius-sm);
+      background: var(--bg-sunken); border: 1px dashed var(--line);
+      font-size: 12.5px; color: var(--text-2);
+    }
+
+    .tip {
+      margin-top: auto; color: var(--text-3); font-size: 11.5px;
+      display: flex; align-items: center; gap: 6px;
+    }
+  </style>
+</head>
+<body data-active="table">
+  <div class="app">
+    <aside id="nav"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <span class="crumb">Design <span class="sep">›</span> <b>Property &amp; filter dropdowns</b></span>
+      </div>
+      <div class="page-head">
+        <h1>Property &amp; filter dropdowns</h1>
+        <p>Unified picker pattern across status, priority, assignee, label, date, grouping, and filter. Keyboard-first, single column, consistent spacing.</p>
+      </div>
+
+      <div class="grid">
+
+        <!-- Status picker -->
+        <div class="demo">
+          <h3>Status picker</h3>
+          <p>Inline cell → click opens single-select popover. Dots are the canonical color token.</p>
+          <div class="demo__stage">
+            <span class="prop-cell"><span class="dot" style="background:var(--st-doing)"></span>In progress</span>
+
+            <div class="popover">
+              <div class="popover__search">
+                <i data-i="search" data-sz="14"></i>
+                <input placeholder="Change status…" />
+              </div>
+              <div class="popover__list">
+                <div class="popover__group">Active</div>
+                <div class="popover__item">
+                  <span class="ring" style="border-color:var(--st-backlog)"></span>
+                  <span>Backlog</span>
+                </div>
+                <div class="popover__item">
+                  <span class="ring" style="border-color:var(--st-todo)"></span>
+                  <span>Todo</span>
+                </div>
+                <div class="popover__item" aria-selected="true">
+                  <span class="ring ring--filled" style="border-color:var(--st-doing); background: conic-gradient(var(--st-doing) 0 65%, transparent 0)"></span>
+                  <span>In progress</span>
+                  <i class="check" data-i="check" data-sz="14"></i>
+                </div>
+                <div class="popover__item">
+                  <span class="ring" style="border-color:var(--st-review); background: var(--st-review)"></span>
+                  <span>In review</span>
+                </div>
+                <div class="popover__group">Closed</div>
+                <div class="popover__item">
+                  <span class="ring ring--done"></span>
+                  <span>Done</span>
+                </div>
+                <div class="popover__item">
+                  <span class="ring" style="border-color:var(--st-cancel)"></span>
+                  <span>Cancelled</span>
+                </div>
+              </div>
+              <div class="popover__foot">
+                <span>↑↓ to navigate · ↵ to select</span>
+                <span><kbd>S</kbd> shortcut</span>
+              </div>
+            </div>
+          </div>
+          <div class="tip"><i data-i="help" data-sz="12"></i> 280 × auto, search always visible, 32px rows, 12px gutter.</div>
+        </div>
+
+        <!-- Priority picker -->
+        <div class="demo">
+          <h3>Priority picker</h3>
+          <p>Tight, iconic. No search — 4 options fit on one screen.</p>
+          <div class="demo__stage">
+            <span class="prop-cell"><i data-i="flame" data-sz="13" style="color:var(--p-high)"></i> High</span>
+            <div class="popover" style="width: 220px">
+              <div class="popover__list" style="padding: 4px">
+                <div class="popover__item"><i data-i="priority" data-sz="14" style="color:var(--text-3)"></i>No priority</div>
+                <div class="popover__item"><i data-i="flame" data-sz="14" style="color:var(--p-urgent)"></i>Urgent <span class="muted" style="margin-left:auto; font-size:11px">1</span></div>
+                <div class="popover__item" aria-selected="true"><i data-i="flame" data-sz="14" style="color:var(--p-high)"></i>High <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item"><i data-i="flame" data-sz="14" style="color:var(--p-med)"></i>Medium <span class="muted" style="margin-left:auto; font-size:11px">3</span></div>
+                <div class="popover__item"><i data-i="flame" data-sz="14" style="color:var(--p-low)"></i>Low <span class="muted" style="margin-left:auto; font-size:11px">4</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Assignee picker -->
+        <div class="demo">
+          <h3>Assignee picker</h3>
+          <p>Avatar-first. Shows recent collaborators before full directory.</p>
+          <div class="demo__stage">
+            <span class="prop-cell"><span class="avatar avatar--sm">KM</span>Kasia</span>
+            <div class="popover" style="width: 300px">
+              <div class="popover__search">
+                <i data-i="search" data-sz="14"></i>
+                <input placeholder="Assign someone…" />
+              </div>
+              <div class="popover__list">
+                <div class="popover__group">Suggested</div>
+                <div class="popover__item" aria-selected="true"><span class="avatar avatar--sm">KM</span>Kasia Mikkel <span class="muted" style="margin-left:auto; font-size:11px">you</span><i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item"><span class="avatar avatar--sm">AF</span>Amir Forouzan</div>
+                <div class="popover__item"><span class="avatar avatar--sm">DC</span>Declan Cowen</div>
+                <div class="popover__group">Members</div>
+                <div class="popover__item"><span class="avatar avatar--sm">SR</span>Sara Rees</div>
+                <div class="popover__item"><span class="avatar avatar--sm">NT</span>Nico Tavares</div>
+                <div class="popover__item muted"><i data-i="close" data-sz="14"></i> Unassign</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Label multi-picker -->
+        <div class="demo">
+          <h3>Labels (multi-select)</h3>
+          <p>Multi-select keeps popover open; selected items show checkmark + pin to top.</p>
+          <div class="demo__stage">
+            <span class="prop-cell">
+              <span class="label"><span class="dot" style="background:var(--lbl-4)"></span>billing</span>
+              <span class="label"><span class="dot" style="background:var(--lbl-2)"></span>frontend</span>
+            </span>
+            <div class="popover" style="width: 260px">
+              <div class="popover__search">
+                <i data-i="tag" data-sz="14"></i>
+                <input placeholder="Filter labels…" />
+              </div>
+              <div class="popover__list">
+                <div class="popover__group">Selected · 2</div>
+                <div class="popover__item" aria-selected="true"><span class="dot" style="background:var(--lbl-4)"></span>billing <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item" aria-selected="true"><span class="dot" style="background:var(--lbl-2)"></span>frontend <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__group">All</div>
+                <div class="popover__item"><span class="dot" style="background:var(--lbl-5)"></span>infra</div>
+                <div class="popover__item"><span class="dot" style="background:var(--lbl-3)"></span>docs</div>
+                <div class="popover__item"><span class="dot" style="background:var(--lbl-1)"></span>bug</div>
+                <div class="popover__item muted"><i data-i="plus" data-sz="14"></i>Create new label</div>
+              </div>
+              <div class="popover__foot">
+                <span>Tap to toggle · Esc to close</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Date picker -->
+        <div class="demo">
+          <h3>Due date picker</h3>
+          <p>Natural-language presets first. Calendar collapsible below.</p>
+          <div class="demo__stage">
+            <span class="prop-cell"><i data-i="dueDate" data-sz="13"></i> Thursday, Apr 24</span>
+            <div class="popover" style="width: 260px">
+              <div class="popover__search">
+                <i data-i="calendar" data-sz="14"></i>
+                <input placeholder="next Monday, in 2 weeks…" />
+              </div>
+              <div class="popover__list">
+                <div class="popover__item"><i data-i="clock" data-sz="14"></i> Today <span class="muted" style="margin-left:auto; font-size:11px">Sat</span></div>
+                <div class="popover__item"><i data-i="clock" data-sz="14"></i> Tomorrow <span class="muted" style="margin-left:auto; font-size:11px">Sun</span></div>
+                <div class="popover__item" aria-selected="true"><i data-i="clock" data-sz="14"></i> This Thursday <span class="muted" style="margin-left:auto; font-size:11px">Apr 24</span><i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item"><i data-i="clock" data-sz="14"></i> Next week <span class="muted" style="margin-left:auto; font-size:11px">Apr 27</span></div>
+                <div class="popover__item muted"><i data-i="close" data-sz="14"></i> Clear date</div>
+              </div>
+              <div class="popover__foot"><span>Show calendar</span><i data-i="chevDown" data-sz="12"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grouping control -->
+        <div class="demo">
+          <h3>Grouping control</h3>
+          <p>One chip drives group-by. Secondary chip for swimlane / sub-group.</p>
+          <div class="demo__stage">
+            <button class="chip chip--accent">Group · <b style="font-weight:600">Status</b> <i data-i="chevDown" data-sz="12"></i></button>
+            <div class="popover" style="width: 240px">
+              <div class="popover__list">
+                <div class="popover__group">Group by</div>
+                <div class="popover__item" aria-selected="true"><i data-i="circle" data-sz="13"></i>Status <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item"><i data-i="priority" data-sz="13"></i>Priority</div>
+                <div class="popover__item"><i data-i="team" data-sz="13"></i>Assignee</div>
+                <div class="popover__item"><i data-i="tag" data-sz="13"></i>Label</div>
+                <div class="popover__item"><i data-i="project" data-sz="13"></i>Project</div>
+                <div class="popover__item"><i data-i="flag" data-sz="13"></i>Milestone</div>
+                <div class="popover__item muted"><i data-i="close" data-sz="13"></i>No grouping</div>
+              </div>
+              <hr class="sep" />
+              <div class="popover__list">
+                <div class="popover__group">Sub-group</div>
+                <div class="popover__item muted"><i data-i="close" data-sz="13"></i>None</div>
+                <div class="popover__item"><i data-i="priority" data-sz="13"></i>Priority</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="demo" style="grid-column: 1 / -1">
+          <h3>Filter bar + add-filter popover</h3>
+          <p>Applied filters live as removable chips inline with the view. One dashed chip is always the "+" target — no separate modal.</p>
+          <div class="filter-bar">
+            <button class="chip chip--ghost" style="color:var(--text-3); font-weight:500"><i data-i="filter" data-sz="12"></i> Filters</button>
+            <span class="filter-divider"></span>
+            <span class="chip"><span>Status</span><span class="muted" style="font-weight:500">is</span><b style="font-weight:600"><span class="dot" style="background:var(--st-doing)"></span> In progress<span class="muted" style="margin-left:4px">+2</span></b><i data-i="close" data-sz="12" class="x"></i></span>
+            <span class="chip"><span>Assignee</span><span class="muted">is</span><b style="font-weight:600"><span class="avatar avatar--sm">KM</span> Kasia</b><i data-i="close" data-sz="12" class="x"></i></span>
+            <span class="chip"><span>Due</span><span class="muted">before</span><b style="font-weight:600">Apr 30</b><i data-i="close" data-sz="12" class="x"></i></span>
+            <span class="chip chip--dashed"><i data-i="plus" data-sz="11"></i> Add filter</span>
+            <span style="margin-left:auto; display:flex; gap:6px">
+              <button class="chip chip--ghost muted">Reset</button>
+              <button class="chip">Save as view</button>
+            </span>
+          </div>
+
+          <div class="demo__stage" style="justify-content:flex-start; gap: 24px">
+            <div class="popover" style="width: 260px">
+              <div class="popover__search">
+                <i data-i="search" data-sz="14"></i>
+                <input placeholder="Filter by property…" />
+              </div>
+              <div class="popover__list">
+                <div class="popover__group">Properties</div>
+                <div class="popover__item"><i data-i="circle" data-sz="13"></i>Status</div>
+                <div class="popover__item"><i data-i="priority" data-sz="13"></i>Priority</div>
+                <div class="popover__item"><i data-i="team" data-sz="13"></i>Assignee</div>
+                <div class="popover__item"><i data-i="tag" data-sz="13"></i>Label</div>
+                <div class="popover__item"><i data-i="project" data-sz="13"></i>Project</div>
+                <div class="popover__item"><i data-i="flag" data-sz="13"></i>Milestone</div>
+                <div class="popover__item"><i data-i="dueDate" data-sz="13"></i>Due date</div>
+                <div class="popover__item"><i data-i="clock" data-sz="13"></i>Updated</div>
+                <div class="popover__group">Advanced</div>
+                <div class="popover__item"><i data-i="link" data-sz="13"></i>Relations</div>
+                <div class="popover__item"><i data-i="subtask" data-sz="13"></i>Has subtasks</div>
+              </div>
+            </div>
+
+            <div class="popover" style="width: 280px">
+              <div class="popover__search">
+                <span class="muted">Status</span>
+                <span class="muted" style="margin-left:auto">is</span>
+                <i data-i="chevDown" data-sz="12" style="margin-left:6px"></i>
+              </div>
+              <div class="popover__search" style="padding-top:6px">
+                <i data-i="search" data-sz="14"></i>
+                <input placeholder="Search values…" />
+              </div>
+              <div class="popover__list">
+                <div class="popover__item" aria-selected="true"><span class="ring ring--filled" style="border-color:var(--st-doing); background:conic-gradient(var(--st-doing) 0 65%, transparent 0)"></span>In progress <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item" aria-selected="true"><span class="ring" style="border-color:var(--st-review); background:var(--st-review)"></span>In review <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item" aria-selected="true"><span class="ring" style="border-color:var(--st-todo)"></span>Todo <i class="check" data-i="check" data-sz="14"></i></div>
+                <div class="popover__item"><span class="ring ring--done"></span>Done</div>
+                <div class="popover__item"><span class="ring" style="border-color:var(--st-cancel)"></span>Cancelled</div>
+              </div>
+              <div class="popover__foot">
+                <span>3 selected</span>
+                <button class="muted">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="_icons.js"></script>
+  <script src="_nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+/* Shared chrome used by table / board / chat / channel / list pages */
+
+/* ── Left nav (expanded version for all templates) ───────────── */
+.nav__group { padding: 6px 6px 2px; }
+.nav__sub {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px 4px; color: var(--text-3);
+  font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
+}
+.nav__sub .actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s var(--ease); }
+.nav__sub:hover .actions { opacity: 1; }
+
+/* ── Page header (used in project/view lists) ─────────────────── */
+.page-head {
+  padding: 22px 28px 14px; display: flex; align-items: flex-end; gap: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.page-head h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.page-head .sub { color: var(--text-3); font-size: 13px; margin-top: 2px; }
+.page-head .right { margin-left: auto; display: flex; gap: 8px; }
+
+/* ── Filter / prop popover (shared styling) ───────────────────── */
+.popover {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.popover__search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line-soft);
+  color: var(--text-3);
+}
+.popover__search input {
+  border: 0; outline: 0; background: transparent; flex: 1;
+  color: var(--text); font-size: 13px;
+}
+.popover__list { padding: 4px; max-height: 320px; overflow-y: auto; }
+.popover__group { padding: 8px 12px 4px; color: var(--text-3); font-size: 11px; font-weight: 500; }
+.popover__item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; color: var(--text-2); font-size: 13px;
+}
+.popover__item:hover { background: var(--surface-3); color: var(--text); }
+.popover__item .check { margin-left: auto; color: var(--text-3); }
+.popover__item[aria-selected="true"] .check { color: var(--accent); }
+.popover__foot {
+  padding: 8px 12px; border-top: 1px solid var(--line-soft);
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--text-3); font-size: 11.5px;
+}
+
+/* ── Change brief (toggle + side drawer) ─────────────────────── */
+.brief { position: fixed; z-index: 100; }
+.brief__toggle {
+  position: fixed; right: 16px; bottom: 16px;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px 8px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--text-2); font-size: 12.5px; font-weight: 500;
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: transform 0.12s var(--ease), box-shadow 0.12s var(--ease);
+}
+.brief__toggle:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); color: var(--text); }
+.brief__dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 20%, transparent);
+}
+
+.brief__panel {
+  position: fixed; right: 16px; bottom: 16px; top: 16px;
+  width: min(440px, calc(100% - 32px));
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column;
+  transform: translateX(0);
+  transition: transform 0.2s var(--ease), opacity 0.15s var(--ease);
+}
+.brief__panel[aria-hidden="true"] {
+  transform: translateX(calc(100% + 32px)); opacity: 0; pointer-events: none;
+}
+.brief__panel header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+.brief__panel header strong { font-weight: 600; }
+.brief__panel header button {
+  padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--text-2); font-size: 11.5px; background: transparent;
+  cursor: pointer;
+}
+.brief__panel header button:hover { background: var(--surface-3); color: var(--text); }
+.brief__close { border: 0 !important; padding: 0 6px !important; font-size: 14px !important; color: var(--text-3) !important; }
+
+.brief__body {
+  padding: 14px 18px 22px;
+  overflow-y: auto;
+  font-size: 12.5px; line-height: 1.55; color: var(--text-2);
+}
+.brief__body h3 {
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  margin: 14px 0 6px;
+}
+.brief__body h3:first-child { margin-top: 0; }
+.brief__body p { margin: 0 0 8px; }
+.brief__body ol, .brief__body ul { margin: 0 0 8px; padding-left: 18px; }
+.brief__body li { margin: 3px 0; }
+.brief__body code {
+  font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--surface-3); color: var(--text);
+}
+.brief__body b, .brief__body strong { color: var(--text); }
+.brief__body .tag {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  margin-right: 6px;
+}
+.brief__body .tag--keep { background: color-mix(in oklch, var(--st-done) 20%, transparent); color: var(--st-done); }
+.brief__body .tag--change { background: color-mix(in oklch, var(--st-doing) 22%, transparent); color: var(--st-doing); }
+.brief__body .tag--skip { background: var(--surface-3); color: var(--text-3); }
