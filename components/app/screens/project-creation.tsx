@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarDots,
@@ -9,6 +9,7 @@ import {
   GearSix,
   Kanban,
   Rows,
+  X,
 } from "@phosphor-icons/react"
 
 import {
@@ -33,10 +34,10 @@ import {
   type WorkStatus,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -74,6 +75,52 @@ import {
   orderingOptions,
 } from "@/components/app/screens/work-surface-controls"
 import { cn } from "@/lib/utils"
+
+const TEAM_DOT_COLORS = [
+  "var(--label-1)",
+  "var(--label-2)",
+  "var(--label-3)",
+  "var(--label-4)",
+  "var(--label-5)",
+]
+
+function getTeamDotColor(teamId: string | null | undefined) {
+  if (!teamId) {
+    return TEAM_DOT_COLORS[3]
+  }
+
+  let hash = 0
+  for (let index = 0; index < teamId.length; index += 1) {
+    hash = (hash * 31 + teamId.charCodeAt(index)) >>> 0
+  }
+
+  return TEAM_DOT_COLORS[hash % TEAM_DOT_COLORS.length]
+}
+
+const chipTriggerClass =
+  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+
+const crumbTriggerClass =
+  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+
+function KbdHint({
+  className,
+  children,
+}: {
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <kbd
+      className={cn(
+        "ml-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3",
+        className
+      )}
+    >
+      {children}
+    </kbd>
+  )
+}
 
 function ProjectPresentationPopover({
   templateType,
@@ -479,8 +526,8 @@ export function CreateProjectDialog({
       ? normalizedSummary
       : templateDefaults.summaryHint
   const canCreate = availableTeams.length > 0 && normalizedName.length >= 2
-  const triggerClassName =
-    "h-9 w-auto max-w-full rounded-full border-border/60 bg-background px-3 text-xs font-medium shadow-none"
+  const triggerClassName = chipTriggerClass
+  const teamDotColor = getTeamDotColor(settingsTeam?.id ?? null)
 
   function syncTeamSelection(nextTeamId: string) {
     const nextTeam =
@@ -501,9 +548,57 @@ export function CreateProjectDialog({
     )
   }
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    function handleKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && canCreate) {
+        event.preventDefault()
+
+        if (!selectedTeamId) {
+          return
+        }
+
+        useAppStore.getState().createProject({
+          scopeType: "team",
+          scopeId: selectedTeamId,
+          templateType,
+          name: normalizedName,
+          summary: resolvedSummary,
+          priority: templateDefaults.defaultPriority,
+          settingsTeamId: selectedTeamId,
+          presentation: {
+            ...presentation,
+            displayProps: [...presentation.displayProps],
+            filters: cloneViewFilters(presentation.filters),
+          },
+        })
+        onOpenChange(false)
+      }
+    }
+
+    window.addEventListener("keydown", handleKey)
+    return () => window.removeEventListener("keydown", handleKey)
+  }, [
+    open,
+    canCreate,
+    selectedTeamId,
+    templateType,
+    normalizedName,
+    resolvedSummary,
+    templateDefaults.defaultPriority,
+    presentation,
+    onOpenChange,
+  ])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:max-w-[640px]"
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>
@@ -512,23 +607,72 @@ export function CreateProjectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
-            <Badge
-              variant="outline"
-              className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
-            >
-              {settingsTeam?.name ?? "Team space"}
-            </Badge>
-            <span className="text-muted-foreground/50">/</span>
-            <span className="tracking-normal normal-case">New project</span>
-          </div>
+        <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
+          <Select
+            value={selectedTeamId || "__no_team__"}
+            onValueChange={(value) => {
+              if (value === "__no_team__") {
+                return
+              }
 
+              syncTeamSelection(value)
+            }}
+            disabled={availableTeams.length === 0}
+          >
+            <SelectTrigger
+              size="sm"
+              className={cn(crumbTriggerClass, "min-w-0")}
+            >
+              <SelectValue placeholder="Team space">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className="inline-block size-2 shrink-0 rounded-full"
+                    style={{ background: teamDotColor }}
+                  />
+                  <span className="truncate font-medium text-foreground">
+                    {settingsTeam?.name ?? "Team space"}
+                  </span>
+                </span>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {availableTeams.length > 0 ? (
+                  availableTeams.map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="__no_team__">No team spaces</SelectItem>
+                )}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <span className={crumbTriggerClass}>
+            <span className="font-medium text-foreground">Project</span>
+          </span>
+          <span className="ml-0.5 text-fg-4">→ Team roadmap</span>
+          <div className="ml-auto flex items-center gap-0.5">
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="size-[14px]" />
+              </button>
+            </DialogClose>
+          </div>
+        </div>
+
+        <div className="px-[18px] pt-3 pb-0.5">
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Project name"
-            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem] dark:bg-transparent"
+            className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
           />
           <Textarea
@@ -536,44 +680,14 @@ export function CreateProjectDialog({
             onChange={(event) => setSummary(event.target.value)}
             placeholder={templateDefaults.summaryHint}
             rows={4}
-            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
+            className="mt-0.5 min-h-[96px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
           />
-          <p className="mt-3 text-xs text-muted-foreground">
+          <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
             Configure the default project view before the team starts using it.
-          </p>
+          </div>
         </div>
 
-        <div className="px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={selectedTeamId || "__no_team__"}
-              onValueChange={(value) => {
-                if (value === "__no_team__") {
-                  return
-                }
-
-                syncTeamSelection(value)
-              }}
-              disabled={availableTeams.length === 0}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue placeholder="Team space" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {availableTeams.length > 0 ? (
-                    availableTeams.map((team) => (
-                      <SelectItem key={team.id} value={team.id}>
-                        {team.name}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="__no_team__">No team spaces</SelectItem>
-                  )}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
             <ProjectPresentationPopover
               templateType={templateType}
               presentation={presentation}
@@ -632,21 +746,33 @@ export function CreateProjectDialog({
                 }))
               }
             />
+        </div>
+
+        {availableTeams.length === 0 ? (
+          <p className="px-[18px] pt-2 text-xs text-destructive">
+            No editable team spaces support project creation right now.
+          </p>
+        ) : null}
+
+        <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
+            <GearSix className="size-[13px] shrink-0" />
+            <span className="truncate">
+              {settingsTeam ? (
+                <>
+                  Adding to{" "}
+                  <b className="font-medium text-foreground">
+                    {settingsTeam.name}
+                  </b>
+                </>
+              ) : (
+                "Select a team space"
+              )}
+            </span>
           </div>
-
-          {availableTeams.length === 0 ? (
-            <p className="mt-3 text-xs text-destructive">
-              No editable team spaces support project creation right now.
-            </p>
-          ) : null}
-
-          <div className="mt-5 flex items-center justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              Cancel <KbdHint>Esc</KbdHint>
             </Button>
             <Button
               size="sm"
@@ -673,7 +799,10 @@ export function CreateProjectDialog({
                 onOpenChange(false)
               }}
             >
-              Create project
+              Create project{" "}
+              <KbdHint className="bg-[oklch(0.32_0_0)] text-background border-[oklch(0.38_0_0)]">
+                ⌘⏎
+              </KbdHint>
             </Button>
           </div>
         </div>

@@ -3,10 +3,15 @@
 import { useMemo, type ReactNode } from "react"
 import {
   CalendarDots,
+  CaretDown,
+  Eye,
   FadersHorizontal,
+  FunnelSimple,
   GearSix,
   Kanban,
   Rows,
+  SortAscending,
+  SquaresFour,
 } from "@phosphor-icons/react"
 
 import {
@@ -39,10 +44,34 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
+import { ViewTab } from "@/components/ui/template-primitives"
 
 import { isPersistedViewFilterKey, type ViewFilterKey } from "./helpers"
 import { ConfigSelect, FilterChip } from "./shared"
 import { cn } from "@/lib/utils"
+
+const ORDERING_LABELS: Record<OrderingField, string> = {
+  priority: "Priority",
+  updatedAt: "Updated",
+  createdAt: "Created",
+  dueDate: "Due date",
+  targetDate: "Target date",
+  title: "Name",
+}
+
+const chipBase =
+  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+
+const chipDefault =
+  "border-line bg-surface text-fg-2 hover:text-foreground hover:bg-surface-3"
+
+const chipGhost =
+  "border-transparent bg-transparent text-fg-2 hover:bg-surface-3 hover:text-foreground"
+
+const chipAccent =
+  "border-transparent bg-accent-bg text-accent-fg hover:brightness-[1.03]"
+
+const chipMuted = "text-fg-3"
 
 export const displayPropertyOptions: DisplayProperty[] = [
   "id",
@@ -130,11 +159,13 @@ export function FilterPopover({
   items,
   onToggleFilterValue,
   onClearFilters,
+  variant = "icon",
 }: {
   view: ViewDefinition
   items: WorkItem[]
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
   onClearFilters?: () => void
+  variant?: "icon" | "chip"
 }) {
   const scopedItems = useMemo(
     () =>
@@ -243,16 +274,34 @@ export function FilterPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="icon-xs" variant="ghost" className="relative">
-          <FadersHorizontal className="size-3.5" />
-          {activeCount > 0 ? (
-            <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
-              {activeCount}
-            </span>
-          ) : null}
-        </Button>
+        {variant === "chip" ? (
+          <button
+            type="button"
+            className={cn(
+              chipBase,
+              activeCount > 0 ? chipAccent : chipGhost
+            )}
+          >
+            <FunnelSimple className="size-3.5" />
+            <span>Filter</span>
+            {activeCount > 0 ? (
+              <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+                {activeCount}
+              </span>
+            ) : null}
+          </button>
+        ) : (
+          <Button size="icon-xs" variant="ghost" className="relative">
+            <FadersHorizontal className="size-3.5" />
+            {activeCount > 0 ? (
+              <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+                {activeCount}
+              </span>
+            ) : null}
+          </Button>
+        )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+      <PopoverContent align="start" className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg">
         <div className="flex items-center justify-between border-b border-line-soft px-3 py-2.5">
           <span className="text-[11px] font-semibold tracking-[0.04em] text-fg-3 uppercase">
             Filters
@@ -863,6 +912,238 @@ export function ProjectViewConfigPopover({
             <div className="border-t px-3 py-2">{extraAction}</div>
           </>
         ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function LayoutTabs({ view }: { view: ViewDefinition }) {
+  const tabs: Array<{
+    value: ViewDefinition["layout"]
+    label: string
+    icon: ReactNode
+  }> = [
+    {
+      value: "list",
+      label: "List",
+      icon: <Rows className="size-3.5" />,
+    },
+    {
+      value: "board",
+      label: "Board",
+      icon: <SquaresFour className="size-3.5" />,
+    },
+    {
+      value: "timeline",
+      label: "Timeline",
+      icon: <CalendarDots className="size-3.5" />,
+    },
+  ]
+
+  return (
+    <div className="flex items-center gap-1">
+      {tabs.map((tab) => (
+        <ViewTab
+          key={tab.value}
+          active={view.layout === tab.value}
+          onClick={() =>
+            useAppStore.getState().updateViewConfig(view.id, {
+              layout: tab.value,
+            })
+          }
+        >
+          {tab.icon}
+          {tab.label}
+        </ViewTab>
+      ))}
+    </div>
+  )
+}
+
+export function GroupChipPopover({ view }: { view: ViewDefinition }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipBase, chipAccent)}>
+          <span>Group ·</span>
+          <span className="font-semibold">
+            {getGroupFieldOptionLabel(view.grouping)}
+          </span>
+          <CaretDown className="size-3 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-56 overflow-hidden border border-line bg-surface p-1 shadow-lg"
+      >
+        <div className="px-2 py-1 text-[10px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
+          Group by
+        </div>
+        {groupOptions.map((option) => {
+          const active = view.grouping === option
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() =>
+                useAppStore.getState().updateViewConfig(view.id, {
+                  grouping: option,
+                })
+              }
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-surface-3",
+                active ? "text-foreground" : "text-fg-2"
+              )}
+            >
+              <span className="flex-1">
+                {getGroupFieldOptionLabel(option)}
+              </span>
+              {active ? (
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full bg-accent-fg"
+                />
+              ) : null}
+            </button>
+          )
+        })}
+        <div className="mt-1 border-t border-line-soft px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
+          Sub-group
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            useAppStore.getState().updateViewConfig(view.id, {
+              subGrouping: null,
+            })
+          }
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-surface-3",
+            view.subGrouping === null ? "text-foreground" : "text-fg-2"
+          )}
+        >
+          <span className="flex-1">None</span>
+        </button>
+        {groupOptions.map((option) => {
+          const active = view.subGrouping === option
+          return (
+            <button
+              key={`sub-${option}`}
+              type="button"
+              onClick={() =>
+                useAppStore.getState().updateViewConfig(view.id, {
+                  subGrouping: option,
+                })
+              }
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-surface-3",
+                active ? "text-foreground" : "text-fg-2"
+              )}
+            >
+              <span className="flex-1">
+                {getGroupFieldOptionLabel(option)}
+              </span>
+              {active ? (
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full bg-accent-fg"
+                />
+              ) : null}
+            </button>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function SortChipPopover({ view }: { view: ViewDefinition }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipBase, chipDefault)}>
+          <SortAscending className="size-3.5" />
+          <span>{ORDERING_LABELS[view.ordering]}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-48 overflow-hidden border border-line bg-surface p-1 shadow-lg"
+      >
+        <div className="px-2 py-1 text-[10px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
+          Order by
+        </div>
+        {orderingOptions.map((option) => {
+          const active = view.ordering === option
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() =>
+                useAppStore.getState().updateViewConfig(view.id, {
+                  ordering: option,
+                })
+              }
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-surface-3",
+                active ? "text-foreground" : "text-fg-2"
+              )}
+            >
+              <span className="flex-1">{ORDERING_LABELS[option]}</span>
+              {active ? (
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full bg-accent-fg"
+                />
+              ) : null}
+            </button>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function PropertiesChipPopover({ view }: { view: ViewDefinition }) {
+  const count = view.displayProps.length
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipBase, chipGhost, chipMuted)}>
+          <Eye className="size-3.5" />
+          <span>
+            {count} {count === 1 ? "property" : "properties"}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-60 overflow-hidden border border-line bg-surface p-2 shadow-lg"
+      >
+        <div className="mb-1.5 px-1 text-[10px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
+          Properties
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {displayPropertyOptions.map((property) => (
+            <button
+              key={property}
+              type="button"
+              onClick={() =>
+                useAppStore
+                  .getState()
+                  .toggleViewDisplayProperty(view.id, property)
+              }
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                view.displayProps.includes(property)
+                  ? "border-accent-fg/30 bg-accent-bg text-accent-fg font-medium"
+                  : "border-line text-fg-3 hover:text-foreground"
+              )}
+            >
+              {property}
+            </button>
+          ))}
+        </div>
       </PopoverContent>
     </Popover>
   )

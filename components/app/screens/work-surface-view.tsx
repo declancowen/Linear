@@ -12,9 +12,7 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/core"
-import {
-  format,
-} from "date-fns"
+import { format } from "date-fns"
 import {
   CaretDown,
   CaretRight,
@@ -22,33 +20,35 @@ import {
   DotsSixVertical,
   DotsThree,
   Flame,
+  ListBullets,
   Plus,
+  TreeStructure,
 } from "@phosphor-icons/react"
 
 import {
   buildItemGroupsWithEmptyGroups,
-  formatDisplayValue,
   getDirectChildWorkItemsForDisplay,
-  getProject,
   getTeam,
   getUser,
 } from "@/lib/domain/selectors"
 import {
   getChildWorkItemCopy,
-  priorityMeta,
   type AppData,
   type DisplayProperty,
   type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { StatusRing } from "@/components/ui/template-primitives"
 
-import { IssueActionMenu, IssueContextMenu, stopMenuEvent } from "./work-item-menus"
-import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
-import { StatusIcon, getPatchForField } from "./shared"
+import {
+  IssueActionMenu,
+  IssueContextMenu,
+  stopMenuEvent,
+} from "./work-item-menus"
+import { WorkItemAssigneeAvatar } from "./work-item-ui"
+import { getPatchForField } from "./shared"
 import { getContainerItemsForDisplay } from "./helpers"
 import {
   computeGroupDoneRatio,
@@ -58,6 +58,17 @@ import {
 } from "./work-surface-view/shared"
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
+
+const priorityColorVar: Record<string, string> = {
+  urgent: "var(--priority-urgent)",
+  high: "var(--priority-high)",
+  medium: "var(--priority-medium)",
+  low: "var(--priority-low)",
+  none: "var(--text-4)",
+}
+
+const LIST_ROW_TEMPLATE =
+  "18px 18px 82px 16px minmax(0,1fr) auto auto auto auto auto"
 
 function parseGroupDropTarget(id: string, scope: "board" | "list") {
   const [dropScope, groupValue, subgroupValue] = id.split("::")
@@ -102,6 +113,45 @@ function buildGroupedWorkItemPatch({
       ? {}
       : getPatchForField(data, item, view.subGrouping, subgroupValue)),
   }
+}
+
+function hashLabelIndex(id: string) {
+  let hash = 0
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash) % 5
+}
+
+function getLabelColor(labelId: string) {
+  return `var(--label-${hashLabelIndex(labelId) + 1})`
+}
+
+function countChildItems(data: AppData, item: WorkItem) {
+  return data.workItems.filter((entry) => entry.parentId === item.id).length
+}
+
+function GroupPill({
+  label,
+  accentVar,
+  adornment,
+}: {
+  label: string
+  accentVar?: string | null
+  adornment: ReactNode
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[12px] font-semibold text-foreground">
+      {adornment ?? (
+        <span
+          aria-hidden
+          className="inline-block size-2 rounded-full"
+          style={{ background: accentVar ?? "var(--text-3)" }}
+        />
+      )}
+      <span>{label}</span>
+    </span>
+  )
 }
 
 export function BoardView({
@@ -183,47 +233,32 @@ export function BoardView({
       onDragEnd={handleDragEnd}
     >
       <ScrollArea className="w-full">
-        <div className="flex min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
+        <div className="flex h-full min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
           {visibleGroups.map(([groupName, subgroups]) => {
             const groupItems = Array.from(subgroups.values()).flat()
             const groupCount = groupItems.length
             const groupLabel = getGroupValueLabel(view.grouping, groupName)
-            const groupAdornment = getGroupValueAdornment(
-              view.grouping,
-              groupName
-            )
             const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
 
             return (
               <div
                 key={groupName}
-                className="flex w-[18.5rem] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken"
+                className="flex w-[296px] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken"
               >
-                <BoardGroupHeader id={`board-group::${groupName}`}>
-                  <div className="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.01em]">
-                    {groupAdornment}
-                    <span className="text-foreground">{groupLabel}</span>
-                    <span className="text-[11.5px] font-normal tabular-nums text-fg-3">
-                      {groupCount}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/col:opacity-100">
-                    <Button size="icon-xs" variant="ghost">
-                      <Plus className="size-3.5" />
-                    </Button>
-                    <Button size="icon-xs" variant="ghost">
-                      <DotsThree className="size-3.5" />
-                    </Button>
-                  </div>
-                </BoardGroupHeader>
-                {groupAccentVar ? (
-                  <div
-                    aria-hidden
-                    className="mx-3 h-0.5 rounded-full"
-                    style={{ background: groupAccentVar }}
-                  />
-                ) : null}
-                <div className="flex flex-1 flex-col gap-1.5 p-2">
+                <BoardGroupHeader
+                  id={`board-group::${groupName}`}
+                  accentVar={groupAccentVar}
+                  groupLabel={groupLabel}
+                  groupCount={groupCount}
+                />
+                <div
+                  aria-hidden
+                  className="mx-3 h-0.5 rounded-full opacity-60"
+                  style={{
+                    background: groupAccentVar ?? "var(--text-3)",
+                  }}
+                />
+                <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
                   {Array.from(subgroups.entries()).map(
                     ([subgroupName, subItems]) => {
                       const hidden =
@@ -262,7 +297,9 @@ export function BoardView({
                                       view={view}
                                       ordering={view.ordering}
                                       expanded={expandedItemIds.has(item.id)}
-                                      onToggle={() => toggleExpandedItem(item.id)}
+                                      onToggle={() =>
+                                        toggleExpandedItem(item.id)
+                                      }
                                       variant="board"
                                     />
                                   ) : null
@@ -275,11 +312,18 @@ export function BoardView({
                     }
                   )}
                   {subgroups.size === 0 ? (
-                    <div className="flex min-h-20 items-center justify-center rounded-lg border-[1.5px] border-dashed border-line px-3 text-xs text-fg-4">
-                      {editable ? "Drop items onto the header" : "No items"}
+                    <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
+                      {editable ? "Drop here" : "No items"}
                     </div>
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 pt-1.5 pb-3 text-left text-[12px] text-fg-3 transition-colors hover:text-foreground"
+                >
+                  <Plus className="size-3" />
+                  Add an item
+                </button>
               </div>
             )
           })}
@@ -287,7 +331,7 @@ export function BoardView({
       </ScrollArea>
 
       {hiddenGroups.length > 0 ? (
-        <div className="border-t px-4 py-2">
+        <div className="border-t border-line-soft px-4 py-2">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
               Hidden columns
@@ -295,7 +339,7 @@ export function BoardView({
             {hiddenGroups.map(([groupName]) => (
               <button
                 key={groupName}
-                className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
+                className="rounded-md border border-line px-2 py-0.5 text-xs hover:bg-surface-3"
                 onClick={() =>
                   useAppStore
                     .getState()
@@ -311,7 +355,7 @@ export function BoardView({
 
       <DragOverlay>
         {activeItem ? (
-          <div className="w-[18rem]">
+          <div className="w-[280px]">
             <BoardCardBody
               data={data}
               item={activeItem}
@@ -409,7 +453,7 @@ export function ListView({
       onDragCancel={() => setActiveItemId(null)}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex flex-col">
+      <div className="flex flex-col pb-10">
         {groups.map(([groupName, subgroups]) => {
           if (view.hiddenState.groups.includes(groupName)) {
             return null
@@ -499,12 +543,19 @@ export function ListView({
                               )
                             })}
                           </ListDropLane>
+                          {editable ? (
+                            <ListAddItemRow
+                              onClick={() => {
+                                // Placeholder — real add-flow is via "New" button
+                              }}
+                            />
+                          ) : null}
                         </div>
                       )
                     }
                   )}
                   {subgroups.size === 0 ? (
-                    <div className="border-b px-8 py-3 text-xs text-muted-foreground">
+                    <div className="border-b border-line-soft px-8 py-3 text-xs text-muted-foreground">
                       {editable
                         ? "Drop items onto the group header"
                         : "No items"}
@@ -517,14 +568,14 @@ export function ListView({
         })}
 
         {view.hiddenState.groups.length > 0 ? (
-          <div className="border-t px-4 py-3">
+          <div className="border-t border-line-soft px-4 py-3">
             <div className="mb-2 text-xs text-muted-foreground">
               Hidden rows
             </div>
             {view.hiddenState.groups.map((groupName) => (
               <button
                 key={groupName}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-3"
                 onClick={() =>
                   useAppStore
                     .getState()
@@ -542,7 +593,7 @@ export function ListView({
 
       <DragOverlay>
         {activeItem ? (
-          <div className="w-full max-w-4xl rounded-md border bg-card shadow-sm">
+          <div className="w-full max-w-4xl rounded-md border border-line bg-surface shadow-sm">
             <ListRowBody
               data={data}
               item={activeItem}
@@ -583,12 +634,14 @@ function ListGroupHeader({
       ref={setNodeRef}
       className={cn(
         "sticky top-0 z-[2] border-b border-line-soft backdrop-blur-[6px] transition-colors",
-        isOver ? "bg-surface-2" : "bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)]"
+        isOver
+          ? "bg-surface-2"
+          : "bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)]"
       )}
     >
       <button
         type="button"
-        className="group/grp flex w-full items-center gap-2.5 px-3.5 pt-2 pb-1.5 text-left"
+        className="group/grp flex w-full items-center gap-2.5 px-5 pt-2 pb-1.5 pl-3.5 text-left"
         onClick={onClick}
       >
         <span className="grid size-5 place-items-center text-fg-3">
@@ -598,10 +651,11 @@ function ListGroupHeader({
             <CaretDown className="size-3" />
           )}
         </span>
-        <span className="flex min-w-0 items-center gap-2.5 text-[12.5px] font-semibold text-foreground">
-          {groupAdornment}
-          <span className="truncate">{groupLabel}</span>
-        </span>
+        <GroupPill
+          label={groupLabel}
+          accentVar={accentVar}
+          adornment={groupAdornment}
+        />
         <span className="text-[12px] tabular-nums text-fg-3">{groupCount}</span>
         {groupCount > 0 ? (
           <div className="ml-auto flex items-center gap-2">
@@ -649,6 +703,19 @@ function ListDropLane({
   )
 }
 
+function ListAddItemRow({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group/add flex h-[34px] items-center gap-2.5 border-b border-line-soft pl-9 text-left text-[12.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+    >
+      <Plus className="size-3" />
+      <span>Add an item</span>
+    </button>
+  )
+}
+
 function ListRowBody({
   data,
   item,
@@ -674,31 +741,47 @@ function ListRowBody({
     : null
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
-  const labelText =
-    displayProps.includes("labels")
-      ? formatDisplayValue(data, item, "labels")
-      : ""
+  const showLabels = displayProps.includes("labels") && item.labelIds.length > 0
+  const labelsToShow = showLabels ? item.labelIds.slice(0, 2) : []
+  const labelLookup = data.labels
+  const subCount = countChildItems(data, item)
+  const showSubCount = subCount > 0
 
   const content = (
     <>
       <span className="font-mono text-[11.5px] tracking-[0.01em] text-fg-3">
         {item.key}
       </span>
-      <StatusIcon status={item.status} />
-      <div
-        className="min-w-0"
-        style={{ paddingLeft: depth * 16 }}
-      >
-        <div className="truncate text-[13px] text-foreground">
-          {item.title}
-        </div>
+      <StatusRing status={item.status} />
+      <div className="min-w-0" style={{ paddingLeft: depth * 16 }}>
+        <div className="truncate text-[13px] text-foreground">{item.title}</div>
       </div>
-      {labelText ? (
-        <span className="hidden max-w-40 truncate text-[11.5px] text-fg-3 md:inline">
-          {labelText}
-        </span>
-      ) : null}
-      <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
+      {showLabels ? (
+        <div className="hidden shrink-0 items-center gap-1 md:flex">
+          {labelsToShow.map((labelId) => {
+            const label = labelLookup.find((entry) => entry.id === labelId)
+            if (!label) {
+              return null
+            }
+
+            return (
+              <span
+                key={labelId}
+                className="inline-flex h-5 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2"
+              >
+                <span
+                  aria-hidden
+                  className="size-[7px] rounded-full"
+                  style={{ background: getLabelColor(labelId) }}
+                />
+                {label.name}
+              </span>
+            )
+          })}
+        </div>
+      ) : (
+        <span aria-hidden className="hidden shrink-0 md:inline" />
+      )}
       {displayProps.includes("priority") && item.priority !== "none" ? (
         <Flame
           className="size-3.5 shrink-0"
@@ -706,21 +789,23 @@ function ListRowBody({
           weight="fill"
         />
       ) : (
-        <span className="size-3.5 shrink-0" />
+        <span aria-hidden className="size-3.5 shrink-0" />
       )}
       {dueDate ? (
         <span
           className={cn(
-            "shrink-0 text-[12px]",
+            "shrink-0 text-[12px] tabular-nums",
             isOverdue && "text-[color:var(--priority-urgent)]",
             !isOverdue && isSoon && "text-[color:var(--priority-high)]",
             !isOverdue && !isSoon && "text-fg-3"
           )}
         >
-          {format(dueDate, "MMM d")}
+          {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
         </span>
       ) : (
-        <span className="shrink-0 text-[12px] text-fg-4">—</span>
+        <span aria-hidden className="shrink-0 text-[12px] text-fg-4">
+          —
+        </span>
       )}
       {displayProps.includes("assignee") ? (
         assignee ? (
@@ -733,7 +818,17 @@ function ListRowBody({
             <Circle className="size-2.5" />
           </span>
         )
-      ) : null}
+      ) : (
+        <span aria-hidden className="size-5 shrink-0" />
+      )}
+      {showSubCount ? (
+        <span className="inline-flex shrink-0 items-center gap-1 text-[11.5px] text-fg-4 tabular-nums">
+          <TreeStructure className="size-3" />
+          {subCount}
+        </span>
+      ) : (
+        <span aria-hidden className="shrink-0" />
+      )}
     </>
   )
 
@@ -742,20 +837,15 @@ function ListRowBody({
       <div
         className="grid h-[34px] items-center gap-2.5 px-5 pl-3.5"
         style={{
-          gridTemplateColumns:
-            "18px 82px 16px minmax(0,1fr) auto auto auto auto auto",
+          gridTemplateColumns: LIST_ROW_TEMPLATE,
         }}
       >
         <div className="flex items-center justify-center">
-          {dragHandle ?? (
-            <span aria-hidden className="size-4" />
-          )}
+          {dragHandle ?? <span aria-hidden className="size-4" />}
         </div>
+        <span aria-hidden className="size-4" />
         {interactive ? (
-          <Link
-            href={`/items/${item.id}`}
-            className="contents"
-          >
+          <Link href={`/items/${item.id}`} className="contents">
             {content}
           </Link>
         ) : (
@@ -841,13 +931,13 @@ function DraggableListRow({
         dragHandle={
           <button
             type="button"
-            className="cursor-grab rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
+            className="cursor-grab rounded-md p-0.5 text-fg-4 opacity-0 transition-all hover:bg-surface-3 hover:text-foreground group-hover/row:opacity-100 active:cursor-grabbing"
             aria-label={`Drag ${item.title}`}
             onClick={stopMenuEvent}
             {...listeners}
             {...attributes}
           >
-            <DotsSixVertical className="size-4" />
+            <DotsSixVertical className="size-3.5" />
           </button>
         }
       />
@@ -857,10 +947,14 @@ function DraggableListRow({
 
 function BoardGroupHeader({
   id,
-  children,
+  accentVar,
+  groupLabel,
+  groupCount,
 }: {
   id: string
-  children: ReactNode
+  accentVar?: string | null
+  groupLabel: string
+  groupCount: number
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
@@ -872,7 +966,31 @@ function BoardGroupHeader({
         isOver && "bg-surface-2"
       )}
     >
-      {children}
+      <div className="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.01em] text-foreground">
+        <span
+          aria-hidden
+          className="inline-block size-2 rounded-full"
+          style={{ background: accentVar ?? "var(--text-3)" }}
+        />
+        <span>{groupLabel}</span>
+        <span className="text-[11.5px] font-normal tabular-nums text-fg-3">
+          {groupCount}
+        </span>
+      </div>
+      <div className="flex items-center gap-0.5 opacity-55 transition-opacity hover:opacity-100">
+        <button
+          type="button"
+          className="inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+        >
+          <Plus className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          className="inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+        >
+          <DotsThree className="size-3.5" weight="bold" />
+        </button>
+      </div>
     </div>
   )
 }
@@ -890,8 +1008,8 @@ function BoardDropLane({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex min-h-8 flex-col gap-2 rounded-md p-1 transition-colors",
-        isOver && "bg-accent/50"
+        "flex min-h-8 flex-col gap-1.5 rounded-md p-0 transition-colors",
+        isOver && "bg-accent-bg/40"
       )}
     >
       {children}
@@ -920,47 +1038,23 @@ function DraggableWorkCard({
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(isDragging ? "opacity-60" : "opacity-100")}
+      {...listeners}
+      {...attributes}
     >
-      <BoardCardBody
-        data={data}
-        item={item}
-        displayProps={displayProps}
-        details={details}
-        dragHandle={
-          <button
-            type="button"
-            className="cursor-grab rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
-            aria-label={`Drag ${item.title}`}
-            {...listeners}
-            {...attributes}
-          >
-            <DotsSixVertical className="size-4" />
-          </button>
-        }
-      />
+      <BoardCardBody data={data} item={item} displayProps={displayProps} details={details} />
     </div>
   )
-}
-
-const priorityColorVar: Record<string, string> = {
-  urgent: "var(--priority-urgent)",
-  high: "var(--priority-high)",
-  medium: "var(--priority-medium)",
-  low: "var(--priority-low)",
-  none: "var(--text-4)",
 }
 
 function BoardCardBody({
   data,
   item,
   displayProps,
-  dragHandle,
   details,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
-  dragHandle?: ReactNode
   details?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
@@ -971,32 +1065,35 @@ function BoardCardBody({
     : null
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
-  const labelNames = item.labelIds
-    .slice(0, 3)
-    .map((labelId) =>
-      formatDisplayValue(data, { ...item, labelIds: [labelId] }, "labels")
-    )
-    .filter(Boolean) as string[]
+  const labelIds =
+    displayProps.includes("labels") ? item.labelIds.slice(0, 3) : []
+  const labelLookup = data.labels
+  const subCount = countChildItems(data, item)
+  const doneSubCount = data.workItems.filter(
+    (entry) => entry.parentId === item.id && entry.status === "done"
+  ).length
+  const showMeta = labelIds.length > 0
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div className="group/card flex cursor-grab flex-col gap-2 rounded-lg border border-line bg-surface p-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
-        <div className="flex items-center gap-2 text-[11px] text-fg-3">
+      <div className="group/card flex cursor-grab flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
+        <div className="flex items-center gap-2 text-[11.5px] text-fg-3">
           <span className="font-mono tracking-[0.01em]">{item.key}</span>
-          {item.priority !== "none" ? (
-            <Flame
-              className="ml-auto size-3.5"
-              style={{ color: priorityColorVar[item.priority] }}
-              weight="fill"
-            />
-          ) : null}
-          <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover/card:opacity-100">
-            <IssueActionMenu
-              data={data}
-              item={item}
-              triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
-            />
-            {dragHandle}
+          <div className="ml-auto flex items-center gap-1">
+            {item.priority !== "none" ? (
+              <Flame
+                className="size-3.5"
+                style={{ color: priorityColorVar[item.priority] }}
+                weight="fill"
+              />
+            ) : null}
+            <div className="opacity-0 transition-opacity group-hover/card:opacity-100">
+              <IssueActionMenu
+                data={data}
+                item={item}
+                triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
+              />
+            </div>
           </div>
         </div>
         <Link
@@ -1006,45 +1103,51 @@ function BoardCardBody({
           <div className="text-[13.5px] leading-[1.4] font-medium text-foreground">
             {item.title}
           </div>
-          {displayProps.includes("labels") && labelNames.length > 0 ? (
+          {showMeta ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
-              {labelNames.map((name, index) => (
-                <span
-                  key={`${item.id}-label-${index}`}
-                  className="inline-flex items-center gap-1 rounded-full bg-surface-3 px-1.5 py-0.5 text-fg-2"
-                >
+              {labelIds.map((labelId) => {
+                const label = labelLookup.find(
+                  (entry) => entry.id === labelId
+                )
+                if (!label) return null
+                return (
                   <span
-                    aria-hidden
-                    className="size-[7px] rounded-full"
-                    style={{
-                      background: `var(--label-${(index % 5) + 1})`,
-                    }}
-                  />
-                  {name}
-                </span>
-              ))}
+                    key={labelId}
+                    className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5 text-fg-2"
+                  >
+                    <span
+                      aria-hidden
+                      className="size-[7px] rounded-full"
+                      style={{ background: getLabelColor(labelId) }}
+                    />
+                    {label.name}
+                  </span>
+                )
+              })}
             </div>
           ) : null}
-          <div className="flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11px] text-fg-3">
+          <div className="flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
             <span className="inline-flex items-center gap-1">
-              <StatusIcon status={item.status} />
-              <WorkItemTypeBadge data={data} item={item} className="ml-0.5" />
+              <ListBullets className="size-3" />
+              {subCount > 0 ? `${doneSubCount}/${subCount}` : "0"}
             </span>
             {dueDate ? (
               <span
                 className={cn(
-                  "ml-auto inline-flex items-center gap-1",
+                  "ml-auto inline-flex items-center gap-1 tabular-nums",
                   isOverdue && "text-[color:var(--priority-urgent)]",
                   !isOverdue && isSoon && "text-[color:var(--priority-high)]"
                 )}
               >
-                {format(dueDate, "MMM d")}
+                {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
               </span>
             ) : (
-              <span className="ml-auto">—</span>
+              <span aria-hidden className="ml-auto text-fg-4">
+                —
+              </span>
             )}
             {assignee ? (
-              <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
+              <WorkItemAssigneeAvatar user={assignee} className="size-5" />
             ) : (
               <span
                 aria-hidden
@@ -1104,27 +1207,27 @@ function WorkItemChildDisclosure({
     <div
       className={cn(
         variant === "board"
-          ? "mt-3 border-t border-border/60 pt-2"
-          : "border-t border-border/60 bg-muted/20 px-4 py-2"
+          ? "mt-1 rounded-md bg-surface-2 p-2"
+          : "border-t border-line-soft bg-surface-2/60 px-6 py-2"
       )}
     >
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        className="flex w-full items-center gap-1.5 text-[11.5px] font-medium text-fg-3 transition-colors hover:text-foreground"
         onClick={onToggle}
       >
         {expanded ? (
-          <CaretDown className="size-3.5" />
+          <CaretDown className="size-3" />
         ) : (
-          <CaretRight className="size-3.5" />
+          <CaretRight className="size-3" />
         )}
         <span>{childCountLabel}</span>
       </button>
       {expanded ? (
         <div
           className={cn(
-            "mt-2 flex flex-col gap-1.5",
-            variant === "board" ? "" : "ml-8"
+            "mt-1.5 flex flex-col gap-1",
+            variant === "board" ? "" : "ml-5"
           )}
         >
           {childItems.map((child) => {
@@ -1137,17 +1240,19 @@ function WorkItemChildDisclosure({
                 key={child.id}
                 href={`/items/${child.id}`}
                 className={cn(
-                  "flex items-center gap-2 rounded-md border border-border/60 text-xs transition-colors hover:bg-accent",
+                  "flex items-center gap-2 rounded-md text-[12px] transition-colors hover:bg-surface-3",
                   variant === "board"
-                    ? "bg-background/70 px-2 py-1.5"
-                    : "bg-background/80 px-2.5 py-1.5"
+                    ? "px-1.5 py-1"
+                    : "border border-line bg-surface px-2 py-1"
                 )}
               >
-                <StatusIcon status={child.status} />
-                <span className="min-w-0 shrink-0 text-[11px] text-muted-foreground">
+                <StatusRing status={child.status} className="size-2.5" />
+                <span className="shrink-0 text-[11px] text-fg-3">
                   {child.key}
                 </span>
-                <span className="min-w-0 flex-1 truncate">{child.title}</span>
+                <span className="min-w-0 flex-1 truncate text-fg-2">
+                  {child.title}
+                </span>
                 {childAssignee ? (
                   <WorkItemAssigneeAvatar
                     user={childAssignee}

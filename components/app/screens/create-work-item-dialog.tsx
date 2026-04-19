@@ -6,12 +6,17 @@ import {
   At,
   CalendarBlank,
   CaretDown,
+  Check,
+  Circle,
   Clock,
   Flag,
+  Flame,
   FolderSimple,
   Link as LinkIcon,
   ListBullets,
+  MagnifyingGlass,
   Paperclip,
+  Plus,
   Tag,
   TextB,
   TextItalic,
@@ -55,15 +60,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  PROPERTY_POPOVER_CLASS,
+  PropertyPopoverFoot,
+  PropertyPopoverGroup,
+  PropertyPopoverItem,
+  PropertyPopoverList,
+  PropertyPopoverSearch,
+} from "@/components/ui/template-primitives"
 import { Textarea } from "@/components/ui/textarea"
 import { PriorityDot, StatusIcon } from "@/components/app/screens/shared"
 import {
@@ -71,8 +75,6 @@ import {
   getPreferredCreateDialogType,
 } from "@/components/app/screens/helpers"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
-
-const NO_TEAM_VALUE = "__no_team__"
 
 const TEAM_DOT_COLORS = [
   "var(--label-1)",
@@ -132,6 +134,44 @@ function AssigneeOption({
       <span className="truncate">{name}</span>
     </span>
   )
+}
+
+const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
+const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
+const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
+
+const PRIORITY_TOKEN: Record<Priority, string> = {
+  urgent: "var(--priority-urgent)",
+  high: "var(--priority-high)",
+  medium: "var(--priority-medium)",
+  low: "var(--priority-low)",
+  none: "var(--text-3)",
+}
+
+function PriorityIcon({ priority }: { priority: Priority }) {
+  if (priority === "none") {
+    return (
+      <Circle
+        className="size-[14px] shrink-0"
+        style={{ color: PRIORITY_TOKEN.none }}
+      />
+    )
+  }
+
+  return (
+    <Flame
+      className="size-[14px] shrink-0"
+      weight="fill"
+      style={{ color: PRIORITY_TOKEN[priority] }}
+    />
+  )
+}
+
+function matchesQuery(value: string, query: string) {
+  if (!query) {
+    return true
+  }
+  return value.toLowerCase().includes(query.toLowerCase())
 }
 
 const chipTriggerClass =
@@ -217,6 +257,20 @@ export function CreateWorkItemDialog({
       ? initialType
       : getPreferredCreateDialogType(initialTemplateType)
   const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
+  const [teamPickerOpen, setTeamPickerOpen] = useState(false)
+  const [teamQuery, setTeamQuery] = useState("")
+  const [typePickerOpen, setTypePickerOpen] = useState(false)
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false)
+  const [statusQuery, setStatusQuery] = useState("")
+  const [priorityPickerOpen, setPriorityPickerOpen] = useState(false)
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
+  const [assigneeQuery, setAssigneeQuery] = useState("")
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  const [projectQuery, setProjectQuery] = useState("")
+  const [parentPickerOpen, setParentPickerOpen] = useState(false)
+  const [parentQuery, setParentQuery] = useState("")
+  const [labelsPickerOpen, setLabelsPickerOpen] = useState(false)
+  const [labelQuery, setLabelQuery] = useState("")
   const team = useMemo(
     () => filteredTeams.find((entry) => entry.id === selectedTeamId) ?? null,
     [filteredTeams, selectedTeamId]
@@ -282,7 +336,6 @@ export function CreateWorkItemDialog({
   const activeTemplateType =
     selectedProject?.templateType ?? defaultTemplateType
   const availableItemTypes = getAllowedWorkItemTypesForTemplate(activeTemplateType)
-  const fallbackType = getPreferredCreateDialogType(activeTemplateType)
   const selectedType =
     availableItemTypes.find((value) => value === type) ??
     availableItemTypes[0] ??
@@ -509,21 +562,19 @@ export function CreateWorkItemDialog({
 
         {/* Top / crumb row */}
         <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
-          <Select
-            value={selectedTeamId || NO_TEAM_VALUE}
-            onValueChange={(value) => {
-              if (value === NO_TEAM_VALUE) {
-                return
-              }
-              syncTeamSelection(value)
+          <Popover
+            open={teamPickerOpen}
+            onOpenChange={(next) => {
+              setTeamPickerOpen(next)
+              if (!next) setTeamQuery("")
             }}
-            disabled={filteredTeams.length === 0}
           >
-            <SelectTrigger
-              size="sm"
-              className={cn(crumbTriggerClass, "min-w-0")}
-            >
-              <SelectValue placeholder="Team space">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(crumbTriggerClass, "min-w-0")}
+                disabled={filteredTeams.length === 0}
+              >
                 <span className="flex items-center gap-1.5">
                   <span
                     aria-hidden
@@ -534,62 +585,116 @@ export function CreateWorkItemDialog({
                     {team?.name ?? "Team space"}
                   </span>
                 </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {filteredTeams.length > 0 ? (
-                  filteredTeams.map((teamOption) => (
-                    <SelectItem key={teamOption.id} value={teamOption.id}>
-                      {teamOption.name}
-                    </SelectItem>
-                  ))
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Switch team space…"
+                value={teamQuery}
+                onChange={setTeamQuery}
+              />
+              <PropertyPopoverList>
+                {filteredTeams.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                    No team spaces
+                  </div>
                 ) : (
-                  <SelectItem value={NO_TEAM_VALUE}>No team spaces</SelectItem>
+                  <>
+                    <PropertyPopoverGroup>Team spaces</PropertyPopoverGroup>
+                    {filteredTeams
+                      .filter((entry) => matchesQuery(entry.name, teamQuery))
+                      .map((teamOption) => {
+                        const selected = teamOption.id === selectedTeamId
+                        return (
+                          <PropertyPopoverItem
+                            key={teamOption.id}
+                            selected={selected}
+                            onClick={() => {
+                              syncTeamSelection(teamOption.id)
+                              setTeamPickerOpen(false)
+                              setTeamQuery("")
+                            }}
+                            trailing={
+                              selected ? (
+                                <Check className="size-[14px] text-foreground" />
+                              ) : null
+                            }
+                          >
+                            <span
+                              aria-hidden
+                              className="inline-block size-2 shrink-0 rounded-full"
+                              style={{
+                                background: getTeamDotColor(teamOption.id),
+                              }}
+                            />
+                            <span className="truncate">{teamOption.name}</span>
+                          </PropertyPopoverItem>
+                        )
+                      })}
+                  </>
                 )}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
 
-          <Select
-            value={selectedType ?? fallbackType}
-            onValueChange={(value) => {
-              const nextType = value as WorkItemType
-              const nextParentStillValid =
-                selectedParentItem &&
-                canParentWorkItemTypeAcceptChild(
-                  selectedParentItem.type,
-                  nextType
-                )
-
-              setType(nextType)
-
-              if (!nextParentStillValid) {
-                setSelectedParentId("none")
-              }
-            }}
-            disabled={availableItemTypes.length === 0 || !team}
-          >
-            <SelectTrigger size="sm" className={crumbTriggerClass}>
-              <SelectValue placeholder="Type">
+          <Popover open={typePickerOpen} onOpenChange={setTypePickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={crumbTriggerClass}
+                disabled={availableItemTypes.length === 0 || !team}
+              >
                 <span className="font-medium text-foreground">
                   {selectedTypeLabel}
                 </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {availableItemTypes.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {getDisplayLabelForWorkItemType(
-                      value,
-                      team?.settings.experience
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+            >
+              <PropertyPopoverList>
+                <PropertyPopoverGroup>Work item type</PropertyPopoverGroup>
+                {availableItemTypes.map((value) => {
+                  const selected = value === selectedType
+                  return (
+                    <PropertyPopoverItem
+                      key={value}
+                      selected={selected}
+                      onClick={() => {
+                        const nextParentStillValid =
+                          selectedParentItem &&
+                          canParentWorkItemTypeAcceptChild(
+                            selectedParentItem.type,
+                            value
+                          )
+                        setType(value)
+                        if (!nextParentStillValid) {
+                          setSelectedParentId("none")
+                        }
+                        setTypePickerOpen(false)
+                      }}
+                      trailing={
+                        selected ? (
+                          <Check className="size-[14px] text-foreground" />
+                        ) : null
+                      }
+                    >
+                      <span className="truncate">
+                        {getDisplayLabelForWorkItemType(
+                          value,
+                          team?.settings.experience
+                        )}
+                      </span>
+                    </PropertyPopoverItem>
+                  )
+                })}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
 
           <span className="ml-0.5 text-fg-4">
             →{" "}
@@ -657,71 +762,186 @@ export function CreateWorkItemDialog({
 
         {/* Props row */}
         <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
-          <Select
-            value={status}
-            onValueChange={(value) => setStatus(value as WorkStatus)}
-            disabled={!team}
+          <Popover
+            open={statusPickerOpen}
+            onOpenChange={(next) => {
+              setStatusPickerOpen(next)
+              if (!next) setStatusQuery("")
+            }}
           >
-            <SelectTrigger size="sm" className={chipTriggerClass}>
-              <SelectValue>
-                <span className="flex items-center gap-1.5">
-                  <StatusIcon status={status} />
-                  <span className="font-medium text-foreground">
-                    {statusMeta[status].label}
-                  </span>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={chipTriggerClass}
+                disabled={!team}
+              >
+                <StatusIcon status={status} />
+                <span className="font-medium text-foreground">
+                  {statusMeta[status].label}
                 </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {teamStatuses.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {statusMeta[value].label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={priority}
-            onValueChange={(value) => setPriority(value as Priority)}
-            disabled={!team}
-          >
-            <SelectTrigger size="sm" className={chipTriggerClass}>
-              <SelectValue>
-                <span className="flex items-center gap-1.5">
-                  <PriorityDot priority={priority} />
-                  <span className="font-medium text-foreground">
-                    {priorityMeta[priority].label}
-                  </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Change status…"
+                value={statusQuery}
+                onChange={setStatusQuery}
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const activeMatches = teamStatuses.filter(
+                    (value) =>
+                      OPEN_STATUSES.includes(value) &&
+                      matchesQuery(statusMeta[value].label, statusQuery)
+                  )
+                  const closedMatches = teamStatuses.filter(
+                    (value) =>
+                      CLOSED_STATUSES.includes(value) &&
+                      matchesQuery(statusMeta[value].label, statusQuery)
+                  )
+                  return (
+                    <>
+                      {activeMatches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Active</PropertyPopoverGroup>
+                          {activeMatches.map((value) => {
+                            const selected = value === status
+                            return (
+                              <PropertyPopoverItem
+                                key={value}
+                                selected={selected}
+                                onClick={() => {
+                                  setStatus(value)
+                                  setStatusPickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <StatusIcon status={value} />
+                                <span>{statusMeta[value].label}</span>
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : null}
+                      {closedMatches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Closed</PropertyPopoverGroup>
+                          {closedMatches.map((value) => {
+                            const selected = value === status
+                            return (
+                              <PropertyPopoverItem
+                                key={value}
+                                selected={selected}
+                                onClick={() => {
+                                  setStatus(value)
+                                  setStatusPickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <StatusIcon status={value} />
+                                <span>{statusMeta[value].label}</span>
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : null}
+                      {activeMatches.length === 0 &&
+                      closedMatches.length === 0 ? (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          No statuses match
+                        </div>
+                      ) : null}
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+              <PropertyPopoverFoot>
+                <span>↑↓ to navigate · ↵ to select</span>
+                <span className="inline-flex items-center gap-1">
+                  <KbdHint className="ml-0">S</KbdHint>
+                  shortcut
                 </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {Object.entries(priorityMeta).map(([value, meta]) => (
-                  <SelectItem key={value} value={value}>
-                    {meta.label} priority
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
 
-          <Select
-            value={assigneeId}
-            onValueChange={setAssigneeId}
-            disabled={!team}
+          <Popover
+            open={priorityPickerOpen}
+            onOpenChange={setPriorityPickerOpen}
           >
-            <SelectTrigger
-              size="sm"
-              className={cn(
-                chipTriggerClass,
-                !selectedAssignee && chipTriggerDashedClass
-              )}
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={chipTriggerClass}
+                disabled={!team}
+              >
+                <PriorityDot priority={priority} />
+                <span className="font-medium text-foreground">
+                  {priorityMeta[priority].label}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
             >
-              <SelectValue placeholder="Assignee">
+              <PropertyPopoverList>
+                {PRIORITY_ORDER.map((value) => {
+                  const selected = value === priority
+                  return (
+                    <PropertyPopoverItem
+                      key={value}
+                      selected={selected}
+                      onClick={() => {
+                        setPriority(value)
+                        setPriorityPickerOpen(false)
+                      }}
+                      trailing={
+                        selected ? (
+                          <Check className="size-[14px] text-foreground" />
+                        ) : null
+                      }
+                    >
+                      <PriorityIcon priority={value} />
+                      <span>
+                        {value === "none"
+                          ? "No priority"
+                          : priorityMeta[value].label}
+                      </span>
+                    </PropertyPopoverItem>
+                  )
+                })}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={assigneePickerOpen}
+            onOpenChange={(next) => {
+              setAssigneePickerOpen(next)
+              if (!next) setAssigneeQuery("")
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !selectedAssignee && chipTriggerDashedClass
+                )}
+                disabled={!team}
+              >
                 {selectedAssignee ? (
                   <AssigneeOption
                     name={selectedAssignee.name}
@@ -736,127 +956,310 @@ export function CreateWorkItemDialog({
                     Unassigned
                   </span>
                 )}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="none">Unassigned</SelectItem>
-                {teamMembers.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    <AssigneeOption
-                      name={user.name}
-                      avatarImageUrl={user.avatarImageUrl}
-                      avatarUrl={user.avatarUrl}
-                    />
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={effectiveProjectId}
-            onValueChange={(value) => {
-              setProjectId(value)
-              if (
-                selectedParentItem &&
-                value !== "none" &&
-                selectedParentItem.primaryProjectId !== value
-              ) {
-                setSelectedParentId("none")
-              }
-            }}
-            disabled={!team || Boolean(selectedParentItem?.primaryProjectId)}
-          >
-            <SelectTrigger
-              size="sm"
-              className={cn(
-                chipTriggerClass,
-                !selectedProject && chipTriggerDashedClass
-              )}
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
             >
-              <SelectValue placeholder="Project">
-                <span className="flex items-center gap-1.5">
-                  <FolderSimple className="size-[13px]" />
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Assign someone…"
+                value={assigneeQuery}
+                onChange={setAssigneeQuery}
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const matches = teamMembers.filter((user) =>
+                    matchesQuery(user.name, assigneeQuery)
+                  )
+                  return (
+                    <>
+                      {matches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Members</PropertyPopoverGroup>
+                          {matches.map((user) => {
+                            const selected = user.id === assigneeId
+                            return (
+                              <PropertyPopoverItem
+                                key={user.id}
+                                selected={selected}
+                                onClick={() => {
+                                  setAssigneeId(user.id)
+                                  setAssigneePickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <AssigneeOption
+                                  name={user.name}
+                                  avatarImageUrl={user.avatarImageUrl}
+                                  avatarUrl={user.avatarUrl}
+                                />
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          No members match
+                        </div>
+                      )}
+                      <PropertyPopoverItem
+                        muted
+                        selected={assigneeId === "none"}
+                        onClick={() => {
+                          setAssigneeId("none")
+                          setAssigneePickerOpen(false)
+                        }}
+                        trailing={
+                          assigneeId === "none" ? (
+                            <Check className="size-[14px] text-foreground" />
+                          ) : null
+                        }
+                      >
+                        <X className="size-[14px] shrink-0" />
+                        <span>Unassign</span>
+                      </PropertyPopoverItem>
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={projectPickerOpen}
+            onOpenChange={(next) => {
+              setProjectPickerOpen(next)
+              if (!next) setProjectQuery("")
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !selectedProject && chipTriggerDashedClass
+                )}
+                disabled={
+                  !team || Boolean(selectedParentItem?.primaryProjectId)
+                }
+              >
+                <FolderSimple className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    selectedProject && "font-medium text-foreground"
+                  )}
+                >
+                  {selectedProject ? selectedProject.name : "Project"}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Find project…"
+                value={projectQuery}
+                onChange={setProjectQuery}
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const matches = teamProjects.filter((project) =>
+                    matchesQuery(project.name, projectQuery)
+                  )
+                  return (
+                    <>
+                      {matches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
+                          {matches.map((project) => {
+                            const selected = project.id === effectiveProjectId
+                            return (
+                              <PropertyPopoverItem
+                                key={project.id}
+                                selected={selected}
+                                onClick={() => {
+                                  setProjectId(project.id)
+                                  if (
+                                    selectedParentItem &&
+                                    selectedParentItem.primaryProjectId !==
+                                      project.id
+                                  ) {
+                                    setSelectedParentId("none")
+                                  }
+                                  setProjectPickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <FolderSimple className="size-[14px] shrink-0 text-fg-3" />
+                                <span className="truncate">{project.name}</span>
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          No projects match
+                        </div>
+                      )}
+                      <PropertyPopoverItem
+                        muted
+                        selected={effectiveProjectId === "none"}
+                        onClick={() => {
+                          setProjectId("none")
+                          setProjectPickerOpen(false)
+                        }}
+                        trailing={
+                          effectiveProjectId === "none" ? (
+                            <Check className="size-[14px] text-foreground" />
+                          ) : null
+                        }
+                      >
+                        <X className="size-[14px] shrink-0" />
+                        <span>No project</span>
+                      </PropertyPopoverItem>
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          {showParentSelect ? (
+            <Popover
+              open={parentPickerOpen}
+              onOpenChange={(next) => {
+                setParentPickerOpen(next)
+                if (!next) setParentQuery("")
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    chipTriggerClass,
+                    !selectedParentItem && chipTriggerDashedClass
+                  )}
+                  disabled={!team || parentOptions.length === 0}
+                >
+                  <TreeStructure className="size-[13px]" />
                   <span
                     className={cn(
                       "truncate",
-                      selectedProject && "font-medium text-foreground"
+                      selectedParentItem && "font-medium text-foreground"
                     )}
                   >
-                    {selectedProject ? selectedProject.name : "Project"}
+                    {selectedParentItem
+                      ? `${selectedParentItem.key}`
+                      : "Parent"}
                   </span>
-                </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="none">No project</SelectItem>
-                {teamProjects.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          {showParentSelect ? (
-            <Select
-              value={selectedParentItem ? selectedParentId : "none"}
-              onValueChange={(value) => {
-                setSelectedParentId(value)
-
-                if (value === "none") {
-                  return
-                }
-
-                const nextParent =
-                  parentOptions.find((item) => item.id === value) ?? null
-
-                if (nextParent?.primaryProjectId) {
-                  setProjectId(nextParent.primaryProjectId)
-                }
-              }}
-              disabled={!team || parentOptions.length === 0}
-            >
-              <SelectTrigger
-                size="sm"
-                className={cn(
-                  chipTriggerClass,
-                  !selectedParentItem && chipTriggerDashedClass
-                )}
-              >
-                <SelectValue placeholder="Parent">
-                  <span className="flex items-center gap-1.5">
-                    <TreeStructure className="size-[13px]" />
-                    <span
-                      className={cn(
-                        "truncate",
-                        selectedParentItem && "font-medium text-foreground"
-                      )}
-                    >
-                      {selectedParentItem
-                        ? `${selectedParentItem.key}`
-                        : "Parent"}
-                    </span>
-                  </span>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="none">No parent</SelectItem>
-                  {parentOptions.map((parentOption) => (
-                    <SelectItem key={parentOption.id} value={parentOption.id}>
-                      {parentOption.key} · {parentOption.title}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+                  <CaretDown className="size-3 shrink-0 opacity-60" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+                <PropertyPopoverSearch
+                  icon={<MagnifyingGlass className="size-[14px]" />}
+                  placeholder="Find parent…"
+                  value={parentQuery}
+                  onChange={setParentQuery}
+                />
+                <PropertyPopoverList>
+                  {(() => {
+                    const matches = parentOptions.filter(
+                      (item) =>
+                        matchesQuery(item.key, parentQuery) ||
+                        matchesQuery(item.title, parentQuery)
+                    )
+                    return (
+                      <>
+                        {matches.length > 0 ? (
+                          <>
+                            <PropertyPopoverGroup>
+                              Available parents
+                            </PropertyPopoverGroup>
+                            {matches.map((parentOption) => {
+                              const selected =
+                                parentOption.id === selectedParentId
+                              return (
+                                <PropertyPopoverItem
+                                  key={parentOption.id}
+                                  selected={selected}
+                                  onClick={() => {
+                                    setSelectedParentId(parentOption.id)
+                                    if (parentOption.primaryProjectId) {
+                                      setProjectId(
+                                        parentOption.primaryProjectId
+                                      )
+                                    }
+                                    setParentPickerOpen(false)
+                                  }}
+                                  trailing={
+                                    selected ? (
+                                      <Check className="size-[14px] text-foreground" />
+                                    ) : null
+                                  }
+                                >
+                                  <TreeStructure className="size-[14px] shrink-0 text-fg-3" />
+                                  <span className="truncate">
+                                    <span className="text-fg-3">
+                                      {parentOption.key}
+                                    </span>{" "}
+                                    <span>{parentOption.title}</span>
+                                  </span>
+                                </PropertyPopoverItem>
+                              )
+                            })}
+                          </>
+                        ) : (
+                          <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                            No parents available
+                          </div>
+                        )}
+                        <PropertyPopoverItem
+                          muted
+                          selected={selectedParentId === "none"}
+                          onClick={() => {
+                            setSelectedParentId("none")
+                            setParentPickerOpen(false)
+                          }}
+                          trailing={
+                            selectedParentId === "none" ? (
+                              <Check className="size-[14px] text-foreground" />
+                            ) : null
+                          }
+                        >
+                          <X className="size-[14px] shrink-0" />
+                          <span>No parent</span>
+                        </PropertyPopoverItem>
+                      </>
+                    )
+                  })()}
+                </PropertyPopoverList>
+              </PopoverContent>
+            </Popover>
           ) : null}
 
-          <Popover>
+          <Popover
+            open={labelsPickerOpen}
+            onOpenChange={(next) => {
+              setLabelsPickerOpen(next)
+              if (!next) {
+                setLabelQuery("")
+                setNewLabelName("")
+              }
+            }}
+          >
             <PopoverTrigger asChild>
               <button
                 type="button"
@@ -878,79 +1281,132 @@ export function CreateWorkItemDialog({
                 <CaretDown className="size-3 shrink-0 opacity-60" />
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-72 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                  Labels
-                </div>
-                {selectedLabelIds.length > 0 ? (
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    onClick={() => setSelectedLabelIds([])}
-                  >
-                    Clear
-                  </button>
-                ) : null}
-              </div>
-              <ScrollArea className="mt-3 max-h-48 pr-3">
-                <div className="flex flex-wrap gap-2">
-                  {availableLabels.length > 0 ? (
-                    availableLabels.map((label) => {
-                      const selected = selectedLabelIds.includes(label.id)
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[260px]")}
+            >
+              <PropertyPopoverSearch
+                icon={<Tag className="size-[14px]" />}
+                placeholder="Filter labels…"
+                value={labelQuery}
+                onChange={setLabelQuery}
+                trailing={
+                  selectedLabelIds.length > 0 ? (
+                    <button
+                      type="button"
+                      className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                      onClick={() => setSelectedLabelIds([])}
+                    >
+                      Clear
+                    </button>
+                  ) : undefined
+                }
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const query = labelQuery.trim()
+                  const matched = availableLabels.filter((label) =>
+                    matchesQuery(label.name, query)
+                  )
+                  const selected = matched.filter((label) =>
+                    selectedLabelIds.includes(label.id)
+                  )
+                  const unselected = matched.filter(
+                    (label) => !selectedLabelIds.includes(label.id)
+                  )
 
-                      return (
-                        <button
-                          key={label.id}
-                          type="button"
-                          className={cn(
-                            "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                            selected
-                              ? "border-primary/40 bg-primary/10 text-foreground"
-                              : "border-border text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => toggleLabel(label.id)}
-                        >
-                          {label.name}
-                        </button>
-                      )
-                    })
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      No labels yet
-                    </span>
-                  )}
-                </div>
-              </ScrollArea>
-              <div className="mt-3 flex gap-2">
-                <Input
-                  value={newLabelName}
-                  onChange={(event) => setNewLabelName(event.target.value)}
-                  placeholder="Create label"
-                  className="h-8 text-sm"
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter") {
-                      return
-                    }
+                  return (
+                    <>
+                      {selected.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>
+                            {`Selected · ${selected.length}`}
+                          </PropertyPopoverGroup>
+                          {selected.map((label) => (
+                            <PropertyPopoverItem
+                              key={label.id}
+                              selected
+                              onClick={() => toggleLabel(label.id)}
+                              trailing={
+                                <Check className="size-[14px] text-foreground" />
+                              }
+                            >
+                              <span
+                                aria-hidden
+                                className="inline-block size-2 shrink-0 rounded-full"
+                                style={{ background: label.color }}
+                              />
+                              <span className="truncate">{label.name}</span>
+                            </PropertyPopoverItem>
+                          ))}
+                        </>
+                      ) : null}
 
-                    event.preventDefault()
-                    void handleCreateLabel()
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={
-                    !team || creatingLabel || newLabelName.trim().length === 0
-                  }
-                  onClick={() => {
-                    void handleCreateLabel()
-                  }}
-                >
-                  Add
-                </Button>
-              </div>
+                      {unselected.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>All</PropertyPopoverGroup>
+                          {unselected.map((label) => (
+                            <PropertyPopoverItem
+                              key={label.id}
+                              onClick={() => toggleLabel(label.id)}
+                            >
+                              <span
+                                aria-hidden
+                                className="inline-block size-2 shrink-0 rounded-full"
+                                style={{ background: label.color }}
+                              />
+                              <span className="truncate">{label.name}</span>
+                            </PropertyPopoverItem>
+                          ))}
+                        </>
+                      ) : null}
+
+                      {matched.length === 0 ? (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          {availableLabels.length === 0
+                            ? "No labels yet"
+                            : "No labels match"}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-1 flex items-center gap-2 border-t border-line-soft px-2.5 pt-2 pb-1 text-fg-3">
+                        <Plus className="size-[14px] shrink-0" />
+                        <input
+                          value={newLabelName}
+                          onChange={(event) =>
+                            setNewLabelName(event.target.value)
+                          }
+                          placeholder="Create new label"
+                          className="h-5 flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-fg-4"
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") {
+                              return
+                            }
+                            event.preventDefault()
+                            void handleCreateLabel()
+                          }}
+                          disabled={!team || creatingLabel}
+                        />
+                        {newLabelName.trim().length > 0 ? (
+                          <button
+                            type="button"
+                            className="text-[11px] font-medium text-fg-2 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={!team || creatingLabel}
+                            onClick={() => {
+                              void handleCreateLabel()
+                            }}
+                          >
+                            Add
+                          </button>
+                        ) : null}
+                      </div>
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+              <PropertyPopoverFoot>
+                <span>Tap to toggle · Esc to close</span>
+              </PropertyPopoverFoot>
             </PopoverContent>
           </Popover>
 

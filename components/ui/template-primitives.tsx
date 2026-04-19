@@ -217,3 +217,130 @@ export function IconButton({
     />
   )
 }
+
+export function PropertyPopoverSearch({
+  icon,
+  placeholder,
+  value,
+  onChange,
+  onKeyDown,
+  autoFocus = true,
+  trailing,
+}: {
+  icon: React.ReactNode
+  placeholder: string
+  value: string
+  onChange: (value: string) => void
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
+  autoFocus?: boolean
+  trailing?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2.5 text-fg-3">
+      <span aria-hidden className="flex size-[14px] items-center justify-center">
+        {icon}
+      </span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        className="h-5 flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-fg-4"
+      />
+      {trailing}
+    </div>
+  )
+}
+
+export function PropertyPopoverList({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex max-h-[320px] flex-col overflow-y-auto p-1",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+export function PropertyPopoverGroup({
+  children,
+  trailing,
+}: {
+  children: React.ReactNode
+  trailing?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-1 px-3 pt-2 pb-1 text-[11px] font-medium text-fg-3">
+      <span className="flex-1">{children}</span>
+      {trailing}
+    </div>
+  )
+}
+
+export function PropertyPopoverItem({
+  children,
+  selected = false,
+  onClick,
+  muted = false,
+  trailing,
+  className,
+}: {
+  children: React.ReactNode
+  selected?: boolean
+  onClick?: () => void
+  muted?: boolean
+  trailing?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      data-selected={selected ? "" : undefined}
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-1.5 text-left text-[13px] transition-colors",
+        muted ? "text-fg-3" : "text-fg-2",
+        "hover:bg-surface-3 hover:text-foreground",
+        selected && "text-foreground",
+        className
+      )}
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-2.5">
+        {children}
+      </span>
+      {trailing}
+    </button>
+  )
+}
+
+export function PropertyPopoverFoot({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between border-t border-line-soft px-3 py-2 text-[11.5px] text-fg-3",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+export const PROPERTY_POPOVER_CLASS =
+  "w-[280px] overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"

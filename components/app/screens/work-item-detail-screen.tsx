@@ -20,7 +20,6 @@ import {
   PaperPlaneTilt,
   Plus,
   SidebarSimple,
-  Star,
   Tag,
   TextB,
   TextItalic,
@@ -1007,7 +1006,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const linkedDocuments = currentItem.linkedDocumentIds
     .map((documentId) => getDocument(data, documentId))
     .filter((document): document is NonNullable<typeof document> => document !== null)
-  const isWatching = currentItem.subscriberIds.includes(currentUserId)
   const cascadeMessage =
     descendantCount > 0
       ? `Delete this ${itemLabel} and ${descendantCount} nested item${
@@ -1267,14 +1265,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         error instanceof Error ? error.message : "Failed to copy item link"
       )
     }
-  }
-
-  function handleToggleWatching() {
-    useAppStore.getState().updateWorkItem(currentItem.id, {
-      subscriberIds: isWatching
-        ? currentItem.subscriberIds.filter((userId) => userId !== currentUserId)
-        : [...currentItem.subscriberIds, currentUserId],
-    })
   }
 
   return (
@@ -1604,17 +1594,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 >
                   <LinkSimple className="size-[14px]" />
                 </button>
-                <button
-                  type="button"
-                  className={cn(
-                    detailIconButtonClassName,
-                    isWatching && "text-accent-fg"
-                  )}
-                  aria-label={isWatching ? "Stop watching item" : "Watch item"}
-                  onClick={handleToggleWatching}
-                >
-                  <Star className="size-[14px]" weight={isWatching ? "fill" : "regular"} />
-                </button>
                 {editable ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -1855,15 +1834,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     }
                   />
                 ) : null}
-                <DetailSidebarStaticRow
-                  label="Watching"
-                  icon={<Star className="size-[13px]" />}
-                >
-                  <span>{currentItem.subscriberIds.length}</span>
-                  <span className="text-fg-4">
-                    {currentItem.subscriberIds.length === 1 ? "subscriber" : "subscribers"}
-                  </span>
-                </DetailSidebarStaticRow>
               </dl>
 
               <DetailSidebarSection

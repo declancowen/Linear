@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
-import { Plus } from "@phosphor-icons/react"
+import { DotsThree, MagnifyingGlass, Plus } from "@phosphor-icons/react"
 
 import {
   canEditTeam,
@@ -19,15 +19,21 @@ import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import {
-  HeaderTitle,
-  SCREEN_HEADER_CLASS_NAME,
-} from "@/components/app/screens/shared"
+  IconButton,
+  Topbar,
+  Viewbar,
+} from "@/components/ui/template-primitives"
+import { HeaderTitle } from "@/components/app/screens/shared"
 import {
   cloneViewCreateConfig,
   selectAppDataSnapshot,
 } from "@/components/app/screens/helpers"
 import {
   FilterPopover,
+  GroupChipPopover,
+  LayoutTabs,
+  PropertiesChipPopover,
+  SortChipPopover,
   ViewConfigPopover,
 } from "@/components/app/screens/work-surface-controls"
 import {
@@ -81,79 +87,104 @@ export function WorkSurface({
     ? getVisibleItemsForView(data, items, activeView)
     : items
 
+  function handleCreateWorkItem() {
+    if (!createTeamId) {
+      return
+    }
+
+    openManagedCreateDialog({
+      kind: "workItem",
+      defaultTeamId: createTeamId,
+    })
+  }
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      <div className={SCREEN_HEADER_CLASS_NAME}>
-        <div className="flex min-w-0 items-center gap-2">
-          <HeaderTitle title={title} />
-          {views.length > 0 && activeView ? (
-            <div className="flex items-center gap-1">
-              {views.map((view) => (
-                <button
-                  key={view.id}
-                  className={cn(
-                    "h-6 rounded-sm px-2 text-xs transition-colors",
-                    view.id === activeView.id
-                      ? "bg-accent font-medium"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  onClick={() =>
-                    useAppStore.getState().setSelectedView(routeKey, view.id)
-                  }
-                >
-                  {view.name}
-                </button>
-              ))}
-              {editable && team ? (
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  onClick={() =>
-                    openManagedCreateDialog({
-                      kind: "view",
-                      defaultScopeType: "team",
-                      defaultScopeId: team.id,
-                      defaultEntityKind: "items",
-                      defaultRoute: routeKey,
-                      lockScope: true,
-                      lockEntityKind: true,
-                      initialConfig: activeView
-                        ? cloneViewCreateConfig(activeView)
-                        : undefined,
-                    })
-                  }
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+      <Topbar>
+        <HeaderTitle title={title} />
+        {views.length > 0 && activeView ? (
+          <div className="ml-2 flex items-center gap-0.5">
+            {views.map((view) => (
+              <button
+                key={view.id}
+                className={cn(
+                  "h-7 rounded-md px-2 text-[12px] transition-colors",
+                  view.id === activeView.id
+                    ? "bg-surface-3 font-medium text-foreground"
+                    : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
+                )}
+                onClick={() =>
+                  useAppStore.getState().setSelectedView(routeKey, view.id)
+                }
+              >
+                {view.name}
+              </button>
+            ))}
+            {editable && team ? (
+              <IconButton
+                className="size-6"
+                onClick={() =>
+                  openManagedCreateDialog({
+                    kind: "view",
+                    defaultScopeType: "team",
+                    defaultScopeId: team.id,
+                    defaultEntityKind: "items",
+                    defaultRoute: routeKey,
+                    lockScope: true,
+                    lockEntityKind: true,
+                    initialConfig: activeView
+                      ? cloneViewCreateConfig(activeView)
+                      : undefined,
+                  })
+                }
+              >
+                <Plus className="size-3.5" />
+              </IconButton>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="ml-auto flex items-center gap-0.5">
+          <IconButton aria-label="Search">
+            <MagnifyingGlass className="size-3.5" />
+          </IconButton>
+          <IconButton aria-label="More options">
+            <DotsThree className="size-4" weight="bold" />
+          </IconButton>
         </div>
-        <div className="flex items-center gap-1">
-          {activeView ? (
-            <>
-              <FilterPopover view={activeView} items={items} />
-              <ViewConfigPopover view={activeView} />
-            </>
-          ) : null}
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            onClick={() => {
-              if (!createTeamId) {
-                return
-              }
+      </Topbar>
 
-              openManagedCreateDialog({
-                kind: "workItem",
-                defaultTeamId: createTeamId,
-              })
-            }}
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        </div>
-      </div>
+      {activeView ? (
+        <Viewbar>
+          <LayoutTabs view={activeView} />
+          <div
+            aria-hidden
+            className="mx-1.5 h-[18px] w-px bg-line"
+          />
+          <FilterPopover
+            view={activeView}
+            items={items}
+            variant="chip"
+          />
+          <GroupChipPopover view={activeView} />
+          <SortChipPopover view={activeView} />
+          <PropertiesChipPopover view={activeView} />
+          <div className="ml-auto flex items-center gap-1.5">
+            <ViewConfigPopover view={activeView} />
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 gap-1.5 px-2.5 text-[12px]"
+              onClick={handleCreateWorkItem}
+            >
+              <Plus className="size-3.5" />
+              New
+              <kbd className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] border border-white/20 bg-white/10 px-1 text-[10px] font-medium text-primary-foreground/90">
+                N
+              </kbd>
+            </Button>
+          </div>
+        </Viewbar>
+      ) : null}
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {activeView ? (
