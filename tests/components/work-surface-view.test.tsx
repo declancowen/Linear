@@ -336,7 +336,7 @@ describe("ListView", () => {
 
     const assignee = screen.getByText("Assignee")
     const roadmap = screen.getByText("Roadmap")
-    const dueDate = screen.getByText("Apr 25")
+    const dueDate = screen.getByText("25-04-2026")
 
     expect(
       assignee.compareDocumentPosition(roadmap) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -359,7 +359,7 @@ describe("ListView", () => {
     )
 
     const roadmap = screen.getByText("Roadmap")
-    const dueDate = screen.getByText("Apr 25")
+    const dueDate = screen.getByText("25-04-2026")
     const assignee = screen.getByText("Assignee")
 
     expect(

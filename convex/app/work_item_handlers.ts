@@ -3,6 +3,10 @@ import { addDays, differenceInCalendarDays } from "date-fns"
 import type { MutationCtx } from "../_generated/server"
 
 import {
+  addLocalCalendarDays,
+  formatLocalCalendarDate,
+} from "../../lib/calendar-date"
+import {
   buildAssignmentEmailJobs,
   type AssignmentEmail,
 } from "../../lib/email/builders"
@@ -813,9 +817,9 @@ export async function createWorkItemHandler(
     linkedDocumentIds: [],
     labelIds: args.labelIds ?? [],
     milestoneId: null,
-    startDate: args.startDate ?? getNow().slice(0, 10),
-    dueDate: addDays(new Date(), 7).toISOString(),
-    targetDate: args.targetDate ?? addDays(new Date(), 10).toISOString().slice(0, 10),
+    startDate: args.startDate ?? formatLocalCalendarDate(),
+    dueDate: addLocalCalendarDays(7),
+    targetDate: args.targetDate ?? addLocalCalendarDays(10),
     subscriberIds: [args.currentUserId],
     createdAt: getNow(),
     updatedAt: getNow(),

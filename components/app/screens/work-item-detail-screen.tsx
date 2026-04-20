@@ -169,7 +169,7 @@ function formatDetailDate(value: string | null) {
     return `Tomorrow, ${dateLabel}`
   }
 
-  return formatCalendarDateLabel(value, "—", "EEEE, MMM d")
+  return formatCalendarDateLabel(value, "—", "EEEE, dd-MM-yyyy")
 }
 
 function formatRelativeTimestamp(value: string) {

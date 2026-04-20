@@ -10,6 +10,10 @@ import {
   syncShiftTimelineItem,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
+import {
+  addLocalCalendarDays,
+  formatLocalCalendarDate,
+} from "@/lib/calendar-date"
 import { getLabelsForWorkspace } from "@/lib/domain/selectors"
 import {
   buildWorkItemAssignmentNotificationMessage,
@@ -478,11 +482,10 @@ export function createWorkItemActions({
           linkedDocumentIds: [],
           labelIds: parsed.data.labelIds ?? [],
           milestoneId: null,
-          startDate: parsed.data.startDate ?? getNow().slice(0, 10),
-          dueDate: addDays(new Date(), 7).toISOString(),
+          startDate: parsed.data.startDate ?? formatLocalCalendarDate(),
+          dueDate: addLocalCalendarDays(7),
           targetDate:
-            parsed.data.targetDate ??
-            addDays(new Date(), 10).toISOString().slice(0, 10),
+            parsed.data.targetDate ?? addLocalCalendarDays(10),
           subscriberIds: [state.currentUserId],
           createdAt: getNow(),
           updatedAt: getNow(),

@@ -33,12 +33,14 @@ Files and areas reviewed across all turns:
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
 - `convex/app/view_handlers.ts` — saved-view mutation handler arg contracts
 - `convex/validators.ts` — persisted view/project presentation filter validators
+- `convex/app/work_item_handlers.ts` — default work-item schedule date generation
 - `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
 - `lib/domain/selectors-internal/projects.ts` — project view filtering selectors
 - `lib/domain/default-views.ts` — canonical saved-view identity and route helpers
 - `lib/domain/types-internal/work.ts` — project status display metadata
 - `lib/domain/types-internal/primitives.ts` — shared view-filter status unions
 - `lib/domain/types-internal/schemas.ts` — client-side view/project payload schemas
+- `lib/calendar-date.ts` — shared local calendar-date formatting helpers
 - `lib/convex/client/work.ts` — client saved-view mutation contracts
 - `lib/store/app-store-internal/slices/views.ts` — optimistic saved-view creation and mutation gates
 - `lib/store/app-store-internal/slices/projects.ts` — optimistic project creation validation path
@@ -56,6 +58,7 @@ Files and areas reviewed across all turns:
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/project-views.test.ts` — project-view status filter regression coverage
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
+- `tests/lib/calendar-date.test.ts` — local calendar-date helper regression coverage
 - `tests/lib/date-input.test.ts` — date-only input formatting regression coverage
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
@@ -64,10 +67,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 20:09:48 BST` |
-| **Total turns** | `28` |
+| **Last reviewed** | `2026-04-20 20:28:35 BST` |
+| **Total turns** | `29` |
 | **Open findings** | `0` |
-| **Resolved findings** | `37` |
+| **Resolved findings** | `40` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1580,4 +1583,40 @@ No new findings in this turn.
 ### Verification
 
 - `pnpm vitest run tests/components/create-dialogs.test.tsx tests/lib/domain/default-views.test.ts`
+- `pnpm typecheck`
+
+---
+
+## Turn 29 — 2026-04-20 20:28:35 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `b6aa0f4` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The remaining live date-default regressions are resolved in the working tree. Project creation and work-item creation now derive default calendar dates from the user’s local day instead of slicing UTC timestamps, and the optimistic client/store paths use the same shared helper as the server handlers. The default work-item `dueDate` moved onto the same date-only path, and frontend calendar-date labels now render as `dd-MM-yyyy` while the persisted wire format remains canonical `YYYY-MM-DD`.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B29-01` Resolved — project default `startDate` and `targetDate` now come from shared local calendar-date helpers in both `convex/app/project_handlers.ts` and `lib/store/app-store-internal/slices/projects.ts`, eliminating UTC rollover drift for late-day users west of UTC.
+- `B29-02` Resolved — work-item default `startDate` and `targetDate` now use the same shared local calendar-date helpers in both `convex/app/work_item_handlers.ts` and `lib/store/app-store-internal/slices/work-item-actions.ts`.
+- `B29-03` Resolved — the auto-generated work-item `dueDate` now defaults to a date-only local calendar day rather than a full ISO timestamp, keeping the default schedule path aligned with the fixed start/target date behavior.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep calendar-date generation centralized in a shared helper so server handlers and optimistic client code cannot drift back to UTC string slicing.
+2. Treat persisted date storage and frontend display as separate concerns: keep wire values canonical `YYYY-MM-DD`, then format them for the UI at the shared display helper boundary.
+
+### Verification
+
+- `pnpm vitest run tests/lib/calendar-date.test.ts tests/lib/date-input.test.ts tests/lib/store/project-slice.test.ts tests/lib/store/work-item-actions.test.ts tests/components/work-surface-view.test.tsx`
 - `pnpm typecheck`

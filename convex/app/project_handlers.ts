@@ -1,7 +1,9 @@
-import { addDays } from "date-fns"
-
 import type { MutationCtx } from "../_generated/server"
 
+import {
+  addLocalCalendarDays,
+  formatLocalCalendarDate,
+} from "../../lib/calendar-date"
 import {
   type Priority,
   type ProjectPresentationConfig,
@@ -189,7 +191,6 @@ export async function createProjectHandler(
     createDefaultProjectPresentationConfig(args.templateType, {
       layout: templateDefaults.defaultViewLayout,
     })
-  const now = new Date()
 
   await ctx.db.insert("projects", {
     id: createId("project"),
@@ -208,10 +209,9 @@ export async function createProjectHandler(
     blockingProjectIds: [],
     blockedByProjectIds: [],
     presentation,
-    startDate: args.startDate ?? getNow().slice(0, 10),
+    startDate: args.startDate ?? formatLocalCalendarDate(),
     targetDate:
-      args.targetDate ??
-      addDays(now, templateDefaults.targetWindowDays).toISOString().slice(0, 10),
+      args.targetDate ?? addLocalCalendarDays(templateDefaults.targetWindowDays),
     createdAt: getNow(),
     updatedAt: getNow(),
   })

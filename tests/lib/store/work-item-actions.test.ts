@@ -376,6 +376,67 @@ describe("work item actions", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("defaults work-item schedule dates from the local calendar day", async () => {
+    const previousTimeZone = process.env.TZ
+    process.env.TZ = "America/Los_Angeles"
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 3, 20, 23, 30))
+    vi.resetModules()
+
+    try {
+      const { formatLocalCalendarDate, addLocalCalendarDays } = await import(
+        "@/lib/calendar-date"
+      )
+      const { createWorkItemActions } = await import(
+        "@/lib/store/app-store-internal/slices/work-item-actions"
+      )
+
+      let state = createState()
+      const syncInBackgroundMock = vi.fn()
+      const setState = (update: unknown) => {
+        const patch =
+          typeof update === "function"
+            ? update(state as never)
+            : update
+
+        state = {
+          ...state,
+          ...(patch as object),
+        }
+      }
+
+      const actions = createWorkItemActions({
+        get: () => state as never,
+        runtime: {
+          syncInBackground: syncInBackgroundMock,
+        } as never,
+        set: setState as never,
+      })
+
+      const createdItemId = actions.createWorkItem({
+        teamId: "team_1",
+        type: "task",
+        title: "Schedule work",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+      })
+
+      expect(createdItemId).toBeTruthy()
+      expect(state.workItems[0]).toMatchObject({
+        id: createdItemId,
+        startDate: formatLocalCalendarDate(),
+        dueDate: addLocalCalendarDays(7),
+        targetDate: addLocalCalendarDays(10),
+      })
+      expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    } finally {
+      process.env.TZ = previousTimeZone
+      vi.useRealTimers()
+      vi.resetModules()
+    }
+  })
+
   it("rejects work item schedule ranges where the target date is before the start date", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"

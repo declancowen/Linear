@@ -14,7 +14,7 @@ describe("date input helpers", () => {
 
     const { formatDateInputLabel } = await import("@/lib/date-input")
 
-    expect(formatDateInputLabel("2026-04-20", "Start date")).toBe("Apr 20")
+    expect(formatDateInputLabel("2026-04-20", "Start date")).toBe("20-04-2026")
   })
 
   it("parses and validates date-only values", async () => {
@@ -36,7 +36,7 @@ describe("date input helpers", () => {
     const { formatCalendarDateLabel } = await import("@/lib/date-input")
 
     expect(formatCalendarDateLabel("2026-04-20T00:00:00.000Z", "Start date")).toBe(
-      "Apr 20"
+      "20-04-2026"
     )
   })
 

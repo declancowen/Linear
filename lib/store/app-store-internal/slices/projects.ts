@@ -1,6 +1,5 @@
 "use client"
 
-import { addDays } from "date-fns"
 import { toast } from "sonner"
 
 import {
@@ -9,6 +8,10 @@ import {
   syncRenameProject,
   syncUpdateProject,
 } from "@/lib/convex/client"
+import {
+  addLocalCalendarDays,
+  formatLocalCalendarDate,
+} from "@/lib/calendar-date"
 import {
   createDefaultProjectPresentationConfig,
   projectSchema,
@@ -104,12 +107,10 @@ export function createProjectSlice(
           blockingProjectIds: [],
           blockedByProjectIds: [],
           presentation,
-          startDate: parsed.data.startDate ?? getNow().slice(0, 10),
+          startDate: parsed.data.startDate ?? formatLocalCalendarDate(),
           targetDate:
             parsed.data.targetDate ??
-            addDays(new Date(), templateDefaults.targetWindowDays)
-              .toISOString()
-              .slice(0, 10),
+            addLocalCalendarDays(templateDefaults.targetWindowDays),
           labelIds: [...new Set(parsed.data.labelIds ?? [])],
           createdAt: getNow(),
           updatedAt: getNow(),

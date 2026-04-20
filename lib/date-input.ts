@@ -2,6 +2,7 @@ import { differenceInCalendarDays, format } from "date-fns"
 
 const DATE_INPUT_VALUE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 const DATE_PREFIX_PATTERN = /^(\d{4}-\d{2}-\d{2})/
+const DEFAULT_CALENDAR_DATE_PATTERN = "dd-MM-yyyy"
 
 export interface DateInputValue {
   year: number
@@ -70,7 +71,7 @@ export function formatDateInputLabel(
 export function formatCalendarDateLabel(
   value: string | null | undefined,
   emptyLabel: string,
-  pattern = "MMM d"
+  pattern = DEFAULT_CALENDAR_DATE_PATTERN
 ) {
   const date = getCalendarDate(value)
   return date ? format(date, pattern) : emptyLabel

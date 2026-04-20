@@ -186,6 +186,59 @@ describe("project slice", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("Project created")
   })
 
+  it("defaults project schedule dates from the local calendar day", async () => {
+    const previousTimeZone = process.env.TZ
+    process.env.TZ = "America/Los_Angeles"
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 3, 20, 23, 30))
+    vi.resetModules()
+
+    try {
+      const { formatLocalCalendarDate, addLocalCalendarDays } = await import(
+        "@/lib/calendar-date"
+      )
+      const { createProjectSlice } = await import(
+        "@/lib/store/app-store-internal/slices/projects"
+      )
+
+      const state = createProjectTestState("member")
+      const syncInBackgroundMock = vi.fn()
+      const setState = vi.fn((update: unknown) => {
+        const patch =
+          typeof update === "function"
+            ? update(state as never)
+            : update
+
+        Object.assign(state, patch)
+      })
+      const slice = createProjectSlice(
+        setState as never,
+        () => state as never,
+        {
+          syncInBackground: syncInBackgroundMock,
+        } as never
+      )
+
+      slice.createProject({
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "software-delivery",
+        name: "Roadmap refresh",
+        summary: "Next release",
+        priority: "medium",
+      })
+
+      expect(state.projects[0]).toMatchObject({
+        startDate: formatLocalCalendarDate(),
+        targetDate: addLocalCalendarDays(28),
+      })
+    } finally {
+      process.env.TZ = previousTimeZone
+      vi.useRealTimers()
+      vi.resetModules()
+    }
+  })
+
   it("accepts project-status filters in persisted presentation config", async () => {
     const { createProjectSlice } = await import(
       "@/lib/store/app-store-internal/slices/projects"

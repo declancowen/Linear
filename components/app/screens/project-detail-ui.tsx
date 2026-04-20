@@ -246,7 +246,7 @@ export function ProjectPropertiesSidebar({
               label="Target"
               value={
                 project.targetDate
-                  ? formatCalendarDateLabel(project.targetDate, "—", "MMM d, yyyy")
+                  ? formatCalendarDateLabel(project.targetDate, "—", "dd-MM-yyyy")
                   : "—"
               }
             />
