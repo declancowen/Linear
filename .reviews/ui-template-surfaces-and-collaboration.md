@@ -64,8 +64,8 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 18:12:58 BST` |
-| **Total turns** | `23` |
+| **Last reviewed** | `2026-04-20 19:26:55 BST` |
+| **Total turns** | `26` |
 | **Open findings** | `0` |
 | **Resolved findings** | `32` |
 | **Accepted findings** | `0` |
@@ -1492,3 +1492,34 @@ No new findings in this turn.
 
 - `pnpm vitest run tests/components/views-screen.test.tsx`
 - `pnpm typecheck`
+
+---
+
+## Turn 26 — 2026-04-20 19:26:55 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `0d40e5d` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The branch now ships the final strict project-status model rather than the rollout-only compatibility path. The one-off `wipeProjects` maintenance mutation used during the environment cleanup was removed from the working tree, `planning` was dropped again from the Convex validators, and the locked-scope create-view dialog fix remains in place with regression coverage. After wiping project data in both Convex environments, the strict schema redeployed cleanly to dev and prod with no additional review findings in the resulting diff.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep destructive maintenance mutations out of the committed branch unless they are intended product/admin capabilities; use them only as ephemeral rollout tooling and remove them before the final deploy.
+2. Keep project-status values defined from the canonical shared enums so frontend ordering, display metadata, validators, and API contracts cannot drift apart again.
+
+### Verification
+
+- `pnpm vitest run tests/components/create-dialogs.test.tsx tests/lib/domain/project-views.test.ts tests/lib/store/project-slice.test.ts tests/lib/store/view-slice.test.ts`
+- `pnpm typecheck`
+- `pnpm exec convex deploy --env-file /tmp/convex-dev.env --typecheck disable`
+- `pnpm exec convex deploy --env-file /tmp/convex-prod.env --typecheck disable`

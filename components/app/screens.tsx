@@ -191,7 +191,6 @@ type GroupedSection<T> = {
 
 const PROJECT_STATUS_ORDER = [
   "backlog",
-  "planning",
   "planned",
   "in-progress",
   "completed",

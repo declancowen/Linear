@@ -68,7 +68,6 @@ export type ProjectHealth = (typeof projectHealths)[number]
 
 export const projectStatuses = [
   "backlog",
-  "planning",
   "planned",
   "in-progress",
   "completed",
@@ -83,7 +82,6 @@ export const viewFilterStatuses = [
   "done",
   "cancelled",
   "duplicate",
-  "planning",
   "planned",
   "completed",
 ] as const

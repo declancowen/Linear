@@ -254,6 +254,16 @@ export function CreateViewDialog({
       return lockedProject ? [lockedProject] : []
     }
 
+    if (dialog.lockScope && selectedScope) {
+      return data.projects
+        .filter(
+          (project) =>
+            project.scopeType === selectedScope.scopeType &&
+            project.scopeId === selectedScope.scopeId
+        )
+        .sort((left, right) => left.name.localeCompare(right.name))
+    }
+
     if (!selectedTeam) {
       if (selectedScope?.scopeType !== "workspace") {
         return []
@@ -288,6 +298,7 @@ export function CreateViewDialog({
     data,
     dialog.defaultProjectId,
     dialog.lockProject,
+    dialog.lockScope,
     editableTeams,
     selectedEntityKind,
     selectedScope,
@@ -297,10 +308,10 @@ export function CreateViewDialog({
     () =>
       selectedProjectId
         ? (projectOptions.find((project) => project.id === selectedProjectId) ??
-          getProject(data, selectedProjectId) ??
+          (dialog.lockProject ? getProject(data, selectedProjectId) : null) ??
           null)
         : null,
-    [data, projectOptions, selectedProjectId]
+    [data, dialog.lockProject, projectOptions, selectedProjectId]
   )
   const selectedProjectTeam = useMemo(
     () => (selectedProject ? getProjectTeam(data, selectedProject) : null),
@@ -308,7 +319,7 @@ export function CreateViewDialog({
   )
   const effectiveScope = useMemo(
     () =>
-      selectedProject
+      !dialog.lockScope && selectedProject
         ? {
             scopeType: selectedProject.scopeType,
             scopeId: selectedProject.scopeId,
@@ -318,8 +329,8 @@ export function CreateViewDialog({
               scopeType: selectedScope.scopeType,
               scopeId: selectedScope.scopeId,
             }
-          : null,
-    [selectedProject, selectedScope]
+        : null,
+    [dialog.lockScope, selectedProject, selectedScope]
   )
   const effectiveTeam = selectedProjectTeam ?? selectedTeam
   const resolvedRoute = useMemo(() => {
@@ -505,7 +516,7 @@ export function CreateViewDialog({
   }, [dialog.lockProject, projectOptions, selectedProjectId])
 
   useEffect(() => {
-    if (!selectedProject) {
+    if (dialog.lockScope || !selectedProject) {
       return
     }
 
@@ -520,7 +531,22 @@ export function CreateViewDialog({
     ) {
       setSelectedScopeKey(nextScopeKey)
     }
-  }, [scopeOptions, selectedProject, selectedScopeKey])
+  }, [dialog.lockScope, scopeOptions, selectedProject, selectedScopeKey])
+
+  useEffect(() => {
+    if (!selectedProject) {
+      return
+    }
+
+    if (
+      dialog.lockScope &&
+      selectedScope &&
+      (selectedProject.scopeType !== selectedScope.scopeType ||
+        selectedProject.scopeId !== selectedScope.scopeId)
+    ) {
+      setSelectedProjectId("")
+    }
+  }, [dialog.lockScope, selectedProject, selectedScope])
 
   useEffect(() => {
     if (!effectiveScope) {

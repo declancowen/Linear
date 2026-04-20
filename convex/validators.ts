@@ -64,7 +64,6 @@ const projectHealthLiterals = [
 
 const projectStatusLiterals = [
   v.literal("backlog"),
-  v.literal("planning"),
   v.literal("planned"),
   v.literal("in-progress"),
   v.literal("completed"),
@@ -78,7 +77,6 @@ const viewFilterStatusLiterals = [
   v.literal("done"),
   v.literal("cancelled"),
   v.literal("duplicate"),
-  v.literal("planning"),
   v.literal("planned"),
   v.literal("completed"),
 ] as const

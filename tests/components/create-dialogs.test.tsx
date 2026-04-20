@@ -318,7 +318,7 @@ describe("create dialogs", () => {
     expect(screen.getByRole("dialog")).toHaveClass("top-6", "translate-y-0")
   })
 
-  it("shows distinct planning labels in the project status picker", async () => {
+  it("shows only canonical project statuses in the project status picker", async () => {
     render(
       <CreateProjectDialog
         open
@@ -329,8 +329,8 @@ describe("create dialogs", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Backlog/ }))
 
-    expect(await screen.findByText("Planning")).toBeInTheDocument()
-    expect(screen.getByText("Planned")).toBeInTheDocument()
+    expect(await screen.findByText("Planned")).toBeInTheDocument()
+    expect(screen.queryByText("Planning")).not.toBeInTheDocument()
   })
 
   it("uses the searchable team-space picker in the project create dialog and resets to the caller team on reopen", async () => {
@@ -919,6 +919,25 @@ describe("create dialogs", () => {
           createdAt: "2026-04-01T00:00:00.000Z",
           updatedAt: "2026-04-01T00:00:00.000Z",
         },
+        {
+          id: "project_3",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          templateType: "software-delivery",
+          name: "Workspace roadmap",
+          summary: "Cross-team planning",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "medium",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
       ],
     })
 
@@ -943,6 +962,9 @@ describe("create dialogs", () => {
     expect(screen.getByRole("button", { name: "Billing v2" })).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Ops cutover" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Workspace roadmap" })
     ).not.toBeInTheDocument()
   })
 

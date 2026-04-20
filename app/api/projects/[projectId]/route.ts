@@ -24,7 +24,6 @@ const projectPatchSchema = z
     name: z.string().trim().min(1).optional(),
     status: z
       .enum(["backlog", "planned", "in-progress", "completed", "cancelled"])
-      .or(z.literal("planning"))
       .optional(),
     priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
   })
