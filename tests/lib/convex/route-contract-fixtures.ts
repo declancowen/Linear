@@ -106,6 +106,7 @@ export const currentCallInviteMessageFixture: ChatMessage = {
   content: "Started a call\nJoin call: /api/calls/join?conversationId=conversation_1",
   callId: null,
   mentionUserIds: [],
+  reactions: [],
   createdBy: "user_1",
   createdAt: "2026-04-16T20:45:00.000Z",
 }

@@ -1,14 +1,25 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
-import { CaretDown } from "@phosphor-icons/react"
+import {
+  CalendarDots,
+  CaretDown,
+  Check,
+  FolderSimple,
+  MagnifyingGlass,
+  Plus,
+  Tag,
+  TreeStructure,
+  X,
+} from "@phosphor-icons/react"
 
 import {
   getEditableTeamsForFeature,
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
+import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   canParentWorkItemTypeAcceptChild,
   getAllowedWorkItemTypesForTemplate,
@@ -25,10 +36,15 @@ import {
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  ShortcutKeys,
+  useCommandEnterSubmit,
+  useShortcutModifierLabel,
+} from "@/components/app/shortcut-keys"
+import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -40,23 +56,46 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  PROPERTY_POPOVER_CLASS,
+  PropertyPopoverFoot,
+  PropertyPopoverGroup,
+  PropertyPopoverItem,
+  PropertyPopoverList,
+  PropertyPopoverSearch,
+} from "@/components/ui/template-primitives"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  PriorityDot,
+  PriorityIcon,
+  StatusIcon,
+} from "@/components/app/screens/shared"
 import {
   formatInlineDescriptionContent,
   getPreferredCreateDialogType,
 } from "@/components/app/screens/helpers"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 
-const NO_TEAM_VALUE = "__no_team__"
+const TEAM_DOT_COLORS = [
+  "var(--label-1)",
+  "var(--label-2)",
+  "var(--label-3)",
+  "var(--label-4)",
+  "var(--label-5)",
+]
+
+function getTeamDotColor(teamId: string | null | undefined) {
+  if (!teamId) {
+    return TEAM_DOT_COLORS[3]
+  }
+
+  let hash = 0
+  for (let index = 0; index < teamId.length; index += 1) {
+    hash = (hash * 31 + teamId.charCodeAt(index)) >>> 0
+  }
+
+  return TEAM_DOT_COLORS[hash % TEAM_DOT_COLORS.length]
+}
 
 function getUserInitials(name: string) {
   const parts = name
@@ -87,25 +126,47 @@ function AssigneeOption({
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
 
   return (
-    <span className="flex items-center gap-2">
-      <Avatar size="sm">
+    <span className="flex min-w-0 items-center gap-2">
+      <Avatar size="sm" className="size-4 data-[size=sm]:size-4">
         {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
         <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
       </Avatar>
-      <span className="truncate">{name}</span>
+      <span className="min-w-0 truncate">{name}</span>
     </span>
   )
 }
+
+const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
+const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
+const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
+
+function matchesQuery(value: string, query: string) {
+  if (!query) {
+    return true
+  }
+  return value.toLowerCase().includes(query.toLowerCase())
+}
+
+const chipTriggerClass =
+  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+
+const chipTriggerDashedClass =
+  "border-dashed text-fg-3 bg-transparent hover:bg-surface-3"
+
+const crumbTriggerClass =
+  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
 export function CreateWorkItemDialog({
   open,
   onOpenChange,
   defaultTeamId,
+  defaultProjectId,
   initialType,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   defaultTeamId?: string | null
+  defaultProjectId?: string | null
   initialType?: WorkItemType | null
 }) {
   const availableTeams = useAppStore(
@@ -149,6 +210,21 @@ export function CreateWorkItemDialog({
       ? initialType
       : getPreferredCreateDialogType(initialTemplateType)
   const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
+  const [teamPickerOpen, setTeamPickerOpen] = useState(false)
+  const [teamQuery, setTeamQuery] = useState("")
+  const [typePickerOpen, setTypePickerOpen] = useState(false)
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false)
+  const [statusQuery, setStatusQuery] = useState("")
+  const [priorityPickerOpen, setPriorityPickerOpen] = useState(false)
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
+  const [assigneeQuery, setAssigneeQuery] = useState("")
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  const [projectQuery, setProjectQuery] = useState("")
+  const [parentPickerOpen, setParentPickerOpen] = useState(false)
+  const [parentQuery, setParentQuery] = useState("")
+  const [labelsPickerOpen, setLabelsPickerOpen] = useState(false)
+  const [labelQuery, setLabelQuery] = useState("")
+  const shortcutModifierLabel = useShortcutModifierLabel()
   const team = useMemo(
     () => filteredTeams.find((entry) => entry.id === selectedTeamId) ?? null,
     [filteredTeams, selectedTeamId]
@@ -171,11 +247,18 @@ export function CreateWorkItemDialog({
   }, [selectedTeamId, teamMemberships, users])
   const teamProjects = useMemo(
     () =>
-      projects.filter(
-        (project) =>
-          project.scopeType === "team" && project.scopeId === selectedTeamId
-      ),
-    [projects, selectedTeamId]
+      projects.filter((project) => {
+        if (!team) {
+          return false
+        }
+
+        return (
+          (project.scopeType === "team" && project.scopeId === selectedTeamId) ||
+          (project.scopeType === "workspace" &&
+            project.scopeId === team.workspaceId)
+        )
+      }),
+    [projects, selectedTeamId, team]
   )
   const availableLabels = useMemo(
     () =>
@@ -192,7 +275,14 @@ export function CreateWorkItemDialog({
   )
   const [priority, setPriority] = useState<Priority>(initialPriority)
   const [assigneeId, setAssigneeId] = useState<string>("none")
-  const [projectId, setProjectId] = useState<string>("none")
+  const [startDate, setStartDate] = useState<string | null>(null)
+  const [targetDate, setTargetDate] = useState<string | null>(null)
+  const initialProjectId =
+    defaultProjectId &&
+    teamProjects.some((project) => project.id === defaultProjectId)
+      ? defaultProjectId
+      : "none"
+  const [projectId, setProjectId] = useState<string>(initialProjectId)
   const [selectedParentId, setSelectedParentId] = useState<string>("none")
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [newLabelName, setNewLabelName] = useState("")
@@ -213,7 +303,6 @@ export function CreateWorkItemDialog({
   const activeTemplateType =
     selectedProject?.templateType ?? defaultTemplateType
   const availableItemTypes = getAllowedWorkItemTypesForTemplate(activeTemplateType)
-  const fallbackType = getPreferredCreateDialogType(activeTemplateType)
   const selectedType =
     availableItemTypes.find((value) => value === type) ??
     availableItemTypes[0] ??
@@ -242,11 +331,14 @@ export function CreateWorkItemDialog({
   const selectedLabels = availableLabels.filter((label) =>
     selectedLabelIds.includes(label.id)
   )
+  const selectedTypeLabel = selectedType
+    ? getDisplayLabelForWorkItemType(selectedType, team?.settings.experience)
+    : workCopy.singularLabel
+  const secondaryContextLabel = selectedParentItem
+    ? `${selectedParentItem.key} · child`
+    : (selectedProject?.name ?? null)
   const titlePlaceholder = selectedType
-    ? `${getDisplayLabelForWorkItemType(
-        selectedType,
-        team?.settings.experience
-      )} title`
+    ? `${selectedTypeLabel} title`
     : workCopy.titlePlaceholder
   const normalizedTitle = title.trim()
   const normalizedDescription = description.trim()
@@ -260,14 +352,13 @@ export function CreateWorkItemDialog({
     normalizedTitle.length >= 2 &&
     selectedType !== null &&
     (!requiresParent || selectedParentItem !== null)
-  const triggerClassName =
-    "h-9 w-auto max-w-full rounded-full border-border/60 bg-background px-3 text-xs font-medium shadow-none"
   const labelsTriggerText =
     selectedLabels.length === 0
-      ? "Labels"
+      ? "Add label"
       : selectedLabels.length === 1
         ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
+  const teamDotColor = getTeamDotColor(team?.id ?? null)
 
   function syncTeamSelection(nextTeamId: string) {
     const nextTeam =
@@ -280,6 +371,14 @@ export function CreateWorkItemDialog({
       nextTeam,
       nextTemplateType
     ).defaultPriority
+    const nextWorkspaceId = nextTeam?.workspaceId ?? null
+    const nextProjects = projects.filter(
+      (project) =>
+        (project.scopeType === "team" && project.scopeId === nextTeamId) ||
+        (nextWorkspaceId !== null &&
+          project.scopeType === "workspace" &&
+          project.scopeId === nextWorkspaceId)
+    )
     const nextType =
       initialType &&
       getDefaultRootWorkItemTypesForTeamExperience(
@@ -295,7 +394,14 @@ export function CreateWorkItemDialog({
     )
     setPriority(nextPriority)
     setAssigneeId("none")
-    setProjectId("none")
+    setStartDate(null)
+    setTargetDate(null)
+    setProjectId(
+      defaultProjectId &&
+        nextProjects.some((project) => project.id === defaultProjectId)
+        ? defaultProjectId
+        : "none"
+    )
     setSelectedParentId("none")
     setSelectedLabelIds([])
     setNewLabelName("")
@@ -334,7 +440,7 @@ export function CreateWorkItemDialog({
   }
 
   function handleCreate() {
-    if (!selectedType || !selectedTeamId) {
+    if (!selectedType || !selectedTeamId || !canCreate) {
       return
     }
 
@@ -348,6 +454,8 @@ export function CreateWorkItemDialog({
       labelIds: selectedLabelIds,
       assigneeId: assigneeId === "none" ? null : assigneeId,
       primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
+      startDate,
+      targetDate,
     })
 
     if (!createdItemId) {
@@ -366,9 +474,14 @@ export function CreateWorkItemDialog({
     onOpenChange(false)
   }
 
+  useCommandEnterSubmit(open && canCreate, handleCreate)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-4xl">
+      <DialogContent
+        showCloseButton={false}
+        className="top-6 max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-10 sm:max-w-[640px]"
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>{workCopy.createLabel}</DialogTitle>
           <DialogDescription>
@@ -376,383 +489,987 @@ export function CreateWorkItemDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
-            <Badge
-              variant="outline"
-              className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
-            >
-              {team?.name ?? "Team space"}
-            </Badge>
-            <span className="text-muted-foreground/50">/</span>
-            <span className="tracking-normal normal-case">
-              {selectedParentItem ? "Create child item" : "Create item"}
-            </span>
-          </div>
+        {/* Top / crumb row */}
+        <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
+          <Popover
+            open={teamPickerOpen}
+            onOpenChange={(next) => {
+              setTeamPickerOpen(next)
+              if (!next) setTeamQuery("")
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(crumbTriggerClass, "min-w-0")}
+                disabled={filteredTeams.length === 0}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className="inline-block size-2 shrink-0 rounded-full"
+                    style={{ background: teamDotColor }}
+                  />
+                  <span className="truncate font-medium text-foreground">
+                    {team?.name ?? "Team space"}
+                  </span>
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Switch team space…"
+                value={teamQuery}
+                onChange={setTeamQuery}
+              />
+              <PropertyPopoverList>
+                {filteredTeams.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                    No team spaces
+                  </div>
+                ) : (
+                  <>
+                    <PropertyPopoverGroup>Team spaces</PropertyPopoverGroup>
+                    {filteredTeams
+                      .filter((entry) => matchesQuery(entry.name, teamQuery))
+                      .map((teamOption) => {
+                        const selected = teamOption.id === selectedTeamId
+                        return (
+                          <PropertyPopoverItem
+                            key={teamOption.id}
+                            selected={selected}
+                            onClick={() => {
+                              syncTeamSelection(teamOption.id)
+                              setTeamPickerOpen(false)
+                              setTeamQuery("")
+                            }}
+                            trailing={
+                              selected ? (
+                                <Check className="size-[14px] text-foreground" />
+                              ) : null
+                            }
+                          >
+                            <span
+                              aria-hidden
+                              className="inline-block size-2 shrink-0 rounded-full"
+                              style={{
+                                background: getTeamDotColor(teamOption.id),
+                              }}
+                            />
+                            <span className="truncate">{teamOption.name}</span>
+                          </PropertyPopoverItem>
+                        )
+                      })}
+                  </>
+                )}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
 
+          <Popover open={typePickerOpen} onOpenChange={setTypePickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={crumbTriggerClass}
+                disabled={availableItemTypes.length === 0 || !team}
+              >
+                <span className="font-medium text-foreground">
+                  {selectedTypeLabel}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+            >
+              <PropertyPopoverList>
+                <PropertyPopoverGroup>Work item type</PropertyPopoverGroup>
+                {availableItemTypes.map((value) => {
+                  const selected = value === selectedType
+                  return (
+                    <PropertyPopoverItem
+                      key={value}
+                      selected={selected}
+                      onClick={() => {
+                        const nextParentStillValid =
+                          selectedParentItem &&
+                          canParentWorkItemTypeAcceptChild(
+                            selectedParentItem.type,
+                            value
+                          )
+                        setType(value)
+                        if (!nextParentStillValid) {
+                          setSelectedParentId("none")
+                        }
+                        setTypePickerOpen(false)
+                      }}
+                      trailing={
+                        selected ? (
+                          <Check className="size-[14px] text-foreground" />
+                        ) : null
+                      }
+                    >
+                      <span className="truncate">
+                        {getDisplayLabelForWorkItemType(
+                          value,
+                          team?.settings.experience
+                        )}
+                      </span>
+                    </PropertyPopoverItem>
+                  )
+                })}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          {secondaryContextLabel ? (
+            <span className="ml-0.5 text-fg-4">→ {secondaryContextLabel}</span>
+          ) : null}
+
+          <div className="ml-auto flex items-center gap-0.5">
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="size-[14px]" />
+              </button>
+            </DialogClose>
+          </div>
+        </div>
+
+        {/* Body: title + description + formatting toolbar */}
+        <div className="px-[18px] pt-3 pb-0.5">
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={titlePlaceholder}
-            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem] dark:bg-transparent"
+            className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
           />
           <Textarea
             value={description}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="Add description..."
-            rows={4}
-            className="mt-3 min-h-[112px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
+            placeholder="Add description…"
+            rows={3}
+            className="mt-0.5 min-h-[60px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
           />
-          <p className="mt-3 text-xs text-muted-foreground">
-            Pick the team space first, then choose a parent when creating a child
-            type.
-          </p>
-          {selectedLabels.length > 0 ? (
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {selectedLabels.map((label) => (
-                <Badge
-                  key={label.id}
-                  variant="secondary"
-                  className="h-6 rounded-full px-2.5 text-[11px]"
-                >
-                  {label.name}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
+
         </div>
 
-        <div className="px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={selectedTeamId || NO_TEAM_VALUE}
-              onValueChange={(value) => {
-                if (value === NO_TEAM_VALUE) {
-                  return
-                }
-
-                syncTeamSelection(value)
-              }}
-              disabled={filteredTeams.length === 0}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue placeholder="Team space" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {filteredTeams.length > 0 ? (
-                    filteredTeams.map((teamOption) => (
-                      <SelectItem key={teamOption.id} value={teamOption.id}>
-                        {teamOption.name}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value={NO_TEAM_VALUE}>
-                      No team spaces
-                    </SelectItem>
-                  )}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={status}
-              onValueChange={(value) => setStatus(value as WorkStatus)}
-              disabled={!team}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {teamStatuses.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {statusMeta[value].label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={priority}
-              onValueChange={(value) => setPriority(value as Priority)}
-              disabled={!team}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {Object.entries(priorityMeta).map(([value, meta]) => (
-                    <SelectItem key={value} value={value}>
-                      {meta.label} priority
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={assigneeId}
-              onValueChange={setAssigneeId}
-              disabled={!team}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue placeholder="Assignee">
-                  {selectedAssignee ? (
-                    <AssigneeOption
-                      name={selectedAssignee.name}
-                      avatarImageUrl={selectedAssignee.avatarImageUrl}
-                      avatarUrl={selectedAssignee.avatarUrl}
-                    />
-                  ) : (
-                    "Unassigned"
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="none">Unassigned</SelectItem>
-                  {teamMembers.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      <AssigneeOption
-                        name={user.name}
-                        avatarImageUrl={user.avatarImageUrl}
-                        avatarUrl={user.avatarUrl}
-                      />
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={effectiveProjectId}
-              onValueChange={(value) => {
-                setProjectId(value)
-                if (
-                  selectedParentItem &&
-                  value !== "none" &&
-                  selectedParentItem.primaryProjectId !== value
-                ) {
-                  setSelectedParentId("none")
-                }
-              }}
-              disabled={!team || Boolean(selectedParentItem?.primaryProjectId)}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue placeholder="Project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="none">No project</SelectItem>
-                  {teamProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
-            {showParentSelect ? (
-              <Select
-                value={selectedParentItem ? selectedParentId : "none"}
-                onValueChange={(value) => {
-                  setSelectedParentId(value)
-
-                  if (value === "none") {
-                    return
-                  }
-
-                  const nextParent =
-                    parentOptions.find((item) => item.id === value) ?? null
-
-                  if (nextParent?.primaryProjectId) {
-                    setProjectId(nextParent.primaryProjectId)
-                  }
-                }}
-                disabled={!team || parentOptions.length === 0}
+        {/* Props row */}
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
+          <Popover
+            open={statusPickerOpen}
+            onOpenChange={(next) => {
+              setStatusPickerOpen(next)
+              if (!next) setStatusQuery("")
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={chipTriggerClass}
+                disabled={!team}
               >
-                <SelectTrigger className={triggerClassName}>
-                  <SelectValue placeholder="Parent">
-                    {selectedParentItem
-                      ? `${selectedParentItem.key} · ${selectedParentItem.title}`
-                      : "No parent"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="none">No parent</SelectItem>
-                    {parentOptions.map((parentOption) => (
-                      <SelectItem key={parentOption.id} value={parentOption.id}>
-                        {parentOption.key} · {parentOption.title}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            ) : null}
+                <StatusIcon status={status} />
+                <span className="font-medium text-foreground">
+                  {statusMeta[status].label}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Change status…"
+                value={statusQuery}
+                onChange={setStatusQuery}
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const activeMatches = teamStatuses.filter(
+                    (value) =>
+                      OPEN_STATUSES.includes(value) &&
+                      matchesQuery(statusMeta[value].label, statusQuery)
+                  )
+                  const closedMatches = teamStatuses.filter(
+                    (value) =>
+                      CLOSED_STATUSES.includes(value) &&
+                      matchesQuery(statusMeta[value].label, statusQuery)
+                  )
+                  return (
+                    <>
+                      {activeMatches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Active</PropertyPopoverGroup>
+                          {activeMatches.map((value) => {
+                            const selected = value === status
+                            return (
+                              <PropertyPopoverItem
+                                key={value}
+                                selected={selected}
+                                onClick={() => {
+                                  setStatus(value)
+                                  setStatusPickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <StatusIcon status={value} />
+                                <span>{statusMeta[value].label}</span>
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : null}
+                      {closedMatches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Closed</PropertyPopoverGroup>
+                          {closedMatches.map((value) => {
+                            const selected = value === status
+                            return (
+                              <PropertyPopoverItem
+                                key={value}
+                                selected={selected}
+                                onClick={() => {
+                                  setStatus(value)
+                                  setStatusPickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <StatusIcon status={value} />
+                                <span>{statusMeta[value].label}</span>
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : null}
+                      {activeMatches.length === 0 &&
+                      closedMatches.length === 0 ? (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          No statuses match
+                        </div>
+                      ) : null}
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+              <PropertyPopoverFoot>
+                <span>↑↓ to navigate · ↵ to select</span>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
 
-            <Popover>
+          <Popover
+            open={priorityPickerOpen}
+            onOpenChange={setPriorityPickerOpen}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={chipTriggerClass}
+                disabled={!team}
+              >
+                <PriorityDot priority={priority} />
+                <span className="font-medium text-foreground">
+                  {priorityMeta[priority].label}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+            >
+              <PropertyPopoverList>
+                {PRIORITY_ORDER.map((value) => {
+                  const selected = value === priority
+                  return (
+                    <PropertyPopoverItem
+                      key={value}
+                      selected={selected}
+                      onClick={() => {
+                        setPriority(value)
+                        setPriorityPickerOpen(false)
+                      }}
+                      trailing={
+                        selected ? (
+                          <Check className="size-[14px] text-foreground" />
+                        ) : null
+                      }
+                    >
+                      <PriorityIcon priority={value} />
+                      <span>
+                        {value === "none"
+                          ? "No priority"
+                          : priorityMeta[value].label}
+                      </span>
+                    </PropertyPopoverItem>
+                  )
+                })}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={assigneePickerOpen}
+            onOpenChange={(next) => {
+              setAssigneePickerOpen(next)
+              if (!next) setAssigneeQuery("")
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !selectedAssignee && chipTriggerDashedClass
+                )}
+                disabled={!team}
+              >
+                {selectedAssignee ? (
+                  <AssigneeOption
+                    name={selectedAssignee.name}
+                    avatarImageUrl={selectedAssignee.avatarImageUrl}
+                    avatarUrl={selectedAssignee.avatarUrl}
+                  />
+                ) : (
+                  <span className="flex items-center gap-1.5 text-fg-3">
+                    <span className="inline-grid size-[18px] place-items-center rounded-full border border-dashed border-line text-[9px] text-fg-3">
+                      ?
+                    </span>
+                    Unassigned
+                  </span>
+                )}
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
+            >
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Assign someone…"
+                value={assigneeQuery}
+                onChange={setAssigneeQuery}
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const matches = teamMembers.filter((user) =>
+                    matchesQuery(user.name, assigneeQuery)
+                  )
+                  return (
+                    <>
+                      {matches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Members</PropertyPopoverGroup>
+                          {matches.map((user) => {
+                            const selected = user.id === assigneeId
+                            return (
+                              <PropertyPopoverItem
+                                key={user.id}
+                                selected={selected}
+                                onClick={() => {
+                                  setAssigneeId(user.id)
+                                  setAssigneePickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <AssigneeOption
+                                  name={user.name}
+                                  avatarImageUrl={user.avatarImageUrl}
+                                  avatarUrl={user.avatarUrl}
+                                />
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          No members match
+                        </div>
+                      )}
+                      <PropertyPopoverItem
+                        muted
+                        selected={assigneeId === "none"}
+                        onClick={() => {
+                          setAssigneeId("none")
+                          setAssigneePickerOpen(false)
+                        }}
+                        trailing={
+                          assigneeId === "none" ? (
+                            <Check className="size-[14px] text-foreground" />
+                          ) : null
+                        }
+                      >
+                        <X className="size-[14px] shrink-0" />
+                        <span>Unassign</span>
+                      </PropertyPopoverItem>
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={projectPickerOpen}
+            onOpenChange={(next) => {
+              setProjectPickerOpen(next)
+              if (!next) setProjectQuery("")
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !selectedProject && chipTriggerDashedClass
+                )}
+                disabled={
+                  !team || Boolean(selectedParentItem?.primaryProjectId)
+                }
+              >
+                <FolderSimple className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    selectedProject && "font-medium text-foreground"
+                  )}
+                >
+                  {selectedProject ? selectedProject.name : "Project"}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+              <PropertyPopoverSearch
+                icon={<MagnifyingGlass className="size-[14px]" />}
+                placeholder="Find project…"
+                value={projectQuery}
+                onChange={setProjectQuery}
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const matches = teamProjects.filter((project) =>
+                    matchesQuery(project.name, projectQuery)
+                  )
+                  return (
+                    <>
+                      {matches.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
+                          {matches.map((project) => {
+                            const selected = project.id === effectiveProjectId
+                            return (
+                              <PropertyPopoverItem
+                                key={project.id}
+                                selected={selected}
+                                onClick={() => {
+                                  setProjectId(project.id)
+                                  if (
+                                    selectedParentItem &&
+                                    selectedParentItem.primaryProjectId !==
+                                      project.id
+                                  ) {
+                                    setSelectedParentId("none")
+                                  }
+                                  setProjectPickerOpen(false)
+                                }}
+                                trailing={
+                                  selected ? (
+                                    <Check className="size-[14px] text-foreground" />
+                                  ) : null
+                                }
+                              >
+                                <FolderSimple className="size-[14px] shrink-0 text-fg-3" />
+                                <span className="truncate">{project.name}</span>
+                              </PropertyPopoverItem>
+                            )
+                          })}
+                        </>
+                      ) : (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          No projects match
+                        </div>
+                      )}
+                      <PropertyPopoverItem
+                        muted
+                        selected={effectiveProjectId === "none"}
+                        onClick={() => {
+                          setProjectId("none")
+                          setProjectPickerOpen(false)
+                        }}
+                        trailing={
+                          effectiveProjectId === "none" ? (
+                            <Check className="size-[14px] text-foreground" />
+                          ) : null
+                        }
+                      >
+                        <X className="size-[14px] shrink-0" />
+                        <span>No project</span>
+                      </PropertyPopoverItem>
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !startDate && chipTriggerDashedClass
+                )}
+              >
+                <CalendarDots className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    startDate && "font-medium text-foreground"
+                  )}
+                >
+                  {formatDateChipLabel(startDate, "Start date")}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
+            >
+              <div className="px-3 py-3">
+                <div className="mb-2 text-[11px] font-medium text-fg-3">
+                  Start date
+                </div>
+                <input
+                  type="date"
+                  value={startDate ?? ""}
+                  onChange={(event) =>
+                    setStartDate(event.target.value || null)
+                  }
+                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+                />
+              </div>
+              <PropertyPopoverFoot>
+                <button
+                  type="button"
+                  className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                  onClick={() => setStartDate(null)}
+                >
+                  Clear
+                </button>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !targetDate && chipTriggerDashedClass
+                )}
+              >
+                <CalendarDots className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    targetDate && "font-medium text-foreground"
+                  )}
+                >
+                  {formatDateChipLabel(targetDate, "Target date")}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
+            >
+              <div className="px-3 py-3">
+                <div className="mb-2 text-[11px] font-medium text-fg-3">
+                  Target date
+                </div>
+                <input
+                  type="date"
+                  value={targetDate ?? ""}
+                  onChange={(event) =>
+                    setTargetDate(event.target.value || null)
+                  }
+                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+                />
+              </div>
+              <PropertyPopoverFoot>
+                <button
+                  type="button"
+                  className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                  onClick={() => setTargetDate(null)}
+                >
+                  Clear
+                </button>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
+
+          {showParentSelect ? (
+            <Popover
+              open={parentPickerOpen}
+              onOpenChange={(next) => {
+                setParentPickerOpen(next)
+                if (!next) setParentQuery("")
+              }}
+            >
               <PopoverTrigger asChild>
                 <button
                   type="button"
                   className={cn(
-                    triggerClassName,
-                    "border",
-                    "inline-flex items-center gap-2 overflow-hidden text-left"
+                    chipTriggerClass,
+                    !selectedParentItem && chipTriggerDashedClass
                   )}
-                  disabled={!team}
+                  disabled={!team || parentOptions.length === 0}
                 >
-                  <span className="truncate">{labelsTriggerText}</span>
-                  <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+                  <TreeStructure className="size-[13px]" />
+                  <span
+                    className={cn(
+                      "truncate",
+                      selectedParentItem && "font-medium text-foreground"
+                    )}
+                  >
+                    {selectedParentItem
+                      ? `${selectedParentItem.key}`
+                      : "Parent"}
+                  </span>
+                  <CaretDown className="size-3 shrink-0 opacity-60" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-72 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                    Labels
-                  </div>
-                  {selectedLabelIds.length > 0 ? (
+              <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+                <PropertyPopoverSearch
+                  icon={<MagnifyingGlass className="size-[14px]" />}
+                  placeholder="Find parent…"
+                  value={parentQuery}
+                  onChange={setParentQuery}
+                />
+                <PropertyPopoverList>
+                  {(() => {
+                    const matches = parentOptions.filter(
+                      (item) =>
+                        matchesQuery(item.key, parentQuery) ||
+                        matchesQuery(item.title, parentQuery)
+                    )
+                    return (
+                      <>
+                        {matches.length > 0 ? (
+                          <>
+                            <PropertyPopoverGroup>
+                              Available parents
+                            </PropertyPopoverGroup>
+                            {matches.map((parentOption) => {
+                              const selected =
+                                parentOption.id === selectedParentId
+                              return (
+                                <PropertyPopoverItem
+                                  key={parentOption.id}
+                                  selected={selected}
+                                  onClick={() => {
+                                    setSelectedParentId(parentOption.id)
+                                    if (parentOption.primaryProjectId) {
+                                      setProjectId(
+                                        parentOption.primaryProjectId
+                                      )
+                                    }
+                                    setParentPickerOpen(false)
+                                  }}
+                                  trailing={
+                                    selected ? (
+                                      <Check className="size-[14px] text-foreground" />
+                                    ) : null
+                                  }
+                                >
+                                  <TreeStructure className="size-[14px] shrink-0 text-fg-3" />
+                                  <span className="truncate">
+                                    <span className="text-fg-3">
+                                      {parentOption.key}
+                                    </span>{" "}
+                                    <span>{parentOption.title}</span>
+                                  </span>
+                                </PropertyPopoverItem>
+                              )
+                            })}
+                          </>
+                        ) : (
+                          <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                            No parents available
+                          </div>
+                        )}
+                        <PropertyPopoverItem
+                          muted
+                          selected={selectedParentId === "none"}
+                          onClick={() => {
+                            setSelectedParentId("none")
+                            setParentPickerOpen(false)
+                          }}
+                          trailing={
+                            selectedParentId === "none" ? (
+                              <Check className="size-[14px] text-foreground" />
+                            ) : null
+                          }
+                        >
+                          <X className="size-[14px] shrink-0" />
+                          <span>No parent</span>
+                        </PropertyPopoverItem>
+                      </>
+                    )
+                  })()}
+                </PropertyPopoverList>
+              </PopoverContent>
+            </Popover>
+          ) : null}
+
+          <Popover
+            open={labelsPickerOpen}
+            onOpenChange={(next) => {
+              setLabelsPickerOpen(next)
+              if (!next) {
+                setLabelQuery("")
+                setNewLabelName("")
+              }
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  selectedLabels.length === 0 && chipTriggerDashedClass
+                )}
+                disabled={!team}
+              >
+                <Tag className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    selectedLabels.length > 0 && "font-medium text-foreground"
+                  )}
+                >
+                  {labelsTriggerText}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[260px]")}
+            >
+              <PropertyPopoverSearch
+                icon={<Tag className="size-[14px]" />}
+                placeholder="Filter labels…"
+                value={labelQuery}
+                onChange={setLabelQuery}
+                trailing={
+                  selectedLabelIds.length > 0 ? (
                     <button
                       type="button"
-                      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
                       onClick={() => setSelectedLabelIds([])}
                     >
                       Clear
                     </button>
-                  ) : null}
-                </div>
-                <ScrollArea className="mt-3 max-h-48 pr-3">
-                  <div className="flex flex-wrap gap-2">
-                    {availableLabels.length > 0 ? (
-                      availableLabels.map((label) => {
-                        const selected = selectedLabelIds.includes(label.id)
-
-                        return (
-                          <button
-                            key={label.id}
-                            type="button"
-                            className={cn(
-                              "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                              selected
-                                ? "border-primary/40 bg-primary/10 text-foreground"
-                                : "border-border text-muted-foreground hover:text-foreground"
-                            )}
-                            onClick={() => toggleLabel(label.id)}
-                          >
-                            {label.name}
-                          </button>
-                        )
-                      })
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        No labels yet
-                      </span>
-                    )}
-                  </div>
-                </ScrollArea>
-                <div className="mt-3 flex gap-2">
-                  <Input
-                    value={newLabelName}
-                    onChange={(event) => setNewLabelName(event.target.value)}
-                    placeholder="Create label"
-                    className="h-8 text-sm"
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") {
-                        return
-                      }
-
-                      event.preventDefault()
-                      void handleCreateLabel()
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="shrink-0"
-                    disabled={
-                      !team || creatingLabel || newLabelName.trim().length === 0
-                    }
-                    onClick={() => {
-                      void handleCreateLabel()
-                    }}
-                  >
-                    Add
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            <Select
-              value={selectedType ?? fallbackType}
-              onValueChange={(value) => {
-                const nextType = value as WorkItemType
-                const nextParentStillValid =
-                  selectedParentItem &&
-                  canParentWorkItemTypeAcceptChild(
-                    selectedParentItem.type,
-                    nextType
+                  ) : undefined
+                }
+              />
+              <PropertyPopoverList>
+                {(() => {
+                  const query = labelQuery.trim()
+                  const matched = availableLabels.filter((label) =>
+                    matchesQuery(label.name, query)
+                  )
+                  const selected = matched.filter((label) =>
+                    selectedLabelIds.includes(label.id)
+                  )
+                  const unselected = matched.filter(
+                    (label) => !selectedLabelIds.includes(label.id)
                   )
 
-                setType(nextType)
+                  return (
+                    <>
+                      {selected.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>
+                            {`Selected · ${selected.length}`}
+                          </PropertyPopoverGroup>
+                          {selected.map((label) => (
+                            <PropertyPopoverItem
+                              key={label.id}
+                              selected
+                              onClick={() => toggleLabel(label.id)}
+                              trailing={
+                                <Check className="size-[14px] text-foreground" />
+                              }
+                            >
+                              <span
+                                aria-hidden
+                                className="inline-block size-2 shrink-0 rounded-full"
+                                style={{ background: label.color }}
+                              />
+                              <span className="truncate">{label.name}</span>
+                            </PropertyPopoverItem>
+                          ))}
+                        </>
+                      ) : null}
 
-                if (!nextParentStillValid) {
-                  setSelectedParentId("none")
-                }
-              }}
-              disabled={availableItemTypes.length === 0 || !team}
-            >
-              <SelectTrigger className={triggerClassName}>
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {availableItemTypes.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {getDisplayLabelForWorkItemType(
-                        value,
-                        team?.settings.experience
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+                      {unselected.length > 0 ? (
+                        <>
+                          <PropertyPopoverGroup>All</PropertyPopoverGroup>
+                          {unselected.map((label) => (
+                            <PropertyPopoverItem
+                              key={label.id}
+                              onClick={() => toggleLabel(label.id)}
+                            >
+                              <span
+                                aria-hidden
+                                className="inline-block size-2 shrink-0 rounded-full"
+                                style={{ background: label.color }}
+                              />
+                              <span className="truncate">{label.name}</span>
+                            </PropertyPopoverItem>
+                          ))}
+                        </>
+                      ) : null}
+
+                      {matched.length === 0 ? (
+                        <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                          {availableLabels.length === 0
+                            ? "No labels yet"
+                            : "No labels match"}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-1 flex items-center gap-2 border-t border-line-soft px-2.5 pt-2 pb-1 text-fg-3">
+                        <Plus className="size-[14px] shrink-0" />
+                        <input
+                          value={newLabelName}
+                          onChange={(event) =>
+                            setNewLabelName(event.target.value)
+                          }
+                          placeholder="Create new label"
+                          className="h-5 flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-fg-4"
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") {
+                              return
+                            }
+                            event.preventDefault()
+                            void handleCreateLabel()
+                          }}
+                          disabled={!team || creatingLabel}
+                        />
+                        {newLabelName.trim().length > 0 ? (
+                          <button
+                            type="button"
+                            className="text-[11px] font-medium text-fg-2 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={!team || creatingLabel}
+                            onClick={() => {
+                              void handleCreateLabel()
+                            }}
+                          >
+                            Add
+                          </button>
+                        ) : null}
+                      </div>
+                    </>
+                  )
+                })()}
+              </PropertyPopoverList>
+              <PropertyPopoverFoot>
+                <span>Tap to toggle · Esc to close</span>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
+
+        </div>
+
+        {filteredTeams.length === 0 ? (
+          <p className="px-[18px] pt-2 text-xs text-destructive">
+            No editable team spaces support this work item type yet.
+          </p>
+        ) : null}
+
+        {filteredTeams.length > 0 && availableItemTypes.length === 0 ? (
+          <p className="px-[18px] pt-2 text-xs text-destructive">
+            This team space cannot create top-level work items in the current
+            configuration.
+          </p>
+        ) : null}
+
+        {/* Footer */}
+        <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
+            <FolderSimple className="size-[13px] shrink-0" />
+            <span className="truncate">
+              {selectedProject ? (
+                <>
+                  Adding to{" "}
+                  <b className="font-medium text-foreground">
+                    {selectedProject.name}
+                  </b>
+                </>
+              ) : team ? (
+                <>
+                  Adding to{" "}
+                  <b className="font-medium text-foreground">{team.name}</b>
+                </>
+              ) : (
+                "Select a team space"
+              )}
+            </span>
           </div>
-
-          {filteredTeams.length === 0 ? (
-            <p className="mt-3 text-xs text-destructive">
-              No editable team spaces support this work item type yet.
-            </p>
-          ) : null}
-
-          {filteredTeams.length > 0 && availableItemTypes.length === 0 ? (
-            <p className="mt-3 text-xs text-destructive">
-              This team space cannot create top-level work items in the current
-              configuration.
-            </p>
-          ) : null}
-
-          <div className="mt-5 flex items-center justify-end gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onOpenChange(false)}
+              className="text-fg-2"
             >
               Cancel
+              <ShortcutKeys
+                keys={["Esc"]}
+                className="ml-1"
+                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              />
             </Button>
-            <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
-              Create{" "}
-              {selectedType
-                ? getDisplayLabelForWorkItemType(
-                    selectedType,
-                    team?.settings.experience
-                  ).toLowerCase()
-                : workCopy.singularLabel}
+            <Button
+              size="sm"
+              disabled={!canCreate}
+              onClick={handleCreate}
+              className="gap-1 bg-foreground text-background hover:bg-foreground/90"
+            >
+              Create {selectedTypeLabel.toLowerCase()}
+              <ShortcutKeys
+                keys={[shortcutModifierLabel, "Enter"]}
+                variant="inline"
+                className="ml-0.5 gap-0.5 text-background/65"
+              />
             </Button>
           </div>
         </div>

@@ -1,9 +1,15 @@
 import type { MutationCtx } from "../_generated/server"
+import type { ViewFilters } from "../../lib/domain/types"
 
 import {
   createViewDefinition,
   isRouteAllowedForViewContext,
+  isSystemView,
 } from "../../lib/domain/default-views"
+import {
+  viewNameMaxLength,
+  viewNameMinLength,
+} from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
 import { getTeamDoc } from "./data"
 import { requireEditableTeamAccess, requireEditableWorkspaceAccess } from "./access"
@@ -70,6 +76,8 @@ type CreateViewArgs = ServerAccessArgs & {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"
+  containerType?: "project-items" | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -113,31 +121,14 @@ type CreateViewArgs = ServerAccessArgs & {
     | "dueDate"
     | "targetDate"
     | "title"
-  filters?: {
-    status: Array<
-      "backlog" | "todo" | "in-progress" | "done" | "cancelled" | "duplicate"
-    >
-    priority: Array<"urgent" | "high" | "medium" | "low" | "none">
-    assigneeIds: string[]
-    creatorIds: string[]
-    leadIds: string[]
-    health: Array<"no-update" | "on-track" | "at-risk" | "off-track">
-    milestoneIds: string[]
-    relationTypes: string[]
-    projectIds: string[]
-    itemTypes: Array<
-      "epic" | "feature" | "requirement" | "story" | "task" | "issue" | "sub-task" | "sub-issue"
-    >
-    labelIds: string[]
-    teamIds: string[]
-    showCompleted: boolean
-  }
+  filters?: ViewFilters
   displayProps?: Array<
     | "id"
     | "type"
     | "status"
     | "assignee"
     | "priority"
+    | "progress"
     | "project"
     | "dueDate"
     | "milestone"
@@ -160,12 +151,32 @@ type ViewDisplayPropertyArgs = ServerAccessArgs & {
     | "status"
     | "assignee"
     | "priority"
+    | "progress"
     | "project"
     | "dueDate"
     | "milestone"
     | "labels"
     | "created"
     | "updated"
+}
+
+type ReorderViewDisplayPropertiesArgs = ServerAccessArgs & {
+  currentUserId: string
+  viewId: string
+  displayProps: Array<
+    | "id"
+    | "type"
+    | "status"
+    | "assignee"
+    | "priority"
+    | "progress"
+    | "project"
+    | "dueDate"
+    | "milestone"
+    | "labels"
+    | "created"
+    | "updated"
+  >
 }
 
 type ViewHiddenValueArgs = ServerAccessArgs & {
@@ -188,6 +199,7 @@ type ViewFilterValueArgs = ServerAccessArgs & {
     | "milestoneIds"
     | "relationTypes"
     | "projectIds"
+    | "parentIds"
     | "itemTypes"
     | "labelIds"
     | "teamIds"
@@ -195,6 +207,17 @@ type ViewFilterValueArgs = ServerAccessArgs & {
 }
 
 type ClearViewFiltersArgs = ServerAccessArgs & {
+  currentUserId: string
+  viewId: string
+}
+
+type RenameViewArgs = ServerAccessArgs & {
+  currentUserId: string
+  viewId: string
+  name: string
+}
+
+type DeleteViewArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
 }
@@ -262,6 +285,8 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
     scopeType: args.scopeType,
     scopeId: args.scopeId,
     entityKind: args.entityKind,
+    containerType: args.containerType,
+    containerId: args.containerId,
     route: args.route,
     teamSlug,
     experience,
@@ -342,6 +367,25 @@ export async function toggleViewDisplayPropertyHandler(
   })
 }
 
+export async function reorderViewDisplayPropertiesHandler(
+  ctx: MutationCtx,
+  args: ReorderViewDisplayPropertiesArgs
+) {
+  assertServerToken(args.serverToken)
+  const view = await requireViewMutationAccess(
+    ctx,
+    args.viewId,
+    args.currentUserId
+  )
+
+  const nextDisplayProps = Array.from(new Set(args.displayProps))
+
+  await ctx.db.patch(view._id, {
+    displayProps: nextDisplayProps,
+    updatedAt: getNow(),
+  })
+}
+
 export async function toggleViewHiddenValueHandler(
   ctx: MutationCtx,
   args: ViewHiddenValueArgs
@@ -378,7 +422,7 @@ export async function toggleViewFilterValueHandler(
     args.currentUserId
   )
 
-  const current = [...(view.filters[args.key] as string[])]
+  const current = [...((view.filters[args.key] as string[] | undefined) ?? [])]
   const next = current.includes(args.value)
     ? current.filter((entry) => entry !== args.value)
     : [...current, args.value]
@@ -425,10 +469,60 @@ export async function clearViewFiltersHandler(
       milestoneIds: [],
       relationTypes: [],
       projectIds: [],
+      parentIds: [],
       itemTypes: [],
       labelIds: [],
       teamIds: [],
     },
     updatedAt: getNow(),
   })
+}
+
+export async function renameViewHandler(
+  ctx: MutationCtx,
+  args: RenameViewArgs
+) {
+  assertServerToken(args.serverToken)
+  const view = await requireViewMutationAccess(
+    ctx,
+    args.viewId,
+    args.currentUserId
+  )
+
+  if (isSystemView(view)) {
+    throw new Error("System views cannot be renamed")
+  }
+
+  const trimmedName = args.name.trim()
+
+  if (trimmedName.length < viewNameMinLength) {
+    throw new Error(`View name must be at least ${viewNameMinLength} characters`)
+  }
+
+  if (trimmedName.length > viewNameMaxLength) {
+    throw new Error(`View name must be at most ${viewNameMaxLength} characters`)
+  }
+
+  await ctx.db.patch(view._id, {
+    name: trimmedName,
+    updatedAt: getNow(),
+  })
+}
+
+export async function deleteViewHandler(
+  ctx: MutationCtx,
+  args: DeleteViewArgs
+) {
+  assertServerToken(args.serverToken)
+  const view = await requireViewMutationAccess(
+    ctx,
+    args.viewId,
+    args.currentUserId
+  )
+
+  if (isSystemView(view)) {
+    throw new Error("System views cannot be deleted")
+  }
+
+  await ctx.db.delete(view._id)
 }

@@ -14,6 +14,18 @@ export function formatShortDate(value: string) {
   return format(d, "MMM d")
 }
 
+export function formatDayDivider(value: string) {
+  const d = new Date(value)
+  if (isToday(d)) return "Today"
+  if (isYesterday(d)) return "Yesterday"
+  return format(d, "EEEE, MMM d")
+}
+
+export function getLocalDayKey(value: string) {
+  const d = new Date(value)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
 const CHAT_MESSAGE_HTML_PATTERN =
   /^\s*<(p|h[1-6]|ul|ol|li|blockquote|pre|table|div|span|a|img)\b/i
 

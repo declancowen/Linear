@@ -181,6 +181,56 @@ describe("work item actions", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("shifts scheduled dates in calendar-day space for timeline moves", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    state.workItems = [
+      createItem("scheduled", {
+        startDate: "2026-03-08",
+        dueDate: "2026-03-08",
+        targetDate: "2026-03-10",
+      }),
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.shiftTimelineItem("scheduled", "2026-03-09")
+
+    expect(state.workItems.find((item) => item.id === "scheduled")).toMatchObject(
+      {
+        startDate: "2026-03-09",
+        dueDate: "2026-03-09",
+        targetDate: "2026-03-11",
+      }
+    )
+    expect(syncShiftTimelineItemMock).toHaveBeenCalledWith(
+      "scheduled",
+      "2026-03-09"
+    )
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
   it("creates labels in the selected workspace instead of the active workspace", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"
@@ -200,15 +250,27 @@ describe("work item actions", () => {
         id: "workspace_1",
         name: "Primary",
         slug: "primary",
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: "user_1",
+        workosOrganizationId: null,
+        settings: {
+          accent: "emerald",
+          description: "",
+        },
       },
       {
         id: "workspace_2",
         name: "Secondary",
         slug: "secondary",
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: "user_1",
+        workosOrganizationId: null,
+        settings: {
+          accent: "blue",
+          description: "",
+        },
       },
     ]
     const syncInBackgroundMock = vi.fn()
@@ -304,5 +366,183 @@ describe("work item actions", () => {
       status: "done",
     })
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("creates work items with selected schedule dates", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const createdItemId = actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Schedule work",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      startDate: "2026-05-01",
+      targetDate: "2026-05-10",
+    })
+
+    expect(createdItemId).toBeTruthy()
+    expect(state.workItems[0]).toMatchObject({
+      id: createdItemId,
+      title: "Schedule work",
+      startDate: "2026-05-01",
+      targetDate: "2026-05-10",
+    })
+    expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
+      teamId: "team_1",
+      type: "task",
+      title: "Schedule work",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      startDate: "2026-05-01",
+      dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      targetDate: "2026-05-10",
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("defaults work-item schedule dates from the local calendar day", async () => {
+    const previousTimeZone = process.env.TZ
+    process.env.TZ = "America/Los_Angeles"
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 3, 20, 23, 30))
+    vi.resetModules()
+
+    try {
+      const { formatLocalCalendarDate, addLocalCalendarDays } = await import(
+        "@/lib/calendar-date"
+      )
+      const { createWorkItemActions } = await import(
+        "@/lib/store/app-store-internal/slices/work-item-actions"
+      )
+
+      let state = createState()
+      const syncInBackgroundMock = vi.fn()
+      const setState = (update: unknown) => {
+        const patch =
+          typeof update === "function"
+            ? update(state as never)
+            : update
+
+        state = {
+          ...state,
+          ...(patch as object),
+        }
+      }
+
+      const actions = createWorkItemActions({
+        get: () => state as never,
+        runtime: {
+          syncInBackground: syncInBackgroundMock,
+        } as never,
+        set: setState as never,
+      })
+
+      const createdItemId = actions.createWorkItem({
+        teamId: "team_1",
+        type: "task",
+        title: "Schedule work",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+      })
+
+      expect(createdItemId).toBeTruthy()
+      expect(state.workItems[0]).toMatchObject({
+        id: createdItemId,
+        startDate: formatLocalCalendarDate(),
+        dueDate: addLocalCalendarDays(7),
+        targetDate: addLocalCalendarDays(10),
+      })
+      expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
+        teamId: "team_1",
+        type: "task",
+        title: "Schedule work",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+        startDate: formatLocalCalendarDate(),
+        dueDate: addLocalCalendarDays(7),
+        targetDate: addLocalCalendarDays(10),
+      })
+      expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    } finally {
+      process.env.TZ = previousTimeZone
+      vi.useRealTimers()
+      vi.resetModules()
+    }
+  })
+
+  it("rejects work item schedule ranges where the target date is before the start date", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const createdItemId = actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Broken schedule",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      startDate: "2026-05-10",
+      targetDate: "2026-05-01",
+    })
+
+    expect(createdItemId).toBeNull()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Target date must be on or after the start date"
+    )
+    expect(syncCreateWorkItemMock).not.toHaveBeenCalled()
+    expect(syncInBackgroundMock).not.toHaveBeenCalled()
+    expect(state.workItems).toHaveLength(2)
   })
 })

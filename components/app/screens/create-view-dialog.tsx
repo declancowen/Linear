@@ -2,23 +2,67 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
+import {
+  CaretDown,
+  Check,
+  FolderSimple,
+  MagnifyingGlass,
+  X,
+} from "@phosphor-icons/react"
 
 import {
   canEditWorkspace,
   getEditableTeamsForFeature,
+  getCurrentWorkspace,
+  getProject,
+  getProjectHref,
+  getProjectTeam,
+  getProjectsForScope,
+  getVisibleWorkItems,
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import {
+  createViewDefinition,
   getDefaultRouteForViewContext,
   isRouteAllowedForViewContext,
 } from "@/lib/domain/default-views"
-import type { CreateDialogState } from "@/lib/domain/types"
+import {
+  createDefaultViewFilters,
+  getDefaultViewItemLevelForProjectTemplate,
+  getDefaultTemplateTypeForTeamExperience,
+  getDefaultViewItemLevelForTeamExperience,
+  type CreateDialogState,
+  type DisplayProperty,
+} from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { formatEntityKind } from "@/components/app/screens/shared"
-import { Badge } from "@/components/ui/badge"
+import {
+  createEmptyViewFilters,
+  type ViewFilterKey,
+  selectAppDataSnapshot,
+} from "@/components/app/screens/helpers"
+import {
+  FilterPopover,
+  getAvailableGroupOptions,
+  GroupChipPopover,
+  LayoutChipPopover,
+  LevelChipPopover,
+  PropertiesChipPopover,
+  ProjectFilterPopover,
+  ProjectLayoutChipPopover,
+  ProjectSortChipPopover,
+  SortChipPopover,
+  type ViewConfigPatch,
+} from "@/components/app/screens/work-surface-controls"
+import { TeamSpaceCrumbPicker } from "@/components/app/screens/team-space-crumb-picker"
+import {
+  ShortcutKeys,
+  useCommandEnterSubmit,
+  useShortcutModifierLabel,
+} from "@/components/app/shortcut-keys"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -26,19 +70,88 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  PROPERTY_POPOVER_CLASS,
+  PropertyPopoverGroup,
+  PropertyPopoverItem,
+  PropertyPopoverList,
+  PropertyPopoverSearch,
+} from "@/components/ui/template-primitives"
+import { cn } from "@/lib/utils"
 
 type CreateViewDialogState = Extract<CreateDialogState, { kind: "view" }>
+type DraftViewConfig = NonNullable<CreateViewDialogState["initialConfig"]>
+type SelectableEntityKind = "items" | "projects" | "docs"
+
+const crumbTriggerClass =
+  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+
+const chipSelectTriggerClass =
+  "inline-flex h-7 min-w-0 max-w-[220px] items-center justify-between gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+
+const chipTriggerDashedClass =
+  "border-dashed bg-transparent text-fg-3 hover:bg-surface-3 hover:text-foreground"
+
+type ScopeOption = {
+  key: string
+  scopeType: "team" | "workspace"
+  scopeId: string
+  label: string
+}
+
+const ENTITY_KIND_LABEL: Record<SelectableEntityKind, string> = {
+  items: "Items",
+  projects: "Projects",
+  docs: "Docs",
+}
 
 function getScopeKey(scopeType: "team" | "workspace", scopeId: string) {
   return `${scopeType}:${scopeId}`
+}
+
+function getInitialScopeKey(input: {
+  dialog: CreateViewDialogState
+  scopeOptions: ScopeOption[]
+}) {
+  const defaultScopeKey =
+    input.dialog.defaultScopeType && input.dialog.defaultScopeId
+      ? getScopeKey(input.dialog.defaultScopeType, input.dialog.defaultScopeId)
+      : null
+
+  if (
+    defaultScopeKey &&
+    input.scopeOptions.some((option) => option.key === defaultScopeKey)
+  ) {
+    return defaultScopeKey
+  }
+
+  return input.scopeOptions[0]?.key ?? ""
+}
+
+function createFreshDraftConfig(
+  entityKind: CreateViewDialogState["defaultEntityKind"] = "items"
+): DraftViewConfig {
+  return {
+    layout: "list",
+    filters: createEmptyViewFilters(),
+    grouping: "status",
+    subGrouping: null,
+    ordering: "createdAt",
+    displayProps: [],
+    ...(entityKind === "items" ? { showChildItems: false } : {}),
+  }
 }
 
 export function CreateViewDialog({
@@ -50,86 +163,133 @@ export function CreateViewDialog({
   onOpenChange: (open: boolean) => void
   dialog: CreateViewDialogState
 }) {
-  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
-  const workspace = useAppStore((state) =>
-    state.workspaces.find((entry) => entry.id === currentWorkspaceId) ?? null
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const currentWorkspace = useMemo(() => getCurrentWorkspace(data), [data])
+  const editableTeams = useMemo(
+    () => getEditableTeamsForFeature(data, "views"),
+    [data]
   )
-  const canEditCurrentWorkspace = useAppStore((state) =>
-    currentWorkspaceId ? canEditWorkspace(state, currentWorkspaceId) : false
-  )
-  const editableTeams = useAppStore(
-    useShallow((state) => getEditableTeamsForFeature(state, "views"))
-  )
-  const scopeOptions = useMemo(() => {
-    const nextOptions: Array<{
-      key: string
-      scopeType: "team" | "workspace"
-      scopeId: string
-      label: string
-    }> = []
+  const availableEntityKinds = useMemo<SelectableEntityKind[]>(() => {
+    const canUseWorkspace =
+      currentWorkspace ? canEditWorkspace(data, currentWorkspace.id) : false
 
-    if (workspace && canEditCurrentWorkspace) {
-      nextOptions.push({
-        key: getScopeKey("workspace", workspace.id),
-        scopeType: "workspace",
-        scopeId: workspace.id,
-        label: workspace.name,
-      })
-    }
+    return (["items", "projects", "docs"] as const).filter((entityKind) => {
+      if (canUseWorkspace) {
+        return true
+      }
 
-    editableTeams.forEach((team) => {
-      nextOptions.push({
-        key: getScopeKey("team", team.id),
-        scopeType: "team",
-        scopeId: team.id,
-        label: team.name,
+      return editableTeams.some((team) => {
+        if (!teamHasFeature(team, "views")) {
+          return false
+        }
+
+        if (entityKind === "items") {
+          return teamHasFeature(team, "issues")
+        }
+
+        if (entityKind === "projects") {
+          return teamHasFeature(team, "projects")
+        }
+
+        return teamHasFeature(team, "docs")
       })
     })
+  }, [currentWorkspace, data, editableTeams])
+  const initialEntityKind =
+    dialog.defaultEntityKind ?? availableEntityKinds[0] ?? "items"
+  const [selectedEntityKind, setSelectedEntityKind] =
+    useState<SelectableEntityKind>(initialEntityKind)
+  const scopeOptions = useMemo(() => {
+    const nextOptions: ScopeOption[] = []
 
-    if (dialog.lockScope && dialog.defaultScopeType && dialog.defaultScopeId) {
-      return nextOptions.filter(
-        (option) =>
-          option.scopeType === dialog.defaultScopeType &&
-          option.scopeId === dialog.defaultScopeId
-      )
+    if (currentWorkspace && canEditWorkspace(data, currentWorkspace.id)) {
+      nextOptions.push({
+        key: getScopeKey("workspace", currentWorkspace.id),
+        scopeType: "workspace",
+        scopeId: currentWorkspace.id,
+        label: currentWorkspace.name,
+      })
     }
 
+    editableTeams
+      .filter((team) => {
+        if (!teamHasFeature(team, "views")) {
+          return false
+        }
+
+        if (selectedEntityKind === "items") {
+          return teamHasFeature(team, "issues")
+        }
+
+        if (selectedEntityKind === "projects") {
+          return teamHasFeature(team, "projects")
+        }
+
+        return teamHasFeature(team, "docs")
+      })
+      .forEach((team) => {
+        nextOptions.push({
+          key: getScopeKey("team", team.id),
+          scopeType: "team",
+          scopeId: team.id,
+          label: team.name,
+        })
+      })
+
     return nextOptions
-  }, [
-    dialog.defaultScopeId,
-    dialog.defaultScopeType,
-    dialog.lockScope,
-    editableTeams,
-    canEditCurrentWorkspace,
-    workspace,
-  ])
-  const defaultScopeKey =
-    dialog.defaultScopeType && dialog.defaultScopeId
-      ? getScopeKey(dialog.defaultScopeType, dialog.defaultScopeId)
-      : null
-  const initialScopeKey =
-    defaultScopeKey && scopeOptions.some((option) => option.key === defaultScopeKey)
-      ? defaultScopeKey
-      : (scopeOptions[0]?.key ?? "")
+  }, [currentWorkspace, data, editableTeams, selectedEntityKind])
+  const initialScopeKey = getInitialScopeKey({
+    dialog,
+    scopeOptions,
+  })
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [selectedScopeKey, setSelectedScopeKey] = useState(initialScopeKey)
-  const [selectedEntityKind, setSelectedEntityKind] = useState<
-    "items" | "projects" | "docs"
-  >(dialog.defaultEntityKind ?? "items")
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  const [projectQuery, setProjectQuery] = useState("")
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    dialog.lockProject ? (dialog.defaultProjectId ?? "") : ""
+  )
+  const [draftConfig, setDraftConfig] = useState<DraftViewConfig>(() =>
+    createFreshDraftConfig(selectedEntityKind)
+  )
   const [creating, setCreating] = useState(false)
+  const shortcutModifierLabel = useShortcutModifierLabel()
 
   useEffect(() => {
     if (!open) {
       return
     }
 
+    setSelectedEntityKind(initialEntityKind)
     setName("")
     setDescription("")
     setCreating(false)
     setSelectedScopeKey(initialScopeKey)
-    setSelectedEntityKind(dialog.defaultEntityKind ?? "items")
-  }, [dialog.defaultEntityKind, initialScopeKey, open])
+    setProjectPickerOpen(false)
+    setProjectQuery("")
+    setSelectedProjectId(dialog.lockProject ? (dialog.defaultProjectId ?? "") : "")
+    setDraftConfig(createFreshDraftConfig(initialEntityKind))
+  }, [
+    dialog.defaultEntityKind,
+    dialog.defaultProjectId,
+    dialog.lockProject,
+    initialScopeKey,
+    initialEntityKind,
+    open,
+  ])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    if (availableEntityKinds.includes(selectedEntityKind)) {
+      return
+    }
+
+    setSelectedEntityKind(initialEntityKind)
+  }, [availableEntityKinds, initialEntityKind, open, selectedEntityKind])
 
   const selectedScope = scopeOptions.find((option) => option.key === selectedScopeKey) ?? null
   const selectedTeam = useMemo(
@@ -139,102 +299,484 @@ export function CreateViewDialog({
         : null,
     [editableTeams, selectedScope]
   )
-  const entityOptions = useMemo(() => {
+  const projectOptions = useMemo(() => {
+    if (selectedEntityKind !== "items") {
+      return []
+    }
+
+    if (dialog.lockProject && dialog.defaultProjectId) {
+      const lockedProject = getProject(data, dialog.defaultProjectId)
+      return lockedProject ? [lockedProject] : []
+    }
+
+    if (dialog.lockScope && selectedScope) {
+      return data.projects
+        .filter(
+          (project) =>
+            project.scopeType === selectedScope.scopeType &&
+            project.scopeId === selectedScope.scopeId
+        )
+        .sort((left, right) => left.name.localeCompare(right.name))
+    }
+
+    if (!selectedTeam) {
+      if (selectedScope?.scopeType !== "workspace") {
+        return []
+      }
+
+      const editableTeamIds = new Set(editableTeams.map((team) => team.id))
+
+      return data.projects
+        .filter((project) => {
+          if (project.scopeType === "workspace") {
+            return project.scopeId === selectedScope.scopeId
+          }
+
+          const team = getProjectTeam(data, project)
+          return Boolean(
+            team &&
+              team.workspaceId === selectedScope.scopeId &&
+              editableTeamIds.has(team.id)
+          )
+        })
+        .sort((left, right) => left.name.localeCompare(right.name))
+    }
+
+    return data.projects
+      .filter((project) =>
+        (project.scopeType === "team" && project.scopeId === selectedTeam.id) ||
+        (project.scopeType === "workspace" &&
+          project.scopeId === selectedTeam.workspaceId)
+      )
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }, [
+    data,
+    dialog.defaultProjectId,
+    dialog.lockProject,
+    dialog.lockScope,
+    editableTeams,
+    selectedEntityKind,
+    selectedScope,
+    selectedTeam,
+  ])
+  const selectedProject = useMemo(
+    () =>
+      selectedProjectId
+        ? (projectOptions.find((project) => project.id === selectedProjectId) ??
+          (dialog.lockProject ? getProject(data, selectedProjectId) : null) ??
+          null)
+        : null,
+    [data, dialog.lockProject, projectOptions, selectedProjectId]
+  )
+  const selectedProjectTeam = useMemo(
+    () => (selectedProject ? getProjectTeam(data, selectedProject) : null),
+    [data, selectedProject]
+  )
+  const effectiveScope = useMemo(
+    () =>
+      !dialog.lockScope && selectedProject
+        ? {
+            scopeType: selectedProject.scopeType,
+            scopeId: selectedProject.scopeId,
+          }
+        : selectedScope
+          ? {
+              scopeType: selectedScope.scopeType,
+              scopeId: selectedScope.scopeId,
+            }
+        : null,
+    [dialog.lockScope, selectedProject, selectedScope]
+  )
+  const effectiveTeam = selectedProjectTeam ?? selectedTeam
+  const resolvedRoute = useMemo(() => {
+    if (selectedProject) {
+      return getProjectHref(data, selectedProject)
+    }
+
+    if (!selectedScope) {
+      return null
+    }
+
+    if (
+      dialog.defaultRoute &&
+      isRouteAllowedForViewContext({
+        scopeType: selectedScope.scopeType,
+        entityKind: selectedEntityKind,
+        route: dialog.defaultRoute,
+        teamSlug: selectedTeam?.slug,
+      })
+    ) {
+      return dialog.defaultRoute
+    }
+
+    return getDefaultRouteForViewContext({
+      scopeType: selectedScope.scopeType,
+      entityKind: selectedEntityKind,
+      teamSlug: selectedTeam?.slug,
+    })
+  }, [
+    data,
+    dialog.defaultRoute,
+    selectedEntityKind,
+    selectedProject,
+    selectedScope,
+    selectedTeam?.slug,
+  ])
+  const scopedProjects = useMemo(
+    () =>
+      effectiveScope
+        ? getProjectsForScope(
+            data,
+            effectiveScope.scopeType,
+            effectiveScope.scopeId
+          )
+        : [],
+    [data, effectiveScope]
+  )
+  const scopedItems = useMemo(() => {
+    if (selectedEntityKind !== "items") {
+      return []
+    }
+
+    if (selectedProject) {
+      return data.workItems.filter(
+        (item) =>
+          item.primaryProjectId === selectedProject.id ||
+          item.linkedProjectIds.includes(selectedProject.id)
+      )
+    }
+
     if (!selectedScope) {
       return []
     }
 
-    return (["items", "projects", "docs"] as const).filter((entityKind) => {
-      if (
-        dialog.lockEntityKind &&
-        dialog.defaultEntityKind &&
-        entityKind !== dialog.defaultEntityKind
-      ) {
-        return false
-      }
+    return getVisibleWorkItems(
+      data,
+      selectedScope.scopeType === "team"
+        ? { teamId: selectedScope.scopeId }
+        : { workspaceId: selectedScope.scopeId }
+    )
+  }, [data, selectedEntityKind, selectedProject, selectedScope])
+  const groupOptions = useMemo(
+    () =>
+      getAvailableGroupOptions(
+        selectedProject
+          ? selectedProject.templateType
+          : effectiveTeam
+            ? getDefaultTemplateTypeForTeamExperience(
+                effectiveTeam.settings.experience
+              )
+            : null
+      ),
+    [effectiveTeam, selectedProject]
+  )
+  const defaultItemLevel = useMemo(() => {
+    if (selectedEntityKind !== "items") {
+      return undefined
+    }
 
-      if (selectedScope.scopeType === "team") {
-        if (!selectedTeam || !teamHasFeature(selectedTeam, "views")) {
-          return false
-        }
-
-        if (entityKind === "items") {
-          if (!teamHasFeature(selectedTeam, "issues")) {
-            return false
-          }
-        } else if (entityKind === "projects") {
-          if (!teamHasFeature(selectedTeam, "projects")) {
-            return false
-          }
-        } else if (!teamHasFeature(selectedTeam, "docs")) {
-          return false
-        }
-      } else if (
-        entityKind === "items" &&
-        !dialog.defaultRoute
-      ) {
-        return false
-      }
-
-      return dialog.defaultRoute
-        ? isRouteAllowedForViewContext({
-            scopeType: selectedScope.scopeType,
-            entityKind,
-            route: dialog.defaultRoute,
-            teamSlug: selectedTeam?.slug,
-          })
-        : Boolean(
-            getDefaultRouteForViewContext({
-              scopeType: selectedScope.scopeType,
-              entityKind,
-              teamSlug: selectedTeam?.slug,
-            })
+    if (selectedProject) {
+      return selectedProjectTeam
+        ? getDefaultViewItemLevelForTeamExperience(
+            selectedProjectTeam.settings.experience
           )
+        : getDefaultViewItemLevelForProjectTemplate(
+            selectedProject.templateType
+          )
+    }
+
+    if (effectiveTeam) {
+      return getDefaultViewItemLevelForTeamExperience(
+        effectiveTeam.settings.experience
+      )
+    }
+
+    return undefined
+  }, [effectiveTeam, selectedEntityKind, selectedProject, selectedProjectTeam])
+  const draftView = useMemo(() => {
+    if (!effectiveScope || !resolvedRoute) {
+      return null
+    }
+
+    return createViewDefinition({
+      id: "__draft_view__",
+      name: name.trim() || "Untitled view",
+      description: description.trim(),
+      scopeType: effectiveScope.scopeType,
+      scopeId: effectiveScope.scopeId,
+      entityKind: selectedEntityKind,
+      route: resolvedRoute,
+      teamSlug: effectiveTeam?.slug,
+      experience: effectiveTeam?.settings.experience,
+      createdAt: "__draft__",
+      overrides: {
+        ...draftConfig,
+        ...(draftConfig.itemLevel === undefined && defaultItemLevel !== undefined
+          ? { itemLevel: defaultItemLevel }
+          : {}),
+      },
     })
   }, [
-    dialog.defaultEntityKind,
-    dialog.defaultRoute,
-    dialog.lockEntityKind,
-    selectedScope,
-    selectedTeam,
+    defaultItemLevel,
+    description,
+    draftConfig,
+    effectiveScope,
+    effectiveTeam,
+    name,
+    resolvedRoute,
+    selectedEntityKind,
   ])
+  const isProjectSpecificItemView =
+    selectedEntityKind === "items" &&
+    Boolean(selectedProject) &&
+    dialog.lockProject
+  const projectViewContainer =
+    selectedEntityKind === "items" && selectedProject
+      ? {
+          containerType: "project-items" as const,
+          containerId: selectedProject.id,
+        }
+      : {}
+  const canCreate =
+    name.trim().length >= 2 &&
+    Boolean(effectiveScope) &&
+    Boolean(resolvedRoute)
+  const showProjectPicker =
+    !isProjectSpecificItemView && (selectedProject || projectOptions.length > 0)
 
   useEffect(() => {
-    if (entityOptions.includes(selectedEntityKind)) {
+    if (selectedEntityKind === "items") {
       return
     }
 
-    setSelectedEntityKind(entityOptions[0] ?? "items")
-  }, [entityOptions, selectedEntityKind])
+    if (selectedProjectId) {
+      setSelectedProjectId("")
+    }
+  }, [selectedEntityKind, selectedProjectId])
 
-  const resolvedRoute =
-    dialog.defaultRoute ??
-    (selectedScope
-      ? getDefaultRouteForViewContext({
-          scopeType: selectedScope.scopeType,
-          entityKind: selectedEntityKind,
-          teamSlug: selectedTeam?.slug,
-        })
-      : null)
-  const canCreate =
-    name.trim().length >= 2 && Boolean(selectedScope) && Boolean(resolvedRoute)
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setDraftConfig(createFreshDraftConfig(selectedEntityKind))
+  }, [open, selectedEntityKind])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    if (scopeOptions.some((option) => option.key === selectedScopeKey)) {
+      return
+    }
+
+    setSelectedScopeKey(initialScopeKey)
+  }, [initialScopeKey, open, scopeOptions, selectedScopeKey])
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      return
+    }
+
+    const nextProjectId = projectOptions.some(
+      (project) => project.id === selectedProjectId
+    )
+      ? selectedProjectId
+      : ""
+
+    if (nextProjectId !== selectedProjectId && !dialog.lockProject) {
+      setSelectedProjectId(nextProjectId)
+    }
+  }, [dialog.lockProject, projectOptions, selectedProjectId])
+
+  useEffect(() => {
+    if (dialog.lockScope || !selectedProject) {
+      return
+    }
+
+    const nextScopeKey = getScopeKey(
+      selectedProject.scopeType,
+      selectedProject.scopeId
+    )
+
+    if (
+      selectedScopeKey !== nextScopeKey &&
+      scopeOptions.some((option) => option.key === nextScopeKey)
+    ) {
+      setSelectedScopeKey(nextScopeKey)
+    }
+  }, [dialog.lockScope, scopeOptions, selectedProject, selectedScopeKey])
+
+  useEffect(() => {
+    if (!selectedProject) {
+      return
+    }
+
+    if (
+      dialog.lockScope &&
+      selectedScope &&
+      (selectedProject.scopeType !== selectedScope.scopeType ||
+        selectedProject.scopeId !== selectedScope.scopeId)
+    ) {
+      setSelectedProjectId("")
+    }
+  }, [dialog.lockScope, selectedProject, selectedScope])
+
+  useEffect(() => {
+    if (!effectiveScope) {
+      return
+    }
+
+    setDraftConfig((current) => {
+      if (!current.filters) {
+        return current
+      }
+
+      const projectIds = new Set(scopedProjects.map((project) => project.id))
+      const teamIds = new Set(
+        effectiveScope.scopeType === "team"
+          ? [effectiveScope.scopeId]
+          : data.teams
+              .filter((team) => team.workspaceId === effectiveScope.scopeId)
+              .map((team) => team.id)
+      )
+      const nextProjectIds = current.filters.projectIds.filter((id) =>
+        projectIds.has(id)
+      )
+      const nextTeamIds = current.filters.teamIds.filter((id) => teamIds.has(id))
+
+      if (
+        nextProjectIds.length === current.filters.projectIds.length &&
+        nextTeamIds.length === current.filters.teamIds.length
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        filters: {
+          ...current.filters,
+          projectIds: nextProjectIds,
+          teamIds: nextTeamIds,
+        },
+      }
+    })
+  }, [data.teams, effectiveScope, scopedProjects])
+
+  function updateDraftView(patch: ViewConfigPatch) {
+    setDraftConfig((current) => ({
+      ...current,
+      ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
+      ...(patch.grouping !== undefined ? { grouping: patch.grouping } : {}),
+      ...(patch.subGrouping !== undefined
+        ? { subGrouping: patch.subGrouping }
+        : {}),
+      ...(patch.ordering !== undefined ? { ordering: patch.ordering } : {}),
+      ...(patch.itemLevel !== undefined ? { itemLevel: patch.itemLevel } : {}),
+      ...(patch.showChildItems !== undefined
+        ? { showChildItems: patch.showChildItems }
+        : {}),
+      ...(patch.showCompleted !== undefined
+        ? {
+            filters: {
+              ...(current.filters ?? createDefaultViewFilters()),
+              showCompleted: patch.showCompleted,
+            },
+          }
+        : {}),
+    }))
+  }
+
+  function toggleDraftFilterValue(key: ViewFilterKey, value: string) {
+    setDraftConfig((current) => {
+      const filters = current.filters ?? createEmptyViewFilters()
+      const currentValues = filters[key] as string[]
+      const nextValues = currentValues.includes(value)
+        ? currentValues.filter((entry) => entry !== value)
+        : [...currentValues, value]
+
+      return {
+        ...current,
+        filters: {
+          ...filters,
+          [key]: nextValues,
+        },
+      }
+    })
+  }
+
+  function clearDraftFilters() {
+    setDraftConfig((current) => ({
+      ...current,
+      filters: createEmptyViewFilters(),
+    }))
+  }
+
+  function toggleDraftDisplayProperty(property: DisplayProperty) {
+    setDraftConfig((current) => {
+      const displayProps = current.displayProps ?? draftView?.displayProps ?? []
+      const nextDisplayProps = displayProps.includes(property)
+        ? displayProps.filter((value) => value !== property)
+        : [...displayProps, property]
+
+      return {
+        ...current,
+        displayProps: nextDisplayProps,
+      }
+    })
+  }
+
+  function reorderDraftDisplayProperties(displayProps: DisplayProperty[]) {
+    setDraftConfig((current) => ({
+      ...current,
+      displayProps,
+    }))
+  }
+
+  function clearDraftDisplayProperties() {
+    setDraftConfig((current) => ({
+      ...current,
+      displayProps: [],
+    }))
+  }
 
   async function handleCreate() {
-    if (creating || !selectedScope || !resolvedRoute) {
+    if (creating || !effectiveScope || !resolvedRoute) {
       return
     }
 
     setCreating(true)
 
     try {
+      const createConfig =
+        draftView
+          ? {
+              layout: draftView.layout,
+              grouping: draftView.grouping,
+              subGrouping: draftView.subGrouping,
+              ordering: draftView.ordering,
+              itemLevel: draftView.itemLevel ?? null,
+              showChildItems: Boolean(draftView.showChildItems),
+              filters: draftView.filters,
+              displayProps: [...draftView.displayProps],
+              hiddenState: {
+                groups: [...draftView.hiddenState.groups],
+                subgroups: [...draftView.hiddenState.subgroups],
+              },
+            }
+          : selectedEntityKind === dialog.defaultEntityKind
+            ? createFreshDraftConfig(selectedEntityKind)
+            : {}
       const viewId = useAppStore.getState().createView({
-        scopeType: selectedScope.scopeType,
-        scopeId: selectedScope.scopeId,
+        scopeType: effectiveScope.scopeType,
+        scopeId: effectiveScope.scopeId,
         entityKind: selectedEntityKind,
+        ...projectViewContainer,
         route: resolvedRoute,
         name: name.trim(),
         description: description.trim(),
-        ...dialog.initialConfig,
+        ...createConfig,
       })
 
       if (viewId) {
@@ -244,6 +786,119 @@ export function CreateViewDialog({
       setCreating(false)
     }
   }
+
+  useCommandEnterSubmit(open && canCreate && !creating, () => {
+    void handleCreate()
+  })
+
+  const projectPicker =
+    showProjectPicker ? (
+      !dialog.lockProject ? (
+        <Popover
+          open={projectPickerOpen}
+          onOpenChange={(nextOpen) => {
+            setProjectPickerOpen(nextOpen)
+            if (!nextOpen) {
+              setProjectQuery("")
+            }
+          }}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Project"
+              className={cn(
+                chipSelectTriggerClass,
+                !selectedProject && chipTriggerDashedClass
+              )}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <FolderSimple className="size-[13px] shrink-0" />
+                <span
+                  className={cn(
+                    "truncate",
+                    selectedProject && "font-medium text-foreground"
+                  )}
+                >
+                  {selectedProject?.name ?? "Project"}
+                </span>
+              </span>
+              <CaretDown className="size-3 shrink-0 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+          >
+            <PropertyPopoverSearch
+              icon={<MagnifyingGlass className="size-[14px]" />}
+              placeholder="Find project…"
+              value={projectQuery}
+              onChange={setProjectQuery}
+            />
+            <PropertyPopoverList>
+              {projectOptions.filter((project) =>
+                project.name
+                  .toLowerCase()
+                  .includes(projectQuery.trim().toLowerCase())
+              ).length > 0 ? (
+                <>
+                  <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
+                  {projectOptions
+                    .filter((project) =>
+                      project.name
+                        .toLowerCase()
+                        .includes(projectQuery.trim().toLowerCase())
+                    )
+                    .map((project) => {
+                      const selected = project.id === selectedProjectId
+                      return (
+                        <PropertyPopoverItem
+                          key={project.id}
+                          selected={selected}
+                          onClick={() => {
+                            setSelectedProjectId(project.id)
+                            setProjectPickerOpen(false)
+                            setProjectQuery("")
+                          }}
+                          trailing={
+                            selected ? (
+                              <Check className="size-[14px] text-foreground" />
+                            ) : null
+                          }
+                        >
+                          <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+                          <span className="truncate">{project.name}</span>
+                        </PropertyPopoverItem>
+                      )
+                    })}
+                </>
+              ) : null}
+              <PropertyPopoverItem
+                selected={!selectedProject}
+                onClick={() => {
+                  setSelectedProjectId("")
+                  setProjectPickerOpen(false)
+                  setProjectQuery("")
+                }}
+                trailing={
+                  !selectedProject ? (
+                    <Check className="size-[14px] text-foreground" />
+                  ) : null
+                }
+              >
+                <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+                <span>Project</span>
+              </PropertyPopoverItem>
+            </PropertyPopoverList>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
+          <span className="truncate">{selectedProject?.name ?? "Project"}</span>
+        </div>
+      )
+    ) : null
 
   return (
     <Dialog
@@ -256,7 +911,10 @@ export function CreateViewDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent
+        showCloseButton={false}
+        className="top-6 max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-10 sm:max-w-[760px]"
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>New view</DialogTitle>
           <DialogDescription>
@@ -264,29 +922,66 @@ export function CreateViewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="border-b border-border/60 bg-muted/[0.35] px-6 pt-6 pb-5">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
-            <Badge
-              variant="outline"
-              className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
+        <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
+          {!dialog.lockEntityKind ? (
+            <Select
+              value={selectedEntityKind}
+              onValueChange={(value) =>
+                setSelectedEntityKind(value as SelectableEntityKind)
+              }
             >
-              {selectedScope?.label ?? "Scope"}
-            </Badge>
-            <span className="text-muted-foreground/50">/</span>
-            <Badge
-              variant="outline"
-              className="h-7 rounded-full border-border/60 bg-background px-3 text-[11px] font-medium tracking-normal normal-case"
-            >
-              {formatEntityKind(selectedEntityKind)}
-            </Badge>
-            <span className="text-muted-foreground/50">/</span>
-            <span className="tracking-normal normal-case">New view</span>
+              <SelectTrigger
+                aria-label="Entity kind"
+                className="h-7 w-[112px] border border-transparent bg-transparent px-2 text-[12.5px] text-fg-2 shadow-none hover:bg-surface-3 focus:ring-2 focus:ring-ring/40"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableEntityKinds.map((entityKind) => (
+                  <SelectItem key={entityKind} value={entityKind}>
+                    {ENTITY_KIND_LABEL[entityKind]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {!isProjectSpecificItemView ? (
+            <TeamSpaceCrumbPicker
+              options={scopeOptions.map((option) => ({
+                id: option.key,
+                label: option.label,
+                teamId: option.scopeId,
+              }))}
+              selectedId={selectedScopeKey}
+              onSelect={setSelectedScopeKey}
+              triggerClassName={crumbTriggerClass}
+            />
+          ) : (
+            <span className={crumbTriggerClass}>
+              <span className="font-medium text-foreground">
+                {selectedProject?.name ?? "Project"}
+              </span>
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-0.5">
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="size-[14px]" />
+              </button>
+            </DialogClose>
           </div>
+        </div>
+
+        <div className="px-[18px] pt-3 pb-0.5">
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="View name"
-            className="mt-5 h-auto border-none bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 md:text-[2rem] dark:bg-transparent"
+            className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
           />
           <Textarea
@@ -294,73 +989,141 @@ export function CreateViewDialog({
             onChange={(event) => setDescription(event.target.value)}
             placeholder="What this view is for"
             rows={3}
-            className="mt-3 min-h-[96px] resize-none border-none bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
+            className="mt-0.5 min-h-[84px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
           />
-          <p className="mt-3 text-xs text-muted-foreground">
-            Create the saved view first, then refine filters, grouping, and
-            levels from the surface.
+          <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
+            {isProjectSpecificItemView
+              ? "Set the layout, filters, grouping, sorting, and properties for this project view."
+              : "Start with a clean view, then choose its space, optional project scope, filters, grouping, sorting, and properties."}
+          </div>
+        </div>
+
+        {selectedEntityKind === "items" ? (
+          <div className="border-t border-line-soft bg-background px-3.5 py-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {draftView ? (
+                <>
+                  <LayoutChipPopover
+                    view={draftView}
+                    onUpdateView={updateDraftView}
+                  />
+                  <FilterPopover
+                    view={draftView}
+                    items={scopedItems}
+                    onToggleFilterValue={toggleDraftFilterValue}
+                    onClearFilters={clearDraftFilters}
+                    variant="chip"
+                    chipTone="default"
+                    dashedWhenEmpty
+                  />
+                  {projectPicker}
+                  <LevelChipPopover
+                    view={draftView}
+                    onUpdateView={updateDraftView}
+                  />
+                  <GroupChipPopover
+                    view={draftView}
+                    groupOptions={groupOptions}
+                    onUpdateView={updateDraftView}
+                    tone="default"
+                    showValue={false}
+                  />
+                  <SortChipPopover
+                    view={draftView}
+                    onUpdateView={updateDraftView}
+                    label="Sort"
+                    showValue={false}
+                  />
+                  <PropertiesChipPopover
+                    view={draftView}
+                    onToggleDisplayProperty={toggleDraftDisplayProperty}
+                    onReorderDisplayProperties={reorderDraftDisplayProperties}
+                    onClearDisplayProperties={clearDraftDisplayProperties}
+                    tone="default"
+                    dashedWhenEmpty
+                  />
+                </>
+              ) : (
+                projectPicker
+              )}
+            </div>
+          </div>
+        ) : selectedEntityKind === "projects" && draftView ? (
+          <div className="border-t border-line-soft bg-background px-3.5 py-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <ProjectLayoutChipPopover
+                view={draftView}
+                onUpdateView={updateDraftView}
+              />
+              <ProjectFilterPopover
+                view={draftView}
+                projects={scopedProjects}
+                onToggleFilterValue={toggleDraftFilterValue}
+                onClearFilters={clearDraftFilters}
+                variant="chip"
+                chipTone="default"
+                dashedWhenEmpty
+              />
+              <ProjectSortChipPopover
+                view={draftView}
+                onUpdateView={updateDraftView}
+                label="Sort"
+                showValue={false}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {!resolvedRoute ? (
+          <p className="px-[18px] pt-2 text-xs text-destructive">
+            {selectedEntityKind === "items" &&
+            selectedScope?.scopeType === "workspace"
+              ? "Select a project to create this workspace view."
+              : "Select a space to create this view."}
           </p>
-        </div>
+        ) : null}
 
-        <div className="flex flex-col gap-4 px-6 py-4">
-          {!dialog.lockScope ? (
-            <Select value={selectedScopeKey || "__none__"} onValueChange={setSelectedScopeKey}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a scope" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {scopeOptions.map((option) => (
-                    <SelectItem key={option.key} value={option.key}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          ) : null}
-
-          {!dialog.lockEntityKind ? (
-            <Select
-              value={selectedEntityKind}
-              onValueChange={(value) =>
-                setSelectedEntityKind(value as "items" | "projects" | "docs")
-              }
-              disabled={entityOptions.length === 0}
+        <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
+            <FolderSimple className="size-[13px] shrink-0" />
+            <span className="truncate">
+              {effectiveScope ? (
+                <>
+                  Saving in{" "}
+                  <b className="font-medium text-foreground">
+                    {selectedProject
+                      ? selectedProject.name
+                      : (selectedScope?.label ?? "Scope")}
+                  </b>
+                </>
+              ) : (
+                "Select a space"
+              )}
+            </span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              Cancel
+              <ShortcutKeys
+                keys={["Esc"]}
+                className="ml-1"
+                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              />
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canCreate || creating}
+              onClick={handleCreate}
+              className="gap-1"
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a surface" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {entityOptions.map((entityKind) => (
-                    <SelectItem key={entityKind} value={entityKind}>
-                      {formatEntityKind(entityKind)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          ) : null}
-
-          {resolvedRoute ? (
-            <p className="text-xs text-muted-foreground">
-              This view will open on <span className="font-mono">{resolvedRoute}</span>.
-            </p>
-          ) : (
-            <p className="text-xs text-destructive">
-              Select a valid scope and surface to create this view.
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t px-6 py-3">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" disabled={!canCreate || creating} onClick={handleCreate}>
-            Create view
-          </Button>
+              Create view
+              <ShortcutKeys
+                keys={[shortcutModifierLabel, "Enter"]}
+                variant="inline"
+                className="ml-0.5 gap-0.5 text-background/65"
+              />
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

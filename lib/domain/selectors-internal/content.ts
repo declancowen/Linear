@@ -1,11 +1,22 @@
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
-import type { AppData, Document } from "@/lib/domain/types"
+import type {
+  AppData,
+  Document,
+  Project,
+  ViewDefinition,
+} from "@/lib/domain/types"
 
 import {
+  canEditTeam,
+  canEditWorkspace,
   getAccessibleTeams,
   getDocument,
   getTeam,
 } from "@/lib/domain/selectors-internal/core"
+
+function isTopLevelView(view: ViewDefinition) {
+  return !view.containerType
+}
 
 export function getWorkspacePersonalViews(
   data: AppData,
@@ -13,12 +24,14 @@ export function getWorkspacePersonalViews(
 ) {
   const workspaceViews = data.views.filter(
     (view) =>
+      isTopLevelView(view) &&
       view.scopeType === "workspace" &&
       view.scopeId === data.currentWorkspaceId &&
       (entityKind ? view.entityKind === entityKind : true)
   )
   const legacyPersonalViews = data.views.filter(
     (view) =>
+      isTopLevelView(view) &&
       view.scopeType === "personal" &&
       view.scopeId === data.currentUserId &&
       view.route.startsWith("/workspace/") &&
@@ -26,6 +39,96 @@ export function getWorkspacePersonalViews(
   )
 
   return sortViewsForDisplay([...workspaceViews, ...legacyPersonalViews])
+}
+
+export function getWorkspaceDirectoryViews(
+  data: AppData,
+  workspaceId: string,
+  entityKind?: "items" | "projects" | "docs"
+) {
+  const accessibleTeamIds = new Set(
+    getAccessibleTeams(data)
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => team.id)
+  )
+
+  const workspaceViews = data.views.filter(
+    (view) =>
+      isTopLevelView(view) &&
+      view.scopeType === "workspace" &&
+      view.scopeId === workspaceId &&
+      (entityKind ? view.entityKind === entityKind : true)
+  )
+  const teamViews = data.views.filter(
+    (view) =>
+      isTopLevelView(view) &&
+      view.scopeType === "team" &&
+      accessibleTeamIds.has(view.scopeId) &&
+      (entityKind ? view.entityKind === entityKind : true)
+  )
+  const legacyPersonalViews =
+    workspaceId === data.currentWorkspaceId
+      ? data.views.filter(
+          (view) =>
+            isTopLevelView(view) &&
+            view.scopeType === "personal" &&
+            view.scopeId === data.currentUserId &&
+            view.route.startsWith("/workspace/") &&
+            (entityKind ? view.entityKind === entityKind : true)
+        )
+      : []
+
+  return sortViewsForDisplay([
+    ...workspaceViews,
+    ...teamViews,
+    ...legacyPersonalViews,
+  ])
+}
+
+export function getViewContextLabel(
+  data: Pick<AppData, "teams" | "workspaces" | "currentWorkspaceId">,
+  view: ViewDefinition
+) {
+  if (view.scopeType === "team") {
+    return data.teams.find((team) => team.id === view.scopeId)?.name ?? "Team"
+  }
+
+  if (view.scopeType === "workspace") {
+    return (
+      data.workspaces.find((workspace) => workspace.id === view.scopeId)?.name ??
+      "Workspace"
+    )
+  }
+
+  if (view.route.startsWith("/workspace/")) {
+    return (
+      data.workspaces.find(
+        (workspace) => workspace.id === data.currentWorkspaceId
+      )?.name ?? "Workspace"
+    )
+  }
+
+  return "Personal"
+}
+
+export function canMutateView(data: AppData, view: ViewDefinition) {
+  if (view.scopeType === "personal") {
+    return view.scopeId === data.currentUserId
+  }
+
+  if (view.scopeType === "team") {
+    return canEditTeam(data, view.scopeId)
+  }
+
+  return canEditWorkspace(data, view.scopeId)
+}
+
+export function canMutateProject(data: AppData, project: Project) {
+  if (project.scopeType === "team") {
+    return canEditTeam(data, project.scopeId)
+  }
+
+  return canEditWorkspace(data, project.scopeId)
 }
 
 export function getDocumentsForScope(
@@ -105,6 +208,7 @@ export function getViewsForScope(
   return sortViewsForDisplay(
     data.views.filter(
       (view) =>
+        isTopLevelView(view) &&
         view.scopeType === scopeType &&
         view.scopeId === scopeId &&
         view.entityKind === entityKind

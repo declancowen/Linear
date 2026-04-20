@@ -186,12 +186,14 @@ Complete the read-model refactor by retiring the large shared snapshot as the pr
 - shell bootstrap is bounded and intentionally small
 - capability surfaces read through scoped models
 - the store no longer depends on broad `replaceDomainData(snapshot)` semantics as the default sync model
+- transport choice is separated from read-model shape, with `SSE` acceptable for scoped invalidation and `WebSocket` reserved for genuinely bidirectional collaboration surfaces
 
 ### Acceptance criteria
 
 - high-churn surfaces no longer depend on the monolithic snapshot contract
 - `/api/snapshot` is bootstrap-oriented if retained at all
 - store synchronization aligns with scoped capability ownership
+- realtime delivery no longer relies on one global snapshot version driving whole-store replacement
 
 ## Phase F: Desktop/Runtime Architecture
 

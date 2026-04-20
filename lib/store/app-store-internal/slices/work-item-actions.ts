@@ -1,6 +1,6 @@
 "use client"
 
-import { addDays, differenceInCalendarDays } from "date-fns"
+import { differenceInCalendarDays } from "date-fns"
 import { toast } from "sonner"
 
 import {
@@ -10,6 +10,11 @@ import {
   syncShiftTimelineItem,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
+import {
+  addLocalCalendarDays,
+  formatLocalCalendarDate,
+  shiftCalendarDate,
+} from "@/lib/calendar-date"
 import { getLabelsForWorkspace } from "@/lib/domain/selectors"
 import {
   buildWorkItemAssignmentNotificationMessage,
@@ -387,10 +392,10 @@ export function createWorkItemActions({
               ...entry,
               startDate: nextStartDate,
               dueDate: entry.dueDate
-                ? addDays(new Date(entry.dueDate), delta).toISOString()
+                ? shiftCalendarDate(entry.dueDate, delta)
                 : entry.dueDate,
               targetDate: entry.targetDate
-                ? addDays(new Date(entry.targetDate), delta).toISOString()
+                ? shiftCalendarDate(entry.targetDate, delta)
                 : entry.targetDate,
               updatedAt: getNow(),
             }
@@ -418,6 +423,11 @@ export function createWorkItemActions({
       }
 
       let createdItemId: string | null = null
+      const resolvedStartDate =
+        parsed.data.startDate ?? formatLocalCalendarDate()
+      const resolvedDueDate = parsed.data.dueDate ?? addLocalCalendarDays(7)
+      const resolvedTargetDate =
+        parsed.data.targetDate ?? addLocalCalendarDays(10)
 
       set((state) => {
         const role = effectiveRole(state, parsed.data.teamId)
@@ -478,9 +488,9 @@ export function createWorkItemActions({
           linkedDocumentIds: [],
           labelIds: parsed.data.labelIds ?? [],
           milestoneId: null,
-          startDate: getNow(),
-          dueDate: addDays(new Date(), 7).toISOString(),
-          targetDate: addDays(new Date(), 10).toISOString(),
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
+          targetDate: resolvedTargetDate,
           subscriberIds: [state.currentUserId],
           createdAt: getNow(),
           updatedAt: getNow(),
@@ -521,7 +531,12 @@ export function createWorkItemActions({
       }
 
       runtime.syncInBackground(
-        syncCreateWorkItem(get().currentUserId, parsed.data),
+        syncCreateWorkItem(get().currentUserId, {
+          ...parsed.data,
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
+          targetDate: resolvedTargetDate,
+        }),
         "Failed to create work item"
       )
 

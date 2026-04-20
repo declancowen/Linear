@@ -71,6 +71,7 @@ describe("chat-call route", () => {
         content: "Started a call",
         callId: "call_1",
         mentionUserIds: [],
+        reactions: [],
         createdBy: "user_1",
         createdAt: "2026-04-16T21:00:00.000Z",
       },

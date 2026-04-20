@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { isValidCalendarDateString } from "@/lib/calendar-date"
 import { getPlainTextContent } from "@/lib/utils"
 
 import {
@@ -7,10 +8,14 @@ import {
   commentTargetTypes,
   displayProperties,
   entityKinds,
+  viewContainerTypes,
   groupFields,
   orderingFields,
   priorities,
+  projectNameMaxLength,
+  projectNameMinLength,
   projectHealths,
+  projectStatuses,
   roles,
   scopeTypes,
   teamExperienceTypes,
@@ -19,10 +24,21 @@ import {
   userStatusMessageMaxLength,
   userStatuses,
   viewLayouts,
+  viewFilterStatuses,
+  viewNameMaxLength,
+  viewNameMinLength,
   workItemTypes,
   workStatuses,
 } from "./primitives"
 import { getTeamFeatureValidationMessage } from "./work"
+
+export const nullableCalendarDateSchema = z
+  .string()
+  .trim()
+  .refine(isValidCalendarDateString, {
+    message: "Must be a valid calendar date",
+  })
+  .nullable()
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
@@ -141,9 +157,17 @@ export const projectSchema = z.object({
     "bug-tracking",
     "project-management",
   ]),
-  name: z.string().trim().min(2).max(64),
+  name: z.string().trim().min(projectNameMinLength).max(projectNameMaxLength),
   summary: z.string().trim().min(2).max(140),
+  status: z.enum(projectStatuses).optional(),
   priority: z.enum(priorities),
+  leadId: z.string().nullable().optional(),
+  memberIds: z.array(z.string()).optional(),
+  blockingProjectIds: z.array(z.string()).optional(),
+  blockedByProjectIds: z.array(z.string()).optional(),
+  startDate: nullableCalendarDateSchema.optional(),
+  targetDate: nullableCalendarDateSchema.optional(),
+  labelIds: z.array(z.string()).optional(),
   settingsTeamId: z.string().nullable().optional(),
   presentation: z
     .object({
@@ -154,7 +178,7 @@ export const projectSchema = z.object({
       ordering: z.enum(orderingFields),
       displayProps: z.array(z.enum(displayProperties)),
       filters: z.object({
-        status: z.array(z.enum(workStatuses)),
+        status: z.array(z.enum(viewFilterStatuses)),
         priority: z.array(z.enum(priorities)),
         assigneeIds: z.array(z.string()),
         creatorIds: z.array(z.string()),
@@ -163,6 +187,7 @@ export const projectSchema = z.object({
         milestoneIds: z.array(z.string()),
         relationTypes: z.array(z.string()),
         projectIds: z.array(z.string()),
+        parentIds: z.array(z.string()).default([]),
         itemTypes: z.array(z.enum(workItemTypes)),
         labelIds: z.array(z.string()),
         teamIds: z.array(z.string()),
@@ -173,7 +198,7 @@ export const projectSchema = z.object({
 })
 
 const viewFiltersSchema = z.object({
-  status: z.array(z.enum(workStatuses)),
+  status: z.array(z.enum(viewFilterStatuses)),
   priority: z.array(z.enum(priorities)),
   assigneeIds: z.array(z.string()),
   creatorIds: z.array(z.string()),
@@ -182,6 +207,7 @@ const viewFiltersSchema = z.object({
   milestoneIds: z.array(z.string()),
   relationTypes: z.array(z.string()),
   projectIds: z.array(z.string()),
+  parentIds: z.array(z.string()).default([]),
   itemTypes: z.array(z.enum(workItemTypes)),
   labelIds: z.array(z.string()),
   teamIds: z.array(z.string()),
@@ -193,8 +219,10 @@ export const viewSchema = z.object({
   scopeType: z.enum(["team", "workspace"]),
   scopeId: z.string().min(1),
   entityKind: z.enum(entityKinds),
+  containerType: z.enum(viewContainerTypes).nullable().optional(),
+  containerId: z.string().trim().min(1).nullable().optional(),
   route: z.string().trim().min(1),
-  name: z.string().trim().min(2).max(64),
+  name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
   description: z.string().trim().max(160).default(""),
   layout: z.enum(viewLayouts).optional(),
   grouping: z.enum(groupFields).optional(),
@@ -210,6 +238,17 @@ export const viewSchema = z.object({
       subgroups: z.array(z.string()),
     })
     .optional(),
+}).superRefine((value, ctx) => {
+  const hasContainerType = value.containerType !== undefined && value.containerType !== null
+  const hasContainerId = value.containerId !== undefined && value.containerId !== null
+
+  if (hasContainerType !== hasContainerId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "containerType and containerId must be provided together",
+      path: hasContainerType ? ["containerId"] : ["containerType"],
+    })
+  }
 })
 
 export const workItemSchema = z.object({
@@ -222,6 +261,9 @@ export const workItemSchema = z.object({
   status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),
+  startDate: nullableCalendarDateSchema.optional(),
+  dueDate: nullableCalendarDateSchema.optional(),
+  targetDate: nullableCalendarDateSchema.optional(),
 })
 
 const createDocumentBaseSchema = {

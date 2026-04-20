@@ -5,6 +5,7 @@ import {
   getWorkSurfaceCopy,
   type EntityKind,
   type TeamExperienceType,
+  type ViewContainerType,
   type ViewDefinition,
 } from "@/lib/domain/types"
 
@@ -135,6 +136,8 @@ export function createViewDefinition(input: {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   createdAt: string
   updatedAt?: string
   route?: string | null
@@ -177,6 +180,8 @@ export function createViewDefinition(input: {
     scopeType: input.scopeType,
     scopeId: input.scopeId,
     entityKind: input.entityKind,
+    ...(input.containerType ? { containerType: input.containerType } : {}),
+    ...(input.containerId ? { containerId: input.containerId } : {}),
     itemLevel,
     showChildItems,
     layout: input.overrides?.layout ?? "list",
@@ -192,6 +197,7 @@ export function createViewDefinition(input: {
           milestoneIds: [...input.overrides.filters.milestoneIds],
           relationTypes: [...input.overrides.filters.relationTypes],
           projectIds: [...input.overrides.filters.projectIds],
+          parentIds: [...(input.overrides.filters.parentIds ?? [])],
           itemTypes: [...input.overrides.filters.itemTypes],
           labelIds: [...input.overrides.filters.labelIds],
           teamIds: [...input.overrides.filters.teamIds],
@@ -353,6 +359,22 @@ export function sortViewsForDisplay(views: ViewDefinition[]) {
 
     return left.name.localeCompare(right.name)
   })
+}
+
+function isCanonicalSystemViewId(id: string, entityKind: ViewDefinition["entityKind"]) {
+  if (entityKind === "projects") {
+    return /^view_.+_all_projects$/.test(id)
+  }
+
+  if (entityKind === "items") {
+    return /^view_.+_(all|active|backlog)_items$/.test(id)
+  }
+
+  return false
+}
+
+export function isSystemView(view: Pick<ViewDefinition, "id" | "entityKind">) {
+  return isCanonicalSystemViewId(view.id, view.entityKind)
 }
 
 export function getViewHref(view: ViewDefinition) {

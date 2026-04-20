@@ -12,23 +12,25 @@ import {
 } from "@/lib/domain/selectors"
 import {
   normalizeTeamIconToken,
+  teamExperienceMeta,
   type TeamFeatureSettings,
   type TeamExperienceType,
   type Role,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { TeamMembersList, teamRoleRank } from "./member-management"
-import { SettingsScaffold, SettingsSection } from "./shared"
+import {
+  SettingsDangerRow,
+  SettingsGroupLabel,
+  SettingsHero,
+  SettingsNav,
+  SettingsScaffold,
+  SettingsSection,
+} from "./shared"
 import {
   defaultTeamSurfaceDisableReasons,
   TeamEditorFields,
@@ -152,14 +154,12 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         title="Team settings"
         subtitle="Requested team not found"
       >
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Team unavailable</CardTitle>
-            <CardDescription>
-              The requested team does not exist in the current workspace.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          title="Team unavailable"
+          description="The requested team does not exist in the current workspace."
+        >
+          <div />
+        </SettingsSection>
       </SettingsScaffold>
     )
   }
@@ -170,14 +170,12 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         title="Team settings"
         subtitle="Team admin access required"
       >
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Redirecting</CardTitle>
-            <CardDescription>
-              Only team admins can open team settings.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          title="Redirecting"
+          description="Only team admins can open team settings."
+        >
+          <div />
+        </SettingsSection>
       </SettingsScaffold>
     )
   }
@@ -240,10 +238,28 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   return (
     <SettingsScaffold
       title="Team settings"
-      subtitle={
-        activeTab === "team"
-          ? "Identity, team type, and surfaces"
-          : "Team members and roles"
+      hero={
+        <SettingsHero
+          leading={
+            <div className="flex size-14 items-center justify-center rounded-2xl border border-line bg-surface-2 text-fg-2">
+              <TeamIconGlyph icon={currentTeam.icon} className="size-6" />
+            </div>
+          }
+          title={currentTeam.name}
+          description={
+            currentTeam.settings.summary || "No summary for this team yet."
+          }
+          meta={[
+            {
+              key: "members",
+              label: `${teamMembers.length} member${teamMembers.length === 1 ? "" : "s"}`,
+            },
+            {
+              key: "experience",
+              label: teamExperienceMeta[experience].label,
+            },
+          ]}
+        />
       }
       footer={
         activeTab === "team" ? (
@@ -272,136 +288,117 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         ) : null
       }
     >
-      <div className="max-w-3xl space-y-10">
-        <Tabs
-          className="gap-6"
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as "team" | "users")}
-        >
-          <div className="border-b">
-            <TabsList
-              variant="line"
-              className="h-9 justify-start gap-1 rounded-none border-0 px-0"
-            >
-              <TabsTrigger
-                value="team"
-                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                Team
-              </TabsTrigger>
-              <TabsTrigger
-                value="users"
-                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                Users
-              </TabsTrigger>
-            </TabsList>
-          </div>
+      <SettingsNav
+        value={activeTab}
+        onValueChange={setActiveTab}
+        options={[
+          { value: "team", label: "Team" },
+          { value: "users", label: "Users", count: teamMembers.length },
+        ]}
+      />
 
-          <TabsContent value="team" className="space-y-10">
-            <TeamEditorFields
-              canChangeExperience={false}
-              disabled={!canManageTeam}
-              experience={experience}
-              features={features}
-              icon={icon}
-              joinCode={currentTeam.settings.joinCode}
-              joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
-              name={name}
-              onRegenerateJoinCode={async () => {
-                await useAppStore
-                  .getState()
-                  .regenerateTeamJoinCode(currentTeam.id)
-              }}
-              savedFeatures={savedFeatures}
-              setFeatures={setFeatures}
-              setIcon={(value) =>
-                setIcon(normalizeTeamIconToken(value, experience))
-              }
-              setName={setName}
-              setSummary={setSummary}
-              summary={summary}
-              surfaceDisableReasons={surfaceDisableReasons}
-            />
-
-            <section className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4">
-              <div className="space-y-1">
-                <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-                  Danger zone
-                </h2>
-              </div>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">Delete team</div>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    Permanently remove this team and all associated data. This
-                    action cannot be undone.
-                    {!canManageTeam
-                      ? " Only team admins can delete this team."
-                      : ""}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={!canManageTeam || deletingTeam}
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  {deletingTeam ? "Deleting..." : "Delete team"}
-                </Button>
-              </div>
-            </section>
-          </TabsContent>
-
-          <TabsContent value="users">
-            <SettingsSection title={`Team members · ${teamMembers.length}`}>
-              <TeamMembersList
-                members={teamMembers}
-                canManage={canManageTeam}
-                pendingMemberId={pendingMemberId}
-                pendingAction={pendingMemberAction}
-                onRoleChange={(userId, role) =>
-                  void handleRoleChange(userId, role)
-                }
-                onRemove={(member) =>
-                  setMemberToRemove({
-                    id: member.id,
-                    name: member.name,
-                  })
-                }
-              />
-            </SettingsSection>
-          </TabsContent>
-        </Tabs>
-        <ConfirmDialog
-          open={deleteDialogOpen}
-          onOpenChange={setDeleteDialogOpen}
-          title="Delete team"
-          description="This will permanently remove the team and all associated data. This can't be undone."
-          confirmLabel="Delete team"
-          variant="destructive"
-          loading={deletingTeam}
-          onConfirm={() => void handleDeleteTeam()}
-        />
-        <ConfirmDialog
-          open={memberToRemove != null}
-          onOpenChange={(open) => {
-            if (!open && pendingMemberAction !== "remove") {
-              setMemberToRemove(null)
+      {activeTab === "team" ? (
+        <>
+          <TeamEditorFields
+            canChangeExperience={false}
+            disabled={!canManageTeam}
+            experience={experience}
+            features={features}
+            icon={icon}
+            joinCode={currentTeam.settings.joinCode}
+            joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
+            name={name}
+            onRegenerateJoinCode={async () => {
+              await useAppStore
+                .getState()
+                .regenerateTeamJoinCode(currentTeam.id)
+            }}
+            savedFeatures={savedFeatures}
+            setFeatures={setFeatures}
+            setIcon={(value) =>
+              setIcon(normalizeTeamIconToken(value, experience))
             }
-          }}
-          title="Remove team member"
-          description={
-            memberToRemove
-              ? `${memberToRemove.name} will lose access to this team and get an inbox notification plus a transactional email.`
-              : "This member will lose access to this team."
+            setName={setName}
+            setSummary={setSummary}
+            summary={summary}
+            surfaceDisableReasons={surfaceDisableReasons}
+          />
+
+          <SettingsGroupLabel label="Danger zone" />
+          <SettingsDangerRow
+            title="Delete team"
+            description={
+              <>
+                Permanently remove this team and all associated data. This
+                action cannot be undone.
+                {!canManageTeam
+                  ? " Only team admins can delete this team."
+                  : ""}
+              </>
+            }
+            action={
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!canManageTeam || deletingTeam}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                {deletingTeam ? "Deleting..." : "Delete team"}
+              </Button>
+            }
+          />
+        </>
+      ) : (
+        <SettingsSection
+          title={`Team members · ${teamMembers.length}`}
+          description="Admins manage membership and roles for this team."
+        >
+          <TeamMembersList
+            members={teamMembers}
+            canManage={canManageTeam}
+            pendingMemberId={pendingMemberId}
+            pendingAction={pendingMemberAction}
+            onRoleChange={(userId, role) =>
+              void handleRoleChange(userId, role)
+            }
+            onRemove={(member) =>
+              setMemberToRemove({
+                id: member.id,
+                name: member.name,
+              })
+            }
+          />
+        </SettingsSection>
+      )}
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete team"
+        description="This will permanently remove the team and all associated data. This can't be undone."
+        confirmLabel="Delete team"
+        variant="destructive"
+        loading={deletingTeam}
+        onConfirm={() => void handleDeleteTeam()}
+      />
+      <ConfirmDialog
+        open={memberToRemove != null}
+        onOpenChange={(open) => {
+          if (!open && pendingMemberAction !== "remove") {
+            setMemberToRemove(null)
           }
-          confirmLabel="Remove member"
-          variant="destructive"
-          loading={pendingMemberAction === "remove"}
-          onConfirm={() => void handleRemoveTeamMember()}
-        />
-      </div>
+        }}
+        title="Remove team member"
+        description={
+          memberToRemove
+            ? `${memberToRemove.name} will lose access to this team and get an inbox notification plus a transactional email.`
+            : "This member will lose access to this team."
+        }
+        confirmLabel="Remove member"
+        variant="destructive"
+        loading={pendingMemberAction === "remove"}
+        onConfirm={() => void handleRemoveTeamMember()}
+      />
     </SettingsScaffold>
   )
 }

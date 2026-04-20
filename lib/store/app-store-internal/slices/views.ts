@@ -5,6 +5,9 @@ import { toast } from "sonner"
 import {
   syncClearViewFilters,
   syncCreateView,
+  syncDeleteView,
+  syncReorderViewDisplayProperties,
+  syncRenameView,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,
@@ -19,8 +22,13 @@ import {
 import {
   createViewDefinition,
   isRouteAllowedForViewContext,
+  isSystemView,
 } from "@/lib/domain/default-views"
-import { viewSchema } from "@/lib/domain/types"
+import {
+  viewNameMaxLength,
+  viewNameMinLength,
+  viewSchema,
+} from "@/lib/domain/types"
 
 import { createId, getNow } from "../helpers"
 import { createStoreRuntime } from "../runtime"
@@ -29,8 +37,11 @@ import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 type ViewSlice = Pick<
   AppStore,
   | "createView"
+  | "renameView"
+  | "deleteView"
   | "updateViewConfig"
   | "toggleViewDisplayProperty"
+  | "reorderViewDisplayProperties"
   | "toggleViewHiddenValue"
   | "toggleViewFilterValue"
   | "clearViewFilters"
@@ -115,6 +126,8 @@ export function createViewSlice(
         scopeType: parsed.data.scopeType,
         scopeId: parsed.data.scopeId,
         entityKind: parsed.data.entityKind,
+        containerType: parsed.data.containerType,
+        containerId: parsed.data.containerId,
         route: parsed.data.route,
         teamSlug: team?.slug,
         experience: team?.settings.experience,
@@ -196,6 +209,93 @@ export function createViewSlice(
       toast.success("View created")
       return view.id
     },
+    async renameView(viewId, name) {
+      const trimmedName = name.trim()
+
+      if (!trimmedName) {
+        toast.error("View name is required")
+        return false
+      }
+
+      if (trimmedName.length < viewNameMinLength) {
+        toast.error(`View name must be at least ${viewNameMinLength} characters`)
+        return false
+      }
+
+      if (trimmedName.length > viewNameMaxLength) {
+        toast.error(`View name must be at most ${viewNameMaxLength} characters`)
+        return false
+      }
+
+      const state = get()
+      const view = state.views.find((entry) => entry.id === viewId)
+
+      if (!view) {
+        toast.error("View not found")
+        return false
+      }
+
+      if (isSystemView(view)) {
+        toast.error("System views cannot be renamed")
+        return false
+      }
+
+      try {
+        await syncRenameView(viewId, trimmedName)
+        set((current) => ({
+          views: current.views.map((entry) =>
+            entry.id === viewId
+              ? {
+                  ...entry,
+                  name: trimmedName,
+                  updatedAt: getNow(),
+                }
+              : entry
+          ),
+        }))
+        toast.success("View renamed")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(error instanceof Error ? error.message : "Failed to rename view")
+        return false
+      }
+    },
+    async deleteView(viewId) {
+      const state = get()
+      const view = state.views.find((entry) => entry.id === viewId)
+
+      if (!view) {
+        toast.error("View not found")
+        return false
+      }
+
+      if (isSystemView(view)) {
+        toast.error("System views cannot be deleted")
+        return false
+      }
+
+      try {
+        await syncDeleteView(viewId)
+        set((current) => ({
+          views: current.views.filter((entry) => entry.id !== viewId),
+          ui: {
+            ...current.ui,
+            selectedViewByRoute: Object.fromEntries(
+              Object.entries(current.ui.selectedViewByRoute).filter(
+                ([, selectedViewId]) => selectedViewId !== viewId
+              )
+            ),
+          },
+        }))
+        toast.success("View deleted")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(error instanceof Error ? error.message : "Failed to delete view")
+        return false
+      }
+    },
     updateViewConfig(viewId, patch) {
       const { showCompleted, ...viewPatch } = patch
 
@@ -247,6 +347,26 @@ export function createViewSlice(
         "Failed to update view"
       )
     },
+    reorderViewDisplayProperties(viewId, displayProps) {
+      const nextDisplayProps = Array.from(new Set(displayProps))
+
+      set((state) => ({
+        views: state.views.map((view) =>
+          view.id === viewId
+            ? {
+                ...view,
+                displayProps: nextDisplayProps,
+                updatedAt: getNow(),
+              }
+            : view
+        ),
+      }))
+
+      runtime.syncInBackground(
+        syncReorderViewDisplayProperties(viewId, nextDisplayProps),
+        "Failed to update view"
+      )
+    },
     toggleViewHiddenValue(viewId, key, value) {
       set((state) => ({
         views: state.views.map((view) => {
@@ -282,7 +402,7 @@ export function createViewSlice(
             return view
           }
 
-          const current = view.filters[key]
+          const current = (view.filters[key] ?? []) as string[]
           const next = current.includes(value as never)
             ? current.filter((entry) => entry !== value)
             : [...current, value]
@@ -323,6 +443,7 @@ export function createViewSlice(
               milestoneIds: [],
               relationTypes: [],
               projectIds: [],
+              parentIds: [],
               itemTypes: [],
               labelIds: [],
               teamIds: [],

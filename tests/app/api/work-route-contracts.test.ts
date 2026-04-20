@@ -15,6 +15,8 @@ const createProjectServerMock = vi.fn()
 const createViewServerMock = vi.fn()
 const updateProjectServerMock = vi.fn()
 const updateViewConfigServerMock = vi.fn()
+const renameViewServerMock = vi.fn()
+const reorderViewDisplayPropertiesServerMock = vi.fn()
 const toggleViewDisplayPropertyServerMock = vi.fn()
 const toggleViewHiddenValueServerMock = vi.fn()
 const toggleViewFilterValueServerMock = vi.fn()
@@ -39,6 +41,8 @@ vi.mock("@/lib/server/convex", () => ({
   createViewServer: createViewServerMock,
   updateProjectServer: updateProjectServerMock,
   updateViewConfigServer: updateViewConfigServerMock,
+  renameViewServer: renameViewServerMock,
+  reorderViewDisplayPropertiesServer: reorderViewDisplayPropertiesServerMock,
   toggleViewDisplayPropertyServer: toggleViewDisplayPropertyServerMock,
   toggleViewHiddenValueServer: toggleViewHiddenValueServerMock,
   toggleViewFilterValueServer: toggleViewFilterValueServerMock,
@@ -71,6 +75,8 @@ describe("work route contracts", () => {
     createViewServerMock.mockReset()
     updateProjectServerMock.mockReset()
     updateViewConfigServerMock.mockReset()
+    renameViewServerMock.mockReset()
+    reorderViewDisplayPropertiesServerMock.mockReset()
     toggleViewDisplayPropertyServerMock.mockReset()
     toggleViewHiddenValueServerMock.mockReset()
     toggleViewFilterValueServerMock.mockReset()
@@ -134,6 +140,104 @@ describe("work route contracts", () => {
       error: "Parent item not found",
       message: "Parent item not found",
       code: "WORK_ITEM_PARENT_NOT_FOUND",
+    })
+  })
+
+  it("accepts and forwards dueDate in create-work-item requests", async () => {
+    const { POST } = await import("@/app/api/items/route")
+
+    createWorkItemServerMock.mockResolvedValue({
+      itemId: "item_1",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamId: "team_1",
+          type: "task",
+          title: "Launch task",
+          primaryProjectId: null,
+          assigneeId: null,
+          priority: "medium",
+          dueDate: "2026-04-27",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(createWorkItemServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      teamId: "team_1",
+      type: "task",
+      title: "Launch task",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      dueDate: "2026-04-27",
+    })
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      itemId: "item_1",
+    })
+  })
+
+  it("rejects invalid work-item schedule values before calling the server", async () => {
+    const createRoute = await import("@/app/api/items/route")
+    const itemRoute = await import("@/app/api/items/[itemId]/route")
+
+    const createResponse = await createRoute.POST(
+      new Request("http://localhost/api/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamId: "team_1",
+          type: "task",
+          title: "Launch task",
+          primaryProjectId: null,
+          assigneeId: null,
+          priority: "medium",
+          dueDate: "not-a-date",
+        }),
+      }) as never
+    )
+
+    expect(createWorkItemServerMock).not.toHaveBeenCalled()
+    expect(createResponse.status).toBe(400)
+    await expect(createResponse.json()).resolves.toEqual({
+      error: "Invalid work item payload",
+      message: "Invalid work item payload",
+      code: "ROUTE_INVALID_BODY",
+    })
+
+    const patchResponse = await itemRoute.PATCH(
+      new Request("http://localhost/api/items/item_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          startDate: "not-a-date",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(updateWorkItemServerMock).not.toHaveBeenCalled()
+    expect(patchResponse.status).toBe(400)
+    await expect(patchResponse.json()).resolves.toEqual({
+      error: "Invalid work item update payload",
+      message: "Invalid work item update payload",
+      code: "ROUTE_INVALID_BODY",
     })
   })
 
@@ -505,7 +609,7 @@ describe("work route contracts", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          status: "active",
+          status: "in-progress",
         }),
       }) as never,
       {
@@ -520,6 +624,65 @@ describe("work route contracts", () => {
       error: "Project not found",
       message: "Project not found",
       code: "PROJECT_NOT_FOUND",
+    })
+  })
+
+  it("rejects invalid project schedule values before calling the server", async () => {
+    const { POST } = await import("@/app/api/projects/route")
+
+    const response = await POST(
+      new Request("http://localhost/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          templateType: "software-delivery",
+          name: "Launch",
+          summary: "Launch summary",
+          priority: "medium",
+          startDate: "not-a-date",
+        }),
+      }) as never
+    )
+
+    expect(createProjectServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid project payload",
+      message: "Invalid project payload",
+      code: "ROUTE_INVALID_BODY",
+    })
+  })
+
+  it("rejects invalid project rename payloads before calling the server", async () => {
+    const { PATCH } = await import("@/app/api/projects/[projectId]/route")
+
+    const response = await PATCH(
+      new Request("http://localhost/api/projects/project_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "x".repeat(65),
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          projectId: "project_1",
+        }),
+      }
+    )
+
+    expect(updateProjectServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid project update payload",
+      message: "Invalid project update payload",
+      code: "ROUTE_INVALID_BODY",
     })
   })
 
@@ -679,6 +842,72 @@ describe("work route contracts", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       ok: true,
+    })
+  })
+
+  it("accepts display property reorder updates", async () => {
+    const { PATCH } = await import("@/app/api/views/[viewId]/route")
+
+    reorderViewDisplayPropertiesServerMock.mockResolvedValue({
+      ok: true,
+    })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/views/view_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "reorderDisplayProperties",
+          displayProps: ["status", "assignee", "progress"],
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          viewId: "view_1",
+        }),
+      }
+    )
+
+    expect(reorderViewDisplayPropertiesServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      viewId: "view_1",
+      displayProps: ["status", "assignee", "progress"],
+    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+  })
+
+  it("rejects invalid view rename payloads before calling the server", async () => {
+    const { PATCH } = await import("@/app/api/views/[viewId]/route")
+
+    const response = await PATCH(
+      new Request("http://localhost/api/views/view_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "rename",
+          name: "x",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          viewId: "view_1",
+        }),
+      }
+    )
+
+    expect(renameViewServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid view request",
+      message: "Invalid view request",
+      code: "ROUTE_INVALID_BODY",
     })
   })
 })

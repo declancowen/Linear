@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest"
 
 import { createViewDefinition } from "@/lib/domain/default-views"
 import { createEmptyState } from "@/lib/domain/empty-state"
-import { getProjectDetailModel, getVisibleProjectsForView } from "@/lib/domain/selectors"
+import {
+  getProjectDetailModel,
+  getProjectProgress,
+  getVisibleProjectsForView,
+} from "@/lib/domain/selectors"
 import {
   createDefaultProjectPresentationConfig,
   getDefaultViewItemLevelForProjectTemplate,
@@ -24,7 +28,7 @@ function createProject(id: string, overrides?: Partial<Project>): Project {
     memberIds: [],
     health: "on-track",
     priority: "medium",
-    status: "active",
+    status: "in-progress",
     startDate: null,
     targetDate: null,
     createdAt: "2026-04-18T09:00:00.000Z",
@@ -114,11 +118,34 @@ describe("project views", () => {
     ).toEqual(["launch"])
   })
 
+  it("filters projects by status when the view selects specific statuses", () => {
+    const state = createEmptyState()
+    const projects = [
+      createProject("backlog", { status: "backlog" }),
+      createProject("active", { status: "in-progress" }),
+      createProject("done", { status: "completed" }),
+    ]
+
+    expect(
+      getVisibleProjectsForView(
+        state,
+        projects,
+        createProjectView({
+          filters: {
+            ...createProjectView().filters,
+            status: ["in-progress", "completed"] as ViewDefinition["filters"]["status"],
+          },
+        })
+      ).map((project) => project.id)
+    ).toEqual(["active", "done"])
+  })
+
   it("hides completed projects when the view excludes completed work", () => {
     const state = createEmptyState()
     const projects = [
-      createProject("active", { status: "active" }),
+      createProject("active", { status: "in-progress" }),
       createProject("completed", { status: "completed" }),
+      createProject("cancelled", { status: "cancelled" }),
     ]
 
     expect(
@@ -133,6 +160,93 @@ describe("project views", () => {
         })
       ).map((project) => project.id)
     ).toEqual(["active"])
+  })
+
+  it("reports completed and active project progress separately", () => {
+    const state = createEmptyState()
+    state.workItems = [
+      {
+        id: "item_done",
+        key: "PLA-1",
+        teamId: "team_1",
+        type: "task",
+        title: "Done item",
+        descriptionDocId: "",
+        status: "done",
+        priority: "medium",
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: "project_1",
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        labelIds: [],
+        milestoneId: null,
+        startDate: null,
+        dueDate: null,
+        targetDate: null,
+        subscriberIds: [],
+        createdAt: "2026-04-18T09:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+      {
+        id: "item_active",
+        key: "PLA-2",
+        teamId: "team_1",
+        type: "task",
+        title: "Active item",
+        descriptionDocId: "",
+        status: "in-progress",
+        priority: "medium",
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: "project_1",
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        labelIds: [],
+        milestoneId: null,
+        startDate: null,
+        dueDate: null,
+        targetDate: null,
+        subscriberIds: [],
+        createdAt: "2026-04-18T09:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+      {
+        id: "item_backlog",
+        key: "PLA-3",
+        teamId: "team_1",
+        type: "task",
+        title: "Backlog item",
+        descriptionDocId: "",
+        status: "backlog",
+        priority: "medium",
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: "project_1",
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        labelIds: [],
+        milestoneId: null,
+        startDate: null,
+        dueDate: null,
+        targetDate: null,
+        subscriberIds: [],
+        createdAt: "2026-04-18T09:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+
+    expect(getProjectProgress(state, "project_1")).toMatchObject({
+      scope: 3,
+      completed: 1,
+      inProgress: 1,
+      completedPercent: 33,
+      activePercent: 67,
+      inProgressOnlyPercent: 34,
+    })
   })
 
   it("orders visible projects using the active view ordering", () => {

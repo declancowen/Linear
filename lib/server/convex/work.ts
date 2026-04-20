@@ -5,7 +5,8 @@ import type {
   GroupField,
   OrderingField,
   Priority,
-  ProjectHealth,
+  ViewContainerType,
+  ViewFilters,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -85,6 +86,16 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     match: "Work item title must be between 2 and 96 characters",
     status: 400,
     code: "WORK_ITEM_TITLE_INVALID",
+  },
+  {
+    match: /^(Start|Due|Target) date must be a valid calendar date$/,
+    status: 400,
+    code: "WORK_ITEM_SCHEDULE_INVALID",
+  },
+  {
+    match: "Target date must be on or after the start date",
+    status: 400,
+    code: "WORK_ITEM_SCHEDULE_INVALID",
   },
   {
     match: "Work item changed while you were editing",
@@ -305,12 +316,43 @@ export async function updateViewConfigServer(input: {
   }
 }
 
+export async function renameViewServer(input: {
+  currentUserId: string
+  viewId: string
+  name: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.renameView,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function deleteViewServer(input: {
+  currentUserId: string
+  viewId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteView,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
 export async function createViewServer(input: {
   currentUserId: string
   id?: string
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -320,21 +362,7 @@ export async function createViewServer(input: {
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
-  filters?: {
-    status: WorkStatus[]
-    priority: Priority[]
-    assigneeIds: string[]
-    creatorIds: string[]
-    leadIds: string[]
-    health: ProjectHealth[]
-    milestoneIds: string[]
-    relationTypes: string[]
-    projectIds: string[]
-    itemTypes: WorkItemType[]
-    labelIds: string[]
-    teamIds: string[]
-    showCompleted: boolean
-  }
+  filters?: ViewFilters
   displayProps?: DisplayProperty[]
   hiddenState?: {
     groups: string[]
@@ -354,22 +382,26 @@ export async function createViewServer(input: {
 export async function toggleViewDisplayPropertyServer(input: {
   currentUserId: string
   viewId: string
-  property:
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
+  property: DisplayProperty
 }) {
   try {
     return await getConvexServerClient().mutation(
       api.app.toggleViewDisplayProperty,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function reorderViewDisplayPropertiesServer(input: {
+  currentUserId: string
+  viewId: string
+  displayProps: DisplayProperty[]
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.reorderViewDisplayProperties,
       withServerToken(input)
     )
   } catch (error) {
@@ -406,6 +438,7 @@ export async function toggleViewFilterValueServer(input: {
     | "milestoneIds"
     | "relationTypes"
     | "projectIds"
+    | "parentIds"
     | "itemTypes"
     | "labelIds"
     | "teamIds"
@@ -506,6 +539,9 @@ export async function createWorkItemServer(input: {
   status?: WorkStatus
   priority: Priority
   labelIds?: string[]
+  startDate?: string | null
+  dueDate?: string | null
+  targetDate?: string | null
 }) {
   try {
     const origin = await resolveServerOrigin()

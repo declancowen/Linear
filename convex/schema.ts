@@ -90,6 +90,7 @@ export default defineSchema({
   views: defineTable(viewDefinitionFields)
     .index("by_domain_id", ["id"])
     .index("by_scope", ["scopeType", "scopeId"])
+    .index("by_container", ["containerType", "containerId"])
     .index("by_scope_entity_kind", ["scopeType", "scopeId", "entityKind"]),
   comments: defineTable(commentFields)
     .index("by_domain_id", ["id"])

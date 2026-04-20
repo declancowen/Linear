@@ -52,6 +52,10 @@ export function stopMenuEvent(event: SyntheticEvent) {
   event.stopPropagation()
 }
 
+export function stopDragPropagation(event: SyntheticEvent) {
+  event.stopPropagation()
+}
+
 function IssueActionMenuContent({
   data,
   item,
@@ -203,6 +207,7 @@ export function IssueActionMenu({
         <button
           type="button"
           className={triggerClassName}
+          onPointerDown={stopDragPropagation}
           onClick={stopMenuEvent}
         >
           <DotsThree className="size-4 text-muted-foreground" />

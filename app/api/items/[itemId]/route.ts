@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
+import { nullableCalendarDateSchema } from "@/lib/domain/types"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { deleteWorkItemServer, updateWorkItemServer } from "@/lib/server/convex"
 import {
@@ -36,9 +37,9 @@ const workItemPatchSchema = z
     parentId: z.string().nullable().optional(),
     primaryProjectId: z.string().nullable().optional(),
     labelIds: z.array(z.string().min(1)).optional(),
-    startDate: z.string().nullable().optional(),
-    dueDate: z.string().nullable().optional(),
-    targetDate: z.string().nullable().optional(),
+    startDate: nullableCalendarDateSchema.optional(),
+    dueDate: nullableCalendarDateSchema.optional(),
+    targetDate: nullableCalendarDateSchema.optional(),
   })
   .refine(
     (value) => Object.values(value).some((entry) => entry !== undefined),

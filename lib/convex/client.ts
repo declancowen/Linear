@@ -36,6 +36,7 @@ export {
   syncEnsureTeamChat,
   syncSendChatMessage,
   syncStartConversationCall,
+  syncToggleChatMessageReaction,
   syncToggleChannelPostReaction,
 } from "./client/collaboration"
 export {
@@ -55,7 +56,9 @@ export {
   syncDeleteAttachment,
   syncDeleteDocument,
   syncDeleteNotification,
+  syncDeleteProject,
   syncDeleteTeam,
+  syncDeleteView,
   syncDeleteWorkItem,
   syncGenerateAttachmentUploadUrl,
   syncHeartbeatWorkItemPresence,
@@ -64,6 +67,9 @@ export {
   syncLeaveTeam,
   syncMarkNotificationRead,
   syncRegenerateTeamJoinCode,
+  syncRenameProject,
+  syncRenameView,
+  syncReorderViewDisplayProperties,
   syncRemoveTeamMember,
   syncRenameDocument,
   syncSendDocumentMentionNotifications,

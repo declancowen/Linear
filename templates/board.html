@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Work · Board</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="_shell.css" />
+  <style>
+    .board {
+      display: flex; gap: 12px;
+      padding: 14px 18px 32px;
+      overflow-x: auto; overflow-y: hidden;
+      height: 100%;
+      align-items: stretch;
+    }
+    .col {
+      flex: 0 0 296px;
+      display: flex; flex-direction: column;
+      background: var(--bg-sunken);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-lg);
+      min-height: 0;
+    }
+    .col__head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px 8px;
+    }
+    .col__title { font-size: 12.5px; font-weight: 600; letter-spacing: 0.01em; display: flex; align-items: center; gap: 8px; }
+    .col__count { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .col__actions { margin-left: auto; display: flex; gap: 2px; opacity: 0.55; transition: opacity 0.1s var(--ease); }
+    .col:hover .col__actions { opacity: 1; }
+    .col__strip {
+      height: 2px; margin: 0 12px; border-radius: 999px;
+      background: var(--text-3); opacity: 0.6;
+    }
+    .col__list {
+      padding: 8px; display: flex; flex-direction: column; gap: 6px;
+      overflow-y: auto; flex: 1 1 auto; min-height: 0;
+    }
+    .col__list::-webkit-scrollbar { width: 8px; }
+    .col__list::-webkit-scrollbar-thumb { background: var(--line); border: 2px solid var(--bg-sunken); border-radius: 999px; }
+    .col__foot {
+      padding: 6px 8px 10px;
+      color: var(--text-3); font-size: 12px;
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer;
+    }
+    .col__foot:hover { color: var(--text); }
+
+    .card--task {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      cursor: grab;
+      transition: box-shadow 0.1s var(--ease), border-color 0.1s var(--ease), transform 0.08s var(--ease);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .card--task:hover { box-shadow: var(--shadow-sm); border-color: var(--text-4); }
+    .card__head { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 11.5px; }
+    .card__id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.01em; }
+    .card__title { font-size: 13.5px; color: var(--text); line-height: 1.4; font-weight: 500; }
+    .card__meta {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      color: var(--text-3);
+    }
+    .card__foot {
+      display: flex; align-items: center; gap: 8px;
+      padding-top: 8px; border-top: 1px dashed var(--line);
+      font-size: 11.5px;
+    }
+    .card__subtasks { color: var(--text-3); display: flex; align-items: center; gap: 4px; }
+    .card__due { margin-left: auto; color: var(--text-3); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
+    .card__due.soon { color: var(--p-high); }
+    .card__due.over { color: var(--p-urgent); }
+
+    .sub-tree {
+      padding: 6px 8px; margin-top: 4px;
+      background: var(--surface-2); border-radius: var(--radius-sm);
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .sub-tree .sub {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--text-2);
+      padding: 2px 2px;
+    }
+    .sub-tree .sub.done { color: var(--text-3); text-decoration: line-through; }
+
+    .drop-empty {
+      border: 1.5px dashed var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      color: var(--text-4);
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body data-active="board">
+  <div class="app">
+    <aside id="nav"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <i class="iconbtn" data-i="chevLeft" data-sz="15"></i>
+        <span class="crumb">Core <span class="sep">›</span> <b>Work</b></span>
+        <div class="right">
+          <button class="btn btn--sm"><i data-i="doubleCheck" data-sz="14"></i> Subscribe</button>
+          <i class="iconbtn" data-i="star" data-sz="15"></i>
+          <i class="iconbtn" data-i="more" data-sz="15"></i>
+        </div>
+      </div>
+
+      <div class="viewbar">
+        <a class="tab" href="table.html"><i data-i="rows" data-sz="13"></i> Table</a>
+        <div class="tab active"><i data-i="board" data-sz="13"></i> Board</div>
+        <div class="tab"><i data-i="timeline" data-sz="13"></i> Timeline</div>
+        <div class="tab"><i data-i="calendar" data-sz="13"></i> Calendar</div>
+
+        <div style="width:1px; height:18px; background:var(--line); margin: 0 6px"></div>
+
+        <button class="chip chip--ghost"><i data-i="filter" data-sz="13"></i> Filter</button>
+        <button class="chip chip--accent">Group · <span style="font-weight:600">Status</span> <i data-i="chevDown" data-sz="12"></i></button>
+        <button class="chip chip--ghost muted">Swim · Priority</button>
+        <button class="chip"><i data-i="sort" data-sz="13"></i> Updated</button>
+
+        <div style="margin-left:auto; display:flex; gap:4px; align-items:center">
+          <button class="btn btn--sm"><i data-i="plus" data-sz="13"></i> New <kbd style="margin-left:4px">N</kbd></button>
+        </div>
+      </div>
+
+      <div class="board">
+
+        <!-- Backlog -->
+        <div class="col">
+          <div class="col__head">
+            <div class="col__title">
+              <span class="dot" style="background:var(--st-backlog)"></span>
+              Backlog
+              <span class="col__count">24</span>
+            </div>
+            <div class="col__actions">
+              <i class="iconbtn" data-i="plus" data-sz="13"></i>
+              <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+            </div>
+          </div>
+          <div class="col__strip" style="background:var(--st-backlog)"></div>
+          <div class="col__list">
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-268</span>
+                <span style="margin-left:auto; color:var(--p-med)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Unified mentions across docs, comments &amp; chat</div>
+              <div class="card__meta">
+                <span class="label"><span class="dot" style="background:var(--lbl-4)"></span>editor</span>
+              </div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="subtask" data-sz="12"></i> 0/6</span>
+                <span class="card__due">—</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">SR</span>
+              </div>
+            </div>
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-270</span>
+                <span style="margin-left:auto; color:var(--text-3)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Import from Notion with attachment mapping</div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="subtask" data-sz="12"></i> 0/3</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">DC</span>
+              </div>
+            </div>
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-273</span>
+              </div>
+              <div class="card__title">Bulk archive confirmations for accidental multi-select</div>
+            </div>
+          </div>
+          <div class="col__foot"><i data-i="plus" data-sz="12"></i> Add an item</div>
+        </div>
+
+        <!-- Todo -->
+        <div class="col">
+          <div class="col__head">
+            <div class="col__title">
+              <span class="dot" style="background:var(--st-todo)"></span>
+              Todo
+              <span class="col__count">14</span>
+            </div>
+            <div class="col__actions">
+              <i class="iconbtn" data-i="plus" data-sz="13"></i>
+              <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+            </div>
+          </div>
+          <div class="col__strip" style="background:var(--st-todo)"></div>
+          <div class="col__list">
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-255</span>
+                <span style="margin-left:auto; color:var(--p-high)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Native notifications for mentions across channels</div>
+              <div class="card__meta">
+                <span class="label"><span class="dot" style="background:var(--lbl-4)"></span>native</span>
+              </div>
+              <div class="sub-tree">
+                <div class="sub done"><span class="ring ring--done" style="width:10px; height:10px"></span> Parse notification permission flow</div>
+                <div class="sub"><span class="ring ring--filled" style="width:10px; height:10px"></span> Electron bridge for native toasts</div>
+                <div class="sub"><span class="ring" style="width:10px; height:10px"></span> Windows + macOS parity tests</div>
+                <div class="sub muted" style="font-size:11px; padding-left:18px">+ 1 more</div>
+              </div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="subtask" data-sz="12"></i> 1/4</span>
+                <span class="card__due soon">Apr 29</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">AF</span>
+              </div>
+            </div>
+
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-259</span>
+                <span style="margin-left:auto; color:var(--p-med)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Consolidate filter chips &amp; grouping popovers</div>
+              <div class="card__meta">
+                <span class="label"><span class="dot" style="background:var(--lbl-2)"></span>ui</span>
+                <span class="label"><span class="dot" style="background:var(--lbl-5)"></span>infra</span>
+              </div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="subtask" data-sz="12"></i> 0/2</span>
+                <span class="card__due">May 2</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">DC</span>
+              </div>
+            </div>
+
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-256</span>
+              </div>
+              <div class="card__title">Audit mentions &amp; emoji reactions for accessibility</div>
+              <div class="card__foot">
+                <span class="avatar avatar--sm" style="margin-left:auto">SR</span>
+              </div>
+            </div>
+          </div>
+          <div class="col__foot"><i data-i="plus" data-sz="12"></i> Add an item</div>
+        </div>
+
+        <!-- In Progress -->
+        <div class="col">
+          <div class="col__head">
+            <div class="col__title">
+              <span class="dot" style="background:var(--st-doing)"></span>
+              In progress
+              <span class="col__count">8</span>
+            </div>
+            <div class="col__actions">
+              <i class="iconbtn" data-i="plus" data-sz="13"></i>
+              <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+            </div>
+          </div>
+          <div class="col__strip" style="background:var(--st-doing)"></div>
+          <div class="col__list">
+            <div class="card--task" style="box-shadow: var(--shadow-md); border-color: var(--text-4)">
+              <div class="card__head">
+                <span class="card__id">CORE-248</span>
+                <span style="margin-left:auto; color:var(--p-high)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Ship new billing portal with invoices &amp; receipts</div>
+              <div class="card__meta">
+                <span class="label"><span class="dot" style="background:var(--lbl-4)"></span>billing</span>
+              </div>
+              <div class="sub-tree">
+                <div class="sub done"><span class="ring ring--done" style="width:10px; height:10px"></span> Stripe customer portal proxy</div>
+                <div class="sub"><span class="ring ring--filled" style="width:10px; height:10px"></span> Invoice history table</div>
+                <div class="sub"><span class="ring" style="width:10px; height:10px"></span> Dunning email updates</div>
+              </div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="subtask" data-sz="12"></i> 1/3</span>
+                <span class="card__due soon">Apr 24</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">KM</span>
+              </div>
+            </div>
+
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-251</span>
+                <span style="margin-left:auto; color:var(--p-urgent)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Replace polling with server-sent events on activity feed</div>
+              <div class="card__meta">
+                <span class="label"><span class="dot" style="background:var(--lbl-5)"></span>infra</span>
+              </div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="subtask" data-sz="12"></i> 2/5</span>
+                <span class="card__due soon">Apr 20</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">DC</span>
+              </div>
+            </div>
+
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-244</span>
+              </div>
+              <div class="card__title">Empty states for zero-result views</div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="link" data-sz="12"></i> Polish · 3 of 12</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">NT</span>
+              </div>
+            </div>
+          </div>
+          <div class="col__foot"><i data-i="plus" data-sz="12"></i> Add an item</div>
+        </div>
+
+        <!-- Review -->
+        <div class="col">
+          <div class="col__head">
+            <div class="col__title">
+              <span class="dot" style="background:var(--st-review)"></span>
+              In review
+              <span class="col__count">3</span>
+            </div>
+            <div class="col__actions">
+              <i class="iconbtn" data-i="plus" data-sz="13"></i>
+            </div>
+          </div>
+          <div class="col__strip" style="background:var(--st-review)"></div>
+          <div class="col__list">
+            <div class="card--task">
+              <div class="card__head">
+                <span class="card__id">CORE-239</span>
+                <span style="margin-left:auto; color:var(--p-high)"><i data-i="flame" data-sz="13"></i></span>
+              </div>
+              <div class="card__title">Migrate activity timeline to cursor pagination</div>
+              <div class="card__foot">
+                <span class="card__subtasks"><i data-i="link" data-sz="12"></i> PR #1421 · 2 reviewers</span>
+                <span class="avatar-stack" style="margin-left:auto">
+                  <span class="avatar avatar--sm">KM</span>
+                  <span class="avatar avatar--sm">AF</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="drop-empty">Drop here to mark as in review</div>
+          </div>
+          <div class="col__foot"><i data-i="plus" data-sz="12"></i> Add an item</div>
+        </div>
+
+        <!-- Done -->
+        <div class="col">
+          <div class="col__head">
+            <div class="col__title">
+              <span class="dot" style="background:var(--st-done)"></span>
+              Done
+              <span class="col__count">22</span>
+            </div>
+            <div class="col__actions">
+              <i class="iconbtn" data-i="moreV" data-sz="13"></i>
+            </div>
+          </div>
+          <div class="col__strip" style="background:var(--st-done)"></div>
+          <div class="col__list">
+            <div class="card--task" style="opacity: 0.75">
+              <div class="card__head">
+                <span class="card__id">CORE-232</span>
+              </div>
+              <div class="card__title">Keyboard shortcut for command palette</div>
+              <div class="card__foot">
+                <span class="muted">Merged 6h ago</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">KM</span>
+              </div>
+            </div>
+            <div class="card--task" style="opacity: 0.75">
+              <div class="card__head">
+                <span class="card__id">CORE-229</span>
+              </div>
+              <div class="card__title">Fix flicker on sidebar resize</div>
+              <div class="card__foot">
+                <span class="muted">Merged yesterday</span>
+                <span class="avatar avatar--sm" style="margin-left:auto">DC</span>
+              </div>
+            </div>
+          </div>
+          <div class="col__foot muted2">Showing last 5 · View all</div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="_icons.js"></script>
+  <script src="_nav.js"></script>
+</body>
+</html>

@@ -92,14 +92,20 @@ describe("convex team-project server wrappers", () => {
   })
 
   it("maps project domain failures to typed application errors", async () => {
-    const { createProjectServer, updateProjectServer } = await import(
+    const { createProjectServer, renameProjectServer, updateProjectServer } =
+      await import(
       "@/lib/server/convex/teams-projects"
     )
 
     mutationMock
       .mockRejectedValueOnce(new Error("Settings team not found"))
       .mockRejectedValueOnce(new Error("One or more labels are invalid"))
+      .mockRejectedValueOnce(
+        new Error("All project members must belong to the current workspace")
+      )
+      .mockRejectedValueOnce(new Error("Start date must be a valid calendar date"))
       .mockRejectedValueOnce(new Error("Project not found"))
+      .mockRejectedValueOnce(new Error("Project name must be at most 64 characters"))
 
     await expect(
       createProjectServer({
@@ -156,17 +162,64 @@ describe("convex team-project server wrappers", () => {
     })
 
     await expect(
+      createProjectServer({
+        currentUserId: "user_1",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        templateType: "software-delivery",
+        name: "Launch",
+        summary: "Launch summary",
+        priority: "medium",
+        leadId: "user_1",
+        memberIds: ["user_missing"],
+      })
+    ).rejects.toMatchObject({
+      message: "All project members must belong to the current workspace",
+      status: 400,
+      code: "PROJECT_MEMBERS_INVALID",
+    })
+
+    await expect(
+      createProjectServer({
+        currentUserId: "user_1",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        templateType: "software-delivery",
+        name: "Launch",
+        summary: "Launch summary",
+        priority: "medium",
+        startDate: "not-a-date",
+      })
+    ).rejects.toMatchObject({
+      message: "Start date must be a valid calendar date",
+      status: 400,
+      code: "PROJECT_DATES_INVALID",
+    })
+
+    await expect(
       updateProjectServer({
         currentUserId: "user_1",
         projectId: "project_1",
         patch: {
-          status: "active",
+          status: "in-progress",
         },
       })
     ).rejects.toMatchObject({
       message: "Project not found",
       status: 404,
       code: "PROJECT_NOT_FOUND",
+    })
+
+    await expect(
+      renameProjectServer({
+        currentUserId: "user_1",
+        projectId: "project_1",
+        name: "x".repeat(65),
+      })
+    ).rejects.toMatchObject({
+      message: "Project name must be at most 64 characters",
+      status: 400,
+      code: "PROJECT_NAME_INVALID",
     })
   })
 

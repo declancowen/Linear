@@ -1,7 +1,14 @@
-import { addDays, differenceInCalendarDays } from "date-fns"
+import { differenceInCalendarDays } from "date-fns"
 
 import type { MutationCtx } from "../_generated/server"
 
+import {
+  addLocalCalendarDays,
+  formatLocalCalendarDate,
+  getCalendarDatePrefix,
+  isValidCalendarDateString,
+  shiftCalendarDate,
+} from "../../lib/calendar-date"
 import {
   buildAssignmentEmailJobs,
   type AssignmentEmail,
@@ -124,6 +131,18 @@ type CreateWorkItemArgs = ServerAccessArgs & {
     | "duplicate"
   priority: "none" | "low" | "medium" | "high" | "urgent"
   labelIds?: string[]
+  startDate?: string | null
+  dueDate?: string | null
+  targetDate?: string | null
+}
+
+function assertWorkItemScheduleDate(
+  value: string | null | undefined,
+  label: "Start date" | "Due date" | "Target date"
+) {
+  if (value !== undefined && value !== null && !isValidCalendarDateString(value)) {
+    throw new Error(`${label} must be a valid calendar date`)
+  }
 }
 
 export async function updateWorkItemHandler(
@@ -164,6 +183,27 @@ export async function updateWorkItemHandler(
 
   if (nextTitle.length < 2 || nextTitle.length > 96) {
     throw new Error("Work item title must be between 2 and 96 characters")
+  }
+
+  assertWorkItemScheduleDate(args.patch.startDate, "Start date")
+  assertWorkItemScheduleDate(args.patch.dueDate, "Due date")
+  assertWorkItemScheduleDate(args.patch.targetDate, "Target date")
+
+  const nextStartDate =
+    args.patch.startDate === undefined ? existing.startDate : args.patch.startDate
+  const nextTargetDate =
+    args.patch.targetDate === undefined
+      ? existing.targetDate
+      : args.patch.targetDate
+  const nextStartDatePrefix = getCalendarDatePrefix(nextStartDate)
+  const nextTargetDatePrefix = getCalendarDatePrefix(nextTargetDate)
+
+  if (
+    nextStartDatePrefix &&
+    nextTargetDatePrefix &&
+    nextTargetDatePrefix < nextStartDatePrefix
+  ) {
+    throw new Error("Target date must be on or after the start date")
   }
 
   const parent = await validateWorkItemParent(ctx, {
@@ -690,10 +730,10 @@ export async function shiftTimelineItemHandler(
   await ctx.db.patch(item._id, {
     startDate: args.nextStartDate,
     dueDate: item.dueDate
-      ? addDays(new Date(item.dueDate), delta).toISOString()
+      ? shiftCalendarDate(item.dueDate, delta)
       : item.dueDate,
     targetDate: item.targetDate
-      ? addDays(new Date(item.targetDate), delta).toISOString()
+      ? shiftCalendarDate(item.targetDate, delta)
       : item.targetDate,
     updatedAt: getNow(),
   })
@@ -712,6 +752,22 @@ export async function createWorkItemHandler(
   }
 
   const normalizedTeam = normalizeTeam(team)
+
+  assertWorkItemScheduleDate(args.startDate, "Start date")
+  assertWorkItemScheduleDate(args.dueDate, "Due date")
+  assertWorkItemScheduleDate(args.targetDate, "Target date")
+
+  const startDatePrefix = getCalendarDatePrefix(args.startDate)
+  const targetDatePrefix = getCalendarDatePrefix(args.targetDate)
+
+  if (
+    startDatePrefix &&
+    targetDatePrefix &&
+    targetDatePrefix < startDatePrefix
+  ) {
+    throw new Error("Target date must be on or after the start date")
+  }
+
   const parent = await validateWorkItemParent(ctx, {
     teamId: args.teamId,
     itemType: args.type,
@@ -803,9 +859,9 @@ export async function createWorkItemHandler(
     linkedDocumentIds: [],
     labelIds: args.labelIds ?? [],
     milestoneId: null,
-    startDate: getNow(),
-    dueDate: addDays(new Date(), 7).toISOString(),
-    targetDate: addDays(new Date(), 10).toISOString(),
+    startDate: args.startDate ?? formatLocalCalendarDate(),
+    dueDate: args.dueDate ?? addLocalCalendarDays(7),
+    targetDate: args.targetDate ?? addLocalCalendarDays(10),
     subscriberIds: [args.currentUserId],
     createdAt: getNow(),
     updatedAt: getNow(),

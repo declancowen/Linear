@@ -4,6 +4,7 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { FileText } from "@phosphor-icons/react"
 
+import { formatCalendarDateLabel } from "@/lib/date-input"
 import {
   getDocumentContextLabel,
   getUser,
@@ -105,7 +106,11 @@ export function ProjectOverviewTab({
                   <span className="text-sm font-medium">{milestone.name}</span>
                   <span className="text-xs text-muted-foreground">
                     {milestone.targetDate
-                      ? format(new Date(milestone.targetDate), "MMM d")
+                      ? formatCalendarDateLabel(
+                          milestone.targetDate,
+                          "No date",
+                          "MMM d"
+                        )
                       : "No date"}
                   </span>
                 </div>
@@ -198,10 +203,10 @@ export function ProjectPropertiesSidebar({
   }))
 
   return (
-    <CollapsibleRightSidebar open={open} width="18rem">
+    <CollapsibleRightSidebar open={open} width="20rem">
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col p-4">
-          <CollapsibleSection title="Properties" defaultOpen>
+          <CollapsibleSection title="Properties" defaultOpen layout="grid">
             <PropertyRow label="Team" value={team?.name ?? "Workspace"} />
             <PropertySelect
               label="Status"
@@ -245,7 +250,7 @@ export function ProjectPropertiesSidebar({
               label="Target"
               value={
                 project.targetDate
-                  ? format(new Date(project.targetDate), "MMM d, yyyy")
+                  ? formatCalendarDateLabel(project.targetDate, "—", "MMM d")
                   : "—"
               }
             />

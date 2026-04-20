@@ -21,6 +21,7 @@ import type {
   TeamFeatureSettings,
   TeamWorkflowSettings,
   UserStatus,
+  ViewContainerType,
   WorkItem,
   WorkItemType,
   WorkStatus,
@@ -45,7 +46,13 @@ export type CreateProjectInput = {
   templateType: "software-delivery" | "bug-tracking" | "project-management"
   name: string
   summary: string
+  status?: ProjectStatus
   priority: Priority
+  leadId?: string | null
+  memberIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
+  labelIds?: string[]
   settingsTeamId?: string | null
   presentation?: ProjectPresentationConfig
 }
@@ -55,6 +62,8 @@ export type CreateViewInput = {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -70,8 +79,14 @@ export type CreateViewInput = {
 }
 
 export type ProjectPatch = {
+  name?: string
   status?: ProjectStatus
   priority?: Priority
+  leadId?: string | null
+  memberIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
+  labelIds?: string[]
 }
 
 export type CreateWorkItemInput = {
@@ -84,6 +99,8 @@ export type CreateWorkItemInput = {
   status?: WorkStatus
   priority: Priority
   labelIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
 }
 
 export type CreateDocumentInput =
@@ -253,7 +270,13 @@ export type AppStore = AppData & {
       showCompleted: boolean
     }>
   ) => void
+  renameView: (viewId: string, name: string) => Promise<boolean>
+  deleteView: (viewId: string) => Promise<boolean>
   toggleViewDisplayProperty: (viewId: string, property: DisplayProperty) => void
+  reorderViewDisplayProperties: (
+    viewId: string,
+    displayProps: DisplayProperty[]
+  ) => void
   toggleViewHiddenValue: (
     viewId: string,
     key: "groups" | "subgroups",
@@ -271,6 +294,7 @@ export type AppStore = AppData & {
       | "milestoneIds"
       | "relationTypes"
       | "projectIds"
+      | "parentIds"
       | "itemTypes"
       | "labelIds"
       | "teamIds",
@@ -308,6 +332,7 @@ export type AppStore = AppData & {
   createChannel: (input: CreateChannelInput) => string | null
   startConversationCall: (conversationId: string) => Promise<string | null>
   sendChatMessage: (input: SendChatMessageInput) => void
+  toggleChatMessageReaction: (messageId: string, emoji: string) => void
   createChannelPost: (input: CreateChannelPostInput) => void
   addChannelPostComment: (input: AddChannelPostCommentInput) => void
   deleteChannelPost: (postId: string) => void
@@ -316,6 +341,8 @@ export type AppStore = AppData & {
   joinTeamByCode: (code: string) => Promise<boolean>
   createProject: (input: CreateProjectInput) => void
   createView: (input: CreateViewInput) => string | null
+  renameProject: (projectId: string, name: string) => Promise<boolean>
+  deleteProject: (projectId: string) => Promise<boolean>
   updateProject: (projectId: string, patch: ProjectPatch) => void
   createDocument: (input: CreateDocumentInput) => Promise<string | null>
   createWorkItem: (input: CreateWorkItemInput) => string | null

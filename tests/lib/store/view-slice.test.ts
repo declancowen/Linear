@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
+  type AppData,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
 
 const syncCreateViewMock = vi.fn()
+const syncReorderViewDisplayPropertiesMock = vi.fn()
 const syncUpdateViewConfigMock = vi.fn()
 const toastSuccessMock = vi.fn()
 const toastErrorMock = vi.fn()
@@ -21,13 +23,14 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/convex/client", () => ({
   syncClearViewFilters: vi.fn(),
   syncCreateView: syncCreateViewMock,
+  syncReorderViewDisplayProperties: syncReorderViewDisplayPropertiesMock,
   syncToggleViewDisplayProperty: vi.fn(),
   syncToggleViewFilterValue: vi.fn(),
   syncToggleViewHiddenValue: vi.fn(),
   syncUpdateViewConfig: syncUpdateViewConfigMock,
 }))
 
-function createViewTestState() {
+function createViewTestState(): AppData {
   return {
     ...createEmptyState(),
     currentUserId: "user_1",
@@ -61,7 +64,7 @@ function createViewTestState() {
     ui: {
       activeTeamId: "team_1",
       activeInboxNotificationId: null,
-      selectedViewByRoute: {},
+      selectedViewByRoute: {} as Record<string, string>,
       activeCreateDialog: null,
     },
   }
@@ -70,6 +73,7 @@ function createViewTestState() {
 describe("view slice", () => {
   beforeEach(() => {
     syncCreateViewMock.mockReset()
+    syncReorderViewDisplayPropertiesMock.mockReset()
     syncUpdateViewConfigMock.mockReset()
     toastSuccessMock.mockReset()
     toastErrorMock.mockReset()
@@ -136,6 +140,60 @@ describe("view slice", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("View created")
   })
 
+  it("preserves container metadata on the optimistic view", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockImplementation(async (_currentUserId, input) => ({
+      ok: true,
+      viewId: input.id ?? null,
+    }))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+      name: "Billing queue",
+      description: "Tracks the billing project",
+    })
+
+    expect(createdViewId).toBeTruthy()
+    expect(state.views[0]).toMatchObject({
+      id: createdViewId,
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+    })
+
+    await backgroundTask
+  })
+
   it("reconciles from the server if the persisted view id differs", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"
@@ -183,6 +241,78 @@ describe("view slice", () => {
     await backgroundTask
 
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("accepts project-only status filters when creating project views", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockImplementation(async (_currentUserId, input) => ({
+      ok: true,
+      viewId: input.id ?? null,
+    }))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "projects",
+      route: "/team/platform/projects",
+      name: "Planned projects",
+      description: "Tracks planned work",
+      filters: {
+        status: ["planned", "completed"],
+        priority: [],
+        assigneeIds: [],
+        creatorIds: [],
+        leadIds: [],
+        health: [],
+        milestoneIds: [],
+        relationTypes: [],
+        projectIds: [],
+        parentIds: [],
+        itemTypes: [],
+        labelIds: [],
+        teamIds: [],
+        showCompleted: true,
+      },
+    })
+
+    expect(createdViewId).toBeTruthy()
+    expect(state.views[0]?.filters.status).toEqual(["planned", "completed"])
+    expect(syncCreateViewMock).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        entityKind: "projects",
+        filters: expect.objectContaining({
+          status: ["planned", "completed"],
+        }),
+      })
+    )
+
+    await backgroundTask
   })
 
   it("does not roll back the optimistic view when refresh fails after a successful create", async () => {
@@ -377,6 +507,90 @@ describe("view slice", () => {
       layout: "list",
       showCompleted: false,
     })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("reorders visible display properties optimistically", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    state.views = [
+      {
+        id: "view_1",
+        name: "Delivery view",
+        description: "",
+        scopeType: "team",
+        scopeId: "team_1",
+        entityKind: "items",
+        itemLevel: null,
+        showChildItems: false,
+        layout: "list",
+        filters: {
+          status: [],
+          priority: [],
+          assigneeIds: [],
+          creatorIds: [],
+          leadIds: [],
+          health: [],
+          milestoneIds: [],
+          relationTypes: [],
+          projectIds: [],
+          itemTypes: [],
+          labelIds: [],
+          teamIds: [],
+          showCompleted: true,
+        },
+        grouping: "status",
+        subGrouping: null,
+        ordering: "priority",
+        displayProps: ["status", "assignee", "progress"],
+        hiddenState: {
+          groups: [],
+          subgroups: [],
+        },
+        isShared: true,
+        route: "/team/platform/work",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground: syncInBackgroundMock,
+      } as never
+    )
+
+    slice.reorderViewDisplayProperties("view_1", [
+      "progress",
+      "status",
+      "assignee",
+    ])
+
+    expect(state.views[0]?.displayProps).toEqual([
+      "progress",
+      "status",
+      "assignee",
+    ])
+    expect(syncReorderViewDisplayPropertiesMock).toHaveBeenCalledWith("view_1", [
+      "progress",
+      "status",
+      "assignee",
+    ])
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 })

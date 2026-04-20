@@ -63,9 +63,21 @@ const projectHealthLiterals = [
 ] as const
 
 const projectStatusLiterals = [
-  v.literal("planning"),
-  v.literal("active"),
-  v.literal("paused"),
+  v.literal("backlog"),
+  v.literal("planned"),
+  v.literal("in-progress"),
+  v.literal("completed"),
+  v.literal("cancelled"),
+] as const
+
+const viewFilterStatusLiterals = [
+  v.literal("backlog"),
+  v.literal("todo"),
+  v.literal("in-progress"),
+  v.literal("done"),
+  v.literal("cancelled"),
+  v.literal("duplicate"),
+  v.literal("planned"),
   v.literal("completed"),
 ] as const
 
@@ -108,6 +120,7 @@ const displayPropertyLiterals = [
   v.literal("status"),
   v.literal("assignee"),
   v.literal("priority"),
+  v.literal("progress"),
   v.literal("project"),
   v.literal("dueDate"),
   v.literal("milestone"),
@@ -237,6 +250,7 @@ export const workStatusValidator = v.union(...workStatusLiterals)
 export const priorityValidator = v.union(...priorityLiterals)
 export const projectHealthValidator = v.union(...projectHealthLiterals)
 export const projectStatusValidator = v.union(...projectStatusLiterals)
+export const viewFilterStatusValidator = v.union(...viewFilterStatusLiterals)
 export const notificationTypeValidator = v.union(...notificationTypeLiterals)
 export const emailJobKindValidator = v.union(...emailJobKindLiterals)
 export const viewLayoutValidator = v.union(...viewLayoutLiterals)
@@ -402,7 +416,7 @@ export const labelFields = {
 }
 
 export const viewFiltersValidator = v.object({
-  status: v.array(workStatusValidator),
+  status: v.array(viewFilterStatusValidator),
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
   creatorIds: v.array(v.string()),
@@ -411,13 +425,14 @@ export const viewFiltersValidator = v.object({
   milestoneIds: v.array(v.string()),
   relationTypes: v.array(v.string()),
   projectIds: v.array(v.string()),
+  parentIds: v.optional(v.array(v.string())),
   itemTypes: v.array(workItemTypeValidator),
   labelIds: v.array(v.string()),
   teamIds: v.array(v.string()),
   showCompleted: v.boolean(),
 })
 export const storedViewFiltersValidator = v.object({
-  status: v.array(workStatusValidator),
+  status: v.array(viewFilterStatusValidator),
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
   creatorIds: v.array(v.string()),
@@ -426,6 +441,7 @@ export const storedViewFiltersValidator = v.object({
   milestoneIds: v.array(v.string()),
   relationTypes: v.array(v.string()),
   projectIds: v.array(v.string()),
+  parentIds: v.optional(v.array(v.string())),
   itemTypes: v.array(storedWorkItemTypeValidator),
   labelIds: v.array(v.string()),
   teamIds: v.array(v.string()),
@@ -445,6 +461,9 @@ export const projectFields = {
   health: projectHealthValidator,
   priority: priorityValidator,
   status: projectStatusValidator,
+  labelIds: v.optional(v.array(v.string())),
+  blockingProjectIds: v.optional(v.array(v.string())),
+  blockedByProjectIds: v.optional(v.array(v.string())),
   presentation: v.optional(
     v.object({
       itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
@@ -531,6 +550,8 @@ export const viewDefinitionFields = {
   scopeType: viewScopeTypeValidator,
   scopeId: v.string(),
   entityKind: entityKindValidator,
+  containerType: v.optional(v.union(v.literal("project-items"), v.null())),
+  containerId: v.optional(v.union(v.string(), v.null())),
   itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
   showChildItems: v.optional(v.boolean()),
   layout: viewLayoutValidator,
@@ -661,6 +682,14 @@ export const chatMessageFields = {
   content: v.string(),
   callId: v.optional(nullableString),
   mentionUserIds: v.optional(v.array(v.string())),
+  reactions: v.optional(
+    v.array(
+      v.object({
+        emoji: v.string(),
+        userIds: v.array(v.string()),
+      })
+    )
+  ),
   createdBy: v.string(),
   createdAt: v.string(),
 }

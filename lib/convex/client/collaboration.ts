@@ -61,6 +61,21 @@ export function syncSendChatMessage(conversationId: string, content: string) {
   )
 }
 
+export function syncToggleChatMessageReaction(messageId: string, emoji: string) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/chat-messages/${messageId}/reactions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        emoji,
+      }),
+    }
+  )
+}
+
 export function syncCreateChannel(input: {
   teamId?: string
   workspaceId?: string

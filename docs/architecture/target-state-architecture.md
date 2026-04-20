@@ -162,6 +162,72 @@ Instead:
    - allowed row volume
 4. The shell snapshot, if retained, must be bootstrap-oriented and bounded in size.
 
+### Realtime synchronization architecture
+
+#### Target state
+
+Realtime transport is a delivery mechanism, not the read model.
+
+Moving from `SSE` to `WebSocket` must not be treated as a substitute for decomposing the giant snapshot.
+
+The target state is:
+
+- bootstrap over `HTTP` with a bounded shell snapshot or scoped read
+- push invalidation by capability and scope, not whole-app graph replacement
+- refetch the invalidated scoped read model through normal query paths
+- use deltas only where the event is the natural product-level unit of change
+- keep full resync available as a correctness and recovery path
+
+#### Event classes
+
+1. `Bootstrap snapshot`
+   - used for initial shell load or reconnect recovery
+   - must stay bounded and bootstrap-oriented
+2. `Scoped invalidation`
+   - default realtime primitive for most product surfaces
+   - examples: `work-index changed for team X`, `document detail changed for document Y`, `notification inbox changed for user Z`
+3. `Scoped state delta`
+   - used when the domain event is stable, replay-safe, and materially cheaper than refetch
+   - examples: append chat message, update unread count, add/remove viewer from a presence list
+4. `Ephemeral collaboration event`
+   - used for session-oriented, non-authoritative signals
+   - examples: typing, cursor movement, transient presence, live editing operations
+
+#### Transport stance
+
+- Prefer `SSE` for server-to-client invalidation and other one-way, low-rate update streams.
+- Introduce `WebSocket` only when the surface is genuinely bidirectional, session-oriented, or high-frequency.
+- Do not adopt `socket.io` solely to carry the same monolithic snapshot invalidation semantics over a different pipe.
+- If a socket layer is introduced, `HTTP` bootstrap and scoped refetch remain the recovery path.
+
+#### Transport decision rules
+
+Use `SSE` when:
+
+- the server only needs to notify the client
+- messages are coarse-grained invalidations or bounded update events
+- operational simplicity and browser/runtime compatibility matter more than bidirectional session behavior
+
+Use `WebSocket` when:
+
+- client-to-server signaling must participate in the same live session
+- heartbeat-style polling would otherwise dominate latency or traffic
+- the surface is naturally collaborative and session-scoped
+- ordering, acknowledgement, or rapid fan-in/fan-out materially affect correctness or user experience
+
+`socket.io` is optional, not a default architectural requirement.
+
+Use it only if its room/event ergonomics and reconnection behavior materially reduce operational complexity for a real bidirectional collaboration surface.
+
+#### Migration rules
+
+1. Decompose the read model before or alongside any transport change.
+2. Replace the single global snapshot version with scoped invalidation/version keys.
+3. Keep `/api/snapshot` bootstrap-oriented if retained at all.
+4. Adopt deltas only where the domain event is stable enough to version, replay, and test.
+5. Preserve a full resync path for reconnect, drift, and incident recovery.
+6. The current `SSE` snapshot stream is acceptable only as a transition path; it must evolve away from single-version global invalidation and full-store replacement on every meaningful change.
+
 ## Desktop/runtime architecture
 
 ### Target state

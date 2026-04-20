@@ -10,11 +10,14 @@ import type {
   OrderingField,
   Priority,
   ProjectPresentationConfig,
+  ProjectStatus,
   Role,
   ScopeType,
   TeamFeatureSettings,
   TeamWorkflowSettings,
   TemplateType,
+  ViewContainerType,
+  ViewFilters,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -61,6 +64,8 @@ type CreateViewInput = {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -70,21 +75,7 @@ type CreateViewInput = {
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
-  filters?: {
-    status: WorkStatus[]
-    priority: Priority[]
-    assigneeIds: string[]
-    creatorIds: string[]
-    leadIds: string[]
-    health: ProjectPresentationConfig["filters"]["health"]
-    milestoneIds: string[]
-    relationTypes: string[]
-    projectIds: string[]
-    itemTypes: WorkItemType[]
-    labelIds: string[]
-    teamIds: string[]
-    showCompleted: boolean
-  }
+  filters?: ViewFilters
   displayProps?: DisplayProperty[]
   hiddenState?: HiddenState
 }
@@ -185,6 +176,25 @@ export function syncUpdateViewConfig(
   })
 }
 
+export function syncRenameView(viewId: string, name: string) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "rename",
+      name,
+    }),
+  })
+}
+
+export function syncDeleteView(viewId: string) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "DELETE",
+  })
+}
+
 export function syncCreateView(currentUserId: string, input: CreateViewInput) {
   return runRouteMutation<{
     ok: true
@@ -213,6 +223,22 @@ export function syncToggleViewDisplayProperty(
     body: JSON.stringify({
       action: "toggleDisplayProperty",
       property,
+    }),
+  })
+}
+
+export function syncReorderViewDisplayProperties(
+  viewId: string,
+  displayProps: DisplayProperty[]
+) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "reorderDisplayProperties",
+      displayProps,
     }),
   })
 }
@@ -247,6 +273,7 @@ export function syncToggleViewFilterValue(
     | "milestoneIds"
     | "relationTypes"
     | "projectIds"
+    | "parentIds"
     | "itemTypes"
     | "labelIds"
     | "teamIds",
@@ -598,7 +625,13 @@ export function syncCreateProject(
     templateType: TemplateType
     name: string
     summary: string
+    status?: ProjectStatus
     priority: Priority
+    leadId?: string | null
+    memberIds?: string[]
+    startDate?: string | null
+    targetDate?: string | null
+    labelIds?: string[]
     settingsTeamId?: string | null
     presentation?: ProjectPresentationConfig
   }
@@ -616,7 +649,8 @@ export function syncUpdateProject(
   _currentUserId: string,
   projectId: string,
   patch: {
-    status?: "planning" | "active" | "paused" | "completed"
+    name?: string
+    status?: ProjectStatus
     priority?: Priority
   }
 ) {
@@ -626,6 +660,28 @@ export function syncUpdateProject(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(patch),
+  })
+}
+
+export function syncRenameProject(
+  _currentUserId: string,
+  projectId: string,
+  name: string
+) {
+  return runRouteMutation(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+    }),
+  })
+}
+
+export function syncDeleteProject(_currentUserId: string, projectId: string) {
+  return runRouteMutation(`/api/projects/${projectId}`, {
+    method: "DELETE",
   })
 }
 
@@ -748,6 +804,9 @@ export function syncCreateWorkItem(
     status?: WorkStatus
     priority: Priority
     labelIds?: string[]
+    startDate?: string | null
+    dueDate?: string | null
+    targetDate?: string | null
   }
 ) {
   return runRouteMutation("/api/items", {

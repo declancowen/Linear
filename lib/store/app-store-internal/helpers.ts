@@ -231,6 +231,7 @@ export function normalizeChatMessages<
     mentionUserIds?: string[]
     kind?: "text" | "call"
     callId?: string | null
+    reactions?: { emoji: string; userIds: string[] }[]
   },
 >(chatMessages: T[] | undefined) {
   const entries = chatMessages ?? []
@@ -240,6 +241,7 @@ export function normalizeChatMessages<
     kind: message.kind ?? "text",
     callId: message.callId ?? null,
     mentionUserIds: message.mentionUserIds ?? [],
+    reactions: message.reactions ?? [],
   }))
 }
 

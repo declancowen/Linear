@@ -1,16 +1,20 @@
 "use client"
 
+import type { Editor } from "@tiptap/react"
 import { useMemo, useRef, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
-import { Circle, Smiley } from "@phosphor-icons/react"
-
 import {
-  getCommentsForTarget,
-  getStatusOrderForTeam,
-  getTeam,
-  getUser,
-} from "@/lib/domain/selectors"
+  CaretDown,
+  Check,
+  Circle,
+  FolderSimple,
+  MagnifyingGlass,
+  Smiley,
+  X,
+} from "@phosphor-icons/react"
+
+import { getStatusOrderForTeam, getTeam, getUser } from "@/lib/domain/selectors"
 import {
   getAllowedChildWorkItemTypesForItem,
   getAllowedWorkItemTypesForTemplate,
@@ -28,25 +32,32 @@ import {
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
-import {
-  EmojiPickerPopover,
-  insertEmojiIntoTextarea,
-} from "@/components/app/emoji-picker-popover"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { RichTextContent } from "@/components/app/rich-text-content"
+import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  PROPERTY_POPOVER_CLASS,
+  PropertyPopoverFoot,
+  PropertyPopoverGroup,
+  PropertyPopoverItem,
+  PropertyPopoverList,
+  PropertyPopoverSearch,
+} from "@/components/ui/template-primitives"
 import { Textarea } from "@/components/ui/textarea"
 
 import { formatInlineDescriptionContent } from "./helpers"
-import { cn } from "@/lib/utils"
+import { PriorityDot, PriorityIcon, StatusIcon } from "./shared"
+import { cn, getPlainTextContent, resolveImageAssetSource } from "@/lib/utils"
 
 export function WorkItemTypeBadge({
   data,
@@ -72,13 +83,24 @@ export function WorkItemTypeBadge({
 export function WorkItemAssigneeAvatar({
   user,
   className,
+  size = "sm",
 }: {
   user: AppData["users"][number] | null | undefined
   className?: string
+  size?: "xs" | "sm" | "default" | "lg"
 }) {
   if (!user) {
     return null
   }
+
+  const sizeClassName =
+    size === "xs"
+      ? "data-[size=xs]:size-3.5"
+      : size === "sm"
+        ? "data-[size=sm]:size-5"
+        : size === "lg"
+          ? "data-[size=lg]:size-10"
+          : undefined
 
   return (
     <UserAvatar
@@ -87,11 +109,70 @@ export function WorkItemAssigneeAvatar({
       avatarUrl={user.avatarUrl}
       status={user.status}
       showStatus={false}
-      size="sm"
-      className={cn("size-5", className)}
+      size={size}
+      className={cn(sizeClassName, className)}
     />
   )
 }
+
+function getUserInitials(name: string) {
+  const parts = name
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return "?"
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+}
+
+function AssigneeOption({
+  name,
+  avatarUrl,
+  avatarImageUrl,
+}: {
+  name: string
+  avatarUrl?: string | null
+  avatarImageUrl?: string | null
+}) {
+  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
+
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <Avatar size="sm" className="size-4 data-[size=sm]:size-4">
+        {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
+        <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
+      </Avatar>
+      <span className="min-w-0 truncate">{name}</span>
+    </span>
+  )
+}
+
+const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
+const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
+const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
+
+function matchesQuery(value: string, query: string) {
+  if (!query) {
+    return true
+  }
+  return value.toLowerCase().includes(query.toLowerCase())
+}
+
+const chipTriggerClass =
+  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+
+const chipTriggerDashedClass =
+  "border-dashed bg-transparent text-fg-3 hover:bg-surface-3"
+
+const crumbTriggerClass =
+  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
 function CommentThreadItem({
   comment,
@@ -99,12 +180,14 @@ function CommentThreadItem({
   editable,
   targetType,
   targetId,
+  mentionCandidates,
 }: {
   comment: AppData["comments"][number]
   repliesByParentId: Record<string, AppData["comments"]>
   editable: boolean
   targetType: "workItem" | "document"
   targetId: string
+  mentionCandidates: AppData["users"]
 }) {
   const { author, currentUserId } = useAppStore(
     useShallow((state) => ({
@@ -114,8 +197,24 @@ function CommentThreadItem({
   )
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyContent, setReplyContent] = useState("")
-  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const replyEditorRef = useRef<Editor | null>(null)
   const replies = repliesByParentId[comment.id] ?? []
+  const replyText = getPlainTextContent(replyContent)
+
+  function handleReply() {
+    if (!replyText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType,
+      targetId,
+      parentCommentId: comment.id,
+      content: replyContent,
+    })
+    setReplyContent("")
+    setReplyOpen(false)
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
@@ -126,9 +225,10 @@ function CommentThreadItem({
         </span>
       </div>
 
-      <p className="text-sm leading-7 text-muted-foreground">
-        {comment.content}
-      </p>
+      <RichTextContent
+        content={comment.content}
+        className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         {comment.reactions.map((reaction) => {
@@ -186,25 +286,34 @@ function CommentThreadItem({
 
       {replyOpen ? (
         <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
-          <Textarea
-            ref={replyTextareaRef}
-            autoFocus
-            className="min-h-[4rem] resize-none"
-            placeholder="Reply to this thread..."
-            value={replyContent}
-            onChange={(event) => setReplyContent(event.target.value)}
-          />
+          <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+            <RichTextEditor
+              content={replyContent}
+              onChange={setReplyContent}
+              editable={editable}
+              compact
+              autoFocus
+              allowSlashCommands={false}
+              showToolbar={false}
+              showStats={false}
+              placeholder="Reply to this thread..."
+              editorInstanceRef={replyEditorRef}
+              mentionCandidates={mentionCandidates}
+              onSubmitShortcut={handleReply}
+              submitOnEnter
+              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+            />
+          </div>
           <div className="flex items-center justify-between gap-2">
             <EmojiPickerPopover
               align="start"
               side="top"
               onEmojiSelect={(emoji) =>
-                insertEmojiIntoTextarea({
-                  emoji,
-                  textarea: replyTextareaRef.current,
-                  value: replyContent,
-                  onChange: setReplyContent,
-                })
+                replyEditorRef.current
+                  ?.chain()
+                  .focus()
+                  .insertContent(emoji)
+                  .run()
               }
               trigger={
                 <button
@@ -214,6 +323,11 @@ function CommentThreadItem({
                   <Smiley className="size-4" />
                 </button>
               }
+            />
+            <ShortcutKeys
+              keys={["Enter"]}
+              className="ml-auto"
+              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
             />
             <div className="flex items-center gap-2">
               <Button
@@ -226,20 +340,7 @@ function CommentThreadItem({
               >
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                disabled={!replyContent.trim()}
-                onClick={() => {
-                  useAppStore.getState().addComment({
-                    targetType,
-                    targetId,
-                    parentCommentId: comment.id,
-                    content: replyContent,
-                  })
-                  setReplyContent("")
-                  setReplyOpen(false)
-                }}
-              >
+              <Button size="sm" disabled={!replyText} onClick={handleReply}>
                 Reply
               </Button>
             </div>
@@ -257,6 +358,7 @@ function CommentThreadItem({
               editable={editable}
               targetType={targetType}
               targetId={targetId}
+              mentionCandidates={mentionCandidates}
             />
           ))}
         </div>
@@ -274,28 +376,99 @@ export function CommentsInline({
   targetId: string
   editable: boolean
 }) {
-  const comments = useAppStore(
-    useShallow((state) => getCommentsForTarget(state, targetType, targetId))
+  const {
+    allComments,
+    currentUserId,
+    documents,
+    teamMemberships,
+    users,
+    workItems,
+  } = useAppStore(
+    useShallow((state) => {
+      return {
+        allComments: state.comments,
+        currentUserId: state.currentUserId,
+        documents: state.documents,
+        teamMemberships: state.teamMemberships,
+        users: state.users,
+        workItems: state.workItems,
+      }
+    })
   )
-  const rootComments = comments.filter(
-    (comment) => comment.parentCommentId === null
+  const targetTeamId = useMemo(
+    () =>
+      targetType === "workItem"
+        ? (workItems.find((item) => item.id === targetId)?.teamId ?? null)
+        : (documents.find((document) => document.id === targetId)?.teamId ??
+          null),
+    [documents, targetId, targetType, workItems]
   )
-  const repliesByParentId = comments.reduce<
-    Record<string, AppData["comments"]>
-  >((accumulator, comment) => {
-    if (!comment.parentCommentId) {
-      return accumulator
+  const comments = useMemo(
+    () =>
+      allComments
+        .filter(
+          (comment) =>
+            comment.targetType === targetType && comment.targetId === targetId
+        )
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    [allComments, targetId, targetType]
+  )
+  const mentionCandidates = useMemo(() => {
+    const candidateUsers = users.filter(
+      (candidate) => candidate.id !== currentUserId
+    )
+
+    if (!targetTeamId) {
+      return candidateUsers
     }
 
-    accumulator[comment.parentCommentId] = [
-      ...(accumulator[comment.parentCommentId] ?? []),
-      comment,
-    ]
+    const memberIds = new Set(
+      teamMemberships
+        .filter((membership) => membership.teamId === targetTeamId)
+        .map((membership) => membership.userId)
+    )
 
-    return accumulator
-  }, {})
+    return candidateUsers.filter((candidate) => memberIds.has(candidate.id))
+  }, [currentUserId, targetTeamId, teamMemberships, users])
+  const rootComments = useMemo(
+    () => comments.filter((comment) => comment.parentCommentId === null),
+    [comments]
+  )
+  const repliesByParentId = useMemo(
+    () =>
+      comments.reduce<Record<string, AppData["comments"]>>(
+        (accumulator, comment) => {
+          if (!comment.parentCommentId) {
+            return accumulator
+          }
+
+          accumulator[comment.parentCommentId] = [
+            ...(accumulator[comment.parentCommentId] ?? []),
+            comment,
+          ]
+
+          return accumulator
+        },
+        {}
+      ),
+    [comments]
+  )
   const [content, setContent] = useState("")
-  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const commentEditorRef = useRef<Editor | null>(null)
+  const contentText = getPlainTextContent(content)
+
+  function handleComment() {
+    if (!contentText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType,
+      targetId,
+      content,
+    })
+    setContent("")
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -307,28 +480,37 @@ export function CommentsInline({
           editable={editable}
           targetType={targetType}
           targetId={targetId}
+          mentionCandidates={mentionCandidates}
         />
       ))}
       <div className="flex flex-col gap-2">
-        <Textarea
-          ref={commentTextareaRef}
-          disabled={!editable}
-          placeholder="Leave a comment or mention a teammate with @handle..."
-          className="min-h-[4rem] resize-none"
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-        />
+        <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+          <RichTextEditor
+            content={content}
+            onChange={setContent}
+            editable={editable}
+            compact
+            allowSlashCommands={false}
+            showToolbar={false}
+            showStats={false}
+            placeholder="Leave a comment or mention a teammate with @handle..."
+            editorInstanceRef={commentEditorRef}
+            mentionCandidates={mentionCandidates}
+            onSubmitShortcut={handleComment}
+            submitOnEnter
+            className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+          />
+        </div>
         <div className="flex items-center justify-between gap-2">
           <EmojiPickerPopover
             align="start"
             side="top"
             onEmojiSelect={(emoji) =>
-              insertEmojiIntoTextarea({
-                emoji,
-                textarea: commentTextareaRef.current,
-                value: content,
-                onChange: setContent,
-              })
+              commentEditorRef.current
+                ?.chain()
+                .focus()
+                .insertContent(emoji)
+                .run()
             }
             trigger={
               <button
@@ -340,15 +522,14 @@ export function CommentsInline({
               </button>
             }
           />
+          <ShortcutKeys
+            keys={["Enter"]}
+            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+          />
           <Button
             size="sm"
-            disabled={!editable || !content.trim()}
-            onClick={() => {
-              useAppStore
-                .getState()
-                .addComment({ targetType, targetId, content })
-              setContent("")
-            }}
+            disabled={!editable || !contentText}
+            onClick={handleComment}
           >
             Comment
           </Button>
@@ -422,6 +603,12 @@ export function InlineChildIssueComposer({
   )
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [typePickerOpen, setTypePickerOpen] = useState(false)
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false)
+  const [statusQuery, setStatusQuery] = useState("")
+  const [priorityPickerOpen, setPriorityPickerOpen] = useState(false)
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
+  const [assigneeQuery, setAssigneeQuery] = useState("")
   const [status, setStatus] = useState<WorkStatus>(
     teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
   )
@@ -509,111 +696,329 @@ export function InlineChildIssueComposer({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-3 py-2">
         {availableItemTypes.length > 1 ? (
-          <Select
-            value={selectedType}
-            onValueChange={(value) => setType(value as WorkItemType)}
-          >
-            <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
+          <Popover open={typePickerOpen} onOpenChange={setTypePickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={crumbTriggerClass}
+                disabled={availableItemTypes.length === 0 || !team}
+              >
+                <span className="font-medium text-foreground">
+                  {selectedTypeLabel}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+            >
+              <PropertyPopoverList>
+                <PropertyPopoverGroup>Work item type</PropertyPopoverGroup>
                 {availableItemTypes.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {getDisplayLabelForWorkItemType(
-                      value,
-                      team?.settings.experience
-                    )}
-                  </SelectItem>
+                  <PropertyPopoverItem
+                    key={value}
+                    selected={value === selectedType}
+                    onClick={() => {
+                      setType(value)
+                      setTypePickerOpen(false)
+                    }}
+                    trailing={
+                      value === selectedType ? (
+                        <Check className="size-[14px] text-foreground" />
+                      ) : null
+                    }
+                  >
+                    <span className="truncate">
+                      {getDisplayLabelForWorkItemType(
+                        value,
+                        team?.settings.experience
+                      )}
+                    </span>
+                  </PropertyPopoverItem>
                 ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              </PropertyPopoverList>
+            </PopoverContent>
+          </Popover>
         ) : availableItemTypes.length === 1 ? (
-          <div className="inline-flex h-7 items-center rounded-full border border-border/50 bg-muted/30 px-2.5 text-[11px] text-foreground">
-            {selectedTypeLabel}
+          <div
+            className={cn(
+              crumbTriggerClass,
+              "cursor-default hover:bg-transparent"
+            )}
+          >
+            <span className="font-medium text-foreground">
+              {selectedTypeLabel}
+            </span>
           </div>
         ) : null}
 
-        <Select
-          value={status}
-          onValueChange={(value) => setStatus(value as WorkStatus)}
+        <Popover
+          open={statusPickerOpen}
+          onOpenChange={(next) => {
+            setStatusPickerOpen(next)
+            if (!next) setStatusQuery("")
+          }}
         >
-          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {teamStatuses.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {statusMeta[value].label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={priority}
-          onValueChange={(value) => setPriority(value as Priority)}
-        >
-          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {Object.entries(priorityMeta).map(([value, meta]) => (
-                <SelectItem key={value} value={value}>
-                  {meta.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <Select value={assigneeId} onValueChange={setAssigneeId}>
-          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
-            {selectedAssignee ? (
-              <span className="flex min-w-0 items-center gap-1.5">
-                <WorkItemAssigneeAvatar user={selectedAssignee} className="size-4" />
-                <span className="truncate">{selectedAssignee.name}</span>
+          <PopoverTrigger asChild>
+            <button type="button" className={chipTriggerClass} disabled={!team}>
+              <StatusIcon status={status} />
+              <span className="font-medium text-foreground">
+                {statusMeta[status].label}
               </span>
-            ) : (
-              <SelectValue />
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="none">Unassigned</SelectItem>
-              {teamMembers.map((user) => (
-                <SelectItem key={user.id} value={user.id}>
-                  <span className="flex items-center gap-2">
-                    <WorkItemAssigneeAvatar user={user} />
-                    <span className="truncate">{user.name}</span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+              <CaretDown className="size-3 shrink-0 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+            <PropertyPopoverSearch
+              icon={<MagnifyingGlass className="size-[14px]" />}
+              placeholder="Change status…"
+              value={statusQuery}
+              onChange={setStatusQuery}
+            />
+            <PropertyPopoverList>
+              {(() => {
+                const activeMatches = teamStatuses.filter(
+                  (value) =>
+                    OPEN_STATUSES.includes(value) &&
+                    matchesQuery(statusMeta[value].label, statusQuery)
+                )
+                const closedMatches = teamStatuses.filter(
+                  (value) =>
+                    CLOSED_STATUSES.includes(value) &&
+                    matchesQuery(statusMeta[value].label, statusQuery)
+                )
 
-        <Select value={projectId} disabled>
-          <SelectTrigger className="h-7 rounded-full border-border/50 bg-muted/30 px-2.5 text-[11px] shadow-none">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="none">No project</SelectItem>
-              {teamProjects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
+                return (
+                  <>
+                    {activeMatches.length > 0 ? (
+                      <>
+                        <PropertyPopoverGroup>Active</PropertyPopoverGroup>
+                        {activeMatches.map((value) => (
+                          <PropertyPopoverItem
+                            key={value}
+                            selected={value === status}
+                            onClick={() => {
+                              setStatus(value)
+                              setStatusPickerOpen(false)
+                            }}
+                            trailing={
+                              value === status ? (
+                                <Check className="size-[14px] text-foreground" />
+                              ) : null
+                            }
+                          >
+                            <StatusIcon status={value} />
+                            <span>{statusMeta[value].label}</span>
+                          </PropertyPopoverItem>
+                        ))}
+                      </>
+                    ) : null}
+                    {closedMatches.length > 0 ? (
+                      <>
+                        <PropertyPopoverGroup>Closed</PropertyPopoverGroup>
+                        {closedMatches.map((value) => (
+                          <PropertyPopoverItem
+                            key={value}
+                            selected={value === status}
+                            onClick={() => {
+                              setStatus(value)
+                              setStatusPickerOpen(false)
+                            }}
+                            trailing={
+                              value === status ? (
+                                <Check className="size-[14px] text-foreground" />
+                              ) : null
+                            }
+                          >
+                            <StatusIcon status={value} />
+                            <span>{statusMeta[value].label}</span>
+                          </PropertyPopoverItem>
+                        ))}
+                      </>
+                    ) : null}
+                    {activeMatches.length === 0 &&
+                    closedMatches.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                        No statuses match
+                      </div>
+                    ) : null}
+                  </>
+                )
+              })()}
+            </PropertyPopoverList>
+            <PropertyPopoverFoot>
+              <span>↑↓ to navigate · ↵ to select</span>
+            </PropertyPopoverFoot>
+          </PopoverContent>
+        </Popover>
+
+        <Popover open={priorityPickerOpen} onOpenChange={setPriorityPickerOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className={chipTriggerClass} disabled={!team}>
+              <PriorityDot priority={priority} />
+              <span className="font-medium text-foreground">
+                {priorityMeta[priority].label}
+              </span>
+              <CaretDown className="size-3 shrink-0 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+          >
+            <PropertyPopoverList>
+              {PRIORITY_ORDER.map((value) => (
+                <PropertyPopoverItem
+                  key={value}
+                  selected={value === priority}
+                  onClick={() => {
+                    setPriority(value)
+                    setPriorityPickerOpen(false)
+                  }}
+                  trailing={
+                    value === priority ? (
+                      <Check className="size-[14px] text-foreground" />
+                    ) : null
+                  }
+                >
+                  <PriorityIcon priority={value} />
+                  <span>
+                    {value === "none"
+                      ? "No priority"
+                      : priorityMeta[value].label}
+                  </span>
+                </PropertyPopoverItem>
               ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+            </PropertyPopoverList>
+          </PopoverContent>
+        </Popover>
+
+        <Popover
+          open={assigneePickerOpen}
+          onOpenChange={(next) => {
+            setAssigneePickerOpen(next)
+            if (!next) setAssigneeQuery("")
+          }}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                chipTriggerClass,
+                !selectedAssignee && chipTriggerDashedClass
+              )}
+              disabled={!team}
+            >
+              {selectedAssignee ? (
+                <AssigneeOption
+                  name={selectedAssignee.name}
+                  avatarImageUrl={selectedAssignee.avatarImageUrl}
+                  avatarUrl={selectedAssignee.avatarUrl}
+                />
+              ) : (
+                <span className="flex items-center gap-1.5 text-fg-3">
+                  <span className="inline-grid size-[18px] place-items-center rounded-full border border-dashed border-line text-[9px] text-fg-3">
+                    ?
+                  </span>
+                  Unassigned
+                </span>
+              )}
+              <CaretDown className="size-3 shrink-0 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
+          >
+            <PropertyPopoverSearch
+              icon={<MagnifyingGlass className="size-[14px]" />}
+              placeholder="Assign someone…"
+              value={assigneeQuery}
+              onChange={setAssigneeQuery}
+            />
+            <PropertyPopoverList>
+              {(() => {
+                const matches = teamMembers.filter((user) =>
+                  matchesQuery(user.name, assigneeQuery)
+                )
+
+                return (
+                  <>
+                    {matches.length > 0 ? (
+                      <>
+                        <PropertyPopoverGroup>Members</PropertyPopoverGroup>
+                        {matches.map((user) => (
+                          <PropertyPopoverItem
+                            key={user.id}
+                            selected={user.id === assigneeId}
+                            onClick={() => {
+                              setAssigneeId(user.id)
+                              setAssigneePickerOpen(false)
+                            }}
+                            trailing={
+                              user.id === assigneeId ? (
+                                <Check className="size-[14px] text-foreground" />
+                              ) : null
+                            }
+                          >
+                            <AssigneeOption
+                              name={user.name}
+                              avatarImageUrl={user.avatarImageUrl}
+                              avatarUrl={user.avatarUrl}
+                            />
+                          </PropertyPopoverItem>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                        No members match
+                      </div>
+                    )}
+                    <PropertyPopoverItem
+                      muted
+                      selected={assigneeId === "none"}
+                      onClick={() => {
+                        setAssigneeId("none")
+                        setAssigneePickerOpen(false)
+                      }}
+                      trailing={
+                        assigneeId === "none" ? (
+                          <Check className="size-[14px] text-foreground" />
+                        ) : null
+                      }
+                    >
+                      <X className="size-[14px] shrink-0" />
+                      <span>Unassign</span>
+                    </PropertyPopoverItem>
+                  </>
+                )
+              })()}
+            </PropertyPopoverList>
+          </PopoverContent>
+        </Popover>
+
+        <button
+          type="button"
+          className={cn(
+            chipTriggerClass,
+            !selectedProject && chipTriggerDashedClass
+          )}
+          disabled
+        >
+          <FolderSimple className="size-[13px]" />
+          <span
+            className={cn(
+              "truncate",
+              selectedProject && "font-medium text-foreground"
+            )}
+          >
+            {selectedProject ? selectedProject.name : "No project"}
+          </span>
+          <CaretDown className="size-3 shrink-0 opacity-60" />
+        </button>
 
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>

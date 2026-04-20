@@ -1,11 +1,9 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react"
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react"
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from "react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
@@ -19,15 +17,19 @@ import { useAppStore } from "@/lib/store/app-store"
 
 const {
   routerReplaceMock,
+  syncAddCommentMock,
   syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresenceMock,
   syncSendItemDescriptionMentionNotificationsMock,
+  syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
 } = vi.hoisted(() => ({
   routerReplaceMock: vi.fn(),
+  syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
   syncHeartbeatWorkItemPresenceMock: vi.fn(),
   syncSendItemDescriptionMentionNotificationsMock: vi.fn(),
+  syncToggleCommentReactionMock: vi.fn(),
   syncUpdateWorkItemMock: vi.fn(),
 }))
 
@@ -60,10 +62,12 @@ vi.mock("sonner", () => ({
 }))
 
 vi.mock("@/lib/convex/client", () => ({
+  syncAddComment: syncAddCommentMock,
   syncClearWorkItemPresence: syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresence: syncHeartbeatWorkItemPresenceMock,
   syncSendItemDescriptionMentionNotifications:
     syncSendItemDescriptionMentionNotificationsMock,
+  syncToggleCommentReaction: syncToggleCommentReactionMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
@@ -71,14 +75,30 @@ vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
     onChange,
+    placeholder,
+    onSubmitShortcut,
+    submitOnEnter,
   }: {
     content: string
     onChange: (value: string) => void
+    placeholder?: string
+    onSubmitShortcut?: () => void
+    submitOnEnter?: boolean
   }) => (
     <textarea
-      aria-label="Description editor"
+      aria-label={
+        placeholder === "Add a description…"
+          ? "Description editor"
+          : (placeholder ?? "Rich text editor")
+      }
       value={content}
       onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault()
+          onSubmitShortcut?.()
+        }
+      }}
     />
   ),
 }))
@@ -97,8 +117,12 @@ vi.mock("@/components/app/screens/shared", () => ({
       value: status,
       label: status,
     })),
-  CollapsibleSection: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  CollapsibleSection: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   MissingState: ({ title }: { title: string }) => <div>{title}</div>,
+  PROPERTY_SELECT_SEPARATOR_VALUE: "__separator__",
+  PriorityIcon: () => null,
   PriorityDot: () => null,
   PropertyDateField: ({
     label,
@@ -118,13 +142,7 @@ vi.mock("@/components/app/screens/shared", () => ({
       onChange={(event) => onValueChange(event.target.value || null)}
     />
   ),
-  PropertyRow: ({
-    label,
-    value,
-  }: {
-    label: string
-    value: string
-  }) => (
+  PropertyRow: ({ label, value }: { label: string; value: string }) => (
     <div>
       <span>{label}</span>
       <span>{value}</span>
@@ -173,15 +191,14 @@ vi.mock("@/components/app/screens/shared", () => ({
 vi.mock("@/components/app/screens/work-item-ui", () => ({
   CommentsInline: () => null,
   WorkItemAssigneeAvatar: () => null,
-  InlineChildIssueComposer: () => null,
+  InlineChildIssueComposer: () => (
+    <div data-testid="inline-child-composer">Inline child composer</div>
+  ),
   WorkItemTypeBadge: () => <div>Task</div>,
 }))
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>
       {children}
     </button>
@@ -211,7 +228,9 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
 }))
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenu: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   DropdownMenuContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
@@ -233,12 +252,22 @@ vi.mock("@/components/ui/separator", () => ({
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  CalendarBlank: () => null,
   CaretDown: () => null,
   CaretRight: () => null,
+  Clock: () => null,
   DotsThree: () => null,
+  Flag: () => null,
+  FolderSimple: () => null,
+  LinkSimple: () => null,
+  NotePencil: () => null,
+  PaperPlaneTilt: () => null,
   Plus: () => null,
   SidebarSimple: () => null,
+  Smiley: () => null,
+  Tag: () => null,
   Trash: () => null,
+  X: () => null,
 }))
 
 function seedState() {
@@ -459,7 +488,9 @@ describe("work item detail screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Reload latest" }))
 
-    expect(screen.queryByText("This item changed while you were editing")).toBeNull()
+    expect(
+      screen.queryByText("This item changed while you were editing")
+    ).toBeNull()
     expect(screen.getByDisplayValue("Plan launch remote")).toBeInTheDocument()
   })
 
@@ -525,41 +556,45 @@ describe("work item detail screen", () => {
 
   it("retries failed mention delivery on the next save without reintroducing the mention", async () => {
     let saveCount = 0
-    const saveWorkItemMainSectionMock = vi.fn().mockImplementation(
-      async ({
-        description,
-        title,
-      }: {
-        description: string
-        title: string
-      }) => {
-        saveCount += 1
-        useAppStore.setState((state) => ({
-          workItems: state.workItems.map((item) =>
-            item.id === "item_1"
-              ? {
-                  ...item,
-                  title,
-                  updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
-                }
-              : item
-          ),
-          documents: state.documents.map((document) =>
-            document.id === "document_1"
-              ? {
-                  ...document,
-                  content: description,
-                  updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
-                }
-              : document
-          ),
-        }))
+    const saveWorkItemMainSectionMock = vi
+      .fn()
+      .mockImplementation(
+        async ({
+          description,
+          title,
+        }: {
+          description: string
+          title: string
+        }) => {
+          saveCount += 1
+          useAppStore.setState((state) => ({
+            workItems: state.workItems.map((item) =>
+              item.id === "item_1"
+                ? {
+                    ...item,
+                    title,
+                    updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
+                  }
+                : item
+            ),
+            documents: state.documents.map((document) =>
+              document.id === "document_1"
+                ? {
+                    ...document,
+                    content: description,
+                    updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
+                  }
+                : document
+            ),
+          }))
 
-        return true
-      }
-    )
+          return true
+        }
+      )
     syncSendItemDescriptionMentionNotificationsMock
-      .mockRejectedValueOnce(new Error("Saved changes but failed to notify mentions"))
+      .mockRejectedValueOnce(
+        new Error("Saved changes but failed to notify mentions")
+      )
       .mockResolvedValueOnce({
         recipientCount: 1,
         mentionCount: 1,
@@ -608,45 +643,49 @@ describe("work item detail screen", () => {
 
   it("preserves mention retries for one item when saving a different item without mentions", async () => {
     let saveCount = 0
-    const saveWorkItemMainSectionMock = vi.fn().mockImplementation(
-      async ({
-        itemId,
-        description,
-        title,
-      }: {
-        itemId: string
-        description: string
-        title: string
-      }) => {
-        saveCount += 1
-        const documentId = itemId === "item_1" ? "document_1" : "document_2"
+    const saveWorkItemMainSectionMock = vi
+      .fn()
+      .mockImplementation(
+        async ({
+          itemId,
+          description,
+          title,
+        }: {
+          itemId: string
+          description: string
+          title: string
+        }) => {
+          saveCount += 1
+          const documentId = itemId === "item_1" ? "document_1" : "document_2"
 
-        useAppStore.setState((state) => ({
-          workItems: state.workItems.map((item) =>
-            item.id === itemId
-              ? {
-                  ...item,
-                  title,
-                  updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
-                }
-              : item
-          ),
-          documents: state.documents.map((document) =>
-            document.id === documentId
-              ? {
-                  ...document,
-                  content: description,
-                  updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
-                }
-              : document
-          ),
-        }))
+          useAppStore.setState((state) => ({
+            workItems: state.workItems.map((item) =>
+              item.id === itemId
+                ? {
+                    ...item,
+                    title,
+                    updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
+                  }
+                : item
+            ),
+            documents: state.documents.map((document) =>
+              document.id === documentId
+                ? {
+                    ...document,
+                    content: description,
+                    updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
+                  }
+                : document
+            ),
+          }))
 
-        return true
-      }
-    )
+          return true
+        }
+      )
     syncSendItemDescriptionMentionNotificationsMock
-      .mockRejectedValueOnce(new Error("Saved changes but failed to notify mentions"))
+      .mockRejectedValueOnce(
+        new Error("Saved changes but failed to notify mentions")
+      )
       .mockResolvedValueOnce({
         recipientCount: 1,
         mentionCount: 1,
@@ -773,7 +812,7 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it("keeps sidebar properties editable for root and child items without entering main edit mode", () => {
+  it("keeps sidebar properties editable for root and child items without entering main edit mode", async () => {
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -831,22 +870,25 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Priority" })).not.toBeDisabled()
     expect(screen.getByRole("button", { name: "Assignee" })).not.toBeDisabled()
     expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
-    expect(screen.getByLabelText("Start date")).not.toBeDisabled()
-    expect(screen.getByLabelText("End date")).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Start" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Due" })).not.toBeDisabled()
     expect(
       screen.getByRole("button", { name: "Manage labels" })
     ).not.toBeDisabled()
 
     fireEvent.click(screen.getByRole("button", { name: "Status" }))
+    fireEvent.click(await screen.findByRole("button", { name: /backlog/i }))
     expect(
-      useAppStore.getState().workItems.find((item) => item.id === "item_1")?.status
-    ).not.toBe("todo")
+      useAppStore.getState().workItems.find((item) => item.id === "item_1")
+        ?.status
+    ).toBe("backlog")
 
     fireEvent.click(screen.getByRole("button", { name: "Priority" }))
+    fireEvent.click(await screen.findByRole("button", { name: /high/i }))
     expect(
       useAppStore.getState().workItems.find((item) => item.id === "item_1")
         ?.priority
-    ).not.toBe("medium")
+    ).toBe("high")
 
     rerender(<WorkItemDetailScreen itemId="item_3" />)
 
@@ -857,9 +899,155 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
 
     fireEvent.click(screen.getByRole("button", { name: "Assignee" }))
+    fireEvent.click(await screen.findByRole("button", { name: /^Alex$/ }))
     expect(
       useAppStore.getState().workItems.find((item) => item.id === "item_3")
         ?.assigneeId
     ).toBe("user_1")
+  })
+
+  it("shows sidebar subtask progress above the child list", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        documents: [
+          ...state.documents,
+          {
+            id: "document_3",
+            kind: "item-description",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            title: "Child done",
+            content: "<p>Done child</p>",
+            linkedProjectIds: [],
+            linkedWorkItemIds: ["item_3"],
+            createdBy: "user_1",
+            updatedBy: "user_1",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+          {
+            id: "document_4",
+            kind: "item-description",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            title: "Child todo",
+            content: "<p>Todo child</p>",
+            linkedProjectIds: [],
+            linkedWorkItemIds: ["item_4"],
+            createdBy: "user_1",
+            updatedBy: "user_1",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+        workItems: [
+          ...state.workItems,
+          {
+            id: "item_3",
+            key: "PLA-3",
+            teamId: "team_1",
+            type: "sub-task",
+            title: "Child done",
+            descriptionDocId: "document_3",
+            status: "done",
+            priority: "medium",
+            assigneeId: null,
+            creatorId: "user_1",
+            parentId: "item_1",
+            primaryProjectId: null,
+            linkedProjectIds: [],
+            linkedDocumentIds: [],
+            labelIds: [],
+            milestoneId: null,
+            startDate: null,
+            dueDate: null,
+            targetDate: null,
+            subscriberIds: [],
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+          {
+            id: "item_4",
+            key: "PLA-4",
+            teamId: "team_1",
+            type: "sub-task",
+            title: "Child todo",
+            descriptionDocId: "document_4",
+            status: "todo",
+            priority: "medium",
+            assigneeId: null,
+            creatorId: "user_1",
+            parentId: "item_1",
+            primaryProjectId: null,
+            linkedProjectIds: [],
+            linkedDocumentIds: [],
+            labelIds: [],
+            milestoneId: null,
+            startDate: null,
+            dueDate: null,
+            targetDate: null,
+            subscriberIds: [],
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    expect(screen.getByText("1/2 active")).toBeInTheDocument()
+    expect(screen.getAllByText("50%")).toHaveLength(2)
+  })
+
+  it("opens the child composer only in the surface that was triggered", () => {
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const addButtons = screen.getAllByRole("button", { name: "Add sub-task" })
+    expect(addButtons).toHaveLength(2)
+
+    fireEvent.click(addButtons[0]!)
+    expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Add sub-task" }))
+    expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
+  })
+
+  it("posts activity comments on Enter and preserves mentions", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        teamMemberships: [
+          ...state.teamMemberships,
+          {
+            teamId: "team_1",
+            userId: "user_2",
+            role: "member",
+          },
+        ],
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const commentEditor = screen.getByLabelText(
+      "Leave a comment or mention a teammate with @handle..."
+    )
+    fireEvent.change(commentEditor, {
+      target: {
+        value:
+          '<p>Heads up <span data-type="mention" data-id="user_2">@Taylor</span></p>',
+      },
+    })
+    fireEvent.keyDown(commentEditor, {
+      key: "Enter",
+    })
+
+    const [comment] = useAppStore.getState().comments
+    expect(comment).toMatchObject({
+      targetType: "workItem",
+      targetId: "item_1",
+      mentionUserIds: ["user_2"],
+    })
+    expect(comment.content).toContain('data-id="user_2"')
   })
 })

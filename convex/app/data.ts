@@ -583,6 +583,13 @@ export async function getConversationDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function getChatMessageDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("chatMessages")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
 export async function listConversationsByScope(
   ctx: AppCtx,
   scopeType: "team" | "workspace",

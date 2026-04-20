@@ -67,12 +67,28 @@ export const projectHealths = [
 export type ProjectHealth = (typeof projectHealths)[number]
 
 export const projectStatuses = [
-  "planning",
-  "active",
-  "paused",
+  "backlog",
+  "planned",
+  "in-progress",
   "completed",
+  "cancelled",
 ] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
+
+export const projectNameMinLength = 2
+export const projectNameMaxLength = 64
+
+export const viewFilterStatuses = [
+  "backlog",
+  "todo",
+  "in-progress",
+  "done",
+  "cancelled",
+  "duplicate",
+  "planned",
+  "completed",
+] as const
+export type ViewFilterStatus = (typeof viewFilterStatuses)[number]
 
 export const notificationTypes = [
   "mention",
@@ -98,6 +114,12 @@ export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 export const entityKinds = ["items", "projects", "docs"] as const
 export type EntityKind = (typeof entityKinds)[number]
 
+export const viewNameMinLength = 2
+export const viewNameMaxLength = 64
+
+export const viewContainerTypes = ["project-items"] as const
+export type ViewContainerType = (typeof viewContainerTypes)[number]
+
 export const viewLayouts = ["list", "board", "timeline"] as const
 export type ViewLayout = (typeof viewLayouts)[number]
 
@@ -110,6 +132,7 @@ export const displayProperties = [
   "status",
   "assignee",
   "priority",
+  "progress",
   "project",
   "dueDate",
   "milestone",
@@ -250,8 +273,10 @@ export type HiddenState = {
   subgroups: string[]
 }
 
+export const EMPTY_PARENT_FILTER_VALUE = "__empty__"
+
 export type ViewFilters = {
-  status: WorkStatus[]
+  status: ViewFilterStatus[]
   priority: Priority[]
   assigneeIds: string[]
   creatorIds: string[]
@@ -260,6 +285,7 @@ export type ViewFilters = {
   milestoneIds: string[]
   relationTypes: string[]
   projectIds: string[]
+  parentIds?: string[]
   itemTypes: WorkItemType[]
   labelIds: string[]
   teamIds: string[]
@@ -287,6 +313,7 @@ export function createDefaultViewFilters(): ViewFilters {
     milestoneIds: [],
     relationTypes: [],
     projectIds: [],
+    parentIds: [],
     itemTypes: [],
     labelIds: [],
     teamIds: [],

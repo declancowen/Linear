@@ -122,6 +122,7 @@ describe("convex work server wrappers", () => {
     mutationMock
       .mockRejectedValueOnce(new Error("Parent item not found"))
       .mockRejectedValueOnce(new Error("Work item is not scheduled"))
+      .mockRejectedValueOnce(new Error("Due date must be a valid calendar date"))
       .mockRejectedValueOnce(
         new Error("Work item title must be between 2 and 96 characters")
       )
@@ -155,6 +156,22 @@ describe("convex work server wrappers", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "WORK_ITEM_SCHEDULE_MISSING",
+    })
+
+    await expect(
+      createWorkItemServer({
+        currentUserId: "user_1",
+        teamId: "team_1",
+        type: "task",
+        title: "Launch task",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+        dueDate: "not-a-date",
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "WORK_ITEM_SCHEDULE_INVALID",
     })
 
     await expect(

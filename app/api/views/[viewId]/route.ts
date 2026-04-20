@@ -1,15 +1,20 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ApplicationError } from "@/lib/server/application-errors"
+import { isApplicationError } from "@/lib/server/application-errors"
 import {
   displayProperties,
   groupFields,
   orderingFields,
+  viewNameMaxLength,
+  viewNameMinLength,
   workItemTypes,
 } from "@/lib/domain/types"
 import {
   clearViewFiltersServer,
+  deleteViewServer,
+  reorderViewDisplayPropertiesServer,
+  renameViewServer,
   toggleViewDisplayPropertyServer,
   toggleViewFilterValueServer,
   toggleViewHiddenValueServer,
@@ -46,6 +51,10 @@ const viewMutationSchema = z.discriminatedUnion("action", [
     property: z.enum(displayProperties),
   }),
   z.object({
+    action: z.literal("reorderDisplayProperties"),
+    displayProps: z.array(z.enum(displayProperties)),
+  }),
+  z.object({
     action: z.literal("toggleHiddenValue"),
     key: z.enum(["groups", "subgroups"]),
     value: z.string().min(1),
@@ -62,6 +71,7 @@ const viewMutationSchema = z.discriminatedUnion("action", [
       "milestoneIds",
       "relationTypes",
       "projectIds",
+      "parentIds",
       "itemTypes",
       "labelIds",
       "teamIds",
@@ -70,6 +80,10 @@ const viewMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("clearFilters"),
+  }),
+  z.object({
+    action: z.literal("rename"),
+    name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
   }),
 ])
 
@@ -116,6 +130,13 @@ export async function PATCH(
           property: parsed.property,
         })
         break
+      case "reorderDisplayProperties":
+        await reorderViewDisplayPropertiesServer({
+          currentUserId: appContext.ensuredUser.userId,
+          viewId,
+          displayProps: parsed.displayProps,
+        })
+        break
       case "toggleHiddenValue":
         await toggleViewHiddenValueServer({
           currentUserId: appContext.ensuredUser.userId,
@@ -138,11 +159,18 @@ export async function PATCH(
           viewId,
         })
         break
+      case "rename":
+        await renameViewServer({
+          currentUserId: appContext.ensuredUser.userId,
+          viewId,
+          name: parsed.name,
+        })
+        break
     }
 
     return jsonOk({ ok: true })
   } catch (error) {
-    if (error instanceof ApplicationError) {
+    if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
@@ -152,6 +180,46 @@ export async function PATCH(
       500,
       {
         code: "VIEW_UPDATE_FAILED",
+      }
+    )
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ viewId: string }> }
+) {
+  const session = await requireSession()
+
+  if (isRouteResponse(session)) {
+    return session
+  }
+
+  try {
+    const { viewId } = await params
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    await deleteViewServer({
+      currentUserId: appContext.ensuredUser.userId,
+      viewId,
+    })
+
+    return jsonOk({ ok: true })
+  } catch (error) {
+    if (isApplicationError(error)) {
+      return jsonApplicationError(error)
+    }
+
+    logProviderError("Failed to delete view", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete view"),
+      500,
+      {
+        code: "VIEW_DELETE_FAILED",
       }
     )
   }

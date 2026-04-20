@@ -22,6 +22,7 @@ describe("electron runtime config", () => {
 
     expect(
       resolveConfiguredRendererUrl({
+        NODE_ENV: "test",
         APP_URL: "https://app.example.com/",
         NEXT_PUBLIC_APP_URL: "https://public.example.com",
         TEAMS_URL: "https://teams.example.com",
@@ -44,7 +45,7 @@ describe("electron runtime config", () => {
       `${JSON.stringify({ rendererUrl: "https://desktop.example.com/" })}\n`
     )
 
-    expect(resolvePackagedRendererUrl(appPath, {})).toBe(
+    expect(resolvePackagedRendererUrl(appPath, { NODE_ENV: "test" })).toBe(
       "https://desktop.example.com"
     )
   })
@@ -58,6 +59,8 @@ describe("electron runtime config", () => {
     )
     tempDirectories.push(appPath)
 
-    expect(resolvePackagedRendererUrl(appPath, {})).toBe(DEFAULT_RENDERER_URL)
+    expect(resolvePackagedRendererUrl(appPath, { NODE_ENV: "test" })).toBe(
+      DEFAULT_RENDERER_URL
+    )
   })
 })

@@ -33,6 +33,9 @@ import { Input } from "@/components/ui/input"
 
 import {
   ImageUploadControl,
+  SettingsDangerRow,
+  SettingsGroupLabel,
+  SettingsHero,
   SettingsScaffold,
   SettingsSection,
   SettingsToggleRow,
@@ -691,18 +694,57 @@ export function UserSettingsScreen() {
   return (
     <SettingsScaffold
       title="User settings"
-      subtitle="Personal profile, notifications, and account access"
+      hero={
+        <SettingsHero
+          leading={
+            <div className="flex size-14 items-center justify-center overflow-hidden rounded-full border border-line bg-surface-2">
+              {avatarImageSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  alt={currentUser.name}
+                  className="size-full object-cover"
+                  src={avatarImageSrc}
+                />
+              ) : (
+                <span className="text-[15px] font-semibold text-fg-2">
+                  {getUserInitials(currentUser.name)}
+                </span>
+              )}
+            </div>
+          }
+          title={currentUser.name}
+          description={
+            currentUser.title?.trim() ? currentUser.title : currentUser.email
+          }
+          meta={
+            currentUser.title?.trim()
+              ? [
+                  { key: "email", label: currentUser.email },
+                  {
+                    key: "theme",
+                    label: `${themePreference.charAt(0).toUpperCase()}${themePreference.slice(1)} theme`,
+                  },
+                ]
+              : [
+                  {
+                    key: "theme",
+                    label: `${themePreference.charAt(0).toUpperCase()}${themePreference.slice(1)} theme`,
+                  },
+                ]
+          }
+        />
+      }
       footer={
         <Button disabled={saving} onClick={() => void handleSave()}>
           {saving ? "Saving..." : "Save profile"}
         </Button>
       }
     >
-      <div className="max-w-2xl space-y-10">
-        <SettingsSection
-          title="Profile photo"
-          description="Shown wherever your profile appears in the workspace."
-        >
+      <SettingsSection
+        title="Profile"
+        description="Your photo, name, and role as they appear across the app."
+      >
+        <div className="space-y-6">
           <ImageUploadControl
             imageSrc={avatarPreviewUrl}
             onClear={() => {
@@ -712,7 +754,7 @@ export function UserSettingsScreen() {
             }}
             onSelect={handleAvatarUpload}
             preview={
-              <span className="text-base font-semibold text-muted-foreground">
+              <span className="text-base font-semibold text-fg-2">
                 {getUserInitials(name)}
               </span>
             }
@@ -720,12 +762,7 @@ export function UserSettingsScreen() {
             title="Profile photo"
             uploading={uploadingAvatar}
           />
-        </SettingsSection>
 
-        <SettingsSection
-          title="Identity"
-          description="Update how your name and role appear across the app."
-        >
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="profile-name">Name</FieldLabel>
@@ -761,7 +798,8 @@ export function UserSettingsScreen() {
               </FieldDescription>
             </Field>
           </FieldGroup>
-        </SettingsSection>
+        </div>
+      </SettingsSection>
 
         <SettingsSection title="Appearance">
           <FieldGroup>
@@ -894,33 +932,28 @@ export function UserSettingsScreen() {
           </div>
         </SettingsSection>
 
-        <section className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4">
-          <div className="space-y-1">
-            <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-              Danger zone
-            </h2>
-          </div>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Delete account</div>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Permanently disconnect your sign-in and remove you from active
-                workspace memberships. Existing chats, posts, and documents stay
-                visible for history.
-                {deleteAccountBlockReason ? ` ${deleteAccountBlockReason}` : ""}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={deletingAccount || deleteAccountBlockReason != null}
-              onClick={() => setDeleteDialogOpen(true)}
-            >
-              {deletingAccount ? "Deleting..." : "Delete account"}
-            </Button>
-          </div>
-        </section>
-      </div>
+      <SettingsGroupLabel label="Danger zone" />
+      <SettingsDangerRow
+        title="Delete account"
+        description={
+          <>
+            Permanently disconnect your sign-in and remove you from active
+            workspace memberships. Existing chats, posts, and documents stay
+            visible for history.
+            {deleteAccountBlockReason ? ` ${deleteAccountBlockReason}` : ""}
+          </>
+        }
+        action={
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={deletingAccount || deleteAccountBlockReason != null}
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            {deletingAccount ? "Deleting..." : "Delete account"}
+          </Button>
+        }
+      />
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

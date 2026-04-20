@@ -2,7 +2,14 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import { updateProjectServer } from "@/lib/server/convex"
+import {
+  projectNameMaxLength,
+  projectNameMinLength,
+} from "@/lib/domain/types"
+import {
+  deleteProjectServer,
+  updateProjectServer,
+} from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -18,7 +25,15 @@ import {
 
 const projectPatchSchema = z
   .object({
-    status: z.enum(["planning", "active", "paused", "completed"]).optional(),
+    name: z
+      .string()
+      .trim()
+      .min(projectNameMinLength)
+      .max(projectNameMaxLength)
+      .optional(),
+    status: z
+      .enum(["backlog", "planned", "in-progress", "completed", "cancelled"])
+      .optional(),
     priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
   })
   .refine(
@@ -76,6 +91,48 @@ export async function PATCH(
       500,
       {
         code: "PROJECT_UPDATE_FAILED",
+      }
+    )
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const session = await requireSession()
+
+  if (isRouteResponse(session)) {
+    return session
+  }
+
+  try {
+    const { projectId } = await params
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    await deleteProjectServer({
+      currentUserId: appContext.ensuredUser.userId,
+      projectId,
+    })
+
+    return jsonOk({
+      ok: true,
+    })
+  } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
+    logProviderError("Failed to delete project", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete project"),
+      500,
+      {
+        code: "PROJECT_DELETE_FAILED",
       }
     )
   }

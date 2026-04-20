@@ -618,6 +618,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     kind: message.kind ?? "text",
     callId: message.callId ?? null,
     mentionUserIds: message.mentionUserIds ?? [],
+    reactions: message.reactions ?? [],
   }))
   const visibleChannelPosts = (
     await listChannelPostsByConversations(ctx, visibleConversationIds)
@@ -740,6 +741,12 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
 
     for (const mentionUserId of message.mentionUserIds) {
       visibleUserIds.add(mentionUserId)
+    }
+
+    for (const reaction of message.reactions) {
+      for (const reactionUserId of reaction.userIds) {
+        visibleUserIds.add(reactionUserId)
+      }
     }
   }
 

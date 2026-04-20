@@ -39,3 +39,46 @@ export function getGroupValueAdornment(field: GroupField | null, value: string) 
 
   return null
 }
+
+export function getGroupAccentVar(
+  field: GroupField | null,
+  value: string
+): string | null {
+  if (field === "status") {
+    const status = value.trim().toLowerCase()
+    if (status === "done") return "var(--status-done)"
+    if (status === "in-progress" || status === "in progress")
+      return "var(--status-doing)"
+    if (status === "todo") return "var(--status-todo)"
+    if (status === "cancelled" || status === "canceled")
+      return "var(--priority-urgent)"
+    if (status === "duplicate") return "var(--status-cancel)"
+    if (status === "backlog") return "var(--status-backlog)"
+    return null
+  }
+
+  if (field === "priority") {
+    const priority = value as Priority
+    if (priority === "urgent") return "var(--priority-urgent)"
+    if (priority === "high") return "var(--priority-high)"
+    if (priority === "medium") return "var(--priority-medium)"
+    if (priority === "low") return "var(--priority-low)"
+    return null
+  }
+
+  return null
+}
+
+export function computeGroupDoneRatio(items: WorkItem[]): {
+  total: number
+  done: number
+  percent: number
+} {
+  const total = items.length
+  if (total === 0) {
+    return { total: 0, done: 0, percent: 0 }
+  }
+
+  const done = items.filter((item) => item.status === "done").length
+  return { total, done, percent: Math.round((done / total) * 100) }
+}

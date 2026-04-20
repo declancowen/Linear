@@ -16,7 +16,7 @@ export default function WorkspaceViewsPage() {
       scopeId={workspace.id}
       scopeType="workspace"
       title="Workspace views"
-      description="Your personal workspace project and document views across the teams you belong to."
+      description="Saved workspace and team views across the teams you belong to."
     />
   )
 }

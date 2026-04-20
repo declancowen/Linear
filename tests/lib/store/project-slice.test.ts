@@ -7,6 +7,7 @@ import {
 } from "@/lib/domain/types"
 
 const syncCreateProjectMock = vi.fn()
+const syncRenameProjectMock = vi.fn()
 const toastSuccessMock = vi.fn()
 const toastErrorMock = vi.fn()
 
@@ -19,7 +20,9 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/convex/client", () => ({
   syncCreateProject: syncCreateProjectMock,
+  syncRenameProject: syncRenameProjectMock,
   syncUpdateProject: vi.fn(),
+  syncDeleteProject: vi.fn(),
 }))
 
 function createProjectTestState(role: "admin" | "member" | "viewer") {
@@ -59,6 +62,7 @@ function createProjectTestState(role: "admin" | "member" | "viewer") {
 describe("project slice", () => {
   beforeEach(() => {
     syncCreateProjectMock.mockReset()
+    syncRenameProjectMock.mockReset()
     toastSuccessMock.mockReset()
     toastErrorMock.mockReset()
   })
@@ -184,5 +188,198 @@ describe("project slice", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
     expect(syncCreateProjectMock).toHaveBeenCalledTimes(1)
     expect(toastSuccessMock).toHaveBeenCalledWith("Project created")
+  })
+
+  it("defaults project schedule dates from the local calendar day", async () => {
+    const previousTimeZone = process.env.TZ
+    process.env.TZ = "America/Los_Angeles"
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 3, 20, 23, 30))
+    vi.resetModules()
+
+    try {
+      const { formatLocalCalendarDate, addLocalCalendarDays } = await import(
+        "@/lib/calendar-date"
+      )
+      const { createProjectSlice } = await import(
+        "@/lib/store/app-store-internal/slices/projects"
+      )
+
+      const state = createProjectTestState("member")
+      const syncInBackgroundMock = vi.fn()
+      const setState = vi.fn((update: unknown) => {
+        const patch =
+          typeof update === "function"
+            ? update(state as never)
+            : update
+
+        Object.assign(state, patch)
+      })
+      const slice = createProjectSlice(
+        setState as never,
+        () => state as never,
+        {
+          syncInBackground: syncInBackgroundMock,
+        } as never
+      )
+
+      slice.createProject({
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "software-delivery",
+        name: "Roadmap refresh",
+        summary: "Next release",
+        priority: "medium",
+      })
+
+      expect(state.projects[0]).toMatchObject({
+        startDate: formatLocalCalendarDate(),
+        targetDate: addLocalCalendarDays(28),
+      })
+      expect(syncCreateProjectMock).toHaveBeenCalledWith("user_1", {
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "software-delivery",
+        name: "Roadmap refresh",
+        summary: "Next release",
+        priority: "medium",
+        startDate: formatLocalCalendarDate(),
+        targetDate: addLocalCalendarDays(28),
+      })
+    } finally {
+      process.env.TZ = previousTimeZone
+      vi.useRealTimers()
+      vi.resetModules()
+    }
+  })
+
+  it("rejects overly long project rename input before syncing", async () => {
+    const { createProjectSlice } = await import(
+      "@/lib/store/app-store-internal/slices/projects"
+    )
+
+    const state = {
+      ...createProjectTestState("member"),
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team" as const,
+          scopeId: "team_1",
+          templateType: "software-delivery" as const,
+          name: "Launch",
+          summary: "Launch summary",
+          description: "Launch summary",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "no-update" as const,
+          priority: "medium" as const,
+          status: "backlog" as const,
+          blockingProjectIds: [],
+          blockedByProjectIds: [],
+          startDate: null,
+          targetDate: null,
+          labelIds: [],
+          createdAt: "2026-04-20T10:00:00.000Z",
+          updatedAt: "2026-04-20T10:00:00.000Z",
+        },
+      ],
+    }
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+    const slice = createProjectSlice(
+      setState as never,
+      () => state as never,
+      {
+        syncInBackground: vi.fn(),
+      } as never
+    )
+
+    const result = await slice.renameProject("project_1", "x".repeat(65))
+
+    expect(result).toBe(false)
+    expect(syncRenameProjectMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Project name must be at most 64 characters"
+    )
+  })
+
+  it("accepts project-status filters in persisted presentation config", async () => {
+    const { createProjectSlice } = await import(
+      "@/lib/store/app-store-internal/slices/projects"
+    )
+
+    const state = createProjectTestState("member")
+    const syncInBackgroundMock = vi.fn()
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+    const slice = createProjectSlice(
+      setState as never,
+      () => state as never,
+      {
+        syncInBackground: syncInBackgroundMock,
+      } as never
+    )
+
+    slice.createProject({
+      scopeType: "team",
+      scopeId: "team_1",
+      templateType: "software-delivery",
+      name: "Roadmap refresh",
+      summary: "Next release",
+      priority: "medium",
+      presentation: {
+        itemLevel: null,
+        showChildItems: false,
+        layout: "list",
+        grouping: "status",
+        ordering: "priority",
+        displayProps: ["id", "status"],
+        filters: {
+          status: ["planned", "completed"],
+          priority: [],
+          assigneeIds: [],
+          creatorIds: [],
+          leadIds: [],
+          health: [],
+          milestoneIds: [],
+          relationTypes: [],
+          projectIds: [],
+          parentIds: [],
+          itemTypes: [],
+          labelIds: [],
+          teamIds: [],
+          showCompleted: true,
+        },
+      },
+    })
+
+    expect(state.projects).toHaveLength(1)
+    expect(state.projects[0]?.presentation?.filters.status).toEqual([
+      "planned",
+      "completed",
+    ])
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(syncCreateProjectMock).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        presentation: expect.objectContaining({
+          filters: expect.objectContaining({
+            status: ["planned", "completed"],
+          }),
+        }),
+      })
+    )
   })
 })
