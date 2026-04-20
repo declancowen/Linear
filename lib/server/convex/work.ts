@@ -5,8 +5,8 @@ import type {
   GroupField,
   OrderingField,
   Priority,
-  ProjectHealth,
   ViewContainerType,
+  ViewFilters,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -357,22 +357,7 @@ export async function createViewServer(input: {
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
-  filters?: {
-    status: WorkStatus[]
-    priority: Priority[]
-    assigneeIds: string[]
-    creatorIds: string[]
-    leadIds: string[]
-    health: ProjectHealth[]
-    milestoneIds: string[]
-    relationTypes: string[]
-    projectIds: string[]
-    parentIds?: string[]
-    itemTypes: WorkItemType[]
-    labelIds: string[]
-    teamIds: string[]
-    showCompleted: boolean
-  }
+  filters?: ViewFilters
   displayProps?: DisplayProperty[]
   hiddenState?: {
     groups: string[]

@@ -53,6 +53,7 @@ import {
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   projectHealthMeta,
+  projectStatuses,
   projectStatusMeta,
   priorityMeta,
   statusMeta,
@@ -923,10 +924,7 @@ export function ProjectFilterPopover({
     [projects]
   )
   const statusOptions = useMemo(
-    () =>
-      Object.keys(projectStatusMeta).filter((status) =>
-        projects.some((project) => project.status === status)
-      ),
+    () => projectStatuses.filter((status) => projects.some((project) => project.status === status)),
     [projects]
   )
   const activeCount =
@@ -1033,8 +1031,7 @@ export function ProjectFilterPopover({
               {statusOptions
                 .filter((status) =>
                   matchesQuery(
-                    projectStatusMeta[status as keyof typeof projectStatusMeta]
-                      .label,
+                    projectStatusMeta[status].label,
                     query
                   )
                 )
@@ -1057,11 +1054,9 @@ export function ProjectFilterPopover({
                       />
                     }
                     label={
-                      projectStatusMeta[
-                        status as keyof typeof projectStatusMeta
-                      ].label
+                      projectStatusMeta[status].label
                     }
-                    active={view.filters.status.includes(status as never)}
+                    active={view.filters.status.includes(status)}
                     onClick={() => handleToggleFilterValue("status", status)}
                   />
                 ))}

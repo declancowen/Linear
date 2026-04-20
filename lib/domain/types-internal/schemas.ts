@@ -21,6 +21,7 @@ import {
   userStatusMessageMaxLength,
   userStatuses,
   viewLayouts,
+  viewFilterStatuses,
   workItemTypes,
   workStatuses,
 } from "./primitives"
@@ -164,7 +165,7 @@ export const projectSchema = z.object({
       ordering: z.enum(orderingFields),
       displayProps: z.array(z.enum(displayProperties)),
       filters: z.object({
-        status: z.array(z.enum(workStatuses)),
+        status: z.array(z.enum(viewFilterStatuses)),
         priority: z.array(z.enum(priorities)),
         assigneeIds: z.array(z.string()),
         creatorIds: z.array(z.string()),
@@ -184,7 +185,7 @@ export const projectSchema = z.object({
 })
 
 const viewFiltersSchema = z.object({
-  status: z.array(z.enum(workStatuses)),
+  status: z.array(z.enum(viewFilterStatuses)),
   priority: z.array(z.enum(priorities)),
   assigneeIds: z.array(z.string()),
   creatorIds: z.array(z.string()),

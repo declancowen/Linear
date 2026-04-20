@@ -51,11 +51,9 @@ function projectMatchesView(
   project: Project,
   view: Pick<ViewDefinition, "filters">
 ) {
-  const statusFilters = view.filters.status as string[]
-
   if (
-    statusFilters.length > 0 &&
-    !statusFilters.includes(project.status)
+    view.filters.status.length > 0 &&
+    !view.filters.status.includes(project.status)
   ) {
     return false
   }

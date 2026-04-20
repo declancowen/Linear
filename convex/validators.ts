@@ -71,6 +71,18 @@ const projectStatusLiterals = [
   v.literal("cancelled"),
 ] as const
 
+const viewFilterStatusLiterals = [
+  v.literal("backlog"),
+  v.literal("todo"),
+  v.literal("in-progress"),
+  v.literal("done"),
+  v.literal("cancelled"),
+  v.literal("duplicate"),
+  v.literal("planning"),
+  v.literal("planned"),
+  v.literal("completed"),
+] as const
+
 const notificationTypeLiterals = [
   v.literal("mention"),
   v.literal("assignment"),
@@ -240,6 +252,7 @@ export const workStatusValidator = v.union(...workStatusLiterals)
 export const priorityValidator = v.union(...priorityLiterals)
 export const projectHealthValidator = v.union(...projectHealthLiterals)
 export const projectStatusValidator = v.union(...projectStatusLiterals)
+export const viewFilterStatusValidator = v.union(...viewFilterStatusLiterals)
 export const notificationTypeValidator = v.union(...notificationTypeLiterals)
 export const emailJobKindValidator = v.union(...emailJobKindLiterals)
 export const viewLayoutValidator = v.union(...viewLayoutLiterals)
@@ -405,7 +418,7 @@ export const labelFields = {
 }
 
 export const viewFiltersValidator = v.object({
-  status: v.array(workStatusValidator),
+  status: v.array(viewFilterStatusValidator),
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
   creatorIds: v.array(v.string()),
@@ -421,7 +434,7 @@ export const viewFiltersValidator = v.object({
   showCompleted: v.boolean(),
 })
 export const storedViewFiltersValidator = v.object({
-  status: v.array(workStatusValidator),
+  status: v.array(viewFilterStatusValidator),
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
   creatorIds: v.array(v.string()),

@@ -1,4 +1,5 @@
 import type { MutationCtx } from "../_generated/server"
+import type { ViewFilters } from "../../lib/domain/types"
 
 import {
   createViewDefinition,
@@ -116,26 +117,7 @@ type CreateViewArgs = ServerAccessArgs & {
     | "dueDate"
     | "targetDate"
     | "title"
-  filters?: {
-    status: Array<
-      "backlog" | "todo" | "in-progress" | "done" | "cancelled" | "duplicate"
-    >
-    priority: Array<"urgent" | "high" | "medium" | "low" | "none">
-    assigneeIds: string[]
-    creatorIds: string[]
-    leadIds: string[]
-    health: Array<"no-update" | "on-track" | "at-risk" | "off-track">
-    milestoneIds: string[]
-    relationTypes: string[]
-    projectIds: string[]
-    parentIds?: string[]
-    itemTypes: Array<
-      "epic" | "feature" | "requirement" | "story" | "task" | "issue" | "sub-task" | "sub-issue"
-    >
-    labelIds: string[]
-    teamIds: string[]
-    showCompleted: boolean
-  }
+  filters?: ViewFilters
   displayProps?: Array<
     | "id"
     | "type"

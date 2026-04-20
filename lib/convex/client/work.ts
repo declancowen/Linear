@@ -17,6 +17,7 @@ import type {
   TeamWorkflowSettings,
   TemplateType,
   ViewContainerType,
+  ViewFilters,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -74,21 +75,7 @@ type CreateViewInput = {
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
-  filters?: {
-    status: WorkStatus[]
-    priority: Priority[]
-    assigneeIds: string[]
-    creatorIds: string[]
-    leadIds: string[]
-    health: ProjectPresentationConfig["filters"]["health"]
-    milestoneIds: string[]
-    relationTypes: string[]
-    projectIds: string[]
-    itemTypes: WorkItemType[]
-    labelIds: string[]
-    teamIds: string[]
-    showCompleted: boolean
-  }
+  filters?: ViewFilters
   displayProps?: DisplayProperty[]
   hiddenState?: HiddenState
 }

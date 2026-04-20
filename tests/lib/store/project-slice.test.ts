@@ -185,4 +185,78 @@ describe("project slice", () => {
     expect(syncCreateProjectMock).toHaveBeenCalledTimes(1)
     expect(toastSuccessMock).toHaveBeenCalledWith("Project created")
   })
+
+  it("accepts project-status filters in persisted presentation config", async () => {
+    const { createProjectSlice } = await import(
+      "@/lib/store/app-store-internal/slices/projects"
+    )
+
+    const state = createProjectTestState("member")
+    const syncInBackgroundMock = vi.fn()
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+    const slice = createProjectSlice(
+      setState as never,
+      () => state as never,
+      {
+        syncInBackground: syncInBackgroundMock,
+      } as never
+    )
+
+    slice.createProject({
+      scopeType: "team",
+      scopeId: "team_1",
+      templateType: "software-delivery",
+      name: "Roadmap refresh",
+      summary: "Next release",
+      priority: "medium",
+      presentation: {
+        itemLevel: null,
+        showChildItems: false,
+        layout: "list",
+        grouping: "status",
+        ordering: "priority",
+        displayProps: ["id", "status"],
+        filters: {
+          status: ["planned", "completed"],
+          priority: [],
+          assigneeIds: [],
+          creatorIds: [],
+          leadIds: [],
+          health: [],
+          milestoneIds: [],
+          relationTypes: [],
+          projectIds: [],
+          parentIds: [],
+          itemTypes: [],
+          labelIds: [],
+          teamIds: [],
+          showCompleted: true,
+        },
+      },
+    })
+
+    expect(state.projects).toHaveLength(1)
+    expect(state.projects[0]?.presentation?.filters.status).toEqual([
+      "planned",
+      "completed",
+    ])
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(syncCreateProjectMock).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        presentation: expect.objectContaining({
+          filters: expect.objectContaining({
+            status: ["planned", "completed"],
+          }),
+        }),
+      })
+    )
+  })
 })

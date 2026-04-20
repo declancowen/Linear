@@ -243,6 +243,78 @@ describe("view slice", () => {
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
   })
 
+  it("accepts project-only status filters when creating project views", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockImplementation(async (_currentUserId, input) => ({
+      ok: true,
+      viewId: input.id ?? null,
+    }))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "projects",
+      route: "/team/platform/projects",
+      name: "Planned projects",
+      description: "Tracks planned work",
+      filters: {
+        status: ["planned", "completed"],
+        priority: [],
+        assigneeIds: [],
+        creatorIds: [],
+        leadIds: [],
+        health: [],
+        milestoneIds: [],
+        relationTypes: [],
+        projectIds: [],
+        parentIds: [],
+        itemTypes: [],
+        labelIds: [],
+        teamIds: [],
+        showCompleted: true,
+      },
+    })
+
+    expect(createdViewId).toBeTruthy()
+    expect(state.views[0]?.filters.status).toEqual(["planned", "completed"])
+    expect(syncCreateViewMock).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        entityKind: "projects",
+        filters: expect.objectContaining({
+          status: ["planned", "completed"],
+        }),
+      })
+    )
+
+    await backgroundTask
+  })
+
   it("does not roll back the optimistic view when refresh fails after a successful create", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"

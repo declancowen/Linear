@@ -31,20 +31,28 @@ Files and areas reviewed across all turns:
 - `components/app/screens/work-surface-controls.tsx` — persisted view chip controls and property popovers
 - `components/app/screens.tsx` — workspace/team saved-view directory actions
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
+- `convex/app/view_handlers.ts` — saved-view mutation handler arg contracts
+- `convex/validators.ts` — persisted view/project presentation filter validators
 - `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
 - `lib/domain/selectors-internal/projects.ts` — project view filtering selectors
 - `lib/domain/default-views.ts` — canonical saved-view identity and route helpers
 - `lib/domain/types-internal/work.ts` — project status display metadata
+- `lib/domain/types-internal/primitives.ts` — shared view-filter status unions
+- `lib/domain/types-internal/schemas.ts` — client-side view/project payload schemas
+- `lib/convex/client/work.ts` — client saved-view mutation contracts
 - `lib/store/app-store-internal/slices/views.ts` — optimistic saved-view creation and mutation gates
+- `lib/store/app-store-internal/slices/projects.ts` — optimistic project creation validation path
 - `lib/date-input.ts` — calendar-date parsing and chip-label formatting for date input values
 - `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
 - `lib/convex/client/work.ts` — project update route contract typing
+- `lib/server/convex/work.ts` — server saved-view mutation contracts
 - `lib/server/convex/teams-projects.ts` — project update server contract typing
 - `tests/components/create-dialogs.test.tsx` — create-view route derivation regression coverage
 - `tests/components/entity-context-menus.test.tsx` — per-view saved-view mutation authorization coverage
 - `tests/components/work-item-detail-screen.test.tsx` — main activity timeline and sidebar regression coverage
 - `tests/components/work-surface-view.test.tsx` — list/board drag affordance regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
+- `tests/lib/store/project-slice.test.ts` — project presentation filter validation coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/project-views.test.ts` — project-view status filter regression coverage
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
@@ -56,10 +64,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 17:55:44 BST` |
-| **Total turns** | `21` |
+| **Last reviewed** | `2026-04-20 18:12:58 BST` |
+| **Total turns** | `23` |
 | **Open findings** | `0` |
-| **Resolved findings** | `31` |
+| **Resolved findings** | `32` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1336,4 +1344,81 @@ No new findings in this turn.
 
 - `pnpm vitest run tests/components/create-dialogs.test.tsx tests/lib/domain/project-views.test.ts`
 - `pnpm vitest run tests/components/views-screen.test.tsx tests/lib/domain/search-create-actions.test.ts`
+- `pnpm typecheck`
+
+---
+
+## Turn 22 — 2026-04-20 18:12:58 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `4bc4513` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The current tree resolves project-status filtering locally, but the persisted filter contract is still pinned to work-item statuses. Project filter popovers now expose canonical project-only values like `planning`, `planned`, and `completed`, yet the client schemas, Convex validators, and create-view/server contract types still validate `filters.status` as work-item statuses only. That means project views or project presentation configs using those statuses can be rejected during local validation or persistence even though the UI offers them.
+
+| Status | Count |
+|--------|-------|
+| Findings | `1` |
+
+### Findings
+
+#### B22-01 [BUG] High — `convex/validators.ts:408` — Persisted view/project filter contract still rejects project-only status values
+
+**What's happening:**
+Project-filter UI now emits status values from `projectStatusMeta`, but every persisted contract for `filters.status` still uses the work-item enum: `ViewFilters.status`, the Zod `viewFiltersSchema`, the Convex `viewFiltersValidator` / `storedViewFiltersValidator`, and the duplicated create-view client/server arg types.
+
+**Root cause:**
+The selector/UI fix for project status filters landed without widening the underlying shared view-filter status type. The branch therefore split the read path from the persisted write path.
+
+**Codebase implication:**
+Users can select project statuses the product advertises but fail to save them in saved views or project presentation defaults. That is a contract-boundary regression: local state may look correct briefly, then validation or persistence rejects the same values later in the flow.
+
+**Solution options:**
+1. **Quick fix:** Widen the shared `filters.status` contract to accept the union of persisted work-item and project status values.
+2. **Proper fix:** Define one canonical view-filter status enum and consume it from the UI, domain types, schemas, Convex validators, and client/server mutation contracts so this drift cannot recur.
+
+**Investigate:**
+The project filter popover should source options from the canonical persisted project-status enum, not from object keys, so future metadata-only labels cannot outrun what the backend accepts.
+
+> The validator drift is visible in `lib/domain/types-internal/primitives.ts:261-275`, `lib/domain/types-internal/schemas.ts:166-200`, `convex/validators.ts:408-439`, `lib/convex/client/work.ts:51-84`, and `lib/server/convex/work.ts:340-373`.
+
+### Recommendations
+
+1. Fix the shared persisted filter contract once rather than narrowing the UI back down.
+2. Add regression coverage at both optimistic store boundaries: saved-view creation and project creation with a filtered default presentation.
+
+---
+
+## Turn 23 — 2026-04-20 18:12:58 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `4bc4513` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The Turn 22 contract regression is resolved in the working tree. `filters.status` now uses a shared union that includes both persisted work-item and project statuses, and that union is consumed consistently by domain types, Zod schemas, Convex validators, and the client/server saved-view mutation contracts. The project filter popover now also derives its options from the canonical `projectStatuses` enum rather than metadata keys. Regression coverage was added for saved project-view creation and project creation with filtered presentation defaults, and the focused rerun passed.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `1` |
+
+### Status updates
+
+- `B22-01` Resolved — widened the shared `filters.status` contract through `lib/domain/types-internal/primitives.ts`, `lib/domain/types-internal/schemas.ts`, `convex/validators.ts`, `lib/convex/client/work.ts`, `lib/server/convex/work.ts`, and `convex/app/view_handlers.ts`, then added regression coverage in `tests/lib/store/view-slice.test.ts` and `tests/lib/store/project-slice.test.ts`.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep persisted filter enums defined once and reused from the UI outward; metadata maps should not be the source of truth for savable values.
+2. If project and work-item filters diverge further, consider splitting them structurally rather than carrying a wider shared union forever.
+
+### Verification
+
+- `pnpm vitest run tests/lib/store/view-slice.test.ts tests/lib/store/project-slice.test.ts tests/lib/domain/project-views.test.ts`
+- `pnpm vitest run tests/components/create-dialogs.test.tsx`
 - `pnpm typecheck`

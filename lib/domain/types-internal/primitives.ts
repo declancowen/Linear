@@ -76,6 +76,19 @@ export const projectStatuses = [
 ] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
 
+export const viewFilterStatuses = [
+  "backlog",
+  "todo",
+  "in-progress",
+  "done",
+  "cancelled",
+  "duplicate",
+  "planning",
+  "planned",
+  "completed",
+] as const
+export type ViewFilterStatus = (typeof viewFilterStatuses)[number]
+
 export const notificationTypes = [
   "mention",
   "assignment",
@@ -259,7 +272,7 @@ export type HiddenState = {
 export const EMPTY_PARENT_FILTER_VALUE = "__empty__"
 
 export type ViewFilters = {
-  status: WorkStatus[]
+  status: ViewFilterStatus[]
   priority: Priority[]
   assigneeIds: string[]
   creatorIds: string[]
