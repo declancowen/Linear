@@ -34,16 +34,20 @@ export function getProjectProgress(data: AppData, projectId: string) {
   const inProgress = items.filter(
     (item) => item.status === "in-progress"
   ).length
+  const completedPercent =
+    items.length === 0 ? 0 : Math.round((completed / items.length) * 100)
+  const activePercent =
+    items.length === 0
+      ? 0
+      : Math.round(((completed + inProgress) / items.length) * 100)
+
   return {
     scope: items.length,
     completed,
     inProgress,
-    percent:
-      items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
-    inProgressPercent:
-      items.length === 0
-        ? 0
-        : Math.round(((completed + inProgress) / items.length) * 100),
+    completedPercent,
+    activePercent,
+    inProgressOnlyPercent: Math.max(0, activePercent - completedPercent),
   }
 }
 
@@ -94,7 +98,10 @@ function projectMatchesView(
     }
   }
 
-  if (!view.filters.showCompleted && project.status === "completed") {
+  if (
+    !view.filters.showCompleted &&
+    (project.status === "completed" || project.status === "cancelled")
+  ) {
     return false
   }
 

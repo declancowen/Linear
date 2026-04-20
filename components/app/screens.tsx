@@ -716,20 +716,21 @@ function ProjectRow({
                 <div
                   className="absolute inset-y-0 left-0 rounded-full opacity-90"
                   style={{
-                    width: `${progress.inProgressPercent}%`,
+                    left: `${progress.completedPercent}%`,
+                    width: `${progress.inProgressOnlyPercent}%`,
                     background: "var(--status-doing)",
                   }}
                 />
                 <div
                   className="absolute inset-y-0 left-0 rounded-full"
                   style={{
-                    width: `${progress.percent}%`,
+                    width: `${progress.completedPercent}%`,
                     background: "var(--status-done)",
                   }}
                 />
               </div>
               <span className="w-9 text-right tabular-nums">
-                {progress.percent}%
+                {progress.completedPercent}%
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11.5px] text-fg-3">
@@ -787,19 +788,20 @@ function ProjectCard({
             <div
               className="absolute inset-y-0 left-0 rounded-full opacity-90 transition-all"
               style={{
-                width: `${progress.inProgressPercent}%`,
+                left: `${progress.completedPercent}%`,
+                width: `${progress.inProgressOnlyPercent}%`,
                 background: "var(--status-doing)",
               }}
             />
             <div
               className="absolute inset-y-0 left-0 rounded-full transition-all"
               style={{
-                width: `${progress.percent}%`,
+                width: `${progress.completedPercent}%`,
                 background: "var(--status-done)",
               }}
             />
           </div>
-          <span className="tabular-nums">{progress.percent}%</span>
+          <span className="tabular-nums">{progress.completedPercent}%</span>
         </div>
 
         <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
