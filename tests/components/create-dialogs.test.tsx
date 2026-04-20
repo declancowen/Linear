@@ -18,7 +18,7 @@ vi.mock("@/components/ui/select", async () => {
       return node.map((entry) => getTextContent(entry)).join("")
     }
 
-    if (React.isValidElement(node)) {
+    if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
       return getTextContent(node.props.children)
     }
 
@@ -29,7 +29,12 @@ vi.mock("@/components/ui/select", async () => {
     const items: SelectItemDefinition[] = []
 
     React.Children.forEach(node, (child) => {
-      if (!React.isValidElement(child)) {
+      if (
+        !React.isValidElement<{
+          children?: React.ReactNode
+          value: string
+        }>(child)
+      ) {
         return
       }
 
@@ -189,7 +194,7 @@ describe("create dialogs", () => {
           avatarImageUrl: null,
           workosUserId: null,
           title: "Founder",
-          status: "in-progress",
+          status: "active",
           statusMessage: "",
           hasExplicitStatus: false,
           preferences: {

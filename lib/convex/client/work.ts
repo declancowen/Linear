@@ -646,7 +646,7 @@ export function syncUpdateProject(
   projectId: string,
   patch: {
     name?: string
-    status?: "backlog" | "planned" | "in-progress" | "completed" | "cancelled"
+    status?: ProjectStatus
     priority?: Priority
   }
 ) {

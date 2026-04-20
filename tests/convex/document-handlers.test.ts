@@ -368,7 +368,7 @@ describe("document mention notifications", () => {
       updatedBy: "user_1",
     }
 
-    vi.mocked(access.requireEditableTeamAccess).mockResolvedValue(undefined)
+    vi.mocked(access.requireEditableTeamAccess).mockResolvedValue("member")
     vi.mocked(data.getWorkItemDoc).mockResolvedValue({
       _id: "item_1_db",
       id: "item_1",

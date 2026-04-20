@@ -26,7 +26,10 @@ Files and areas reviewed across all turns:
 - `components/app/collaboration-screens/channel-ui.tsx` — channel post cards and new-post composer affordances
 - `components/app/collaboration-screens/chat-thread.tsx` — chat composer affordances
 - `components/app/screens/project-creation.tsx` — project create shortcut path
+- `components/app/screens/work-surface-controls.tsx` — persisted view chip controls and property popovers
 - `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
+- `lib/convex/client/work.ts` — project update route contract typing
+- `lib/server/convex/teams-projects.ts` — project update server contract typing
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
 ## Review status (updated every turn)
@@ -34,10 +37,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-19 19:39:50 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-04-20 13:51:35 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `12` |
+| **Resolved findings** | `14` |
 | **Accepted findings** | `0` |
 
 ---
@@ -488,3 +491,100 @@ No new findings in this turn.
 ### Recommendations
 
 1. No open findings remain in this review slice after the work-surface cleanup.
+
+---
+
+## Turn 8 — 2026-04-20 13:46:20 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `668b108` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The post-review WIP commit introduces two branch-current regressions. One is in the new property chip popover, where the `Clear all` affordance is wired through an unsupported view-config mutation path. The other is project-status drift: `planning` is now part of the domain model, but the project UI and update contracts still omit it, which breaks both the status picker and the branch typecheck.
+
+| Status | Count |
+|--------|-------|
+| Findings | `2` |
+
+### Findings
+
+#### B8-01 [BUG] High — `components/app/screens/work-surface-controls.tsx:1658` — “Clear all” properties is wired through an unsupported mutation path
+
+**What's happening:**
+`PropertiesChipPopover` now renders a `Clear all` action, but the fallback handler tries to call `updateViewConfig(view.id, { displayProps: [] })` even though `displayProps` is not part of the persisted view-config patch contract.
+
+**Root cause:**
+The new chip-popover affordance was added on top of the existing `toggleViewDisplayProperty` flow, but the bulk-clear action was implemented as if display props were a first-class `updateViewConfig` field.
+
+**Codebase implication:**
+This shipped a dead persisted-view control into the shared work-surface chrome. In practice it fails typecheck immediately, and even if forced through, it would bypass the actual display-property sync path and leave local/server state out of sync.
+
+**Solution options:**
+1. **Quick fix:** Clear properties by iterating the existing `toggleViewDisplayProperty` path for every active property.
+2. **Proper fix:** Add an explicit “clear display properties” mutation so bulk clearing remains a single atomic persisted action.
+
+**Investigate:**
+Search the new chip controls for other bulk actions that were layered on top of single-toggle APIs. The same mismatch can recur anywhere a new `Clear all` affordance gets added without a matching persisted mutation.
+
+> The unsupported clear path is in `work-surface-controls.tsx:1658-1666`.
+
+#### B8-02 [BUG] High — `components/app/screens/project-creation.tsx:105` — Project status support drifted after `planning` was added to the domain model
+
+**What's happening:**
+The branch now includes `planning` in the canonical `ProjectStatus` type, but the project status picker/order map and both project update contracts still exclude it.
+
+**Root cause:**
+The status-model expansion did not fully propagate through the UI and route/server typing layers touched by the current WIP pass.
+
+**Codebase implication:**
+This is both a correctness issue and a release blocker. The project picker can no longer represent the full status model, and project updates reject/under-type a valid status, which is why the branch currently fails `pnpm typecheck`.
+
+**Solution options:**
+1. **Quick fix:** Thread `planning` through the UI order/color maps and the client/server project-update patch types.
+2. **Proper fix:** Source project status options from shared domain metadata so new statuses cannot be missed by individual surfaces and transport layers.
+
+**Investigate:**
+Search for any remaining `ProjectStatus` unions or ordered maps that still inline the old five-value list instead of deferring to the domain type/meta.
+
+> The drift is visible in `project-creation.tsx:105-120`, `lib/convex/client/work.ts:644-652`, and `lib/server/convex/teams-projects.ts:310-318`.
+
+### Recommendations
+
+1. **Fix first:** Route the property-popover bulk clear back through a supported persisted display-property path.
+2. **Then fix:** Bring `planning` support back into the project creation/update UI and route/server contract types.
+3. **After that:** Re-run typecheck and the focused dialog/view/project tests before considering the branch ready to commit.
+
+---
+
+## Turn 9 — 2026-04-20 13:51:35 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `668b108` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The two new findings from Turn 8 are resolved in the working tree. Property clearing now goes back through the supported display-property toggle path, and `planning` is carried through the project status picker plus the client/server project update contracts. A focused rerun of typecheck and the relevant UI/store/server tests did not surface any additional open findings in this review slice.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `2` |
+
+### Status updates
+
+- `B8-01` Resolved — the `Clear all` properties action now clears persisted view properties via the supported `toggleViewDisplayProperty` path instead of trying to push `displayProps` through `updateViewConfig`.
+- `B8-02` Resolved — `planning` is now included in the project status order/color maps and in the client/server project update patch types, so the branch-current status model is consistent again.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain in this review slice after the property-popover and project-status fixes.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm test -- tests/components/create-dialogs.test.tsx tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/lib/store/view-slice.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/domain/workspace-search.test.ts tests/electron/runtime-config.test.ts tests/convex/document-handlers.test.ts`

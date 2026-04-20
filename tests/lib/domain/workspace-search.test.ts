@@ -39,7 +39,7 @@ function createSearchFixture(): AppData {
       avatarImageUrl: null,
       workosUserId: null,
       title: "Owner",
-      status: "in-progress",
+      status: "active",
       statusMessage: "",
       preferences: {
         emailMentions: true,
@@ -57,7 +57,7 @@ function createSearchFixture(): AppData {
       avatarImageUrl: null,
       workosUserId: null,
       title: "Lead",
-      status: "in-progress",
+      status: "active",
       statusMessage: "",
       preferences: {
         emailMentions: true,
@@ -75,7 +75,7 @@ function createSearchFixture(): AppData {
       avatarImageUrl: null,
       workosUserId: null,
       title: "Engineer",
-      status: "in-progress",
+      status: "active",
       statusMessage: "",
       preferences: {
         emailMentions: true,

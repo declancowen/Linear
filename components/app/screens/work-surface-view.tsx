@@ -289,7 +289,6 @@ export function BoardView({
                                       onToggle={() =>
                                         toggleExpandedItem(item.id)
                                       }
-                                      variant="board"
                                     />
                                   ) : null
                                 }

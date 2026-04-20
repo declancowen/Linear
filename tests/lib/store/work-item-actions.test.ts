@@ -200,15 +200,27 @@ describe("work item actions", () => {
         id: "workspace_1",
         name: "Primary",
         slug: "primary",
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: "user_1",
+        workosOrganizationId: null,
+        settings: {
+          accent: "emerald",
+          description: "",
+        },
       },
       {
         id: "workspace_2",
         name: "Secondary",
         slug: "secondary",
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: "user_1",
+        workosOrganizationId: null,
+        settings: {
+          accent: "blue",
+          description: "",
+        },
       },
     ]
     const syncInBackgroundMock = vi.fn()

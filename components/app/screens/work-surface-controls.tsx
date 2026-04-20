@@ -1661,9 +1661,11 @@ export function PropertiesChipPopover({
       return
     }
 
-    useAppStore.getState().updateViewConfig(view.id, {
-      displayProps: [],
-    })
+    const activeProperties = [...view.displayProps]
+
+    for (const property of activeProperties) {
+      useAppStore.getState().toggleViewDisplayProperty(view.id, property)
+    }
   }
 
   return (

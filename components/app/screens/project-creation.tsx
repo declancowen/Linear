@@ -104,6 +104,7 @@ const PROJECT_PRESENTATION_PROPERTY_OPTIONS: DisplayProperty[] = [
 
 const PROJECT_STATUS_ORDER: ProjectStatus[] = [
   "backlog",
+  "planning",
   "planned",
   "in-progress",
   "completed",
@@ -112,6 +113,7 @@ const PROJECT_STATUS_ORDER: ProjectStatus[] = [
 
 const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = {
   backlog: "var(--status-backlog)",
+  planning: "var(--status-todo)",
   planned: "var(--status-todo)",
   "in-progress": "var(--status-doing)",
   completed: "var(--status-done)",

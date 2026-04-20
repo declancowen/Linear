@@ -312,7 +312,7 @@ export async function updateProjectServer(input: {
   projectId: string
   patch: {
     name?: string
-    status?: "backlog" | "planned" | "in-progress" | "completed" | "cancelled"
+    status?: ProjectStatus
     priority?: Priority
   }
 }) {

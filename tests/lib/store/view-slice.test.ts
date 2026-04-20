@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
+  type AppData,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
@@ -27,7 +28,7 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateViewConfig: syncUpdateViewConfigMock,
 }))
 
-function createViewTestState() {
+function createViewTestState(): AppData {
   return {
     ...createEmptyState(),
     currentUserId: "user_1",
@@ -61,7 +62,7 @@ function createViewTestState() {
     ui: {
       activeTeamId: "team_1",
       activeInboxNotificationId: null,
-      selectedViewByRoute: {},
+      selectedViewByRoute: {} as Record<string, string>,
       activeCreateDialog: null,
     },
   }

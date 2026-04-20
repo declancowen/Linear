@@ -13,6 +13,7 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  type CreateDialogState,
   type ViewDefinition,
 } from "@/lib/domain/types"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
@@ -337,8 +338,9 @@ describe("ViewsScreen", () => {
         defaultScopeId: "workspace_1",
       })
     )
-    expect(
-      vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0]?.lockScope
-    ).toBeUndefined()
+    const firstDialog = vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0] as
+      | Extract<CreateDialogState, { kind: "view" }>
+      | undefined
+    expect(firstDialog?.lockScope).toBeUndefined()
   })
 })
