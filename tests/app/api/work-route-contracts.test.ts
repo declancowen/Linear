@@ -185,6 +185,62 @@ describe("work route contracts", () => {
     })
   })
 
+  it("rejects invalid work-item schedule values before calling the server", async () => {
+    const createRoute = await import("@/app/api/items/route")
+    const itemRoute = await import("@/app/api/items/[itemId]/route")
+
+    const createResponse = await createRoute.POST(
+      new Request("http://localhost/api/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamId: "team_1",
+          type: "task",
+          title: "Launch task",
+          primaryProjectId: null,
+          assigneeId: null,
+          priority: "medium",
+          dueDate: "not-a-date",
+        }),
+      }) as never
+    )
+
+    expect(createWorkItemServerMock).not.toHaveBeenCalled()
+    expect(createResponse.status).toBe(400)
+    await expect(createResponse.json()).resolves.toEqual({
+      error: "Invalid work item payload",
+      message: "Invalid work item payload",
+      code: "ROUTE_INVALID_BODY",
+    })
+
+    const patchResponse = await itemRoute.PATCH(
+      new Request("http://localhost/api/items/item_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          startDate: "not-a-date",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(updateWorkItemServerMock).not.toHaveBeenCalled()
+    expect(patchResponse.status).toBe(400)
+    await expect(patchResponse.json()).resolves.toEqual({
+      error: "Invalid work item update payload",
+      message: "Invalid work item update payload",
+      code: "ROUTE_INVALID_BODY",
+    })
+  })
+
   it("maps work-item update and delete failures to typed error responses", async () => {
     const itemRoute = await import("@/app/api/items/[itemId]/route")
 
@@ -568,6 +624,36 @@ describe("work route contracts", () => {
       error: "Project not found",
       message: "Project not found",
       code: "PROJECT_NOT_FOUND",
+    })
+  })
+
+  it("rejects invalid project schedule values before calling the server", async () => {
+    const { POST } = await import("@/app/api/projects/route")
+
+    const response = await POST(
+      new Request("http://localhost/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          templateType: "software-delivery",
+          name: "Launch",
+          summary: "Launch summary",
+          priority: "medium",
+          startDate: "not-a-date",
+        }),
+      }) as never
+    )
+
+    expect(createProjectServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid project payload",
+      message: "Invalid project payload",
+      code: "ROUTE_INVALID_BODY",
     })
   })
 

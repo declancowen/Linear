@@ -181,4 +181,33 @@ describe("project handlers", () => {
 
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
+
+  it("rejects invalid project schedule strings before inserting", async () => {
+    const { createProjectHandler } = await import("@/convex/app/project_handlers")
+    const ctx = createCtx()
+
+    listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([
+      {
+        workspaceId: "workspace_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ])
+
+    await expect(
+      createProjectHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        templateType: "software-delivery",
+        name: "Launch",
+        summary: "Launch summary",
+        priority: "medium",
+        startDate: "not-a-date",
+      })
+    ).rejects.toThrow("Start date must be a valid calendar date")
+
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
 })

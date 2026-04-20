@@ -111,6 +111,11 @@ const PROJECT_MUTATION_ERROR_MAPPINGS = [
     code: "PROJECT_LABELS_INVALID",
   },
   {
+    match: /^(Start|Target) date must be a valid calendar date$/,
+    status: 400,
+    code: "PROJECT_DATES_INVALID",
+  },
+  {
     match: "Target date must be on or after the start date",
     status: 400,
     code: "PROJECT_DATES_INVALID",

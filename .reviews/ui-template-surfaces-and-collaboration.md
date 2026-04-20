@@ -74,10 +74,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 22:27:17 BST` |
-| **Total turns** | `34` |
+| **Last reviewed** | `2026-04-20 22:56:06 BST` |
+| **Total turns** | `35` |
 | **Open findings** | `0` |
-| **Resolved findings** | `57` |
+| **Resolved findings** | `60` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1822,5 +1822,50 @@ No new findings in this turn.
 ### Verification
 
 - `pnpm vitest run tests/app/api/work-route-contracts.test.ts tests/lib/server/convex-teams-projects.test.ts tests/lib/store/project-slice.test.ts tests/convex/project-handlers.test.ts`
+- `pnpm typecheck`
+- `git diff --check`
+
+---
+
+## Turn 35 — 2026-04-20 22:56:06 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `d64520d` |
+| **IDE / Agent** | `unknown` |
+| **Risk score** | `High` |
+
+**Summary:** A renewed diff-review pass over the reported schedule-field findings confirmed two live contract holes and one direct-mutation sibling on the same surface. First, the shared `projectSchema` and `workItemSchema` still accepted arbitrary strings for schedule fields, so malformed `startDate` / `dueDate` / `targetDate` payloads could clear the Next.js route boundary even though downstream logic only understands calendar-date values. Second, `app/api/items/[itemId]/route.ts` carried its own unconstrained PATCH schema, so work-item updates could still persist invalid schedule strings even after create was hardened. During the challenger pass, the direct Convex project/work-item handlers were still trusting upstream validation and only enforcing start-vs-target ordering with `new Date(...).getTime()`, which silently NaN-bypasses malformed strings for callers that bypass the route layer. All three are now resolved in the working tree: a shared calendar-date validator constrains supported stored formats (`YYYY-MM-DD` and legacy ISO timestamps), the create and PATCH schemas use that shared contract, and the direct project/work-item handlers now reject malformed schedule values and map them to typed application errors. A focused rerun after the fix passed cleanly, and a grep-based sibling sweep found no remaining raw schedule-string route/schema contracts in the branch.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B35-01` Resolved — `lib/domain/types-internal/schemas.ts` now uses a shared nullable calendar-date schema for project `startDate` / `targetDate` and work-item `startDate` / `dueDate` / `targetDate`, so malformed schedule strings are rejected at the create-route boundary instead of passing through as arbitrary text.
+- `B35-02` Resolved — `app/api/items/[itemId]/route.ts` no longer carries its own unconstrained PATCH-only date strings; work-item update payloads now reuse the same shared calendar-date contract as create and reject malformed schedule values before touching the server wrapper.
+- `B35-03` Resolved — the challenger pass found direct Convex mutation paths still trusted upstream schedule validation, so `convex/app/project_handlers.ts`, `convex/app/work_item_handlers.ts`, `lib/server/convex/teams-projects.ts`, and `lib/server/convex/work.ts` now validate schedule strings and surface typed `PROJECT_DATES_INVALID` / `WORK_ITEM_SCHEDULE_INVALID` errors for callers that bypass the Next.js routes.
+
+### Findings
+
+No new findings in this turn.
+
+### Challenger pass
+
+- Re-checked the full schedule-field write chain after the schema fix: shared date helpers, project/work-item create schemas, work-item PATCH schema, server wrapper mappings, and direct Convex handlers.
+- The challenger pass found one additional sibling cluster: direct `createProjectHandler` / `createWorkItemHandler` / `updateWorkItemHandler` still relied on `new Date(...).getTime()` ordering checks and would accept malformed strings from non-route callers. That cluster is included above as `B35-03` and resolved in the same pass.
+- A final grep sweep over the branch found no remaining raw `startDate` / `dueDate` / `targetDate` `z.string().nullable().optional()` route or shared-schema contracts outside accepted legacy storage/read paths.
+
+### Recommendations
+
+1. Keep calendar-date validation centralized in one shared helper and one shared Zod schema. These fields already exist on both route and direct-server mutation paths, so duplicate inline string validators will drift again.
+2. Treat work-item create and work-item PATCH as the same contract surface for schedule fields. This turn’s item PATCH sibling existed only because it carried a local schema instead of reusing the shared work-item contract.
+3. For date-only fields, compare normalized `YYYY-MM-DD` prefixes rather than `new Date(...).getTime()` whenever the stored contract is calendar-date based. That avoids silent NaN bypasses and keeps ordering logic aligned with the actual data model.
+
+### Verification
+
+- `pnpm vitest run tests/lib/calendar-date.test.ts tests/app/api/work-route-contracts.test.ts tests/convex/project-handlers.test.ts tests/convex/work-item-handlers.test.ts tests/lib/server/convex-teams-projects.test.ts tests/lib/server/convex-work.test.ts`
 - `pnpm typecheck`
 - `git diff --check`

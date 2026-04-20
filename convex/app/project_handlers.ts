@@ -3,6 +3,8 @@ import type { MutationCtx } from "../_generated/server"
 import {
   addLocalCalendarDays,
   formatLocalCalendarDate,
+  getCalendarDatePrefix,
+  isValidCalendarDateString,
 } from "../../lib/calendar-date"
 import {
   type Priority,
@@ -94,6 +96,15 @@ function assertProjectNameLength(name: string) {
     throw new Error(
       `Project name must be at most ${projectNameMaxLength} characters`
     )
+  }
+}
+
+function assertProjectScheduleDate(
+  value: string | null | undefined,
+  label: "Start date" | "Target date"
+) {
+  if (value !== undefined && value !== null && !isValidCalendarDateString(value)) {
+    throw new Error(`${label} must be a valid calendar date`)
   }
 }
 
@@ -195,10 +206,16 @@ export async function createProjectHandler(
     }
   }
 
+  assertProjectScheduleDate(args.startDate, "Start date")
+  assertProjectScheduleDate(args.targetDate, "Target date")
+
+  const startDatePrefix = getCalendarDatePrefix(args.startDate)
+  const targetDatePrefix = getCalendarDatePrefix(args.targetDate)
+
   if (
-    args.startDate &&
-    args.targetDate &&
-    new Date(args.targetDate).getTime() < new Date(args.startDate).getTime()
+    startDatePrefix &&
+    targetDatePrefix &&
+    targetDatePrefix < startDatePrefix
   ) {
     throw new Error("Target date must be on or after the start date")
   }

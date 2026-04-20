@@ -5,6 +5,8 @@ import type { MutationCtx } from "../_generated/server"
 import {
   addLocalCalendarDays,
   formatLocalCalendarDate,
+  getCalendarDatePrefix,
+  isValidCalendarDateString,
 } from "../../lib/calendar-date"
 import {
   buildAssignmentEmailJobs,
@@ -133,6 +135,15 @@ type CreateWorkItemArgs = ServerAccessArgs & {
   targetDate?: string | null
 }
 
+function assertWorkItemScheduleDate(
+  value: string | null | undefined,
+  label: "Start date" | "Due date" | "Target date"
+) {
+  if (value !== undefined && value !== null && !isValidCalendarDateString(value)) {
+    throw new Error(`${label} must be a valid calendar date`)
+  }
+}
+
 export async function updateWorkItemHandler(
   ctx: MutationCtx,
   args: UpdateWorkItemArgs
@@ -171,6 +182,27 @@ export async function updateWorkItemHandler(
 
   if (nextTitle.length < 2 || nextTitle.length > 96) {
     throw new Error("Work item title must be between 2 and 96 characters")
+  }
+
+  assertWorkItemScheduleDate(args.patch.startDate, "Start date")
+  assertWorkItemScheduleDate(args.patch.dueDate, "Due date")
+  assertWorkItemScheduleDate(args.patch.targetDate, "Target date")
+
+  const nextStartDate =
+    args.patch.startDate === undefined ? existing.startDate : args.patch.startDate
+  const nextTargetDate =
+    args.patch.targetDate === undefined
+      ? existing.targetDate
+      : args.patch.targetDate
+  const nextStartDatePrefix = getCalendarDatePrefix(nextStartDate)
+  const nextTargetDatePrefix = getCalendarDatePrefix(nextTargetDate)
+
+  if (
+    nextStartDatePrefix &&
+    nextTargetDatePrefix &&
+    nextTargetDatePrefix < nextStartDatePrefix
+  ) {
+    throw new Error("Target date must be on or after the start date")
   }
 
   const parent = await validateWorkItemParent(ctx, {
@@ -719,6 +751,22 @@ export async function createWorkItemHandler(
   }
 
   const normalizedTeam = normalizeTeam(team)
+
+  assertWorkItemScheduleDate(args.startDate, "Start date")
+  assertWorkItemScheduleDate(args.dueDate, "Due date")
+  assertWorkItemScheduleDate(args.targetDate, "Target date")
+
+  const startDatePrefix = getCalendarDatePrefix(args.startDate)
+  const targetDatePrefix = getCalendarDatePrefix(args.targetDate)
+
+  if (
+    startDatePrefix &&
+    targetDatePrefix &&
+    targetDatePrefix < startDatePrefix
+  ) {
+    throw new Error("Target date must be on or after the start date")
+  }
+
   const parent = await validateWorkItemParent(ctx, {
     teamId: args.teamId,
     itemType: args.type,
@@ -743,14 +791,6 @@ export async function createWorkItemHandler(
 
   if (args.labelIds !== undefined) {
     await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
-  }
-
-  if (
-    args.startDate &&
-    args.targetDate &&
-    new Date(args.targetDate).getTime() < new Date(args.startDate).getTime()
-  ) {
-    throw new Error("Target date must be on or after the start date")
   }
 
   if (resolvedPrimaryProjectId) {

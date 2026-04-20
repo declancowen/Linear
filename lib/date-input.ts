@@ -1,21 +1,14 @@
 import { differenceInCalendarDays, format } from "date-fns"
 
+import { getCalendarDatePrefix } from "@/lib/calendar-date"
+
 const DATE_INPUT_VALUE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
-const DATE_PREFIX_PATTERN = /^(\d{4}-\d{2}-\d{2})/
 const DEFAULT_CALENDAR_DATE_PATTERN = "dd-MM-yyyy"
 
 export interface DateInputValue {
   year: number
   month: number
   day: number
-}
-
-function getDatePrefix(value: string | null | undefined) {
-  if (!value) {
-    return null
-  }
-
-  return DATE_PREFIX_PATTERN.exec(value.trim())?.[1] ?? null
 }
 
 export function parseDateInputValue(
@@ -50,7 +43,7 @@ export function parseDateInputValue(
 export function parseCalendarDateValue(
   value: string | null | undefined
 ): DateInputValue | null {
-  return parseDateInputValue(getDatePrefix(value))
+  return parseDateInputValue(getCalendarDatePrefix(value))
 }
 
 export function getCalendarDate(value: string | null | undefined) {

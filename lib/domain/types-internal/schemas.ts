@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { isValidCalendarDateString } from "@/lib/calendar-date"
 import { getPlainTextContent } from "@/lib/utils"
 
 import {
@@ -30,6 +31,14 @@ import {
   workStatuses,
 } from "./primitives"
 import { getTeamFeatureValidationMessage } from "./work"
+
+export const nullableCalendarDateSchema = z
+  .string()
+  .trim()
+  .refine(isValidCalendarDateString, {
+    message: "Must be a valid calendar date",
+  })
+  .nullable()
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
@@ -156,8 +165,8 @@ export const projectSchema = z.object({
   memberIds: z.array(z.string()).optional(),
   blockingProjectIds: z.array(z.string()).optional(),
   blockedByProjectIds: z.array(z.string()).optional(),
-  startDate: z.string().nullable().optional(),
-  targetDate: z.string().nullable().optional(),
+  startDate: nullableCalendarDateSchema.optional(),
+  targetDate: nullableCalendarDateSchema.optional(),
   labelIds: z.array(z.string()).optional(),
   settingsTeamId: z.string().nullable().optional(),
   presentation: z
@@ -252,9 +261,9 @@ export const workItemSchema = z.object({
   status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),
-  startDate: z.string().nullable().optional(),
-  dueDate: z.string().nullable().optional(),
-  targetDate: z.string().nullable().optional(),
+  startDate: nullableCalendarDateSchema.optional(),
+  dueDate: nullableCalendarDateSchema.optional(),
+  targetDate: nullableCalendarDateSchema.optional(),
 })
 
 const createDocumentBaseSchema = {

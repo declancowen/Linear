@@ -103,6 +103,7 @@ describe("convex team-project server wrappers", () => {
       .mockRejectedValueOnce(
         new Error("All project members must belong to the current workspace")
       )
+      .mockRejectedValueOnce(new Error("Start date must be a valid calendar date"))
       .mockRejectedValueOnce(new Error("Project not found"))
       .mockRejectedValueOnce(new Error("Project name must be at most 64 characters"))
 
@@ -176,6 +177,23 @@ describe("convex team-project server wrappers", () => {
       message: "All project members must belong to the current workspace",
       status: 400,
       code: "PROJECT_MEMBERS_INVALID",
+    })
+
+    await expect(
+      createProjectServer({
+        currentUserId: "user_1",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        templateType: "software-delivery",
+        name: "Launch",
+        summary: "Launch summary",
+        priority: "medium",
+        startDate: "not-a-date",
+      })
+    ).rejects.toMatchObject({
+      message: "Start date must be a valid calendar date",
+      status: 400,
+      code: "PROJECT_DATES_INVALID",
     })
 
     await expect(

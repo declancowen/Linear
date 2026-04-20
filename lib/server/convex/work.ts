@@ -88,6 +88,11 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     code: "WORK_ITEM_TITLE_INVALID",
   },
   {
+    match: /^(Start|Due|Target) date must be a valid calendar date$/,
+    status: 400,
+    code: "WORK_ITEM_SCHEDULE_INVALID",
+  },
+  {
     match: "Target date must be on or after the start date",
     status: 400,
     code: "WORK_ITEM_SCHEDULE_INVALID",

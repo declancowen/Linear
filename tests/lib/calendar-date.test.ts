@@ -33,4 +33,20 @@ describe("calendar date helpers", () => {
       "2026-04-30"
     )
   })
+
+  it("accepts only supported calendar date storage formats", async () => {
+    const { getCalendarDatePrefix, isValidCalendarDateString } = await import(
+      "@/lib/calendar-date"
+    )
+
+    expect(getCalendarDatePrefix("2026-04-20")).toBe("2026-04-20")
+    expect(getCalendarDatePrefix("2026-04-20T00:00:00.000Z")).toBe(
+      "2026-04-20"
+    )
+    expect(isValidCalendarDateString("2026-04-20")).toBe(true)
+    expect(isValidCalendarDateString("2026-04-20T00:00:00.000Z")).toBe(true)
+    expect(isValidCalendarDateString("2026-02-31")).toBe(false)
+    expect(isValidCalendarDateString("2026-04-20foo")).toBe(false)
+    expect(isValidCalendarDateString("not-a-date")).toBe(false)
+  })
 })
