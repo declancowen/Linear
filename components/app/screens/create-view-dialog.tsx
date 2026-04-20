@@ -74,6 +74,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
   PROPERTY_POPOVER_CLASS,
@@ -86,6 +93,7 @@ import { cn } from "@/lib/utils"
 
 type CreateViewDialogState = Extract<CreateDialogState, { kind: "view" }>
 type DraftViewConfig = NonNullable<CreateViewDialogState["initialConfig"]>
+type SelectableEntityKind = "items" | "projects" | "docs"
 
 const crumbTriggerClass =
   "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
@@ -101,6 +109,12 @@ type ScopeOption = {
   scopeType: "team" | "workspace"
   scopeId: string
   label: string
+}
+
+const ENTITY_KIND_LABEL: Record<SelectableEntityKind, string> = {
+  items: "Items",
+  projects: "Projects",
+  docs: "Docs",
 }
 
 function getScopeKey(scopeType: "team" | "workspace", scopeId: string) {
@@ -150,13 +164,41 @@ export function CreateViewDialog({
   dialog: CreateViewDialogState
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
-  const selectedEntityKind: "items" | "projects" | "docs" =
-    dialog.defaultEntityKind ?? "items"
   const currentWorkspace = useMemo(() => getCurrentWorkspace(data), [data])
   const editableTeams = useMemo(
     () => getEditableTeamsForFeature(data, "views"),
     [data]
   )
+  const availableEntityKinds = useMemo<SelectableEntityKind[]>(() => {
+    const canUseWorkspace =
+      currentWorkspace ? canEditWorkspace(data, currentWorkspace.id) : false
+
+    return (["items", "projects", "docs"] as const).filter((entityKind) => {
+      if (canUseWorkspace) {
+        return true
+      }
+
+      return editableTeams.some((team) => {
+        if (!teamHasFeature(team, "views")) {
+          return false
+        }
+
+        if (entityKind === "items") {
+          return teamHasFeature(team, "issues")
+        }
+
+        if (entityKind === "projects") {
+          return teamHasFeature(team, "projects")
+        }
+
+        return teamHasFeature(team, "docs")
+      })
+    })
+  }, [currentWorkspace, data, editableTeams])
+  const initialEntityKind =
+    dialog.defaultEntityKind ?? availableEntityKinds[0] ?? "items"
+  const [selectedEntityKind, setSelectedEntityKind] =
+    useState<SelectableEntityKind>(initialEntityKind)
   const scopeOptions = useMemo(() => {
     const nextOptions: ScopeOption[] = []
 
@@ -219,6 +261,7 @@ export function CreateViewDialog({
       return
     }
 
+    setSelectedEntityKind(initialEntityKind)
     setName("")
     setDescription("")
     setCreating(false)
@@ -232,9 +275,21 @@ export function CreateViewDialog({
     dialog.defaultProjectId,
     dialog.lockProject,
     initialScopeKey,
+    initialEntityKind,
     open,
-    selectedEntityKind,
   ])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    if (availableEntityKinds.includes(selectedEntityKind)) {
+      return
+    }
+
+    setSelectedEntityKind(initialEntityKind)
+  }, [availableEntityKinds, initialEntityKind, open, selectedEntityKind])
 
   const selectedScope = scopeOptions.find((option) => option.key === selectedScopeKey) ?? null
   const selectedTeam = useMemo(
@@ -498,6 +553,26 @@ export function CreateViewDialog({
       setSelectedProjectId("")
     }
   }, [selectedEntityKind, selectedProjectId])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setDraftConfig(createFreshDraftConfig(selectedEntityKind))
+  }, [open, selectedEntityKind])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    if (scopeOptions.some((option) => option.key === selectedScopeKey)) {
+      return
+    }
+
+    setSelectedScopeKey(initialScopeKey)
+  }, [initialScopeKey, open, scopeOptions, selectedScopeKey])
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -848,6 +923,28 @@ export function CreateViewDialog({
         </DialogHeader>
 
         <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
+          {!dialog.lockEntityKind ? (
+            <Select
+              value={selectedEntityKind}
+              onValueChange={(value) =>
+                setSelectedEntityKind(value as SelectableEntityKind)
+              }
+            >
+              <SelectTrigger
+                aria-label="Entity kind"
+                className="h-7 w-[112px] border border-transparent bg-transparent px-2 text-[12.5px] text-fg-2 shadow-none hover:bg-surface-3 focus:ring-2 focus:ring-ring/40"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableEntityKinds.map((entityKind) => (
+                  <SelectItem key={entityKind} value={entityKind}>
+                    {ENTITY_KIND_LABEL[entityKind]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
           {!isProjectSpecificItemView ? (
             <TeamSpaceCrumbPicker
               options={scopeOptions.map((option) => ({

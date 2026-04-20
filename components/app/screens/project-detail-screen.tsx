@@ -161,7 +161,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     (view) => view.id === selectedProjectView?.id
   )
     ? selectedProjectView
-    : (savedProjectItemViews[0] ?? null)
+    : null
 
   useEffect(() => {
     if (!projectRoute) {

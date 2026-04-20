@@ -6,7 +6,7 @@ import type {
   ThHTMLAttributes,
 } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 
 import { ProjectsScreen, ViewsScreen } from "@/components/app/screens"
 import { createEmptyState } from "@/lib/domain/empty-state"
@@ -190,11 +190,16 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   }) => (
     <button
       type="button"
-      onClick={() =>
-        onUpdateView?.({
-          layout: view.layout === "list" ? "board" : "list",
-        })
-      }
+      onClick={() => {
+        const layout = view.layout === "list" ? "board" : "list"
+
+        if (onUpdateView) {
+          onUpdateView({ layout })
+          return
+        }
+
+        useAppStore.getState().updateViewConfig(view.id, { layout })
+      }}
     >
       {`Layout:${view.layout}`}
     </button>
@@ -530,5 +535,59 @@ describe("ViewsScreen", () => {
         name: "Props:id,status,assignee,priority,updated,dueDate",
       })
     ).toBeInTheDocument()
+  })
+
+  it("renders and updates saved project layouts from the active saved view", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      ui: {
+        ...state.ui,
+        selectedViewByRoute: {
+          ...state.ui.selectedViewByRoute,
+          "/team/platform/projects": "team-view",
+        },
+      },
+      views: state.views.map((view) =>
+        view.id === "team-view" ? { ...view, layout: "board" } : view
+      ),
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Launch",
+          summary: "",
+          description: "",
+          leadId: "user_1",
+          memberIds: [],
+          health: "on-track",
+          priority: "medium",
+          status: "in-progress",
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-18T09:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+          presentation: undefined,
+        },
+      ],
+    }))
+
+    render(
+      <ProjectsScreen
+        scopeId="team_1"
+        scopeType="team"
+        team={useAppStore.getState().teams[0]}
+        title="Projects"
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "Layout:board" })).toBeInTheDocument()
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Layout:board" }))
+    })
+
+    expect(screen.getByRole("button", { name: "Layout:list" })).toBeInTheDocument()
   })
 })

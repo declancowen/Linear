@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
+import { createViewDefinition } from "@/lib/domain/default-views"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
@@ -28,6 +29,9 @@ vi.mock("next/link", () => ({
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
 }))
 
 vi.mock("@/lib/browser/dialog-transitions", () => ({
@@ -91,9 +95,12 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  ArrowSquareOut: () => null,
   CaretRight: () => null,
+  PencilSimple: () => null,
   Plus: () => null,
   SidebarSimple: () => null,
+  Trash: () => null,
 }))
 
 function seedState() {
@@ -291,5 +298,44 @@ describe("ProjectDetailScreen", () => {
     expect(screen.getByText("Board layout")).toBeInTheDocument()
     expect(screen.getByText("No work items yet")).toBeInTheDocument()
     expect(screen.queryByText("No linked items yet.")).not.toBeInTheDocument()
+  })
+
+  it("keeps builtin project tabs active until a saved view is explicitly selected", async () => {
+    const savedProjectView = createViewDefinition({
+      id: "saved_project_view",
+      name: "Saved list",
+      description: "",
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+      teamSlug: "platform",
+      experience: "software-development",
+      createdAt: "2026-04-18T10:00:00.000Z",
+      updatedAt: "2026-04-18T10:00:00.000Z",
+      overrides: {
+        layout: "list",
+      },
+    })
+
+    if (!savedProjectView) {
+      throw new Error("Expected saved project view to be created")
+    }
+
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [savedProjectView],
+    }))
+
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText("Board layout")).toBeInTheDocument()
+    expect(screen.queryByText("List layout")).not.toBeInTheDocument()
   })
 })

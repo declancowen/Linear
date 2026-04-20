@@ -64,8 +64,8 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 19:26:55 BST` |
-| **Total turns** | `26` |
+| **Last reviewed** | `2026-04-20 19:51:06 BST` |
+| **Total turns** | `27` |
 | **Open findings** | `0` |
 | **Resolved findings** | `32` |
 | **Accepted findings** | `0` |
@@ -1523,3 +1523,32 @@ No new findings in this turn.
 - `pnpm typecheck`
 - `pnpm exec convex deploy --env-file /tmp/convex-dev.env --typecheck disable`
 - `pnpm exec convex deploy --env-file /tmp/convex-prod.env --typecheck disable`
+
+---
+
+## Turn 27 — 2026-04-20 19:51:06 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `7a6e072` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** A final re-review pass surfaced three live regressions in the current working tree, and all three are now resolved. Unlocked create-view entry points can switch between item/project/doc views again, builtin project detail tabs are no longer shadowed by the first saved project-items view, and the projects screen now renders saved project layouts from the active effective view instead of a parallel fallback variable. Focused regression coverage was added for each path and reran cleanly.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep caller-locked create-view flows and unlocked directory flows on the same dialog component, but gate the entity-kind selector explicitly from `lockEntityKind` so generic entry points retain the full creation surface.
+2. Avoid fallback selection logic that silently promotes saved views when a screen also has builtin tabs; builtin and saved view lifecycles need separate active-state sources.
+
+### Verification
+
+- `pnpm vitest run tests/components/create-dialogs.test.tsx tests/components/project-detail-screen.test.tsx tests/components/views-screen.test.tsx`
+- `pnpm typecheck`

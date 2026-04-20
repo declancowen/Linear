@@ -652,6 +652,53 @@ describe("create dialogs", () => {
     }
   })
 
+  it("lets unlocked create-view flows switch entity kind before submit", async () => {
+    const createViewSpy = vi
+      .spyOn(useAppStore.getState(), "createView")
+      .mockReturnValue("view_1")
+
+    try {
+      render(
+        <CreateViewDialog
+          open
+          onOpenChange={vi.fn()}
+          dialog={{
+            kind: "view",
+            defaultScopeType: "workspace",
+            defaultScopeId: "workspace_1",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByRole("combobox", { name: "Entity kind" }), {
+        target: { value: "projects" },
+      })
+      fireEvent.change(screen.getByPlaceholderText("View name"), {
+        target: { value: "Workspace projects" },
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Create view" })
+        ).not.toBeDisabled()
+      )
+
+      fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          entityKind: "projects",
+          route: "/workspace/projects",
+          name: "Workspace projects",
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
   it("uses the searchable team-space picker in the create view dialog", async () => {
     render(
       <CreateViewDialog

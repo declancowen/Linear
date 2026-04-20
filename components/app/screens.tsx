@@ -1156,7 +1156,7 @@ export function ProjectsScreen({
 
     return {
       ...source,
-      layout,
+      ...(activeView ? {} : { layout }),
       grouping,
       subGrouping,
     }
@@ -1182,6 +1182,7 @@ export function ProjectsScreen({
     [data, effectiveProjectView, visibleProjects]
   )
   const projectDisplayProps = effectiveProjectView?.displayProps ?? []
+  const projectLayout = effectiveProjectView?.layout ?? layout
   const emptyProjectsLabel =
     projects.length === 0
       ? "No projects yet"
@@ -1388,7 +1389,7 @@ export function ProjectsScreen({
           <MissingState title={emptyProjectsLabel} />
         ) : (
           <>
-            {layout === "board" ? (
+            {projectLayout === "board" ? (
               <div className="flex flex-col gap-6 px-7 py-4">
                 {projectSections.map((section) => (
                   <section key={section.key} className="flex flex-col gap-3">
