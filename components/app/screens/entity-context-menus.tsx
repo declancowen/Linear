@@ -2,6 +2,7 @@
 
 import { useState, type KeyboardEvent, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import { useShallow } from "zustand/react/shallow"
 import {
   ArrowSquareOut,
   PencilSimple,
@@ -9,9 +10,10 @@ import {
 } from "@phosphor-icons/react"
 
 import { useAppStore } from "@/lib/store/app-store"
-import { getProjectHref } from "@/lib/domain/selectors"
+import { canMutateView, getProjectHref } from "@/lib/domain/selectors"
 import { getViewHref, isSystemView } from "@/lib/domain/default-views"
 import type { AppData, Project, ViewDefinition } from "@/lib/domain/types"
+import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -129,24 +131,19 @@ function RenameDialog({
 
 export function ViewContextMenu({
   view,
-  editable,
   children,
 }: {
   view: ViewDefinition
-  editable: boolean
+  editable?: boolean
   children: ReactNode
 }) {
   const router = useRouter()
-  const currentUserId = useAppStore((state) => state.currentUserId)
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const renameView = useAppStore((state) => state.renameView)
   const deleteView = useAppStore((state) => state.deleteView)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const canMutate =
-    !isSystemView(view) &&
-    (view.scopeType === "personal"
-      ? view.scopeId === currentUserId
-      : editable)
+  const canMutate = !isSystemView(view) && canMutateView(data, view)
 
   return (
     <>

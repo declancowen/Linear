@@ -2,6 +2,8 @@ import { sortViewsForDisplay } from "@/lib/domain/default-views"
 import type { AppData, Document, ViewDefinition } from "@/lib/domain/types"
 
 import {
+  canEditTeam,
+  canEditWorkspace,
   getAccessibleTeams,
   getDocument,
   getTeam,
@@ -102,6 +104,18 @@ export function getViewContextLabel(
   }
 
   return "Personal"
+}
+
+export function canMutateView(data: AppData, view: ViewDefinition) {
+  if (view.scopeType === "personal") {
+    return view.scopeId === data.currentUserId
+  }
+
+  if (view.scopeType === "team") {
+    return canEditTeam(data, view.scopeId)
+  }
+
+  return canEditWorkspace(data, view.scopeId)
 }
 
 export function getDocumentsForScope(

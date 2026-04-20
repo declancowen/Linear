@@ -47,6 +47,36 @@ import {
 } from "@/components/app/screens/work-surface-view"
 import { cn } from "@/lib/utils"
 
+function getCompatibleActiveView(
+  view: ViewDefinition | null,
+  groupOptions: ViewDefinition["grouping"][]
+) {
+  if (!view) {
+    return null
+  }
+
+  const grouping = groupOptions.includes(view.grouping) ? view.grouping : "status"
+  const subGrouping =
+    view.subGrouping &&
+    groupOptions.includes(view.subGrouping) &&
+    view.subGrouping !== grouping
+      ? view.subGrouping
+      : null
+
+  if (
+    grouping === view.grouping &&
+    subGrouping === (view.subGrouping ?? null)
+  ) {
+    return view
+  }
+
+  return {
+    ...view,
+    grouping,
+    subGrouping,
+  }
+}
+
 export function WorkSurface({
   title,
   routeKey,
@@ -74,7 +104,7 @@ export function WorkSurface({
           ? getDefaultTemplateTypeForTeamExperience(team.settings.experience)
           : null
       ),
-    [team]
+    [team?.settings.experience]
   )
 
   useEffect(() => {
@@ -96,36 +126,13 @@ export function WorkSurface({
     useAppStore.getState().setSelectedView(routeKey, requestedViewId)
   }, [routeKey, searchParams, views])
 
-  useEffect(() => {
-    if (!activeView) {
-      return
-    }
+  const compatibleActiveView = useMemo(
+    () => getCompatibleActiveView(activeView, groupOptions),
+    [activeView, groupOptions]
+  )
 
-    const nextGrouping = groupOptions.includes(activeView.grouping)
-      ? activeView.grouping
-      : "status"
-    const nextSubGrouping =
-      activeView.subGrouping &&
-      groupOptions.includes(activeView.subGrouping) &&
-      activeView.subGrouping !== nextGrouping
-        ? activeView.subGrouping
-        : null
-
-    if (
-      nextGrouping === activeView.grouping &&
-      nextSubGrouping === (activeView.subGrouping ?? null)
-    ) {
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(activeView.id, {
-      grouping: nextGrouping,
-      subGrouping: nextSubGrouping,
-    })
-  }, [activeView, groupOptions])
-
-  const visibleItems = activeView
-    ? getVisibleItemsForView(data, items, activeView)
+  const visibleItems = compatibleActiveView
+    ? getVisibleItemsForView(data, items, compatibleActiveView)
     : items
 
   function handleCreateWorkItem() {
@@ -201,28 +208,28 @@ export function WorkSurface({
         ) : null}
       </Topbar>
 
-      {activeView ? (
+      {compatibleActiveView ? (
         <Viewbar>
-          <LayoutTabs view={activeView} />
+          <LayoutTabs view={compatibleActiveView} />
           <div
             aria-hidden
             className="mx-1.5 h-[18px] w-px bg-line"
           />
           <FilterPopover
-            view={activeView}
+            view={compatibleActiveView}
             items={items}
             variant="chip"
           />
-          <LevelChipPopover view={activeView} />
+          <LevelChipPopover view={compatibleActiveView} />
           <GroupChipPopover
-            view={activeView}
+            view={compatibleActiveView}
             groupOptions={groupOptions}
           />
-          <SortChipPopover view={activeView} />
-          <PropertiesChipPopover view={activeView} />
+          <SortChipPopover view={compatibleActiveView} />
+          <PropertiesChipPopover view={compatibleActiveView} />
           <div className="ml-auto flex items-center gap-1.5">
             <ViewConfigPopover
-              view={activeView}
+              view={compatibleActiveView}
               groupOptions={groupOptions}
             />
             <Button
@@ -239,31 +246,31 @@ export function WorkSurface({
       ) : null}
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
-        {activeView ? (
+        {compatibleActiveView ? (
           <>
-            {activeView.layout === "board" ? (
+            {compatibleActiveView.layout === "board" ? (
               <BoardView
                 data={data}
                 items={visibleItems}
                 scopedItems={items}
-                view={activeView}
+                view={compatibleActiveView}
                 editable={editable}
               />
             ) : null}
-            {activeView.layout === "list" ? (
+            {compatibleActiveView.layout === "list" ? (
               <ListView
                 data={data}
                 items={visibleItems}
                 scopedItems={items}
-                view={activeView}
+                view={compatibleActiveView}
                 editable={editable}
               />
             ) : null}
-            {activeView.layout === "timeline" ? (
+            {compatibleActiveView.layout === "timeline" ? (
               <TimelineView
                 data={data}
                 items={visibleItems}
-                view={activeView}
+                view={compatibleActiveView}
                 editable={editable}
               />
             ) : null}
@@ -284,7 +291,7 @@ export function WorkSurface({
             ) : null}
           </div>
         )}
-        {activeView && visibleItems.length === 0 ? (
+        {compatibleActiveView && visibleItems.length === 0 ? (
           <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
             {emptyLabel}
           </div>

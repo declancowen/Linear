@@ -887,4 +887,46 @@ describe("create dialogs", () => {
       screen.queryByRole("button", { name: "Ops cutover" })
     ).not.toBeInTheDocument()
   })
+
+  it("recomputes the route when the effective scope falls back from workspace to team", async () => {
+    const createViewSpy = vi
+      .spyOn(useAppStore.getState(), "createView")
+      .mockReturnValue("view_1")
+
+    try {
+      render(
+        <CreateViewDialog
+          open
+          onOpenChange={vi.fn()}
+          dialog={{
+            kind: "view",
+            defaultScopeType: "workspace",
+            defaultScopeId: "workspace_1",
+            defaultEntityKind: "projects",
+            defaultRoute: "/workspace/projects",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText("View name"), {
+        target: { value: "Platform projects" },
+      })
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create view" })).not.toBeDisabled()
+      )
+
+      fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "team",
+          scopeId: "team_1",
+          entityKind: "projects",
+          route: "/team/platform/projects",
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
 })

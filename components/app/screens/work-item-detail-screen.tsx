@@ -433,11 +433,14 @@ function DetailSidebarLabelsRow({
       return
     }
 
+    const latestItem =
+      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ?? item
+
     setNewLabelName("")
     useAppStore.getState().updateWorkItem(item.id, {
-      labelIds: item.labelIds.includes(created.id)
-        ? item.labelIds
-        : [...item.labelIds, created.id],
+      labelIds: latestItem.labelIds.includes(created.id)
+        ? latestItem.labelIds
+        : [...latestItem.labelIds, created.id],
     })
   }
 

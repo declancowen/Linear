@@ -26,10 +26,17 @@ Files and areas reviewed across all turns:
 - `components/app/collaboration-screens/channel-ui.tsx` — channel post cards and new-post composer affordances
 - `components/app/collaboration-screens/chat-thread.tsx` — chat composer affordances
 - `components/app/screens/project-creation.tsx` — project create shortcut path
+- `components/app/screens/create-view-dialog.tsx` — saved-view draft routing and scope derivation
 - `components/app/screens/work-surface-controls.tsx` — persisted view chip controls and property popovers
+- `components/app/screens.tsx` — workspace/team saved-view directory actions
+- `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
+- `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
 - `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
 - `lib/convex/client/work.ts` — project update route contract typing
 - `lib/server/convex/teams-projects.ts` — project update server contract typing
+- `tests/components/create-dialogs.test.tsx` — create-view route derivation regression coverage
+- `tests/components/entity-context-menus.test.tsx` — per-view saved-view mutation authorization coverage
+- `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
 ## Review status (updated every turn)
@@ -37,10 +44,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 13:51:35 BST` |
-| **Total turns** | `9` |
+| **Last reviewed** | `2026-04-20 14:21:40 BST` |
+| **Total turns** | `11` |
 | **Open findings** | `0` |
-| **Resolved findings** | `14` |
+| **Resolved findings** | `19` |
 | **Accepted findings** | `0` |
 
 ---
@@ -588,3 +595,175 @@ No new findings in this turn.
 
 - `pnpm typecheck`
 - `pnpm test -- tests/components/create-dialogs.test.tsx tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/lib/store/view-slice.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/domain/workspace-search.test.ts tests/electron/runtime-config.test.ts tests/convex/document-handlers.test.ts`
+
+---
+
+## Turn 10 — 2026-04-20 13:57:00 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e318e54` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The next review pass turns up five branch-current bugs. Three are boundary issues where local UI compatibility or page-level assumptions are being persisted across shared view state and permissions. One is an async stale-closure bug in the new detail-sidebar label flow. The last is a remaining dead control in the board column header. Several other reports in this batch are stale against the current tree, duplicate prior findings, or better treated as observations rather than blockers.
+
+| Status | Count |
+|--------|-------|
+| Findings | `5` |
+
+### Findings
+
+#### B10-01 [BUG] High — `components/app/screens/work-surface.tsx:99` — Surface-level grouping compatibility is being persisted back into saved shared views
+
+**What's happening:**
+The work-surface effect auto-corrects `grouping` and `subGrouping` when the current team experience does not allow the saved values, but it does so by calling `updateViewConfig(activeView.id, ...)` directly.
+
+**Root cause:**
+The compatibility adjustment is implemented as a store mutation instead of a local presentation fallback. That mixes a view-render concern with persisted shared configuration.
+
+**Codebase implication:**
+Opening a saved view in a context that excludes `epic`/`feature` can silently overwrite the shared saved view to `status`, permanently changing what other users see and what the original author sees when they return to a compatible context.
+
+**Solution options:**
+1. **Quick fix:** Derive a local corrected view object for rendering and keep the persisted store record untouched.
+2. **Proper fix:** Model capability compatibility explicitly in the view layer so render-time fallback and persisted configuration remain separate concerns everywhere.
+
+**Investigate:**
+Any other auto-correction path that writes compatibility fallbacks back into persisted view state should be treated with the same suspicion.
+
+> The persistence bug is in `work-surface.tsx:99-125`.
+
+#### B10-02 [BUG] High — `components/app/screens/create-view-dialog.tsx:294` — Caller-supplied route survives scope changes and can become invalid for the selected view scope
+
+**What's happening:**
+The dialog keeps preferring `dialog.defaultRoute` whenever no project is selected, even after the user switches the effective scope.
+
+**Root cause:**
+Route derivation is split between caller-provided seed data and dialog-owned scope state, but the dialog never re-validates that seed against the current scope/entity pair.
+
+**Codebase implication:**
+From workspace-level project surfaces this can produce a team-scoped create payload with a workspace route, which passes optimistic local creation and then fails server-side as an invalid route/scope combination. It is a contract drift bug between UI state, store create logic, and the route validator.
+
+**Solution options:**
+1. **Quick fix:** Only retain `defaultRoute` while it is still valid for the current effective scope and entity kind; otherwise derive a fresh route from the active scope.
+2. **Proper fix:** Treat `defaultRoute` as an initial hint only and centralize all final route derivation inside the dialog from effective scope/project state.
+
+**Investigate:**
+Check every create-view entrypoint that passes `defaultRoute` without locking scope. The invariant should be that final route derivation always happens from current dialog state, not caller state.
+
+> The route mismatch starts at `create-view-dialog.tsx:294-304`.
+
+#### B10-03 [BUG] High — `components/app/screens.tsx:600` — Workspace view directories still gate mutations with a page-level editable flag instead of the view’s actual scope
+
+**What's happening:**
+The workspace saved-views directory renders team-scoped and workspace-scoped views together, but each `ViewContextMenu` still receives the same page-level `editable` flag.
+
+**Root cause:**
+Mutation rights are being inferred from the page container instead of the resource being mutated.
+
+**Codebase implication:**
+Users with writable workspace access but read-only membership in a particular team can still see rename/delete affordances for that team’s view from the workspace directory, only to fail when the server correctly enforces team edit access. That is a broken authorization boundary in the UI layer.
+
+**Solution options:**
+1. **Quick fix:** Derive view mutation permissions per view scope before rendering the context menu.
+2. **Proper fix:** Move the permission derivation into `ViewContextMenu` itself so action affordances are always keyed off the view resource, not off whichever page embedded it.
+
+**Investigate:**
+Search for any other shared action menu that takes a page-level `editable` boolean while rendering mixed-scope resources.
+
+> The mixed-scope directory usage is at `screens.tsx:599-600`, and the menu currently trusts the caller in `entity-context-menus.tsx:130-149`.
+
+#### B10-04 [BUG] Medium — `components/app/screens/work-item-detail-screen.tsx:425` — Label creation in the detail sidebar can restore stale label ids after async completion
+
+**What's happening:**
+`handleCreateLabel()` awaits `createLabel()` and then appends the new id to `item.labelIds` captured from the render-time closure.
+
+**Root cause:**
+The follow-up update is composed from stale component state instead of re-reading the current label ids from the store after the async boundary.
+
+**Codebase implication:**
+If the user toggles labels while the create request is in flight, the final `updateWorkItem()` call can reintroduce labels that were intentionally removed or drop labels added by another interaction. This is a classic stale-closure write-after-async bug.
+
+**Solution options:**
+1. **Quick fix:** Re-read the current item from the store after `await createLabel(...)` and build the next label list from live state.
+2. **Proper fix:** Move “create label and attach to item” into a single store action so the read-modify-write sequence is centralized and atomic from the UI’s point of view.
+
+**Investigate:**
+Any async UI flow that awaits entity creation and then patches a parent entity with closed-over arrays should be checked for the same race.
+
+> The stale follow-up write is in `work-item-detail-screen.tsx:425-441`.
+
+#### B10-05 [BUG] Low — `components/app/screens/work-surface-view.tsx:1015` — Board column overflow button is still rendered as an interactive control with no behavior
+
+**What's happening:**
+The column header still renders a `DotsThree` button styled as a live control, but it has no click behavior.
+
+**Root cause:**
+Template chrome remains in the board header without an implemented overflow action behind it.
+
+**Codebase implication:**
+This is a small but repeated dead affordance on every board column. It also undercuts the earlier cleanup work that removed unsupported controls from other primary surfaces.
+
+**Solution options:**
+1. **Quick fix:** Remove the button until a real overflow action exists.
+2. **Proper fix:** Wire it to a concrete column actions menu once there is real behavior to expose.
+
+**Investigate:**
+Treat the board surface consistently with the prior dead-affordance cleanup: unsupported controls should disappear rather than remain decorative.
+
+> The dead button is in `work-surface-view.tsx:1015-1020`.
+
+### Notes on reviewed-but-not-promoted reports
+
+- The due-date placeholder regression, label-color hashing, template-only CSS variable leaks, full-card drag target, detail-sidebar `dangerouslySetInnerHTML`, plain-text comment rendering, and textarea composer reports are stale against the current branch.
+- The second `DotsThree` report is a duplicate of `B10-05`.
+- The progress-bar layering and naming comments, sidebar child unmounting, resize-handle width, `dt`/`dd` structural requirement, manual hook dependency lists, and `today` capture in `ProjectBoard` are real observations but not strong enough to promote as blocking defects in this pass.
+- `countChildItems()` remains a legitimate scale/performance watchpoint in `work-surface-view.tsx`, but I am treating it as a follow-up optimization unless the current fix pass materially reshapes that rendering path.
+
+### Recommendations
+
+1. **Fix first:** Keep grouping compatibility local in `WorkSurface`, make `CreateViewDialog` derive a route from effective scope, and move view mutation permission checks to the resource boundary.
+2. **Then fix:** Re-read live label ids after async label creation and remove the dead board column button.
+3. **After that:** Re-run focused typecheck/tests, append a clean rerun turn, and only then commit the code plus the updated review artifact.
+
+---
+
+## Turn 11 — 2026-04-20 14:21:40 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e318e54` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The five open findings from Turn 10 are resolved in the working tree. Grouping compatibility is now a local render-time fallback in `WorkSurface`, create-view route derivation is recomputed from live dialog scope, saved-view mutation permissions are derived from the view resource rather than the embedding page, async label creation re-reads live label ids before updating the item, and the dead board-column overflow button has been removed. Focused regression tests plus the adjacent screen suites and `pnpm typecheck` all passed on this pass.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `5` |
+
+### Status updates
+
+- `B10-01` Resolved — `WorkSurface` now derives a compatibility-corrected local view object for rendering and no longer persists grouping/sub-grouping fallbacks back into shared saved-view state.
+- `B10-02` Resolved — `CreateViewDialog` now treats `defaultRoute` as an initial hint only and re-validates it against the current scope/entity pair before reuse; otherwise it derives a fresh route from the active dialog scope.
+- `B10-03` Resolved — per-view mutation rights now come from a scope-aware selector keyed off the actual `ViewDefinition`, so mixed workspace/team directories no longer leak rename/delete affordances across authorization boundaries.
+- `B10-04` Resolved — detail-sidebar label creation now re-reads the current work item from store state after the async `createLabel()` boundary before composing the follow-up `labelIds` patch.
+- `B10-05` Resolved — the unsupported `DotsThree` board-column control has been removed rather than left as a dead affordance.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain in this review slice after the Turn 10 fixes and rerun.
+2. Keep `countChildItems()` and the collection-board progress-bar naming/layering notes as follow-up watchpoints, not blockers, unless a later pass materially expands those surfaces.
+
+### Verification
+
+- `pnpm vitest run tests/components/create-dialogs.test.tsx`
+- `pnpm vitest run tests/components/entity-context-menus.test.tsx`
+- `pnpm vitest run tests/components/work-surface.test.tsx`
+- `pnpm vitest run tests/components/views-screen.test.tsx`
+- `pnpm vitest run tests/components/project-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx`
+- `pnpm typecheck`

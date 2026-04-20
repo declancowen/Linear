@@ -22,6 +22,7 @@ import {
 import {
   createViewDefinition,
   getDefaultRouteForViewContext,
+  isRouteAllowedForViewContext,
 } from "@/lib/domain/default-views"
 import {
   createDefaultViewFilters,
@@ -291,17 +292,40 @@ export function CreateViewDialog({
     [selectedProject, selectedScope]
   )
   const effectiveTeam = selectedProjectTeam ?? selectedTeam
-  const resolvedRoute =
-    selectedProject
-      ? getProjectHref(data, selectedProject)
-      : dialog.defaultRoute ??
-        (selectedScope
-          ? getDefaultRouteForViewContext({
-              scopeType: selectedScope.scopeType,
-              entityKind: selectedEntityKind,
-              teamSlug: selectedTeam?.slug,
-            })
-          : null)
+  const resolvedRoute = useMemo(() => {
+    if (selectedProject) {
+      return getProjectHref(data, selectedProject)
+    }
+
+    if (!selectedScope) {
+      return null
+    }
+
+    if (
+      dialog.defaultRoute &&
+      isRouteAllowedForViewContext({
+        scopeType: selectedScope.scopeType,
+        entityKind: selectedEntityKind,
+        route: dialog.defaultRoute,
+        teamSlug: selectedTeam?.slug,
+      })
+    ) {
+      return dialog.defaultRoute
+    }
+
+    return getDefaultRouteForViewContext({
+      scopeType: selectedScope.scopeType,
+      entityKind: selectedEntityKind,
+      teamSlug: selectedTeam?.slug,
+    })
+  }, [
+    data,
+    dialog.defaultRoute,
+    selectedEntityKind,
+    selectedProject,
+    selectedScope,
+    selectedTeam?.slug,
+  ])
   const scopedProjects = useMemo(
     () =>
       effectiveScope

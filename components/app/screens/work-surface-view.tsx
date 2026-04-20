@@ -18,7 +18,6 @@ import {
   CaretRight,
   Circle,
   DotsSixVertical,
-  DotsThree,
   Flame,
   FolderSimple,
   ListBullets,
@@ -1010,14 +1009,6 @@ function BoardGroupHeader({
         <span className="text-[11.5px] font-normal tabular-nums text-fg-3">
           {groupCount}
         </span>
-      </div>
-      <div className="flex items-center gap-0.5 opacity-55 transition-opacity hover:opacity-100">
-        <button
-          type="button"
-          className="inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-        >
-          <DotsThree className="size-3.5" weight="bold" />
-        </button>
       </div>
     </div>
   )
