@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { ApplicationError } from "@/lib/server/application-errors"
+import { isApplicationError } from "@/lib/server/application-errors"
 import {
   displayProperties,
   groupFields,
@@ -170,7 +170,7 @@ export async function PATCH(
 
     return jsonOk({ ok: true })
   } catch (error) {
-    if (error instanceof ApplicationError) {
+    if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
@@ -210,7 +210,7 @@ export async function DELETE(
 
     return jsonOk({ ok: true })
   } catch (error) {
-    if (error instanceof ApplicationError) {
+    if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 

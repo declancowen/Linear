@@ -78,11 +78,54 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-21 00:06:19 BST` |
-| **Total turns** | `36` |
+| **Last reviewed** | `2026-04-21 00:24:57 BST` |
+| **Total turns** | `37` |
 | **Open findings** | `0` |
 | **Resolved findings** | `63` |
 | **Accepted findings** | `0` |
+
+---
+
+## Turn 37 — 2026-04-21 00:24:57 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `9f16b90` |
+| **IDE / Agent** | `unknown` |
+| **Risk score** | `Medium` |
+
+**Summary:** Re-ran the updated `diff-review` process against the supplied PR-analysis list after clearing unrelated local leftovers. The current-tree pass confirms that the overwhelming majority of the pasted findings are stale or already resolved in the branch: project display-token fallthrough, project create-date forwarding, work-item due-date passthrough, saved-project layout rendering, project status filtering, local-only grouping compatibility fallback, list/board drag affordances, label-color/CSS token regressions, rich-text/XSS rendering, builtin project-view override leakage, and the create-view dependency issue are all already closed in the current tree. The reported chat-message reaction `undefined` concern is also not a bug because `toggleReactionUsers()` already normalizes `undefined` with `reactions ?? []` on the server path. The only remaining live item worth touching from this pass was an API consistency cleanup: [app/api/views/[viewId]/route.ts](../app/api/views/%5BviewId%5D/route.ts) was still classifying application errors with raw `instanceof ApplicationError`, so the route now uses the shared `isApplicationError()` helper in both handlers to match the newer API routes and centralize future error-detection changes in one place.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `0` |
+
+### Status updates
+
+- No new open bug findings remain from the supplied PR-analysis list after current-tree triage.
+- Applied one low-risk consistency cleanup outside the findings count: [app/api/views/[viewId]/route.ts](../app/api/views/%5BviewId%5D/route.ts) now uses `isApplicationError()` in both `PATCH` and `DELETE` handlers instead of open-coding `instanceof ApplicationError`.
+
+### Findings
+
+No new findings in this turn.
+
+### Challenger pass
+
+- Rechecked the same-family project/view/UI findings against the current tree rather than the original report text. The current branch already includes fixes for the prior high-signal bug families around date contracts, saved-view rendering, project status filters, local-only grouping compatibility, drag-handle separation, label/color token usage, rich-text rendering, and builtin project-view overrides.
+- Verified that the reported chat-message reaction `undefined` server-path bug is stale/non-actionable in the current tree because [`toggleReactionUsers`](../convex/app/collaboration_utils.ts) already accepts `undefined` and normalizes to an empty array.
+- The only live inconsistency left in the pasted route-analysis set was the raw `ApplicationError` check in the view route. Because the shared helper currently wraps the same predicate, this was treated as consistency hardening rather than a correctness finding.
+
+### Recommendations
+
+1. Keep external PR-analysis dumps on a live/stale/intentional triage path before treating them as active findings. This turn again showed that a large pasted list can lag well behind the branch state.
+2. When newer route handlers adopt a shared helper such as `isApplicationError()`, standardize older sibling handlers opportunistically so future behavior changes do not require touchpoints across every route file.
+3. Keep review-artifact hygiene tight. Finder-style duplicate files in `.audits/` and `.reviews/` create noise during later turn-based audits and should be removed as soon as they are identified.
+
+### Verification
+
+- `pnpm typecheck`
+- `git diff --check`
 
 ---
 
