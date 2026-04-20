@@ -318,6 +318,21 @@ describe("create dialogs", () => {
     expect(screen.getByRole("dialog")).toHaveClass("top-6", "translate-y-0")
   })
 
+  it("shows distinct planning labels in the project status picker", async () => {
+    render(
+      <CreateProjectDialog
+        open
+        onOpenChange={vi.fn()}
+        defaultTeamId="team_1"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Backlog/ }))
+
+    expect(await screen.findByText("Planning")).toBeInTheDocument()
+    expect(screen.getByText("Planned")).toBeInTheDocument()
+  })
+
   it("uses the searchable team-space picker in the project create dialog and resets to the caller team on reopen", async () => {
     const onOpenChange = vi.fn()
     const { rerender } = render(
@@ -443,7 +458,9 @@ describe("create dialogs", () => {
       ).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
-      expect(screen.getByRole("button", { name: "0 properties" })).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: /Properties.*0/ })
+      ).toBeInTheDocument()
 
       fireEvent.change(screen.getByPlaceholderText("View name"), {
         target: { value: "Billing queue" },
@@ -537,10 +554,13 @@ describe("create dialogs", () => {
       fireEvent.change(screen.getByPlaceholderText("View name"), {
         target: { value: "Ops launch board" },
       })
-      fireEvent.click(screen.getByRole("button", { name: "Platform" }))
-      fireEvent.click(await screen.findByRole("button", { name: "Ops" }))
+
+      expect(screen.getByRole("button", { name: "Acme" })).toBeInTheDocument()
       fireEvent.click(screen.getByRole("button", { name: "Project" }))
       fireEvent.click(await screen.findByRole("button", { name: "Ops cutover" }))
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create view" })).not.toBeDisabled()
+      )
       fireEvent.click(screen.getByRole("button", { name: "Create view" }))
 
       expect(createViewSpy).toHaveBeenCalledWith(
@@ -557,7 +577,39 @@ describe("create dialogs", () => {
     }
   })
 
-  it("defaults workspace item views to the first available team surface", async () => {
+  it("lets workspace-scoped item views be created without editable teams", async () => {
+    useAppStore.setState({
+      workspaceMemberships: [
+        {
+          workspaceId: "workspace_1",
+          userId: "user_1",
+          role: "admin",
+        },
+      ],
+      teamMemberships: [],
+      projects: [
+        {
+          id: "project_workspace",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          templateType: "software-delivery",
+          name: "Workspace roadmap",
+          summary: "Shared roadmap",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "high",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    })
+
     const createViewSpy = vi
       .spyOn(useAppStore.getState(), "createView")
       .mockReturnValue("view_1")
@@ -578,20 +630,20 @@ describe("create dialogs", () => {
       fireEvent.change(screen.getByPlaceholderText("View name"), {
         target: { value: "Ops intake" },
       })
+      expect(screen.getByRole("button", { name: "Acme" })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole("button", { name: "Project" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Workspace roadmap" }))
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Create view" })).not.toBeDisabled()
       )
       fireEvent.click(screen.getByRole("button", { name: "Create view" }))
 
-      expect(screen.queryByText("Select a team or project to create this view.")).not.toBeInTheDocument()
-      expect(screen.queryByText("Saved view")).not.toBeInTheDocument()
-      expect(screen.queryByText("all work")).not.toBeInTheDocument()
       expect(createViewSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          scopeType: "team",
-          scopeId: "team_1",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
           entityKind: "items",
-          route: "/team/platform/work",
+          route: "/workspace/projects/project_workspace",
           name: "Ops intake",
         })
       )
@@ -610,10 +662,10 @@ describe("create dialogs", () => {
           defaultScopeType: "workspace",
           defaultScopeId: "workspace_1",
         }}
-      />
-    )
+        />
+      )
 
-    fireEvent.click(screen.getByRole("button", { name: "Platform" }))
+    fireEvent.click(screen.getByRole("button", { name: "Acme" }))
     expect(
       await screen.findByPlaceholderText("Switch team space…")
     ).toBeInTheDocument()
@@ -798,7 +850,9 @@ describe("create dialogs", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "0 properties" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Properties.*0/ })
+    ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Project" })).not.toBeInTheDocument()
   })
 
@@ -892,7 +946,7 @@ describe("create dialogs", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("recomputes the route when the effective scope falls back from workspace to team", async () => {
+  it("preserves workspace scope for workspace project views", async () => {
     const createViewSpy = vi
       .spyOn(useAppStore.getState(), "createView")
       .mockReturnValue("view_1")
@@ -923,10 +977,10 @@ describe("create dialogs", () => {
 
       expect(createViewSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          scopeType: "team",
-          scopeId: "team_1",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
           entityKind: "projects",
-          route: "/team/platform/projects",
+          route: "/workspace/projects",
         })
       )
     } finally {

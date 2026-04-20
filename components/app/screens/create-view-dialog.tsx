@@ -11,7 +11,9 @@ import {
 } from "@phosphor-icons/react"
 
 import {
+  canEditWorkspace,
   getEditableTeamsForFeature,
+  getCurrentWorkspace,
   getProject,
   getProjectHref,
   getProjectTeam,
@@ -94,22 +96,24 @@ const chipSelectTriggerClass =
 const chipTriggerDashedClass =
   "border-dashed bg-transparent text-fg-3 hover:bg-surface-3 hover:text-foreground"
 
+type ScopeOption = {
+  key: string
+  scopeType: "team" | "workspace"
+  scopeId: string
+  label: string
+}
+
 function getScopeKey(scopeType: "team" | "workspace", scopeId: string) {
   return `${scopeType}:${scopeId}`
 }
 
 function getInitialScopeKey(input: {
   dialog: CreateViewDialogState
-  scopeOptions: Array<{
-    key: string
-    scopeType: "team"
-    scopeId: string
-    label: string
-  }>
+  scopeOptions: ScopeOption[]
 }) {
   const defaultScopeKey =
-    input.dialog.defaultScopeType === "team" && input.dialog.defaultScopeId
-      ? getScopeKey("team", input.dialog.defaultScopeId)
+    input.dialog.defaultScopeType && input.dialog.defaultScopeId
+      ? getScopeKey(input.dialog.defaultScopeType, input.dialog.defaultScopeId)
       : null
 
   if (
@@ -148,17 +152,22 @@ export function CreateViewDialog({
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const selectedEntityKind: "items" | "projects" | "docs" =
     dialog.defaultEntityKind ?? "items"
+  const currentWorkspace = useMemo(() => getCurrentWorkspace(data), [data])
   const editableTeams = useMemo(
     () => getEditableTeamsForFeature(data, "views"),
     [data]
   )
   const scopeOptions = useMemo(() => {
-    const nextOptions: Array<{
-      key: string
-      scopeType: "team"
-      scopeId: string
-      label: string
-    }> = []
+    const nextOptions: ScopeOption[] = []
+
+    if (currentWorkspace && canEditWorkspace(data, currentWorkspace.id)) {
+      nextOptions.push({
+        key: getScopeKey("workspace", currentWorkspace.id),
+        scopeType: "workspace",
+        scopeId: currentWorkspace.id,
+        label: currentWorkspace.name,
+      })
+    }
 
     editableTeams
       .filter((team) => {
@@ -186,7 +195,7 @@ export function CreateViewDialog({
       })
 
     return nextOptions
-  }, [editableTeams, selectedEntityKind])
+  }, [currentWorkspace, data, editableTeams, selectedEntityKind])
   const initialScopeKey = getInitialScopeKey({
     dialog,
     scopeOptions,
@@ -230,7 +239,7 @@ export function CreateViewDialog({
   const selectedScope = scopeOptions.find((option) => option.key === selectedScopeKey) ?? null
   const selectedTeam = useMemo(
     () =>
-      selectedScope
+      selectedScope?.scopeType === "team"
         ? (editableTeams.find((team) => team.id === selectedScope.scopeId) ?? null)
         : null,
     [editableTeams, selectedScope]
@@ -246,7 +255,26 @@ export function CreateViewDialog({
     }
 
     if (!selectedTeam) {
-      return []
+      if (selectedScope?.scopeType !== "workspace") {
+        return []
+      }
+
+      const editableTeamIds = new Set(editableTeams.map((team) => team.id))
+
+      return data.projects
+        .filter((project) => {
+          if (project.scopeType === "workspace") {
+            return project.scopeId === selectedScope.scopeId
+          }
+
+          const team = getProjectTeam(data, project)
+          return Boolean(
+            team &&
+              team.workspaceId === selectedScope.scopeId &&
+              editableTeamIds.has(team.id)
+          )
+        })
+        .sort((left, right) => left.name.localeCompare(right.name))
     }
 
     return data.projects
@@ -260,7 +288,9 @@ export function CreateViewDialog({
     data,
     dialog.defaultProjectId,
     dialog.lockProject,
+    editableTeams,
     selectedEntityKind,
+    selectedScope,
     selectedTeam,
   ])
   const selectedProject = useMemo(
@@ -445,6 +475,8 @@ export function CreateViewDialog({
     name.trim().length >= 2 &&
     Boolean(effectiveScope) &&
     Boolean(resolvedRoute)
+  const showProjectPicker =
+    !isProjectSpecificItemView && (selectedProject || projectOptions.length > 0)
 
   useEffect(() => {
     if (selectedEntityKind === "items") {
@@ -658,6 +690,115 @@ export function CreateViewDialog({
     void handleCreate()
   })
 
+  const projectPicker =
+    showProjectPicker ? (
+      !dialog.lockProject ? (
+        <Popover
+          open={projectPickerOpen}
+          onOpenChange={(nextOpen) => {
+            setProjectPickerOpen(nextOpen)
+            if (!nextOpen) {
+              setProjectQuery("")
+            }
+          }}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Project"
+              className={cn(
+                chipSelectTriggerClass,
+                !selectedProject && chipTriggerDashedClass
+              )}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <FolderSimple className="size-[13px] shrink-0" />
+                <span
+                  className={cn(
+                    "truncate",
+                    selectedProject && "font-medium text-foreground"
+                  )}
+                >
+                  {selectedProject?.name ?? "Project"}
+                </span>
+              </span>
+              <CaretDown className="size-3 shrink-0 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+          >
+            <PropertyPopoverSearch
+              icon={<MagnifyingGlass className="size-[14px]" />}
+              placeholder="Find project…"
+              value={projectQuery}
+              onChange={setProjectQuery}
+            />
+            <PropertyPopoverList>
+              {projectOptions.filter((project) =>
+                project.name
+                  .toLowerCase()
+                  .includes(projectQuery.trim().toLowerCase())
+              ).length > 0 ? (
+                <>
+                  <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
+                  {projectOptions
+                    .filter((project) =>
+                      project.name
+                        .toLowerCase()
+                        .includes(projectQuery.trim().toLowerCase())
+                    )
+                    .map((project) => {
+                      const selected = project.id === selectedProjectId
+                      return (
+                        <PropertyPopoverItem
+                          key={project.id}
+                          selected={selected}
+                          onClick={() => {
+                            setSelectedProjectId(project.id)
+                            setProjectPickerOpen(false)
+                            setProjectQuery("")
+                          }}
+                          trailing={
+                            selected ? (
+                              <Check className="size-[14px] text-foreground" />
+                            ) : null
+                          }
+                        >
+                          <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+                          <span className="truncate">{project.name}</span>
+                        </PropertyPopoverItem>
+                      )
+                    })}
+                </>
+              ) : null}
+              <PropertyPopoverItem
+                selected={!selectedProject}
+                onClick={() => {
+                  setSelectedProjectId("")
+                  setProjectPickerOpen(false)
+                  setProjectQuery("")
+                }}
+                trailing={
+                  !selectedProject ? (
+                    <Check className="size-[14px] text-foreground" />
+                  ) : null
+                }
+              >
+                <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+                <span>Project</span>
+              </PropertyPopoverItem>
+            </PropertyPopoverList>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
+          <span className="truncate">{selectedProject?.name ?? "Project"}</span>
+        </div>
+      )
+    ) : null
+
   return (
     <Dialog
       open={open}
@@ -730,7 +871,7 @@ export function CreateViewDialog({
           <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
             {isProjectSpecificItemView
               ? "Set the layout, filters, grouping, sorting, and properties for this project view."
-              : "Start with a clean view, then choose its team, optional project scope, filters, grouping, sorting, and properties."}
+              : "Start with a clean view, then choose its space, optional project scope, filters, grouping, sorting, and properties."}
           </div>
         </div>
 
@@ -752,117 +893,7 @@ export function CreateViewDialog({
                     chipTone="default"
                     dashedWhenEmpty
                   />
-                  {!isProjectSpecificItemView &&
-                  (selectedProject || projectOptions.length > 0) ? (
-                    !dialog.lockProject ? (
-                      <Popover
-                        open={projectPickerOpen}
-                        onOpenChange={(nextOpen) => {
-                          setProjectPickerOpen(nextOpen)
-                          if (!nextOpen) {
-                            setProjectQuery("")
-                          }
-                        }}
-                      >
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label="Project"
-                            className={cn(
-                              chipSelectTriggerClass,
-                              !selectedProject && chipTriggerDashedClass
-                            )}
-                          >
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <FolderSimple className="size-[13px] shrink-0" />
-                              <span
-                                className={cn(
-                                  "truncate",
-                                  selectedProject && "font-medium text-foreground"
-                                )}
-                              >
-                                {selectedProject?.name ?? "Project"}
-                              </span>
-                            </span>
-                            <CaretDown className="size-3 shrink-0 opacity-60" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          align="start"
-                          className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
-                        >
-                          <PropertyPopoverSearch
-                            icon={<MagnifyingGlass className="size-[14px]" />}
-                            placeholder="Find project…"
-                            value={projectQuery}
-                            onChange={setProjectQuery}
-                          />
-                          <PropertyPopoverList>
-                            {projectOptions.filter((project) =>
-                              project.name
-                                .toLowerCase()
-                                .includes(projectQuery.trim().toLowerCase())
-                            ).length > 0 ? (
-                              <>
-                                <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
-                                {projectOptions
-                                  .filter((project) =>
-                                    project.name
-                                      .toLowerCase()
-                                      .includes(projectQuery.trim().toLowerCase())
-                                  )
-                                  .map((project) => {
-                                    const selected =
-                                      project.id === selectedProjectId
-                                    return (
-                                      <PropertyPopoverItem
-                                        key={project.id}
-                                        selected={selected}
-                                        onClick={() => {
-                                          setSelectedProjectId(project.id)
-                                          setProjectPickerOpen(false)
-                                          setProjectQuery("")
-                                        }}
-                                        trailing={
-                                          selected ? (
-                                            <Check className="size-[14px] text-foreground" />
-                                          ) : null
-                                        }
-                                      >
-                                        <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
-                                        <span className="truncate">{project.name}</span>
-                                      </PropertyPopoverItem>
-                                    )
-                                  })}
-                              </>
-                            ) : null}
-                            <PropertyPopoverItem
-                              selected={!selectedProject}
-                              onClick={() => {
-                                setSelectedProjectId("")
-                                setProjectPickerOpen(false)
-                                setProjectQuery("")
-                              }}
-                              trailing={
-                                !selectedProject ? (
-                                  <Check className="size-[14px] text-foreground" />
-                                ) : null
-                              }
-                            >
-                              <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
-                              <span>Project</span>
-                            </PropertyPopoverItem>
-                          </PropertyPopoverList>
-                        </PopoverContent>
-                      </Popover>
-                    ) : (
-                      <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
-                        <span className="truncate">
-                          {selectedProject?.name ?? "Project"}
-                        </span>
-                      </div>
-                    )
-                  ) : null}
+                  {projectPicker}
                   <LevelChipPopover
                     view={draftView}
                     onUpdateView={updateDraftView}
@@ -889,16 +920,9 @@ export function CreateViewDialog({
                     dashedWhenEmpty
                   />
                 </>
-              ) : !isProjectSpecificItemView &&
-                (selectedProject || projectOptions.length > 0) ? (
-                !dialog.lockProject ? null : (
-                  <div className={chipSelectTriggerClass}>
-                    <span className="truncate">
-                      {selectedProject?.name ?? "Project"}
-                    </span>
-                  </div>
-                )
-              ) : null}
+              ) : (
+                projectPicker
+              )}
             </div>
           </div>
         ) : selectedEntityKind === "projects" && draftView ? (
@@ -929,7 +953,10 @@ export function CreateViewDialog({
 
         {!resolvedRoute ? (
           <p className="px-[18px] pt-2 text-xs text-destructive">
-            Select a team space to create this view.
+            {selectedEntityKind === "items" &&
+            selectedScope?.scopeType === "workspace"
+              ? "Select a project to create this workspace view."
+              : "Select a space to create this view."}
           </p>
         ) : null}
 
@@ -947,7 +974,7 @@ export function CreateViewDialog({
                   </b>
                 </>
               ) : (
-                "Select a team space"
+                "Select a space"
               )}
             </span>
           </div>

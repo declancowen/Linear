@@ -32,7 +32,9 @@ Files and areas reviewed across all turns:
 - `components/app/screens.tsx` — workspace/team saved-view directory actions
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
 - `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
+- `lib/domain/selectors-internal/projects.ts` — project view filtering selectors
 - `lib/domain/default-views.ts` — canonical saved-view identity and route helpers
+- `lib/domain/types-internal/work.ts` — project status display metadata
 - `lib/store/app-store-internal/slices/views.ts` — optimistic saved-view creation and mutation gates
 - `lib/date-input.ts` — calendar-date parsing and chip-label formatting for date input values
 - `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
@@ -44,6 +46,7 @@ Files and areas reviewed across all turns:
 - `tests/components/work-surface-view.test.tsx` — list/board drag affordance regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
+- `tests/lib/domain/project-views.test.ts` — project-view status filter regression coverage
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
 - `tests/lib/date-input.test.ts` — date-only input formatting regression coverage
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
@@ -53,10 +56,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 17:27:17 BST` |
-| **Total turns** | `19` |
+| **Last reviewed** | `2026-04-20 17:55:44 BST` |
+| **Total turns** | `21` |
 | **Open findings** | `0` |
-| **Resolved findings** | `28` |
+| **Resolved findings** | `31` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1213,4 +1216,124 @@ No new findings in this turn.
 
 - `pnpm vitest run tests/lib/date-input.test.ts tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/project-detail-screen.test.tsx`
 - `pnpm vitest run tests/components/views-screen.test.tsx tests/components/work-surface.test.tsx tests/app/api/work-route-contracts.test.ts tests/lib/store/view-slice.test.ts tests/lib/domain/view-item-level.test.ts`
+- `pnpm typecheck`
+
+---
+
+## Turn 20 — 2026-04-20 17:55:44 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `536a807` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The current local diff introduces three live regressions in the saved-view and project-surface paths. The create-view dialog dropped workspace scope from its selectable scopes, which breaks workspace-scoped creation flows and hides the project picker before a workspace item view has a route. The project visibility selector still ignores `filters.status`, so project-status chips are cosmetic only. And the legacy `planning`/`planned` project statuses now render with identical `Planned` labels, making the project status picker ambiguous.
+
+| Status | Count |
+|--------|-------|
+| Findings | `3` |
+
+### Findings
+
+#### B20-01 [BUG] High — `components/app/screens/create-view-dialog.tsx:153` — Workspace-scoped create-view flows no longer have a valid workspace path
+
+**What's happening:**
+The dialog now builds `scopeOptions` from editable teams only, so workspace entrypoints land on the first team or on an empty scope list. That breaks the intended workspace-scoped create flow and also hides the project picker whenever an item view starts on workspace scope, because no draft route exists until a project is chosen.
+
+**Root cause:**
+Scope derivation and project selection were coupled to team-only options. Restoring workspace creation requires both the workspace scope option and a way to surface project selection before `draftView` exists.
+
+**Codebase implication:**
+Workspace-level create actions from the saved-views directory and global search no longer let users create the workspace views they are authorized to create. The regression also leaks into mixed workspace/team project selection because the route never resolves for workspace item views until a project is picked.
+
+**Solution options:**
+1. **Quick fix:** Restore a workspace scope option, keep it available when the workspace is editable, and render the project picker even before `draftView` exists.
+2. **Proper fix:** Keep model selection implicit from the caller, but let the dialog derive scope and route in two stages: scope first, then project when item views need a project-specific route.
+
+**Investigate:**
+The restored workspace project picker must not surface team projects the user cannot mutate; otherwise the dialog will offer team-scoped views that the server rejects.
+
+> The regression is rooted in `create-view-dialog.tsx:153-205`, `create-view-dialog.tsx:239-288`, and `create-view-dialog.tsx:737-836`.
+
+#### B20-02 [BUG] Medium — `lib/domain/selectors-internal/projects.ts:50` — Project status filters are wired in the UI but never applied in the selector
+
+**What's happening:**
+`ProjectFilterPopover` now lets users select project statuses and counts them in the active-filter badge, but `projectMatchesView()` never checks `view.filters.status`.
+
+**Root cause:**
+The project selector still only applies the pre-existing priority/lead/health/team filters, so the new status filter wiring stopped at the presentation layer.
+
+**Codebase implication:**
+Project views advertise a live status filter that has no effect on visible projects. That is worse than missing UI because it tells users the filter is active while leaving the underlying result set untouched.
+
+**Solution options:**
+1. **Quick fix:** Apply `filters.status` inside `projectMatchesView()`.
+2. **Proper fix:** Keep project-view filtering logic centralized in the selector so new project filter chips cannot ship without matching selector coverage.
+
+**Investigate:**
+The shared `ViewFilters.status` field is typed for work-item statuses today, so project filtering needs a narrow compatibility bridge until the filter types are separated more cleanly.
+
+> The missing selector branch is in `lib/domain/selectors-internal/projects.ts:50-95`.
+
+#### B20-03 [BUG] Medium — `lib/domain/types-internal/work.ts:483` — Legacy `planning` and canonical `planned` statuses now render identically
+
+**What's happening:**
+`projectStatusMeta` maps both `planning` and `planned` to `Planned`. The project create dialog renders both values in `PROJECT_STATUS_ORDER`, so users see two identical options that map to different stored statuses.
+
+**Root cause:**
+Backward-compatibility support for the legacy `planning` value was preserved in data, but the display layer collapsed both values onto the same label.
+
+**Codebase implication:**
+The project status picker becomes ambiguous, and any other surface built from `projectStatusMeta` will hide the difference between legacy and canonical data even though both values still exist in the system.
+
+**Solution options:**
+1. **Quick fix:** Give `planning` a distinct display label.
+2. **Proper fix:** If the legacy value is meant to persist for a while, keep its display metadata explicit so users and developers can distinguish it from `planned`.
+
+**Investigate:**
+If the product eventually migrates all legacy `planning` records to `planned`, remove the extra display branch and ordering entry together rather than leaving dead compatibility code behind.
+
+> The ambiguous label mapping is in `lib/domain/types-internal/work.ts:481-488`, and the duplicate picker rows render from `components/app/screens/project-creation.tsx:104-145`.
+
+### Recommendations
+
+1. Restore workspace scope and pre-route project selection in the create-view dialog without bringing back any user-facing model picker.
+2. Fix project status filtering at the selector layer and add regression coverage there.
+3. Give the legacy planning status a distinct display label so the status picker is unambiguous while compatibility remains in place.
+
+---
+
+## Turn 21 — 2026-04-20 17:55:44 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `536a807` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** All three Turn 20 findings are resolved in the working tree. The create-view dialog again supports workspace scope, exposes the project picker before an item-view route exists, and keeps workspace item/project creation model-driven without reintroducing any entity picker. The project selector now applies status filters, and the legacy `planning` value renders as `Planning`, so the project status picker is distinct again. Focused dialog, selector, caller-side, and type-check reruns passed.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B20-01` Resolved — restored a real workspace scope option in `CreateViewDialog`, made workspace item flows surface the project picker before `draftView` exists, and limited workspace project selection to projects whose scope the current user can mutate.
+- `B20-02` Resolved — `projectMatchesView()` now applies `filters.status`, with regression coverage in `tests/lib/domain/project-views.test.ts`.
+- `B20-03` Resolved — `projectStatusMeta.planning` now renders as `Planning`, and the project-create dialog test coverage verifies the picker exposes distinct legacy/canonical labels.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep the create-view flow model-driven from its callers; the dialog should derive valid scope and route state, not ask the user to choose an entity type.
+2. If project filters keep growing, consider splitting project status filters from work-item status filters so the selector layer no longer needs a compatibility cast.
+
+### Verification
+
+- `pnpm vitest run tests/components/create-dialogs.test.tsx tests/lib/domain/project-views.test.ts`
+- `pnpm vitest run tests/components/views-screen.test.tsx tests/lib/domain/search-create-actions.test.ts`
 - `pnpm typecheck`

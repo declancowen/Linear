@@ -480,7 +480,7 @@ export const projectHealthMeta: Record<ProjectHealth, { label: string }> = {
 
 export const projectStatusMeta: Record<ProjectStatus, { label: string }> = {
   backlog: { label: "Backlog" },
-  planning: { label: "Planned" },
+  planning: { label: "Planning" },
   planned: { label: "Planned" },
   "in-progress": { label: "In progress" },
   completed: { label: "Completed" },

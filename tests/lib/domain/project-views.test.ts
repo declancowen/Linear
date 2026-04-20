@@ -114,6 +114,28 @@ describe("project views", () => {
     ).toEqual(["launch"])
   })
 
+  it("filters projects by status when the view selects specific statuses", () => {
+    const state = createEmptyState()
+    const projects = [
+      createProject("backlog", { status: "backlog" }),
+      createProject("active", { status: "in-progress" }),
+      createProject("done", { status: "completed" }),
+    ]
+
+    expect(
+      getVisibleProjectsForView(
+        state,
+        projects,
+        createProjectView({
+          filters: {
+            ...createProjectView().filters,
+            status: ["in-progress", "completed"] as ViewDefinition["filters"]["status"],
+          },
+        })
+      ).map((project) => project.id)
+    ).toEqual(["active", "done"])
+  })
+
   it("hides completed projects when the view excludes completed work", () => {
     const state = createEmptyState()
     const projects = [
