@@ -15,6 +15,7 @@ const createProjectServerMock = vi.fn()
 const createViewServerMock = vi.fn()
 const updateProjectServerMock = vi.fn()
 const updateViewConfigServerMock = vi.fn()
+const reorderViewDisplayPropertiesServerMock = vi.fn()
 const toggleViewDisplayPropertyServerMock = vi.fn()
 const toggleViewHiddenValueServerMock = vi.fn()
 const toggleViewFilterValueServerMock = vi.fn()
@@ -39,6 +40,7 @@ vi.mock("@/lib/server/convex", () => ({
   createViewServer: createViewServerMock,
   updateProjectServer: updateProjectServerMock,
   updateViewConfigServer: updateViewConfigServerMock,
+  reorderViewDisplayPropertiesServer: reorderViewDisplayPropertiesServerMock,
   toggleViewDisplayPropertyServer: toggleViewDisplayPropertyServerMock,
   toggleViewHiddenValueServer: toggleViewHiddenValueServerMock,
   toggleViewFilterValueServer: toggleViewFilterValueServerMock,
@@ -71,6 +73,7 @@ describe("work route contracts", () => {
     createViewServerMock.mockReset()
     updateProjectServerMock.mockReset()
     updateViewConfigServerMock.mockReset()
+    reorderViewDisplayPropertiesServerMock.mockReset()
     toggleViewDisplayPropertyServerMock.mockReset()
     toggleViewHiddenValueServerMock.mockReset()
     toggleViewFilterValueServerMock.mockReset()
@@ -675,6 +678,42 @@ describe("work route contracts", () => {
       viewId: "view_1",
       key: "leadIds",
       value: "user_2",
+    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+  })
+
+  it("accepts display property reorder updates", async () => {
+    const { PATCH } = await import("@/app/api/views/[viewId]/route")
+
+    reorderViewDisplayPropertiesServerMock.mockResolvedValue({
+      ok: true,
+    })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/views/view_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "reorderDisplayProperties",
+          displayProps: ["status", "assignee", "progress"],
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          viewId: "view_1",
+        }),
+      }
+    )
+
+    expect(reorderViewDisplayPropertiesServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      viewId: "view_1",
+      displayProps: ["status", "assignee", "progress"],
     })
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({

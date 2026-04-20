@@ -49,6 +49,8 @@
   --color-status-review: var(--status-review);
   --color-status-done: var(--status-done);
   --color-status-cancel: var(--status-cancel);
+  --color-status-cancelled: var(--status-cancelled);
+  --color-status-duplicate: var(--status-duplicate);
   --color-priority-urgent: var(--priority-urgent);
   --color-priority-high: var(--priority-high);
   --color-priority-medium: var(--priority-medium);
@@ -129,6 +131,8 @@
   --status-review: oklch(0.68 0.16 310);
   --status-done: oklch(0.68 0.15 155);
   --status-cancel: oklch(0.65 0 0);
+  --status-cancelled: oklch(0.63 0.2 27);
+  --status-duplicate: var(--status-cancel);
   --priority-urgent: oklch(0.6 0.22 27);
   --priority-high: oklch(0.7 0.18 55);
   --priority-medium: oklch(0.72 0.12 90);
@@ -190,6 +194,8 @@
   --status-review: oklch(0.74 0.16 310);
   --status-done: oklch(0.72 0.15 155);
   --status-cancel: oklch(0.62 0 0);
+  --status-cancelled: oklch(0.69 0.18 24);
+  --status-duplicate: var(--status-cancel);
   --priority-urgent: oklch(0.66 0.22 27);
   --priority-high: oklch(0.76 0.18 55);
   --priority-medium: oklch(0.78 0.12 90);

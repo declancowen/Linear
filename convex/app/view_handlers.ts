@@ -128,6 +128,7 @@ type CreateViewArgs = ServerAccessArgs & {
     milestoneIds: string[]
     relationTypes: string[]
     projectIds: string[]
+    parentIds?: string[]
     itemTypes: Array<
       "epic" | "feature" | "requirement" | "story" | "task" | "issue" | "sub-task" | "sub-issue"
     >
@@ -141,6 +142,7 @@ type CreateViewArgs = ServerAccessArgs & {
     | "status"
     | "assignee"
     | "priority"
+    | "progress"
     | "project"
     | "dueDate"
     | "milestone"
@@ -163,12 +165,32 @@ type ViewDisplayPropertyArgs = ServerAccessArgs & {
     | "status"
     | "assignee"
     | "priority"
+    | "progress"
     | "project"
     | "dueDate"
     | "milestone"
     | "labels"
     | "created"
     | "updated"
+}
+
+type ReorderViewDisplayPropertiesArgs = ServerAccessArgs & {
+  currentUserId: string
+  viewId: string
+  displayProps: Array<
+    | "id"
+    | "type"
+    | "status"
+    | "assignee"
+    | "priority"
+    | "progress"
+    | "project"
+    | "dueDate"
+    | "milestone"
+    | "labels"
+    | "created"
+    | "updated"
+  >
 }
 
 type ViewHiddenValueArgs = ServerAccessArgs & {
@@ -191,6 +213,7 @@ type ViewFilterValueArgs = ServerAccessArgs & {
     | "milestoneIds"
     | "relationTypes"
     | "projectIds"
+    | "parentIds"
     | "itemTypes"
     | "labelIds"
     | "teamIds"
@@ -358,6 +381,25 @@ export async function toggleViewDisplayPropertyHandler(
   })
 }
 
+export async function reorderViewDisplayPropertiesHandler(
+  ctx: MutationCtx,
+  args: ReorderViewDisplayPropertiesArgs
+) {
+  assertServerToken(args.serverToken)
+  const view = await requireViewMutationAccess(
+    ctx,
+    args.viewId,
+    args.currentUserId
+  )
+
+  const nextDisplayProps = Array.from(new Set(args.displayProps))
+
+  await ctx.db.patch(view._id, {
+    displayProps: nextDisplayProps,
+    updatedAt: getNow(),
+  })
+}
+
 export async function toggleViewHiddenValueHandler(
   ctx: MutationCtx,
   args: ViewHiddenValueArgs
@@ -394,7 +436,7 @@ export async function toggleViewFilterValueHandler(
     args.currentUserId
   )
 
-  const current = [...(view.filters[args.key] as string[])]
+  const current = [...((view.filters[args.key] as string[] | undefined) ?? [])]
   const next = current.includes(args.value)
     ? current.filter((entry) => entry !== args.value)
     : [...current, args.value]
@@ -441,6 +483,7 @@ export async function clearViewFiltersHandler(
       milestoneIds: [],
       relationTypes: [],
       projectIds: [],
+      parentIds: [],
       itemTypes: [],
       labelIds: [],
       teamIds: [],

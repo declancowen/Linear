@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react"
-import { GearSix, Kanban, CaretDown, CaretRight, Rows, CheckCircle, Circle, XCircle, CodesandboxLogo, NotePencil, Flame } from "@phosphor-icons/react"
+import { GearSix, Kanban, CaretDown, CaretRight, Rows, Check, CheckCircle, Circle, CodesandboxLogo, NotePencil, Flame } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
 import { getLabelsForTeamScope } from "@/lib/domain/selectors"
@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { StatusRing } from "@/components/ui/template-primitives"
 import { cn } from "@/lib/utils"
 
 export const PROPERTY_SELECT_SEPARATOR_VALUE = "__separator__"
@@ -223,44 +224,35 @@ export function StatusIcon({ status }: { status: string }) {
   const statusLower = status.toLowerCase()
   if (statusLower === "done" || statusLower === "completed") {
     return (
-      <CheckCircle
-        className="size-3.5 shrink-0 text-status-done"
-        weight="fill"
-      />
-    )
-  }
-  if (statusLower === "in-progress" || statusLower === "in progress") {
-    return (
-      <span className="inline-grid size-3.5 shrink-0 place-items-center">
-        <span
-          aria-hidden
-          className="inline-block size-[11px] rounded-full border-[1.25px] border-status-doing"
-          style={{
-            background:
-              "conic-gradient(var(--status-doing) 0 50%, transparent 50% 100%)",
-          }}
+      <span className="relative inline-grid size-3.5 shrink-0 place-items-center">
+        <StatusRing status="done" className="size-3.5" />
+        <Check
+          className="pointer-events-none absolute size-[7px]"
+          style={{ color: "white" }}
+          weight="bold"
         />
       </span>
     )
+  }
+  if (statusLower === "in-progress" || statusLower === "in progress") {
+    return <StatusRing status="in-progress" className="size-3.5" />
   }
   if (statusLower === "in-review" || statusLower === "in review") {
     return (
       <Circle className="size-3.5 shrink-0 text-status-review" weight="fill" />
     )
   }
-  if (statusLower === "cancelled" || statusLower === "duplicate") {
-    return (
-      <XCircle
-        className="size-3.5 shrink-0 text-status-cancel"
-        weight="fill"
-      />
-    )
+  if (statusLower === "cancelled") {
+    return <StatusRing status="cancelled" className="size-3.5" />
   }
   if (statusLower === "todo") {
-    return <Circle className="size-3.5 shrink-0 text-status-todo" />
+    return <StatusRing status="todo" className="size-3.5" />
+  }
+  if (statusLower === "duplicate") {
+    return <StatusRing status="duplicate" className="size-3.5" />
   }
 
-  return <Circle className="size-3.5 shrink-0 text-status-backlog/70" />
+  return <StatusRing status="backlog" className="size-3.5 opacity-70" />
 }
 
 const PRIORITY_ICON_TOKEN: Record<Priority, string> = {

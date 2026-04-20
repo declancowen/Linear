@@ -1,7 +1,7 @@
 "use client"
 
 import type { Editor } from "@tiptap/react"
-import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns"
+import { format, formatDistanceToNow } from "date-fns"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState, type ReactNode } from "react"
@@ -69,6 +69,10 @@ import {
   type Priority,
   type WorkItem,
 } from "@/lib/domain/types"
+import {
+  formatCalendarDateLabel,
+  getCalendarDateDayOffset,
+} from "@/lib/date-input"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -154,17 +158,18 @@ function formatDetailDate(value: string | null) {
     return "—"
   }
 
-  const date = new Date(value)
+  const dateLabel = formatCalendarDateLabel(value, "—")
+  const dayOffset = getCalendarDateDayOffset(value)
 
-  if (isToday(date)) {
-    return `Today, ${format(date, "MMM d")}`
+  if (dayOffset === 0) {
+    return `Today, ${dateLabel}`
   }
 
-  if (isTomorrow(date)) {
-    return `Tomorrow, ${format(date, "MMM d")}`
+  if (dayOffset === 1) {
+    return `Tomorrow, ${dateLabel}`
   }
 
-  return format(date, "EEEE, MMM d")
+  return formatCalendarDateLabel(value, "—", "EEEE, MMM d")
 }
 
 function formatRelativeTimestamp(value: string) {
@@ -196,9 +201,11 @@ function DetailSidebarSection({
     <section className="mt-7">
       <div className="mb-2.5 flex items-center gap-2 text-[11.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
         <span>{title}</span>
-        {count ? <span className="font-medium text-fg-4">· {count}</span> : null}
+        {count ? (
+          <span className="font-medium text-fg-4">· {count}</span>
+        ) : null}
         {action ? (
-          <div className="ml-auto text-[11.5px] font-medium tracking-normal normal-case text-fg-3">
+          <div className="ml-auto text-[11.5px] font-medium tracking-normal text-fg-3 normal-case">
             {action}
           </div>
         ) : null}
@@ -254,7 +261,9 @@ function DetailSidebarSelectRow({
   const [open, setOpen] = useState(false)
   const selectedOption =
     options.find((option) => option.value === value) ??
-    options.find((option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE) ??
+    options.find(
+      (option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE
+    ) ??
     null
   const selectedValue = selectedOption?.value ?? value
   const selectedLabel = selectedOption?.label ?? value
@@ -291,14 +300,18 @@ function DetailSidebarSelectRow({
             <div className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto">
               {options.map((option, index) =>
                 option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
-                  <div key={`separator-${index}`} className="my-1 h-px bg-line-soft" />
+                  <div
+                    key={`separator-${index}`}
+                    className="my-1 h-px bg-line-soft"
+                  />
                 ) : (
                   <button
                     key={option.value}
                     type="button"
                     className={cn(
                       "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
-                      option.value === selectedValue && "bg-surface-3 text-foreground"
+                      option.value === selectedValue &&
+                        "bg-surface-3 text-foreground"
                     )}
                     onClick={() => {
                       onValueChange(option.value)
@@ -410,7 +423,9 @@ function DetailSidebarLabelsRow({
   editable: boolean
 }) {
   const [newLabelName, setNewLabelName] = useState("")
-  const selectedLabels = labels.filter((label) => item.labelIds.includes(label.id))
+  const selectedLabels = labels.filter((label) =>
+    item.labelIds.includes(label.id)
+  )
 
   function toggleLabel(labelId: string) {
     const nextLabelIds = item.labelIds.includes(labelId)
@@ -427,14 +442,17 @@ function DetailSidebarLabelsRow({
       return
     }
 
-    const created = await useAppStore.getState().createLabel(newLabelName, workspaceId)
+    const created = await useAppStore
+      .getState()
+      .createLabel(newLabelName, workspaceId)
 
     if (!created) {
       return
     }
 
     const latestItem =
-      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ?? item
+      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ??
+      item
 
     setNewLabelName("")
     useAppStore.getState().updateWorkItem(item.id, {
@@ -476,7 +494,12 @@ function DetailSidebarLabelsRow({
                   <span className="text-fg-4">No labels</span>
                 )}
                 {editable ? (
-                  <span className={cn(detailChipClassName, "border-dashed bg-transparent text-fg-3")}>
+                  <span
+                    className={cn(
+                      detailChipClassName,
+                      "border-dashed bg-transparent text-fg-3"
+                    )}
+                  >
                     <Plus className="size-3" />
                   </span>
                 ) : null}
@@ -504,7 +527,8 @@ function DetailSidebarLabelsRow({
                           disabled={!editable}
                           className={cn(
                             detailChipClassName,
-                            selected && "border-transparent bg-accent-bg text-accent-fg"
+                            selected &&
+                              "border-transparent bg-accent-bg text-accent-fg"
                           )}
                           onClick={() => toggleLabel(label.id)}
                         >
@@ -517,7 +541,9 @@ function DetailSidebarLabelsRow({
                       )
                     })
                   ) : (
-                    <span className="text-[12.5px] text-fg-4">No labels yet</span>
+                    <span className="text-[12.5px] text-fg-4">
+                      No labels yet
+                    </span>
                   )}
                 </div>
               </div>
@@ -536,7 +562,11 @@ function DetailSidebarLabelsRow({
                   />
                   <Button
                     size="sm"
-                    disabled={!editable || !workspaceId || newLabelName.trim().length === 0}
+                    disabled={
+                      !editable ||
+                      !workspaceId ||
+                      newLabelName.trim().length === 0
+                    }
                     onClick={() => void handleCreateLabel()}
                   >
                     Create
@@ -570,7 +600,7 @@ function DetailSidebarComment({
   const replies = repliesByParentId[comment.id] ?? []
 
   return (
-    <div className={cn(depth > 0 && "ml-6 mt-3 border-l border-line pl-4")}>
+    <div className={cn(depth > 0 && "mt-3 ml-6 border-l border-line pl-4")}>
       <div className="flex gap-2.5 rounded-[var(--radius)] border border-line bg-surface px-3 py-2.5">
         <UserAvatar
           name={author?.name ?? "Unknown"}
@@ -653,22 +683,23 @@ function DetailSidebarActivity({
   editable: boolean
 }) {
   const comments = getCommentsForTarget(data, "workItem", item.id)
-  const rootComments = comments.filter((comment) => comment.parentCommentId === null)
-  const repliesByParentId = comments.reduce<Record<string, AppData["comments"]>>(
-    (accumulator, comment) => {
-      if (!comment.parentCommentId) {
-        return accumulator
-      }
-
-      accumulator[comment.parentCommentId] = [
-        ...(accumulator[comment.parentCommentId] ?? []),
-        comment,
-      ]
-
-      return accumulator
-    },
-    {}
+  const rootComments = comments.filter(
+    (comment) => comment.parentCommentId === null
   )
+  const repliesByParentId = comments.reduce<
+    Record<string, AppData["comments"]>
+  >((accumulator, comment) => {
+    if (!comment.parentCommentId) {
+      return accumulator
+    }
+
+    accumulator[comment.parentCommentId] = [
+      ...(accumulator[comment.parentCommentId] ?? []),
+      comment,
+    ]
+
+    return accumulator
+  }, {})
   const creator = getUser(data, item.creatorId)
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const [content, setContent] = useState("")
@@ -725,7 +756,9 @@ function DetailSidebarActivity({
               className="mt-0.5 size-5"
             />
             <div className="leading-[1.55]">
-              <span className="font-medium text-foreground">{event.user.name}</span>{" "}
+              <span className="font-medium text-foreground">
+                {event.user.name}
+              </span>{" "}
               <span>{event.body}</span>
               <span className="ml-1 text-[11.5px] text-fg-4">
                 {formatRelativeTimestamp(event.when)}
@@ -945,7 +978,9 @@ function MainActivityCommentCard({
                 align="start"
                 side="top"
                 onEmojiSelect={(emoji) => {
-                  useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+                  useAppStore
+                    .getState()
+                    .toggleCommentReaction(comment.id, emoji)
                 }}
                 trigger={
                   <button
@@ -1015,7 +1050,11 @@ function MainActivityCommentCard({
                 align="start"
                 side="top"
                 onEmojiSelect={(emoji) =>
-                  replyEditorRef.current?.chain().focus().insertContent(emoji).run()
+                  replyEditorRef.current
+                    ?.chain()
+                    .focus()
+                    .insertContent(emoji)
+                    .run()
                 }
                 trigger={
                   <button
@@ -1068,21 +1107,20 @@ function MainActivityTimeline({
   const rootComments = comments.filter(
     (comment) => comment.parentCommentId === null
   )
-  const repliesByParentId = comments.reduce<Record<string, AppData["comments"]>>(
-    (accumulator, comment) => {
-      if (!comment.parentCommentId) {
-        return accumulator
-      }
-
-      accumulator[comment.parentCommentId] = [
-        ...(accumulator[comment.parentCommentId] ?? []),
-        comment,
-      ]
-
+  const repliesByParentId = comments.reduce<
+    Record<string, AppData["comments"]>
+  >((accumulator, comment) => {
+    if (!comment.parentCommentId) {
       return accumulator
-    },
-    {}
-  )
+    }
+
+    accumulator[comment.parentCommentId] = [
+      ...(accumulator[comment.parentCommentId] ?? []),
+      comment,
+    ]
+
+    return accumulator
+  }, {})
   const creator = getUser(data, item.creatorId)
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const currentUser = getUser(data, currentUserId)
@@ -1258,7 +1296,11 @@ function MainActivityTimeline({
               align="start"
               side="top"
               onEmojiSelect={(emoji) =>
-                commentEditorRef.current?.chain().focus().insertContent(emoji).run()
+                commentEditorRef.current
+                  ?.chain()
+                  .focus()
+                  .insertContent(emoji)
+                  .run()
               }
               trigger={
                 <button
@@ -1300,7 +1342,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const [projectConfirmOpen, setProjectConfirmOpen] = useState(false)
   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [childComposerOpen, setChildComposerOpen] = useState(false)
+  const [mainChildComposerOpen, setMainChildComposerOpen] = useState(false)
+  const [sidebarChildComposerOpen, setSidebarChildComposerOpen] =
+    useState(false)
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [mainEditing, setMainEditing] = useState(false)
@@ -1310,8 +1354,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   )
   const [mainDraftTitle, setMainDraftTitle] = useState("")
   const [mainDraftDescription, setMainDraftDescription] = useState("")
-  const [mainPendingMentionRetryEntriesByItemId, setMainPendingMentionRetryEntriesByItemId] =
-    useState<Record<string, PendingDocumentMention[]>>({})
+  const [
+    mainPendingMentionRetryEntriesByItemId,
+    setMainPendingMentionRetryEntriesByItemId,
+  ] = useState<Record<string, PendingDocumentMention[]>>({})
   const [savingMainSection, setSavingMainSection] = useState(false)
   const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
     DocumentPresenceViewer[]
@@ -1460,6 +1506,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     }
   }, [activePresenceItemId, currentUserId, isEditingCurrentItem])
 
+  useEffect(() => {
+    setMainChildComposerOpen(false)
+    setSidebarChildComposerOpen(false)
+  }, [itemId])
+
   if (!item) {
     if (deletingItem) {
       return null
@@ -1482,12 +1533,14 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     currentItem.primaryProjectId
   )
   const selectedProject = currentItem.primaryProjectId
-    ? data.projects.find((project) => project.id === currentItem.primaryProjectId) ??
-      null
+    ? (data.projects.find(
+        (project) => project.id === currentItem.primaryProjectId
+      ) ?? null)
     : null
   const selectedMilestone = currentItem.milestoneId
-    ? data.milestones.find((milestone) => milestone.id === currentItem.milestoneId) ??
-      null
+    ? (data.milestones.find(
+        (milestone) => milestone.id === currentItem.milestoneId
+      ) ?? null)
     : null
   const availableLabels = team
     ? [...getLabelsForTeamScope(data, team.id)].sort((left, right) =>
@@ -1522,11 +1575,18 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     team?.settings.experience
   ).toLowerCase()
   const linkedProjects = currentItem.linkedProjectIds
-    .map((projectId) => data.projects.find((project) => project.id === projectId) ?? null)
-    .filter((project): project is NonNullable<typeof project> => project !== null)
+    .map(
+      (projectId) =>
+        data.projects.find((project) => project.id === projectId) ?? null
+    )
+    .filter(
+      (project): project is NonNullable<typeof project> => project !== null
+    )
   const linkedDocuments = currentItem.linkedDocumentIds
     .map((documentId) => getDocument(data, documentId))
-    .filter((document): document is NonNullable<typeof document> => document !== null)
+    .filter(
+      (document): document is NonNullable<typeof document> => document !== null
+    )
   const cascadeMessage =
     descendantCount > 0
       ? `Delete this ${itemLabel} and ${descendantCount} nested item${
@@ -1545,18 +1605,23 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     ? mainDraftDescription
     : descriptionContent
   const sidebarHasDescription = !isDescriptionPlaceholder(sidebarDescription)
-  const activeMainPendingMentionRetryEntries = filterPendingDocumentMentionsByContent(
-    mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
-    mainDraftDescription
-  )
+  const activeMainPendingMentionRetryEntries =
+    filterPendingDocumentMentionsByContent(
+      mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
+      mainDraftDescription
+    )
   const otherWorkItemEditors = workItemPresenceViewers.filter(
     (viewer) => viewer.userId !== currentUserId
   )
-  const concurrentEditorLabel = formatConcurrentEditorLabel(otherWorkItemEditors)
+  const concurrentEditorLabel =
+    formatConcurrentEditorLabel(otherWorkItemEditors)
   const pendingMainMentionEntries = isMainEditing
     ? mergePendingDocumentMentions(
         activeMainPendingMentionRetryEntries,
-        getPendingRichTextMentionEntries(descriptionContent, mainDraftDescription)
+        getPendingRichTextMentionEntries(
+          descriptionContent,
+          mainDraftDescription
+        )
       )
     : []
   const normalizedMainDraftTitle = mainDraftTitle.trim()
@@ -1810,7 +1875,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             {editable ? (
               <>
                 {isMainEditing ? (
-                  <DocumentPresenceAvatarGroup viewers={workItemPresenceViewers} />
+                  <DocumentPresenceAvatarGroup
+                    viewers={workItemPresenceViewers}
+                  />
                 ) : null}
                 {isMainEditing ? (
                   <>
@@ -1831,7 +1898,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="outline" onClick={handleStartMainEdit}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleStartMainEdit}
+                  >
                     Edit
                   </Button>
                 )}
@@ -1878,7 +1949,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="min-w-0 flex-1 overflow-y-auto">
-            <article className="mx-auto flex max-w-[44rem] flex-col px-10 pt-12 pb-24">
+            <article className="mx-auto flex max-w-[60rem] flex-col px-10 pt-12 pb-24">
               {parentItem ? (
                 <div className="mb-6">
                   <Link
@@ -2015,7 +2086,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 ) : (
                   <RichTextContent
                     content={descriptionContent}
-                    className="text-[14px] leading-[1.65] text-fg-1 [&_p]:my-0 [&_p+p]:mt-3 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2"
+                    className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
                   />
                 )}
               </section>
@@ -2036,7 +2107,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       <span>{childCopy.childPluralLabel}</span>
                     </button>
                     {childItems.length > 0 ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium tabular-nums text-fg-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-fg-2 tabular-nums">
                         <span>
                           {childProgress.completedChildren}/
                           {childProgress.includedChildren > 0
@@ -2052,11 +2123,17 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     {canCreateChildItem ? (
                       <Button
                         size="icon-sm"
-                        variant={childComposerOpen ? "outline" : "ghost"}
+                        variant={mainChildComposerOpen ? "outline" : "ghost"}
                         className="ml-auto"
                         onClick={() => {
                           setSubIssuesOpen(true)
-                          setChildComposerOpen((current) => !current)
+                          setMainChildComposerOpen((current) => {
+                            const next = !current
+                            if (next) {
+                              setSidebarChildComposerOpen(false)
+                            }
+                            return next
+                          })
                         }}
                       >
                         <Plus className="size-3.5" />
@@ -2124,14 +2201,14 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                         </ul>
                       ) : null}
 
-                      {childComposerOpen ? (
+                      {mainChildComposerOpen ? (
                         <div className="border-t border-line-soft bg-background">
                           <InlineChildIssueComposer
                             teamId={currentItem.teamId}
                             parentItem={currentItem}
                             disabled={!editable}
-                            onCancel={() => setChildComposerOpen(false)}
-                            onCreated={() => setChildComposerOpen(false)}
+                            onCancel={() => setMainChildComposerOpen(false)}
+                            onCreated={() => setMainChildComposerOpen(false)}
                           />
                         </div>
                       ) : canCreateChildItem ? (
@@ -2139,10 +2216,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                           type="button"
                           className={cn(
                             "inline-flex w-full items-center gap-2 px-4 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground",
-                            childItems.length > 0 &&
-                              "border-t border-line-soft"
+                            childItems.length > 0 && "border-t border-line-soft"
                           )}
-                          onClick={() => setChildComposerOpen(true)}
+                          onClick={() => {
+                            setSidebarChildComposerOpen(false)
+                            setMainChildComposerOpen(true)
+                          }}
                         >
                           <Plus className="size-3" />
                           <span>{childCopy.addChildLabel}</span>
@@ -2158,10 +2237,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   <h2 className="text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
                     Activity
                   </h2>
-                  <span
-                    aria-hidden
-                    className="h-px flex-1 bg-line-soft"
-                  />
+                  <span aria-hidden className="h-px flex-1 bg-line-soft" />
                 </div>
                 <MainActivityTimeline
                   data={data}
@@ -2245,7 +2321,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               {sidebarHasDescription ? (
                 <RichTextContent
                   content={sidebarDescription}
-                  className="text-[13.5px] leading-[1.6] text-fg-2 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mb-2.5 [&_ul]:ml-[18px] [&_ul]:list-disc [&_li]:mb-1"
+                  className="text-[13.5px] leading-[1.6] text-fg-2 [&_li]:mb-1 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mb-2.5 [&_ul]:ml-[18px] [&_ul]:list-disc"
                 />
               ) : (
                 <p className="text-[13.5px] leading-[1.6] text-fg-4">
@@ -2287,10 +2363,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   icon={<Flag className="size-[13px]" />}
                   value={currentItem.priority}
                   disabled={!sidebarEditable}
-                  options={Object.entries(priorityMeta).map(([value, meta]) => ({
-                    value,
-                    label: meta.label,
-                  }))}
+                  options={Object.entries(priorityMeta).map(
+                    ([value, meta]) => ({
+                      value,
+                      label: meta.label,
+                    })
+                  )}
                   renderValue={(value, optionLabel) => (
                     <div className="flex min-w-0 items-center gap-2">
                       <PriorityIcon priority={value as Priority} />
@@ -2419,7 +2497,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     <span className="truncate">{selectedMilestone.name}</span>
                     {selectedMilestone.targetDate ? (
                       <span className="text-fg-4">
-                        · {format(new Date(selectedMilestone.targetDate), "MMM d")}
+                        · {formatCalendarDateLabel(selectedMilestone.targetDate, "—")}
                       </span>
                     ) : null}
                   </DetailSidebarStaticRow>
@@ -2433,7 +2511,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     options={parentOptions}
                     renderValue={(value, optionLabel) =>
                       value === "none" ? (
-                        <span className="truncate text-fg-4">{optionLabel}</span>
+                        <span className="truncate text-fg-4">
+                          {optionLabel}
+                        </span>
                       ) : (
                         <span className="truncate">{optionLabel}</span>
                       )
@@ -2455,7 +2535,15 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-                      onClick={() => setChildComposerOpen((current) => !current)}
+                      onClick={() =>
+                        setSidebarChildComposerOpen((current) => {
+                          const next = !current
+                          if (next) {
+                            setMainChildComposerOpen(false)
+                          }
+                          return next
+                        })
+                      }
                     >
                       <Plus className="size-3" />
                       {childCopy.addChildLabel}
@@ -2464,6 +2552,26 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 }
               >
                 <div className="flex flex-col gap-1">
+                  {childItems.length > 0 ? (
+                    <div className="mb-2 px-2">
+                      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-fg-3 tabular-nums">
+                        <span className="text-fg-4">
+                          {childProgress.includedChildren > 0
+                            ? `${childProgress.completedChildren}/${childProgress.includedChildren} active`
+                            : `${childProgress.completedChildren}/${childItems.length}`}
+                        </span>
+                        <span>{childProgress.percent}%</span>
+                      </div>
+                      <div className="h-1 overflow-hidden rounded-full bg-surface-3">
+                        <div
+                          className="h-full rounded-full bg-status-done transition-all"
+                          style={{
+                            width: `${childProgress.percent}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                   {childItems.map((child) => (
                     <Link
                       key={child.id}
@@ -2497,53 +2605,76 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       )}
                     </Link>
                   ))}
-                  {childComposerOpen ? (
+                  {sidebarChildComposerOpen ? (
                     <div className="mt-1 rounded-md border border-line">
                       <InlineChildIssueComposer
                         teamId={currentItem.teamId}
                         parentItem={currentItem}
                         disabled={!editable}
-                        onCancel={() => setChildComposerOpen(false)}
-                        onCreated={() => setChildComposerOpen(false)}
+                        onCancel={() => setSidebarChildComposerOpen(false)}
+                        onCreated={() => setSidebarChildComposerOpen(false)}
                       />
                     </div>
                   ) : null}
                 </div>
               </DetailSidebarSection>
 
-              {linkedProjects.length > 0 || linkedDocuments.length > 0 || selectedProject ? (
+              {linkedProjects.length > 0 ||
+              linkedDocuments.length > 0 ||
+              selectedProject ? (
                 <DetailSidebarSection title="Relations">
                   <div className="flex flex-col gap-1.5">
                     {selectedProject ? (
                       <Link
-                        href={getProjectHref(data, selectedProject) ?? `/projects/${selectedProject.id}`}
-                        className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
+                        href={
+                          getProjectHref(data, selectedProject) ??
+                          `/projects/${selectedProject.id}`
+                        }
+                        className={cn(
+                          detailChipClassName,
+                          "w-fit hover:bg-surface-3"
+                        )}
                       >
                         <FolderSimple className="size-3" />
                         <span>Project</span>
-                        <b className="font-medium text-foreground">{selectedProject.name}</b>
+                        <b className="font-medium text-foreground">
+                          {selectedProject.name}
+                        </b>
                       </Link>
                     ) : null}
                     {linkedProjects.map((project) => (
                       <Link
                         key={project.id}
-                        href={getProjectHref(data, project) ?? `/projects/${project.id}`}
-                        className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
+                        href={
+                          getProjectHref(data, project) ??
+                          `/projects/${project.id}`
+                        }
+                        className={cn(
+                          detailChipClassName,
+                          "w-fit hover:bg-surface-3"
+                        )}
                       >
                         <FolderSimple className="size-3" />
                         <span>Linked project</span>
-                        <b className="font-medium text-foreground">{project.name}</b>
+                        <b className="font-medium text-foreground">
+                          {project.name}
+                        </b>
                       </Link>
                     ))}
                     {linkedDocuments.map((document) => (
                       <Link
                         key={document.id}
                         href={`/docs/${document.id}`}
-                        className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
+                        className={cn(
+                          detailChipClassName,
+                          "w-fit hover:bg-surface-3"
+                        )}
                       >
                         <LinkSimple className="size-3" />
                         <span>Linked doc</span>
-                        <b className="font-medium text-foreground">{document.title}</b>
+                        <b className="font-medium text-foreground">
+                          {document.title}
+                        </b>
                       </Link>
                     ))}
                   </div>

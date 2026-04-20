@@ -107,7 +107,7 @@ export function UserAvatar({
   className,
   badgeClassName,
 }: UserPresenceData & {
-  size?: "sm" | "default" | "lg"
+  size?: "xs" | "sm" | "default" | "lg"
   showStatus?: boolean
   className?: string
   badgeClassName?: string

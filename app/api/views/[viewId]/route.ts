@@ -11,6 +11,7 @@ import {
 import {
   clearViewFiltersServer,
   deleteViewServer,
+  reorderViewDisplayPropertiesServer,
   renameViewServer,
   toggleViewDisplayPropertyServer,
   toggleViewFilterValueServer,
@@ -48,6 +49,10 @@ const viewMutationSchema = z.discriminatedUnion("action", [
     property: z.enum(displayProperties),
   }),
   z.object({
+    action: z.literal("reorderDisplayProperties"),
+    displayProps: z.array(z.enum(displayProperties)),
+  }),
+  z.object({
     action: z.literal("toggleHiddenValue"),
     key: z.enum(["groups", "subgroups"]),
     value: z.string().min(1),
@@ -64,6 +69,7 @@ const viewMutationSchema = z.discriminatedUnion("action", [
       "milestoneIds",
       "relationTypes",
       "projectIds",
+      "parentIds",
       "itemTypes",
       "labelIds",
       "teamIds",
@@ -120,6 +126,13 @@ export async function PATCH(
           currentUserId: appContext.ensuredUser.userId,
           viewId,
           property: parsed.property,
+        })
+        break
+      case "reorderDisplayProperties":
+        await reorderViewDisplayPropertiesServer({
+          currentUserId: appContext.ensuredUser.userId,
+          viewId,
+          displayProps: parsed.displayProps,
         })
         break
       case "toggleHiddenValue":

@@ -594,6 +594,13 @@ export function CreateViewDialog({
     })
   }
 
+  function reorderDraftDisplayProperties(displayProps: DisplayProperty[]) {
+    setDraftConfig((current) => ({
+      ...current,
+      displayProps,
+    }))
+  }
+
   function clearDraftDisplayProperties() {
     setDraftConfig((current) => ({
       ...current,
@@ -876,6 +883,7 @@ export function CreateViewDialog({
                   <PropertiesChipPopover
                     view={draftView}
                     onToggleDisplayProperty={toggleDraftDisplayProperty}
+                    onReorderDisplayProperties={reorderDraftDisplayProperties}
                     onClearDisplayProperties={clearDraftDisplayProperties}
                     tone="default"
                     dashedWhenEmpty

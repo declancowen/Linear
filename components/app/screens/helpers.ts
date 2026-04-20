@@ -48,6 +48,7 @@ export type PersistedViewFilterKey =
   | "milestoneIds"
   | "relationTypes"
   | "projectIds"
+  | "parentIds"
   | "itemTypes"
   | "labelIds"
   | "teamIds"
@@ -69,6 +70,7 @@ export function isPersistedViewFilterKey(
     "milestoneIds",
     "relationTypes",
     "projectIds",
+    "parentIds",
     "itemTypes",
     "labelIds",
     "teamIds",
@@ -88,6 +90,7 @@ export function cloneViewFilters(
     milestoneIds: [...filters.milestoneIds],
     relationTypes: [...filters.relationTypes],
     projectIds: [...filters.projectIds],
+    parentIds: [...(filters.parentIds ?? [])],
     itemTypes: [...filters.itemTypes],
     labelIds: [...filters.labelIds],
     teamIds: [...filters.teamIds],
@@ -152,6 +155,7 @@ export function countActiveViewFilters(filters: ViewDefinition["filters"]) {
     filters.milestoneIds.length +
     filters.relationTypes.length +
     filters.projectIds.length +
+    (filters.parentIds?.length ?? 0) +
     filters.itemTypes.length +
     filters.labelIds.length +
     filters.teamIds.length +

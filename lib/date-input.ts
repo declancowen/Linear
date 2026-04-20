@@ -1,15 +1,20 @@
-const DATE_INPUT_VALUE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+import { differenceInCalendarDays, format } from "date-fns"
 
-const dateInputLabelFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  timeZone: "UTC",
-})
+const DATE_INPUT_VALUE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const DATE_PREFIX_PATTERN = /^(\d{4}-\d{2}-\d{2})/
 
 export interface DateInputValue {
   year: number
   month: number
   day: number
+}
+
+function getDatePrefix(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  return DATE_PREFIX_PATTERN.exec(value.trim())?.[1] ?? null
 }
 
 export function parseDateInputValue(
@@ -41,18 +46,48 @@ export function parseDateInputValue(
   return { year, month, day }
 }
 
+export function parseCalendarDateValue(
+  value: string | null | undefined
+): DateInputValue | null {
+  return parseDateInputValue(getDatePrefix(value))
+}
+
+export function getCalendarDate(value: string | null | undefined) {
+  const dateValue = parseCalendarDateValue(value)
+
+  return dateValue
+    ? new Date(dateValue.year, dateValue.month - 1, dateValue.day)
+    : null
+}
+
 export function formatDateInputLabel(
   value: string | null | undefined,
   emptyLabel: string
 ) {
-  const dateValue = parseDateInputValue(value)
+  return formatCalendarDateLabel(value, emptyLabel)
+}
 
-  if (!dateValue) {
-    return emptyLabel
+export function formatCalendarDateLabel(
+  value: string | null | undefined,
+  emptyLabel: string,
+  pattern = "MMM d"
+) {
+  const date = getCalendarDate(value)
+  return date ? format(date, pattern) : emptyLabel
+}
+
+export function getCalendarDateDayOffset(
+  value: string | null | undefined,
+  now = new Date()
+) {
+  const date = getCalendarDate(value)
+
+  if (!date) {
+    return null
   }
 
-  // Date input values are calendar dates, not instants, so format them in UTC.
-  return dateInputLabelFormatter.format(
-    new Date(Date.UTC(dateValue.year, dateValue.month - 1, dateValue.day))
+  return differenceInCalendarDays(
+    date,
+    new Date(now.getFullYear(), now.getMonth(), now.getDate())
   )
 }

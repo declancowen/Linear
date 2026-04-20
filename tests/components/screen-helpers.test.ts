@@ -48,6 +48,7 @@ describe("screen helpers", () => {
     expect(isPersistedViewFilterKey("milestoneIds")).toBe(true)
     expect(isPersistedViewFilterKey("relationTypes")).toBe(true)
     expect(isPersistedViewFilterKey("projectIds")).toBe(true)
+    expect(isPersistedViewFilterKey("parentIds")).toBe(true)
     expect(isPersistedViewFilterKey("itemTypes")).toBe(true)
     expect(isPersistedViewFilterKey("labelIds")).toBe(true)
     expect(isPersistedViewFilterKey("teamIds")).toBe(true)

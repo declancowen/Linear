@@ -69,6 +69,7 @@ export {
   syncRegenerateTeamJoinCode,
   syncRenameProject,
   syncRenameView,
+  syncReorderViewDisplayProperties,
   syncRemoveTeamMember,
   syncRenameDocument,
   syncSendDocumentMentionNotifications,

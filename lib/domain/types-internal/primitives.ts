@@ -115,6 +115,7 @@ export const displayProperties = [
   "status",
   "assignee",
   "priority",
+  "progress",
   "project",
   "dueDate",
   "milestone",
@@ -255,6 +256,8 @@ export type HiddenState = {
   subgroups: string[]
 }
 
+export const EMPTY_PARENT_FILTER_VALUE = "__empty__"
+
 export type ViewFilters = {
   status: WorkStatus[]
   priority: Priority[]
@@ -265,6 +268,7 @@ export type ViewFilters = {
   milestoneIds: string[]
   relationTypes: string[]
   projectIds: string[]
+  parentIds?: string[]
   itemTypes: WorkItemType[]
   labelIds: string[]
   teamIds: string[]
@@ -292,6 +296,7 @@ export function createDefaultViewFilters(): ViewFilters {
     milestoneIds: [],
     relationTypes: [],
     projectIds: [],
+    parentIds: [],
     itemTypes: [],
     labelIds: [],
     teamIds: [],

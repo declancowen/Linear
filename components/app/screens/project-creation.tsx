@@ -5,7 +5,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
 } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
@@ -117,7 +116,7 @@ const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = {
   planned: "var(--status-todo)",
   "in-progress": "var(--status-doing)",
   completed: "var(--status-done)",
-  cancelled: "var(--status-cancel)",
+  cancelled: "var(--priority-urgent)",
 }
 
 function matchesQuery(value: string, query: string) {
@@ -433,6 +432,13 @@ export function CreateProjectDialog({
       displayProps: current.displayProps.includes(property)
         ? current.displayProps.filter((value) => value !== property)
         : [...current.displayProps, property],
+    }))
+  }
+
+  function reorderPresentationDisplayProperties(displayProps: DisplayProperty[]) {
+    setPresentation((current) => ({
+      ...current,
+      displayProps,
     }))
   }
 
@@ -1060,6 +1066,7 @@ export function CreateProjectDialog({
               <PropertiesChipPopover
                 view={presentationView}
                 onToggleDisplayProperty={togglePresentationDisplayProperty}
+                onReorderDisplayProperties={reorderPresentationDisplayProperties}
                 onClearDisplayProperties={clearPresentationDisplayProperties}
                 tone="default"
                 dashedWhenEmpty

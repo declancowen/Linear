@@ -240,6 +240,22 @@ export function syncToggleViewDisplayProperty(
   })
 }
 
+export function syncReorderViewDisplayProperties(
+  viewId: string,
+  displayProps: DisplayProperty[]
+) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "reorderDisplayProperties",
+      displayProps,
+    }),
+  })
+}
+
 export function syncToggleViewHiddenValue(
   viewId: string,
   key: "groups" | "subgroups",
@@ -270,6 +286,7 @@ export function syncToggleViewFilterValue(
     | "milestoneIds"
     | "relationTypes"
     | "projectIds"
+    | "parentIds"
     | "itemTypes"
     | "labelIds"
     | "teamIds",

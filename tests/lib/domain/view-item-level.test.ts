@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
+import { EMPTY_PARENT_FILTER_VALUE, type ViewDefinition, type WorkItem } from "@/lib/domain/types"
 import {
+  buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
   getViewsForScope,
   getVisibleItemsForView,
 } from "@/lib/domain/selectors"
-import type { ViewDefinition, WorkItem } from "@/lib/domain/types"
 
 function createItem(id: string, overrides?: Partial<WorkItem>): WorkItem {
   return {
@@ -56,6 +57,7 @@ function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
       milestoneIds: [],
       relationTypes: [],
       projectIds: [],
+      parentIds: [],
       itemTypes: [],
       labelIds: [],
       teamIds: [],
@@ -98,6 +100,47 @@ describe("view item levels", () => {
         })
       ).map((item) => item.id)
     ).toEqual(["feature"])
+  })
+
+  it("filters item levels to entries with an empty under value", () => {
+    const state = createEmptyState()
+    const items = [
+      createItem("feature-root", { type: "feature" }),
+      createItem("feature-child", { type: "feature", parentId: "epic_1" }),
+    ]
+
+    expect(
+      getVisibleItemsForView(
+        state,
+        items,
+        createView({
+          itemLevel: "feature",
+          filters: {
+            ...createView().filters,
+            parentIds: [EMPTY_PARENT_FILTER_VALUE],
+          },
+        })
+      ).map((item) => item.id)
+    ).toEqual(["feature-root"])
+  })
+
+  it("does not synthesize empty groups when filtering for empty under values", () => {
+    const state = createEmptyState()
+    const filteredItems = [createItem("root-todo", { status: "todo" })]
+
+    expect(
+      [...buildItemGroupsWithEmptyGroups(
+        state,
+        filteredItems,
+        createView({
+          grouping: "status",
+          filters: {
+            ...createView().filters,
+            parentIds: [EMPTY_PARENT_FILTER_VALUE],
+          },
+        })
+      ).keys()]
+    ).toEqual(["todo"])
   })
 
   it("does not force timeline views back to top-level items when a level is set", () => {

@@ -1,10 +1,37 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
+import {
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react"
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import {
+  restrictToParentElement,
+  restrictToVerticalAxis,
+} from "@dnd-kit/modifiers"
+import { CSS } from "@dnd-kit/utilities"
 import {
   CalendarDots,
   CaretDown,
   Check,
+  DotsSixVertical,
   Eye,
   FadersHorizontal,
   FunnelSimple,
@@ -15,18 +42,18 @@ import {
   SortAscending,
   SquaresFour,
   Stack,
+  TreeStructure,
 } from "@phosphor-icons/react"
 
+import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
-  getStatusOrderForTeam,
-  getTeam,
-} from "@/lib/domain/selectors"
-import {
+  EMPTY_PARENT_FILTER_VALUE,
   getChildWorkItemCopy,
   getDefaultShowChildItemsForItemLevel,
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   projectHealthMeta,
+  projectStatusMeta,
   priorityMeta,
   statusMeta,
   workItemTypes,
@@ -54,12 +81,11 @@ import {
   PropertyPopoverItem,
   PropertyPopoverList,
   PropertyPopoverSearch,
-  StatusRing,
   ViewTab,
 } from "@/components/ui/template-primitives"
 
 import { isPersistedViewFilterKey, type ViewFilterKey } from "./helpers"
-import { ConfigSelect, PriorityIcon } from "./shared"
+import { ConfigSelect, PriorityIcon, StatusIcon } from "./shared"
 import { cn } from "@/lib/utils"
 
 const HEALTH_COLOR: Record<keyof typeof projectHealthMeta, string> = {
@@ -86,11 +112,33 @@ const PROJECT_ORDERING_OPTIONS: OrderingField[] = [
   "title",
 ]
 
+export const PROJECT_GROUP_OPTIONS: GroupField[] = [
+  "status",
+  "priority",
+  "team",
+  "assignee",
+  "type",
+]
+
+export const PROJECT_DISPLAY_PROPERTY_OPTIONS: DisplayProperty[] = [
+  "id",
+  "status",
+  "assignee",
+  "priority",
+  "type",
+  "dueDate",
+  "created",
+  "updated",
+]
+
 const chipBase =
   "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 
 const chipDefault =
   "border-line bg-surface text-fg-2 hover:text-foreground hover:bg-surface-3"
+
+const chipSelected =
+  "border-transparent bg-surface-3 text-foreground shadow-none hover:bg-surface-3"
 
 const chipGhost =
   "border-transparent bg-transparent text-fg-2 hover:bg-surface-3 hover:text-foreground"
@@ -116,11 +164,11 @@ function getChipToneClass(tone: ChipTone) {
 }
 
 export const displayPropertyOptions: DisplayProperty[] = [
-  "id",
   "type",
   "status",
   "assignee",
   "priority",
+  "progress",
   "project",
   "dueDate",
   "milestone",
@@ -135,6 +183,7 @@ const DISPLAY_PROPERTY_LABELS: Record<DisplayProperty, string> = {
   status: "Status",
   assignee: "Assignee",
   priority: "Priority",
+  progress: "Progress",
   project: "Project",
   dueDate: "Due date",
   milestone: "Milestone",
@@ -332,6 +381,7 @@ export function FilterPopover({
     view.filters.priority.length +
     view.filters.assigneeIds.length +
     view.filters.projectIds.length +
+    (view.filters.parentIds?.length ?? 0) +
     view.filters.itemTypes.length +
     view.filters.labelIds.length
 
@@ -367,7 +417,7 @@ export function FilterPopover({
               chipBase,
               chipTone === "adaptive"
                 ? activeCount > 0
-                  ? chipAccent
+                  ? chipSelected
                   : dashedWhenEmpty
                     ? chipDashed
                     : chipGhost
@@ -404,7 +454,7 @@ export function FilterPopover({
             <FunnelSimple className="size-3" />
             <span>Filters</span>
             {activeCount > 0 ? (
-              <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium text-accent-fg normal-case tracking-normal">
+              <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium tracking-normal text-accent-fg normal-case">
                 {activeCount}
               </span>
             ) : null}
@@ -434,7 +484,7 @@ export function FilterPopover({
               .map((status) => (
                 <FilterRow
                   key={status}
-                  icon={<StatusRing status={status} />}
+                  icon={<StatusIcon status={status} />}
                   label={statusMeta[status].label}
                   active={view.filters.status.includes(status)}
                   onClick={() => handleToggleFilterValue("status", status)}
@@ -528,6 +578,26 @@ export function FilterPopover({
                 ))}
             </FilterSection>
           ) : null}
+          <FilterSection
+            label="Under"
+            activeCount={view.filters.parentIds?.length ?? 0}
+          >
+            {matchesQuery("Is empty", query) ? (
+              <FilterRow
+                icon={<TreeStructure className="size-3" />}
+                label="Is empty"
+                active={Boolean(
+                  view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
+                )}
+                onClick={() =>
+                  handleToggleFilterValue(
+                    "parentIds",
+                    EMPTY_PARENT_FILTER_VALUE
+                  )
+                }
+              />
+            ) : null}
+          </FilterSection>
           {filteredLabels.length > 0 ? (
             <FilterSection
               label="Labels"
@@ -575,7 +645,7 @@ function FilterSection({
       <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-[10.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
         <span>{label}</span>
         {activeCount > 0 ? (
-          <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium text-accent-fg normal-case tracking-normal">
+          <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium tracking-normal text-accent-fg normal-case">
             {activeCount}
           </span>
         ) : null}
@@ -600,9 +670,7 @@ function FilterRow({
     <PropertyPopoverItem
       selected={active}
       onClick={onClick}
-      trailing={
-        active ? <Check className="size-3.5 text-accent-fg" /> : null
-      }
+      trailing={active ? <Check className="size-3.5 text-accent-fg" /> : null}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
         {icon}
@@ -673,7 +741,10 @@ export function ViewConfigPopover({
           <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+      <PopoverContent
+        align="end"
+        className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg"
+      >
         <div className="border-b border-line-soft px-3 py-2.5">
           <div className="flex rounded-md bg-surface-2 p-0.5">
             {[
@@ -808,7 +879,7 @@ export function ProjectFilterPopover({
   view: ViewDefinition
   projects: Project[]
   onToggleFilterValue?: (
-    key: "priority" | "leadIds" | "health" | "teamIds",
+    key: "status" | "priority" | "leadIds" | "health" | "teamIds",
     value: string
   ) => void
   onClearFilters?: () => void
@@ -821,18 +892,19 @@ export function ProjectFilterPopover({
   const users = useAppStore((state) => state.users)
   const teams = useAppStore((state) => state.teams)
   const leadIds = useMemo(
-    () => [...new Set(projects.map((project) => project.leadId).filter(Boolean))],
+    () => [
+      ...new Set(projects.map((project) => project.leadId).filter(Boolean)),
+    ],
     [projects]
   )
   const teamIds = useMemo(
-    () =>
-      [
-        ...new Set(
-          projects
-            .filter((project) => project.scopeType === "team")
-            .map((project) => project.scopeId)
-        ),
-      ],
+    () => [
+      ...new Set(
+        projects
+          .filter((project) => project.scopeType === "team")
+          .map((project) => project.scopeId)
+      ),
+    ],
     [projects]
   )
   const leads = useMemo(
@@ -850,14 +922,22 @@ export function ProjectFilterPopover({
       ),
     [projects]
   )
+  const statusOptions = useMemo(
+    () =>
+      Object.keys(projectStatusMeta).filter((status) =>
+        projects.some((project) => project.status === status)
+      ),
+    [projects]
+  )
   const activeCount =
+    view.filters.status.length +
     view.filters.priority.length +
     view.filters.leadIds.length +
     view.filters.health.length +
     view.filters.teamIds.length
 
   function handleToggleFilterValue(
-    key: "priority" | "leadIds" | "health" | "teamIds",
+    key: "status" | "priority" | "leadIds" | "health" | "teamIds",
     value: string
   ) {
     if (onToggleFilterValue) {
@@ -887,7 +967,7 @@ export function ProjectFilterPopover({
               chipBase,
               chipTone === "adaptive"
                 ? activeCount > 0
-                  ? chipAccent
+                  ? chipSelected
                   : dashedWhenEmpty
                     ? chipDashed
                     : chipDefault
@@ -924,7 +1004,7 @@ export function ProjectFilterPopover({
             <FunnelSimple className="size-3" />
             <span>Filters</span>
             {activeCount > 0 ? (
-              <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium text-accent-fg normal-case tracking-normal">
+              <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium tracking-normal text-accent-fg normal-case">
                 {activeCount}
               </span>
             ) : null}
@@ -945,6 +1025,48 @@ export function ProjectFilterPopover({
           onChange={setQuery}
         />
         <div className="flex max-h-[360px] flex-col overflow-y-auto">
+          {statusOptions.length > 0 ? (
+            <FilterSection
+              label="Status"
+              activeCount={view.filters.status.length}
+            >
+              {statusOptions
+                .filter((status) =>
+                  matchesQuery(
+                    projectStatusMeta[status as keyof typeof projectStatusMeta]
+                      .label,
+                    query
+                  )
+                )
+                .map((status) => (
+                  <FilterRow
+                    key={status}
+                    icon={
+                      <StatusIcon
+                        status={
+                          status === "in-progress"
+                            ? "in-progress"
+                            : status === "completed"
+                              ? "completed"
+                              : status === "cancelled"
+                                ? "cancelled"
+                                : status === "backlog"
+                                  ? "backlog"
+                                  : "todo"
+                        }
+                      />
+                    }
+                    label={
+                      projectStatusMeta[
+                        status as keyof typeof projectStatusMeta
+                      ].label
+                    }
+                    active={view.filters.status.includes(status as never)}
+                    onClick={() => handleToggleFilterValue("status", status)}
+                  />
+                ))}
+            </FilterSection>
+          ) : null}
           <FilterSection
             label="Priority"
             activeCount={view.filters.priority.length}
@@ -969,9 +1091,8 @@ export function ProjectFilterPopover({
               {healthOptions
                 .filter((health) =>
                   matchesQuery(
-                    projectHealthMeta[
-                      health as keyof typeof projectHealthMeta
-                    ].label,
+                    projectHealthMeta[health as keyof typeof projectHealthMeta]
+                      .label,
                     query
                   )
                 )
@@ -1038,6 +1159,55 @@ export function ProjectFilterPopover({
   )
 }
 
+export function ProjectLayoutTabs({
+  view,
+  onUpdateView,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+}) {
+  const tabs: Array<{
+    value: "list" | "board"
+    label: string
+    icon: ReactNode
+  }> = [
+    {
+      value: "list",
+      label: "List",
+      icon: <Rows className="size-3.5" />,
+    },
+    {
+      value: "board",
+      label: "Board",
+      icon: <SquaresFour className="size-3.5" />,
+    },
+  ]
+
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {tabs.map((tab) => (
+        <ViewTab
+          key={tab.value}
+          active={view.layout === tab.value}
+          onClick={() => handleUpdateView({ layout: tab.value })}
+        >
+          {tab.icon}
+          {tab.label}
+        </ViewTab>
+      ))}
+    </div>
+  )
+}
+
 export function ProjectLayoutChipPopover({
   view,
   onUpdateView,
@@ -1079,10 +1249,7 @@ export function ProjectLayoutChipPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(chipBase, getChipToneClass(tone))}
-        >
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
           {activeOption.icon}
           <span>{activeOption.label}</span>
           <CaretDown className="size-3 opacity-70" />
@@ -1102,9 +1269,7 @@ export function ProjectLayoutChipPopover({
                 selected={active}
                 onClick={() => handleUpdateView({ layout: option.value })}
                 trailing={
-                  active ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
+                  active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
               >
                 <span className="flex size-4 shrink-0 items-center justify-center">
@@ -1170,9 +1335,7 @@ export function ProjectSortChipPopover({
                 selected={active}
                 onClick={() => handleUpdateView({ ordering: option })}
                 trailing={
-                  active ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
+                  active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
               >
                 {ORDERING_LABELS[option]}
@@ -1208,7 +1371,10 @@ export function ProjectViewConfigPopover({
           <GearSix className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 overflow-hidden border border-line bg-surface p-0 shadow-lg">
+      <PopoverContent
+        align="end"
+        className="w-64 overflow-hidden border border-line bg-surface p-0 shadow-lg"
+      >
         <div className="border-b border-line-soft px-3 py-2.5">
           <div className="flex rounded-md bg-surface-2 p-0.5">
             {[
@@ -1387,10 +1553,7 @@ export function LayoutChipPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(chipBase, getChipToneClass(tone))}
-        >
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
           {activeOption?.icon}
           <span>{activeOption?.label ?? "Layout"}</span>
           <CaretDown className="size-3 opacity-70" />
@@ -1410,9 +1573,7 @@ export function LayoutChipPopover({
                 selected={active}
                 onClick={() => handleUpdateView({ layout: option.value })}
                 trailing={
-                  active ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
+                  active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
               >
                 <span className="flex size-4 shrink-0 items-center justify-center">
@@ -1436,6 +1597,7 @@ export function GroupChipPopover({
   showValue = true,
   label = "Group",
   showSubGrouping = true,
+  getOptionLabel,
 }: {
   view: ViewDefinition
   groupOptions?: GroupField[]
@@ -1444,7 +1606,10 @@ export function GroupChipPopover({
   showValue?: boolean
   label?: string
   showSubGrouping?: boolean
+  getOptionLabel?: (field: GroupField) => string
 }) {
+  const resolveOptionLabel = getOptionLabel ?? getGroupFieldOptionLabel
+
   function handleUpdateView(patch: ViewConfigPatch) {
     if (onUpdateView) {
       onUpdateView(patch)
@@ -1462,7 +1627,7 @@ export function GroupChipPopover({
           {showValue ? (
             <span className="font-semibold">
               {label === "Group" ? "· " : ""}
-              {getGroupFieldOptionLabel(view.grouping)}
+              {resolveOptionLabel(view.grouping)}
             </span>
           ) : null}
           <CaretDown className="size-3 opacity-70" />
@@ -1499,7 +1664,7 @@ export function GroupChipPopover({
                       ) : null
                     }
                   >
-                    {getGroupFieldOptionLabel(option)}
+                    {resolveOptionLabel(option)}
                   </PropertyPopoverItem>
                 )
               })}
@@ -1541,7 +1706,7 @@ export function GroupChipPopover({
                         ) : null
                       }
                     >
-                      {getGroupFieldOptionLabel(option)}
+                      {resolveOptionLabel(option)}
                     </PropertyPopoverItem>
                   )
                 })}
@@ -1604,9 +1769,7 @@ export function SortChipPopover({
                 selected={active}
                 onClick={() => handleUpdateView({ ordering: option })}
                 trailing={
-                  active ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
+                  active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
               >
                 {ORDERING_LABELS[option]}
@@ -1622,31 +1785,64 @@ export function SortChipPopover({
 export function PropertiesChipPopover({
   view,
   onToggleDisplayProperty,
+  onReorderDisplayProperties,
   onClearDisplayProperties,
-  tone = "ghost",
+  tone = "adaptive",
   showCount = true,
   label = "Properties",
   propertyOptions = displayPropertyOptions,
   dashedWhenEmpty = false,
+  getPropertyLabel,
 }: {
   view: ViewDefinition
   onToggleDisplayProperty?: (property: DisplayProperty) => void
+  onReorderDisplayProperties?: (displayProps: DisplayProperty[]) => void
   onClearDisplayProperties?: () => void
-  tone?: ChipTone
+  tone?: ChipTone | "adaptive"
   showCount?: boolean
   label?: string
   propertyOptions?: DisplayProperty[]
   dashedWhenEmpty?: boolean
+  getPropertyLabel?: (property: DisplayProperty) => string
 }) {
-  const count = view.displayProps.length
   const [query, setQuery] = useState("")
-  const filtered = propertyOptions.filter((property) =>
-    DISPLAY_PROPERTY_LABELS[property]
-      .toLowerCase()
-      .includes(query.trim().toLowerCase())
+  const [activeDragProperty, setActiveDragProperty] =
+    useState<DisplayProperty | null>(null)
+  const skipTogglePropertyRef = useRef<DisplayProperty | null>(null)
+  const skipToggleResetTimeoutRef = useRef<number | null>(null)
+  const resolvePropertyLabel =
+    getPropertyLabel ??
+    ((property: DisplayProperty) => DISPLAY_PROPERTY_LABELS[property])
+  const propertyOptionSet = new Set(propertyOptions)
+  const visibleProperties = view.displayProps.filter((property) =>
+    propertyOptionSet.has(property)
+  )
+  const hiddenProperties = propertyOptions.filter(
+    (property) => !view.displayProps.includes(property)
+  )
+  const count = visibleProperties.length
+  const trimmedQuery = query.trim().toLowerCase()
+  const visibleFiltered = visibleProperties.filter((property) =>
+    resolvePropertyLabel(property).toLowerCase().includes(trimmedQuery)
+  )
+  const hiddenFiltered = hiddenProperties.filter((property) =>
+    resolvePropertyLabel(property).toLowerCase().includes(trimmedQuery)
+  )
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 140,
+        tolerance: 10,
+      },
+    })
   )
 
   function handleToggleDisplayProperty(property: DisplayProperty) {
+    if (skipTogglePropertyRef.current === property) {
+      skipTogglePropertyRef.current = null
+      return
+    }
+
     if (onToggleDisplayProperty) {
       onToggleDisplayProperty(property)
       return
@@ -1655,17 +1851,72 @@ export function PropertiesChipPopover({
     useAppStore.getState().toggleViewDisplayProperty(view.id, property)
   }
 
+  function handleReorderDisplayProperties(nextDisplayProps: DisplayProperty[]) {
+    if (onReorderDisplayProperties) {
+      onReorderDisplayProperties(nextDisplayProps)
+      return
+    }
+
+    useAppStore.getState().reorderViewDisplayProperties(view.id, nextDisplayProps)
+  }
+
   function handleClearDisplayProperties() {
     if (onClearDisplayProperties) {
       onClearDisplayProperties()
       return
     }
 
-    const activeProperties = [...view.displayProps]
+    const activeProperties = [...visibleProperties]
 
     for (const property of activeProperties) {
       useAppStore.getState().toggleViewDisplayProperty(view.id, property)
     }
+  }
+
+  function suppressNextToggle(property: DisplayProperty) {
+    skipTogglePropertyRef.current = property
+
+    if (skipToggleResetTimeoutRef.current !== null) {
+      window.clearTimeout(skipToggleResetTimeoutRef.current)
+    }
+
+    skipToggleResetTimeoutRef.current = window.setTimeout(() => {
+      skipTogglePropertyRef.current = null
+      skipToggleResetTimeoutRef.current = null
+    }, 0)
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+
+    setActiveDragProperty(null)
+    suppressNextToggle(active.id as DisplayProperty)
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    const oldIndex = visibleProperties.indexOf(active.id as DisplayProperty)
+    const newIndex = visibleProperties.indexOf(over.id as DisplayProperty)
+
+    if (oldIndex < 0 || newIndex < 0) {
+      return
+    }
+
+    handleReorderDisplayProperties(
+      arrayMove(visibleProperties, oldIndex, newIndex)
+    )
+  }
+
+  function handleDragCancel() {
+    setActiveDragProperty(null)
+
+    if (skipToggleResetTimeoutRef.current !== null) {
+      window.clearTimeout(skipToggleResetTimeoutRef.current)
+      skipToggleResetTimeoutRef.current = null
+    }
+
+    skipTogglePropertyRef.current = null
   }
 
   return (
@@ -1675,48 +1926,102 @@ export function PropertiesChipPopover({
           type="button"
           className={cn(
             chipBase,
-            count === 0 && dashedWhenEmpty
-              ? chipDashed
-              : getChipToneClass(tone),
+            tone === "adaptive"
+              ? count > 0
+                ? chipSelected
+                : dashedWhenEmpty
+                  ? chipDashed
+                  : chipGhost
+              : count === 0 && dashedWhenEmpty
+                ? chipDashed
+                : getChipToneClass(tone),
             !showCount && tone === "ghost" && chipMuted
           )}
         >
           <Eye className="size-3.5" />
-          <span>{showCount ? `${count} ${count === 1 ? "property" : "properties"}` : label}</span>
-          <CaretDown className="size-3 opacity-70" />
+          <span>{label}</span>
+          {showCount ? (
+            <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+              {count}
+            </span>
+          ) : null}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[420px] overflow-hidden p-0")}
+      >
         <PropertyPopoverSearch
           icon={<MagnifyingGlass className="size-3.5" />}
           placeholder="Filter properties…"
           value={query}
           onChange={setQuery}
         />
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>
-            Visible · {count}
-          </PropertyPopoverGroup>
-          {filtered.map((property) => {
-            const active = view.displayProps.includes(property)
-            return (
-              <PropertyPopoverItem
-                key={property}
-                selected={active}
-                onClick={() => handleToggleDisplayProperty(property)}
-                trailing={
-                  active ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
-                }
+        <div className="grid grid-cols-2 divide-x divide-line-soft overflow-hidden">
+          <PropertyPopoverList className="min-h-[240px] overflow-x-hidden px-0">
+            <PropertyPopoverGroup>Visible · {count}</PropertyPopoverGroup>
+            {visibleFiltered.length > 0 ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                onDragStart={(event) => {
+                  const property = event.active.id as DisplayProperty
+                  setActiveDragProperty(property)
+                  suppressNextToggle(property)
+                }}
+                onDragCancel={handleDragCancel}
+                onDragEnd={handleDragEnd}
               >
-                {DISPLAY_PROPERTY_LABELS[property]}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
+                <SortableContext
+                  items={visibleFiltered}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="px-1 pb-1">
+                    {visibleFiltered.map((property) => (
+                      <SortableDisplayPropertyRow
+                        key={property}
+                        property={property}
+                        label={resolvePropertyLabel(property)}
+                        isDragActive={activeDragProperty === property}
+                        onToggle={() => handleToggleDisplayProperty(property)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            ) : (
+              <div className="px-1 pb-1">
+                <PropertyPopoverItem muted className="pointer-events-none">
+                  No visible properties
+                </PropertyPopoverItem>
+              </div>
+            )}
+          </PropertyPopoverList>
+          <PropertyPopoverList className="min-h-[240px] overflow-x-hidden px-0">
+            <PropertyPopoverGroup>Hidden · {hiddenProperties.length}</PropertyPopoverGroup>
+            {hiddenFiltered.length > 0 ? (
+              <div className="px-1 pb-1">
+                {hiddenFiltered.map((property) => (
+                  <PropertyPopoverItem
+                    key={property}
+                    onClick={() => handleToggleDisplayProperty(property)}
+                  >
+                    {resolvePropertyLabel(property)}
+                  </PropertyPopoverItem>
+                ))}
+              </div>
+            ) : (
+              <div className="px-1 pb-1">
+                <PropertyPopoverItem muted className="pointer-events-none">
+                  No hidden properties
+                </PropertyPopoverItem>
+              </div>
+            )}
+          </PropertyPopoverList>
+        </div>
         <PropertyPopoverFoot>
-          <span>Toggle to show in view</span>
+          <span>Drag visible properties to reorder</span>
           {count > 0 ? (
             <button
               type="button"
@@ -1729,6 +2034,100 @@ export function PropertiesChipPopover({
         </PropertyPopoverFoot>
       </PopoverContent>
     </Popover>
+  )
+}
+
+function SortableDisplayPropertyRow({
+  property,
+  label,
+  isDragActive,
+  onToggle,
+}: {
+  property: DisplayProperty
+  label: string
+  isDragActive: boolean
+  onToggle: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: property })
+  const pointerStartRef = useRef<{
+    x: number
+    y: number
+    time: number
+  } | null>(null)
+
+  function resetPointerStart() {
+    pointerStartRef.current = null
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    pointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      time: performance.now(),
+    }
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    const pointerStart = pointerStartRef.current
+    resetPointerStart()
+
+    if (!pointerStart || isDragActive || isDragging) {
+      return
+    }
+
+    const elapsed = performance.now() - pointerStart.time
+    const deltaX = Math.abs(event.clientX - pointerStart.x)
+    const deltaY = Math.abs(event.clientY - pointerStart.y)
+
+    if (elapsed <= 180 && deltaX <= 4 && deltaY <= 4) {
+      onToggle()
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={resetPointerStart}
+      onPointerLeave={() => {
+        if (!isDragActive && !isDragging) {
+          resetPointerStart()
+        }
+      }}
+      onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onToggle()
+        }
+      }}
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[12.5px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground touch-none will-change-transform",
+        isDragging && "z-10 bg-surface-3 opacity-80 shadow-sm"
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span
+        aria-hidden
+        className="inline-flex size-5 shrink-0 items-center justify-center text-fg-4"
+      >
+        <DotsSixVertical className="size-3.5" />
+      </span>
+    </button>
   )
 }
 
@@ -1825,9 +2224,7 @@ export function LevelChipPopover({
                   })
                 }}
                 trailing={
-                  active ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
+                  active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
               >
                 {getDisplayLabelForWorkItemType(

@@ -46,10 +46,7 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 }))
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>
       {children}
     </button>
@@ -58,12 +55,15 @@ vi.mock("@/components/ui/button", () => ({
 
 vi.mock("@/components/ui/table", () => ({
   Table: ({ children }: { children: ReactNode }) => <table>{children}</table>,
-  TableHeader: ({ children }: { children: ReactNode }) => <thead>{children}</thead>,
-  TableBody: ({ children }: { children: ReactNode }) => <tbody>{children}</tbody>,
-  TableRow: ({
-    children,
-    ...props
-  }: HTMLAttributes<HTMLTableRowElement>) => <tr {...props}>{children}</tr>,
+  TableHeader: ({ children }: { children: ReactNode }) => (
+    <thead>{children}</thead>
+  ),
+  TableBody: ({ children }: { children: ReactNode }) => (
+    <tbody>{children}</tbody>
+  ),
+  TableRow: ({ children, ...props }: HTMLAttributes<HTMLTableRowElement>) => (
+    <tr {...props}>{children}</tr>
+  ),
   TableHead: ({
     children,
     ...props
@@ -91,7 +91,9 @@ vi.mock("@/components/app/screens/shared", () => ({
       <div>{actions}</div>
     </div>
   ),
-  ViewsDisplaySettingsPopover: () => <button type="button">Display settings</button>,
+  ViewsDisplaySettingsPopover: () => (
+    <button type="button">Display settings</button>
+  ),
   formatEntityKind: (entityKind: string) => entityKind,
   getDocumentPreview: () => "",
   getEntityKindIcon: () => <span>Icon</span>,
@@ -131,20 +133,58 @@ vi.mock("@/components/app/team-workflow-settings-dialog", () => ({
 }))
 
 vi.mock("@/components/app/screens/document-ui", () => ({
-  DocumentContextMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DocumentContextMenu: ({ children }: { children: ReactNode }) => (
+    <>{children}</>
+  ),
   DocumentAuthorAvatar: () => null,
 }))
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
+  GroupChipPopover: () => null,
+  PROJECT_DISPLAY_PROPERTY_OPTIONS: [],
+  PROJECT_GROUP_OPTIONS: [],
   ProjectFilterPopover: () => null,
-  ProjectViewConfigPopover: () => null,
+  ProjectLayoutTabs: () => null,
+  ProjectSortChipPopover: () => null,
+  PropertiesChipPopover: () => null,
+  getGroupFieldOptionLabel: (value: string) => value,
+}))
+
+vi.mock("@/components/app/screens/directory-controls", () => ({
+  ViewsDirectoryFilterPopover: () => null,
+  ViewsDirectoryGroupChipPopover: () => null,
+  ViewsDirectoryLayoutTabs: () => <button type="button">Layout</button>,
+  ViewsDirectoryPropertiesChipPopover: () => null,
+  ViewsDirectorySortChipPopover: () => null,
+}))
+
+vi.mock("@/components/ui/template-primitives", () => ({
+  IconButton: ({
+    children,
+    ...props
+  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type="button" {...props}>
+      {children}
+    </button>
+  ),
+  Topbar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Viewbar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  CalendarDots: () => null,
   ArrowSquareOut: () => null,
+  FunnelSimple: () => null,
   FileText: () => null,
   PencilSimple: () => null,
   Plus: () => null,
+  Rows: () => null,
+  SortAscending: () => null,
+  Eye: () => null,
+  CaretDown: () => null,
+  Check: () => null,
+  MagnifyingGlass: () => null,
+  SquaresFour: () => null,
   Trash: () => null,
 }))
 
@@ -310,8 +350,6 @@ describe("ViewsScreen", () => {
       />
     )
 
-    expect(screen.getByText("Scope")).toBeInTheDocument()
-    expect(screen.queryByText("Sharing")).not.toBeInTheDocument()
     expect(screen.getByText("Workspace roadmap")).toBeInTheDocument()
     expect(screen.getByText("Platform board")).toBeInTheDocument()
     expect(screen.getByText("Legacy workspace board")).toBeInTheDocument()
@@ -338,9 +376,8 @@ describe("ViewsScreen", () => {
         defaultScopeId: "workspace_1",
       })
     )
-    const firstDialog = vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0] as
-      | Extract<CreateDialogState, { kind: "view" }>
-      | undefined
+    const firstDialog = vi.mocked(openManagedCreateDialog).mock
+      .calls[0]?.[0] as Extract<CreateDialogState, { kind: "view" }> | undefined
     expect(firstDialog?.lockScope).toBeUndefined()
   })
 })

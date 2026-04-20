@@ -367,6 +367,7 @@ export async function createViewServer(input: {
     milestoneIds: string[]
     relationTypes: string[]
     projectIds: string[]
+    parentIds?: string[]
     itemTypes: WorkItemType[]
     labelIds: string[]
     teamIds: string[]
@@ -391,22 +392,26 @@ export async function createViewServer(input: {
 export async function toggleViewDisplayPropertyServer(input: {
   currentUserId: string
   viewId: string
-  property:
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
+  property: DisplayProperty
 }) {
   try {
     return await getConvexServerClient().mutation(
       api.app.toggleViewDisplayProperty,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function reorderViewDisplayPropertiesServer(input: {
+  currentUserId: string
+  viewId: string
+  displayProps: DisplayProperty[]
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.reorderViewDisplayProperties,
       withServerToken(input)
     )
   } catch (error) {
@@ -443,6 +448,7 @@ export async function toggleViewFilterValueServer(input: {
     | "milestoneIds"
     | "relationTypes"
     | "projectIds"
+    | "parentIds"
     | "itemTypes"
     | "labelIds"
     | "teamIds"

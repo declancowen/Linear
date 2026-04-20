@@ -418,6 +418,12 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     )
   }
 
+  function reorderProjectItemsDisplayProperties(
+    displayProps: DisplayProperty[]
+  ) {
+    setProjectItemsDisplayProps(displayProps)
+  }
+
   function applyProjectItemsViewTemplate(view: ViewDefinition) {
     setProjectItemsLayout(view.layout)
     setProjectItemsGrouping(view.grouping)
@@ -549,6 +555,11 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
               activeSavedProjectView
                 ? undefined
                 : toggleProjectItemsDisplayProperty
+            }
+            onReorderDisplayProperties={
+              activeSavedProjectView
+                ? undefined
+                : reorderProjectItemsDisplayProperties
             }
           />
           <div className="ml-auto flex items-center gap-1.5">

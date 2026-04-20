@@ -45,12 +45,14 @@ export function getGroupAccentVar(
   value: string
 ): string | null {
   if (field === "status") {
-    const status = value as WorkItem["status"]
+    const status = value.trim().toLowerCase()
     if (status === "done") return "var(--status-done)"
-    if (status === "in-progress") return "var(--status-doing)"
+    if (status === "in-progress" || status === "in progress")
+      return "var(--status-doing)"
     if (status === "todo") return "var(--status-todo)"
-    if (status === "cancelled" || status === "duplicate")
-      return "var(--status-cancel)"
+    if (status === "cancelled" || status === "canceled")
+      return "var(--priority-urgent)"
+    if (status === "duplicate") return "var(--status-cancel)"
     if (status === "backlog") return "var(--status-backlog)"
     return null
   }

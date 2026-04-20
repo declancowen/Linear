@@ -7,20 +7,21 @@ import {
   closestCorners,
   DndContext,
   DragOverlay,
+  PointerSensor,
   type DragEndEvent,
   type DragStartEvent,
   useDraggable,
   useDroppable,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core"
 import { format } from "date-fns"
 import {
   CaretDown,
   CaretRight,
-  Circle,
   DotsSixVertical,
   Flame,
   FolderSimple,
-  ListBullets,
   TreeStructure,
 } from "@phosphor-icons/react"
 
@@ -30,8 +31,15 @@ import {
   getProject,
   getTeam,
   getUser,
+  getWorkItemChildProgress,
 } from "@/lib/domain/selectors"
 import {
+  formatCalendarDateLabel,
+  getCalendarDateDayOffset,
+} from "@/lib/date-input"
+import {
+  priorityMeta,
+  statusMeta,
   getChildWorkItemCopy,
   type AppData,
   type DisplayProperty,
@@ -46,12 +54,12 @@ import {
   IssueActionMenu,
   IssueContextMenu,
   stopMenuEvent,
+  stopDragPropagation,
 } from "./work-item-menus"
-import { WorkItemAssigneeAvatar } from "./work-item-ui"
+import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import { getPatchForField } from "./shared"
 import { getContainerItemsForDisplay } from "./helpers"
 import {
-  computeGroupDoneRatio,
   getGroupAccentVar,
   getGroupValueAdornment,
   getGroupValueLabel,
@@ -66,9 +74,36 @@ const priorityColorVar: Record<string, string> = {
   low: "var(--priority-low)",
   none: "var(--text-4)",
 }
+const HOLD_TO_DRAG_DELAY_MS = 160
+const HOLD_TO_DRAG_TOLERANCE_PX = 8
+const META_CHIP_CLASS =
+  "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2"
+const META_TEXT_CLASS = "shrink-0 text-[11.5px] text-fg-3 tabular-nums"
 
-const LIST_ROW_TEMPLATE =
-  "18px 18px 82px 16px minmax(0,1fr) auto auto auto auto auto"
+function useHoldToDragSensors() {
+  return useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: HOLD_TO_DRAG_DELAY_MS,
+        tolerance: HOLD_TO_DRAG_TOLERANCE_PX,
+      },
+    })
+  )
+}
+
+function CollapseCaret({
+  open,
+  className,
+}: {
+  open: boolean
+  className?: string
+}) {
+  return open ? (
+    <CaretDown className={className} weight="fill" />
+  ) : (
+    <CaretRight className={className} weight="fill" />
+  )
+}
 
 function parseGroupDropTarget(id: string, scope: "board" | "list") {
   const [dropScope, groupValue, subgroupValue] = id.split("::")
@@ -115,10 +150,6 @@ function buildGroupedWorkItemPatch({
   }
 }
 
-function countChildItems(data: AppData, item: WorkItem) {
-  return data.workItems.filter((entry) => entry.parentId === item.id).length
-}
-
 function GroupPill({
   label,
   accentVar,
@@ -143,6 +174,309 @@ function GroupPill({
   )
 }
 
+type ChildProgressRollup = ReturnType<typeof getWorkItemChildProgress>
+
+function getChildProgressRollup(
+  data: AppData,
+  item: WorkItem
+): ChildProgressRollup | null {
+  const progress = getWorkItemChildProgress(data, item.id)
+  return progress.totalChildren > 0 ? progress : null
+}
+
+function WorkItemProgressProperty({
+  progress,
+  variant,
+  className,
+}: {
+  progress: ChildProgressRollup | null
+  variant: "list" | "board"
+  className?: string
+}) {
+  if (!progress) {
+    return null
+  }
+
+  return (
+    <span
+      className={cn(
+        variant === "list"
+          ? "inline-flex shrink-0 items-center gap-2"
+          : "inline-flex min-w-[140px] flex-1 basis-full items-center gap-2",
+        className
+      )}
+      aria-label={`Child progress ${progress.percent}%`}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "h-1 overflow-hidden rounded-full bg-surface-3",
+          variant === "list" ? "w-[52px]" : "min-w-0 flex-1"
+        )}
+      >
+        <span
+          className="block h-full rounded-full bg-status-done transition-all"
+          style={{ width: `${progress.percent}%` }}
+        />
+      </span>
+      <span className="w-9 text-right text-[11.5px] tabular-nums text-fg-3">
+        {progress.percent}%
+      </span>
+    </span>
+  )
+}
+
+function formatMetaDate(dateValue: string | null | undefined) {
+  if (!dateValue) {
+    return null
+  }
+
+  return format(new Date(dateValue), "MMM d")
+}
+
+function WorkItemChildCount({
+  count,
+  className,
+}: {
+  count: number
+  className?: string
+}) {
+  if (count <= 0) {
+    return null
+  }
+
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 text-[11.5px] text-fg-4 tabular-nums",
+        className
+      )}
+    >
+      <TreeStructure className="size-3" />
+      {count}
+    </span>
+  )
+}
+
+function renderWorkItemDisplayProperty({
+  data,
+  item,
+  property,
+  variant,
+  childProgress,
+  assignee,
+  dueDateLabel,
+  isOverdue,
+  isSoon,
+}: {
+  data: AppData
+  item: WorkItem
+  property: DisplayProperty
+  variant: "list" | "board"
+  childProgress: ChildProgressRollup | null
+  assignee: ReturnType<typeof getUser> | null
+  dueDateLabel: string | null
+  isOverdue: boolean
+  isSoon: boolean
+}) {
+  if (property === "id") {
+    return (
+      <span className="shrink-0 font-mono text-[11.5px] tracking-[0.01em] text-fg-3">
+        {item.key}
+      </span>
+    )
+  }
+
+  if (property === "status") {
+    return (
+      <span className={META_CHIP_CLASS}>
+        <StatusRing status={item.status} />
+        {statusMeta[item.status].label}
+      </span>
+    )
+  }
+
+  if (property === "type") {
+    return (
+      <WorkItemTypeBadge
+        data={data}
+        item={item}
+        className="h-5 px-2 text-[11px] text-fg-2"
+      />
+    )
+  }
+
+  if (property === "priority") {
+    if (item.priority === "none") {
+      return null
+    }
+
+    return (
+      <span className={META_CHIP_CLASS}>
+        <Flame
+          className="size-3"
+          style={{ color: priorityColorVar[item.priority] }}
+          weight="fill"
+        />
+        {priorityMeta[item.priority].label}
+      </span>
+    )
+  }
+
+  if (property === "progress") {
+    return (
+      <WorkItemProgressProperty
+        progress={childProgress}
+        variant={variant}
+      />
+    )
+  }
+
+  if (property === "project") {
+    const project = getProject(data, item.primaryProjectId)
+
+    if (!project) {
+      return null
+    }
+
+    return (
+      <span className={META_CHIP_CLASS}>
+        <FolderSimple className="size-[11px]" />
+        <span className="max-w-[120px] truncate">{project.name}</span>
+      </span>
+    )
+  }
+
+  if (property === "milestone") {
+    const milestone = data.milestones.find(
+      (entry) => entry.id === item.milestoneId
+    )
+
+    if (!milestone) {
+      return null
+    }
+
+    return <span className={META_CHIP_CLASS}>{milestone.name}</span>
+  }
+
+  if (property === "labels") {
+    if (item.labelIds.length === 0) {
+      return null
+    }
+
+    return item.labelIds
+      .slice(0, variant === "board" ? 3 : 2)
+      .map((labelId) => {
+        const label = data.labels.find((entry) => entry.id === labelId)
+
+        if (!label) {
+          return null
+        }
+
+        return (
+          <span key={labelId} className={META_CHIP_CLASS}>
+            <span
+              aria-hidden
+              className="size-[7px] rounded-full"
+              style={{ background: label.color }}
+            />
+            {label.name}
+          </span>
+        )
+      })
+      .filter(Boolean)
+  }
+
+  if (property === "dueDate") {
+    if (!dueDateLabel) {
+      return null
+    }
+
+    return (
+      <span
+        className={cn(
+          META_TEXT_CLASS,
+          isOverdue && "text-[color:var(--priority-urgent)]",
+          !isOverdue && isSoon && "text-[color:var(--priority-high)]"
+        )}
+      >
+        {isOverdue ? "Overdue" : dueDateLabel}
+      </span>
+    )
+  }
+
+  if (property === "created") {
+    const createdAt = formatMetaDate(item.createdAt)
+
+    return createdAt ? (
+      <span className={META_TEXT_CLASS}>Created {createdAt}</span>
+    ) : null
+  }
+
+  if (property === "updated") {
+    const updatedAt = formatMetaDate(item.updatedAt)
+
+    return updatedAt ? (
+      <span className={META_TEXT_CLASS}>Updated {updatedAt}</span>
+    ) : null
+  }
+
+  if (property === "assignee") {
+    return assignee ? (
+      <WorkItemAssigneeAvatar user={assignee} size="xs" />
+    ) : null
+  }
+
+  return null
+}
+
+function renderWorkItemDisplayProperties({
+  data,
+  item,
+  displayProps,
+  variant,
+  childProgress,
+  assignee,
+  dueDateLabel,
+  isOverdue,
+  isSoon,
+}: {
+  data: AppData
+  item: WorkItem
+  displayProps: DisplayProperty[]
+  variant: "list" | "board"
+  childProgress: ChildProgressRollup | null
+  assignee: ReturnType<typeof getUser> | null
+  dueDateLabel: string | null
+  isOverdue: boolean
+  isSoon: boolean
+}) {
+  return Array.from(new Set(displayProps)).flatMap((property) => {
+    const rendered = renderWorkItemDisplayProperty({
+      data,
+      item,
+      property,
+      variant,
+      childProgress,
+      assignee,
+      dueDateLabel,
+      isOverdue,
+      isSoon,
+    })
+
+    if (!rendered) {
+      return []
+    }
+
+    return Array.isArray(rendered)
+      ? rendered.map((entry, index) => ({
+          key: `${property}-${index}`,
+          node: entry,
+        }))
+      : [{ key: property, node: rendered }]
+  })
+}
+
 export function BoardView({
   data,
   items,
@@ -161,6 +495,7 @@ export function BoardView({
   ]
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
+  const sensors = useHoldToDragSensors()
   const hiddenGroups = groups.filter(([groupName]) =>
     view.hiddenState.groups.includes(groupName)
   )
@@ -217,6 +552,7 @@ export function BoardView({
   return (
     <DndContext
       collisionDetection={closestCorners}
+      sensors={sensors}
       onDragStart={handleDragStart}
       onDragCancel={() => setActiveItemId(null)}
       onDragEnd={handleDragEnd}
@@ -300,9 +636,16 @@ export function BoardView({
                     }
                   )}
                   {subgroups.size === 0 ? (
-                    <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
-                      {editable ? "Drop here" : "No items"}
-                    </div>
+                    editable ? (
+                      <BoardDropLane
+                        id={`board::${groupName}`}
+                        className="min-h-24 flex-1"
+                      />
+                    ) : (
+                      <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
+                        No items
+                      </div>
+                    )
                   ) : null}
                 </div>
               </div>
@@ -368,6 +711,7 @@ export function ListView({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
+  const sensors = useHoldToDragSensors()
   const showChildItems = Boolean(view.showChildItems)
 
   function toggleGroup(groupName: string) {
@@ -430,6 +774,7 @@ export function ListView({
   return (
     <DndContext
       collisionDetection={closestCorners}
+      sensors={sensors}
       onDragStart={handleDragStart}
       onDragCancel={() => setActiveItemId(null)}
       onDragEnd={handleDragEnd}
@@ -442,6 +787,7 @@ export function ListView({
 
           const groupItems = Array.from(subgroups.values()).flat()
           const groupCount = groupItems.length
+          const isExpandable = groupCount > 0
           const isCollapsed = collapsedGroups.has(groupName)
           const groupLabel = getGroupValueLabel(view.grouping, groupName)
           const groupAdornment = getGroupValueAdornment(
@@ -449,7 +795,6 @@ export function ListView({
             groupName
           )
           const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
-          const groupProgress = computeGroupDoneRatio(groupItems)
 
           return (
             <div key={groupName}>
@@ -459,12 +804,18 @@ export function ListView({
                 groupAdornment={groupAdornment}
                 groupCount={groupCount}
                 groupLabel={groupLabel}
-                progressPercent={groupProgress.percent}
                 isCollapsed={isCollapsed}
-                onClick={() => toggleGroup(groupName)}
+                isExpandable={isExpandable}
+                onClick={() => {
+                  if (!isExpandable) {
+                    return
+                  }
+
+                  toggleGroup(groupName)
+                }}
               />
 
-              {!isCollapsed ? (
+              {isExpandable && !isCollapsed ? (
                 <div className="flex flex-col">
                   {Array.from(subgroups.entries()).map(
                     ([subgroupName, subItems]) => {
@@ -552,11 +903,16 @@ export function ListView({
                     }
                   )}
                   {subgroups.size === 0 ? (
-                    <div className="px-11 py-3 text-xs text-muted-foreground">
-                      {editable
-                        ? "Drop items onto the group header"
-                        : "No items"}
-                    </div>
+                    editable ? (
+                      <ListDropLane
+                        id={`list::${groupName}`}
+                        className="min-h-10"
+                      />
+                    ) : (
+                      <div className="px-11 py-3 text-xs text-muted-foreground">
+                        No items
+                      </div>
+                    )
                   ) : null}
                 </div>
               ) : null}
@@ -611,8 +967,8 @@ function ListGroupHeader({
   groupAdornment,
   groupCount,
   groupLabel,
-  progressPercent,
   isCollapsed,
+  isExpandable,
   onClick,
 }: {
   id: string
@@ -620,8 +976,8 @@ function ListGroupHeader({
   groupAdornment: ReactNode
   groupCount: number
   groupLabel: string
-  progressPercent: number
   isCollapsed: boolean
+  isExpandable: boolean
   onClick: () => void
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
@@ -633,20 +989,24 @@ function ListGroupHeader({
     >
       <button
         type="button"
-        className="group/grp flex w-full items-center gap-2.5 px-5 pt-2 pb-1.5 pl-3.5 text-left"
+        aria-disabled={!isExpandable}
+        className={cn(
+          "flex w-full items-center gap-2.5 px-5 pt-2 pb-1.5 pl-3.5 text-left",
+          isExpandable ? "group/grp" : "cursor-default"
+        )}
         onClick={onClick}
       >
         <span className="grid size-5 shrink-0 place-items-center text-fg-3">
-          {isCollapsed ? (
-            <CaretRight className="size-3" />
+          {isExpandable ? (
+            <CollapseCaret open={!isCollapsed} className="size-3" />
           ) : (
-            <CaretDown className="size-3" />
+            <span aria-hidden className="size-3" />
           )}
         </span>
         <div
           className={cn(
             "flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-[min(var(--radius-md),12px)] border border-line bg-surface px-3.5 shadow-[0_1px_0_0_oklch(0.18_0_0/0.03)] transition-colors",
-            isOver ? "border-fg-4 bg-surface-2" : "group-hover/grp:bg-surface-3"
+            isOver ? "border-fg-4 bg-surface-2" : isExpandable ? "group-hover/grp:bg-surface-3" : null
           )}
         >
           <GroupPill
@@ -657,25 +1017,6 @@ function ListGroupHeader({
           <span className="text-[12px] tabular-nums text-fg-3">
             {groupCount}
           </span>
-          {groupCount > 0 ? (
-            <div className="ml-auto flex items-center gap-2">
-              <div
-                className="h-1 w-[120px] overflow-hidden rounded-full bg-surface-3"
-                aria-label="Completion"
-              >
-                <div
-                  className="block h-full rounded-full transition-all"
-                  style={{
-                    width: `${progressPercent}%`,
-                    background: accentVar ?? "var(--text-2)",
-                  }}
-                />
-              </div>
-              <span className="w-9 text-right text-[11.5px] tabular-nums text-fg-3">
-                {progressPercent}%
-              </span>
-            </div>
-          ) : null}
         </div>
       </button>
     </div>
@@ -684,10 +1025,12 @@ function ListGroupHeader({
 
 function ListDropLane({
   id,
+  className,
   children,
 }: {
   id: string
-  children: ReactNode
+  className?: string
+  children?: ReactNode
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
@@ -696,6 +1039,7 @@ function ListDropLane({
       ref={setNodeRef}
       className={cn(
         "flex flex-col transition-colors",
+        className,
         isOver && "bg-surface-2"
       )}
     >
@@ -709,143 +1053,82 @@ function ListRowBody({
   item,
   displayProps,
   depth,
-  dragHandle,
   interactive = true,
   hasChildren = false,
   expanded = false,
   onToggleExpanded,
+  dragHandle,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
-  dragHandle?: ReactNode
   interactive?: boolean
   hasChildren?: boolean
   expanded?: boolean
   onToggleExpanded?: () => void
+  dragHandle?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
-  const dueDate = item.dueDate ? new Date(item.dueDate) : null
-  const now = new Date()
-  const daysUntilDue = dueDate
-    ? Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-    : null
+  const dueDateLabel =
+    displayProps.includes("dueDate") && item.dueDate
+      ? formatCalendarDateLabel(item.dueDate, "")
+      : null
+  const daysUntilDue = getCalendarDateDayOffset(item.dueDate)
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
-  const project = getProject(data, item.primaryProjectId)
-  const showProject = displayProps.includes("project") && Boolean(project)
-  const showLabels = displayProps.includes("labels") && item.labelIds.length > 0
-  const labelsToShow = showLabels ? item.labelIds.slice(0, 2) : []
-  const labelLookup = data.labels
-  const subCount = countChildItems(data, item)
-  const showSubCount = subCount > 0
+  const childProgress = getChildProgressRollup(data, item)
+  const subCount = childProgress?.totalChildren ?? 0
+  const idProperty = renderWorkItemDisplayProperty({
+    data,
+    item,
+    property: "id",
+    variant: "list",
+    childProgress,
+    assignee,
+    dueDateLabel,
+    isOverdue,
+    isSoon,
+  })
+  const visibleProperties = renderWorkItemDisplayProperties({
+    data,
+    item,
+    displayProps: displayProps.filter((property) => property !== "id"),
+    variant: "list",
+    childProgress,
+    assignee,
+    dueDateLabel,
+    isOverdue,
+    isSoon,
+  })
+  const disclosureSlotClass = depth === 0 ? "size-5" : "size-4"
 
   const content = (
     <>
-      <span className="font-mono text-[11.5px] tracking-[0.01em] text-fg-3">
-        {item.key}
-      </span>
-      <StatusRing status={item.status} />
-      <div className="min-w-0">
-        <div className="truncate text-[13px] text-foreground">{item.title}</div>
-      </div>
-      {showProject || showLabels ? (
-        <div className="hidden shrink-0 items-center gap-1 md:flex">
-          {showProject ? (
-            <span className="inline-flex h-5 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2">
-              <FolderSimple className="size-[11px]" />
-              <span className="max-w-[120px] truncate">{project?.name}</span>
-            </span>
-          ) : null}
-          {labelsToShow.map((labelId) => {
-            const label = labelLookup.find((entry) => entry.id === labelId)
-            if (!label) {
-              return null
-            }
-
-            return (
-              <span
-                key={labelId}
-                className="inline-flex h-5 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2"
-              >
-                <span
-                  aria-hidden
-                  className="size-[7px] rounded-full"
-                  style={{ background: label.color }}
-                />
-                {label.name}
-              </span>
-            )
-          })}
+      <div className="min-w-0 flex flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+        {idProperty}
+        <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
+          <div className="truncate text-[13px] text-foreground">{item.title}</div>
+          <WorkItemChildCount count={subCount} />
         </div>
-      ) : (
-        <span aria-hidden className="hidden shrink-0 md:inline" />
-      )}
-      {displayProps.includes("priority") && item.priority !== "none" ? (
-        <Flame
-          className="size-3.5 shrink-0"
-          style={{ color: priorityColorVar[item.priority] }}
-          weight="fill"
-        />
-      ) : (
-        <span aria-hidden className="size-3.5 shrink-0" />
-      )}
-      {displayProps.includes("dueDate") ? (
-        dueDate ? (
-          <span
-            className={cn(
-              "shrink-0 text-[12px] tabular-nums",
-              isOverdue && "text-[color:var(--priority-urgent)]",
-              !isOverdue && isSoon && "text-[color:var(--priority-high)]",
-              !isOverdue && !isSoon && "text-fg-3"
-            )}
-          >
-            {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
-          </span>
-        ) : (
-          <span aria-hidden className="shrink-0 text-[12px] text-fg-4">
-            —
-          </span>
-        )
-      ) : (
-        <span aria-hidden className="shrink-0 text-[12px] text-transparent">
-          —
-        </span>
-      )}
-      {displayProps.includes("assignee") ? (
-        assignee ? (
-          <WorkItemAssigneeAvatar user={assignee} className="shrink-0" />
-        ) : (
-          <span
-            aria-hidden
-            className="inline-grid size-5 shrink-0 place-items-center rounded-full border border-dashed border-line text-fg-4"
-          >
-            <Circle className="size-2.5" />
-          </span>
-        )
-      ) : (
-        <span aria-hidden className="size-5 shrink-0" />
-      )}
-      {showSubCount ? (
-        <span className="inline-flex shrink-0 items-center gap-1 text-[11.5px] text-fg-4 tabular-nums">
-          <TreeStructure className="size-3" />
-          {subCount}
-        </span>
-      ) : (
-        <span aria-hidden className="shrink-0" />
-      )}
+        {visibleProperties.length > 0 ? (
+          <div className="flex shrink-0 items-center gap-1.5 overflow-hidden">
+            {visibleProperties.map(({ key, node }) => (
+              <span key={key} className="contents">
+                {node}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </>
   )
 
   const body = (
     <div className="group/row relative transition-colors hover:bg-surface-2">
       <div
-        className="grid h-[34px] items-center gap-2.5 pr-5"
-        style={{
-          gridTemplateColumns: LIST_ROW_TEMPLATE,
-          paddingLeft: 14 + depth * 24,
-        }}
+        className="flex min-h-[34px] items-center gap-2.5 pr-5"
+        style={{ paddingLeft: 14 + depth * 24 }}
       >
         <div className="flex items-center justify-center">
           {dragHandle ?? <span aria-hidden className="size-4" />}
@@ -855,21 +1138,21 @@ function ListRowBody({
             type="button"
             aria-label={expanded ? "Collapse sub-issues" : "Expand sub-issues"}
             aria-expanded={expanded}
-            className="inline-grid size-4 place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+            className={cn(
+              "inline-grid place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+              disclosureSlotClass
+            )}
+            onPointerDown={stopDragPropagation}
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
               onToggleExpanded?.()
             }}
           >
-            {expanded ? (
-              <CaretDown className="size-3" />
-            ) : (
-              <CaretRight className="size-3" />
-            )}
+            <CollapseCaret open={expanded} className="size-3" />
           </button>
         ) : (
-          <span aria-hidden className="size-4" />
+          <span aria-hidden className={disclosureSlotClass} />
         )}
         {interactive ? (
           <Link href={`/items/${item.id}`} className="contents">
@@ -1021,10 +1304,12 @@ function BoardGroupHeader({
 
 function BoardDropLane({
   id,
+  className,
   children,
 }: {
   id: string
-  children: ReactNode
+  className?: string
+  children?: ReactNode
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
@@ -1033,6 +1318,7 @@ function BoardDropLane({
       ref={setNodeRef}
       className={cn(
         "flex min-h-8 flex-col gap-1.5 rounded-md p-0 transition-colors",
+        className,
         isOver && "bg-accent-bg/40"
       )}
     >
@@ -1073,6 +1359,7 @@ function DraggableWorkCard({
             type="button"
             aria-label={`Drag ${item.title}`}
             className="inline-grid size-5 place-items-center rounded-sm text-fg-4 transition-colors hover:bg-surface-3 hover:text-foreground"
+            onClick={stopMenuEvent}
             {...listeners}
             {...attributes}
           >
@@ -1098,39 +1385,59 @@ function BoardCardBody({
   dragHandle?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
-  const dueDate = item.dueDate ? new Date(item.dueDate) : null
-  const now = new Date()
-  const daysUntilDue = dueDate
-    ? Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-    : null
+  const dueDateLabel =
+    displayProps.includes("dueDate") && item.dueDate
+      ? formatCalendarDateLabel(item.dueDate, "")
+      : null
+  const daysUntilDue = getCalendarDateDayOffset(item.dueDate)
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
-  const project = getProject(data, item.primaryProjectId)
-  const showProject = displayProps.includes("project") && Boolean(project)
-  const labelIds =
-    displayProps.includes("labels") ? item.labelIds.slice(0, 3) : []
-  const labelLookup = data.labels
-  const subCount = countChildItems(data, item)
-  const doneSubCount = data.workItems.filter(
-    (entry) => entry.parentId === item.id && entry.status === "done"
-  ).length
-  const showMeta = showProject || labelIds.length > 0
+  const childProgress = getChildProgressRollup(data, item)
+  const subCount = childProgress?.totalChildren ?? 0
+  const idProperty = renderWorkItemDisplayProperty({
+    data,
+    item,
+    property: "id",
+    variant: "board",
+    childProgress,
+    assignee,
+    dueDateLabel,
+    isOverdue,
+    isSoon,
+  })
+  const visibleProperties = renderWorkItemDisplayProperties({
+    data,
+    item,
+    displayProps: displayProps.filter((property) => property !== "id"),
+    variant: "board",
+    childProgress,
+    assignee,
+    dueDateLabel,
+    isOverdue,
+    isSoon,
+  })
 
   return (
     <IssueContextMenu data={data} item={item}>
       <div className="group/card flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
-        <div className="flex items-center gap-2 text-[11.5px] text-fg-3">
-          {dragHandle ?? null}
-          <span className="font-mono tracking-[0.01em]">{item.key}</span>
-          <div className="ml-auto flex items-center gap-1">
-            {item.priority !== "none" ? (
-              <Flame
-                className="size-3.5"
-                style={{ color: priorityColorVar[item.priority] }}
-                weight="fill"
-              />
-            ) : null}
-            <div className="opacity-0 transition-opacity group-hover/card:opacity-100">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            {idProperty ? <div className="mb-1">{idProperty}</div> : null}
+            <Link
+              className="min-w-0 focus-visible:outline-none"
+              href={`/items/${item.id}`}
+            >
+              <div className="flex min-w-0 items-start gap-1.5">
+                <div className="min-w-0 text-[13.5px] leading-[1.4] font-medium text-foreground">
+                  {item.title}
+                </div>
+                <WorkItemChildCount count={subCount} className="pt-0.5" />
+              </div>
+            </Link>
+          </div>
+          <div className="opacity-0 transition-opacity group-hover/card:opacity-100">
+            <div className="flex items-center gap-1">
+              {dragHandle ?? null}
               <IssueActionMenu
                 data={data}
                 item={item}
@@ -1143,71 +1450,15 @@ function BoardCardBody({
           className="flex min-w-0 flex-col gap-2 focus-visible:outline-none"
           href={`/items/${item.id}`}
         >
-          <div className="text-[13.5px] leading-[1.4] font-medium text-foreground">
-            {item.title}
-          </div>
-          {showMeta ? (
+          {visibleProperties.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
-              {showProject ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5 text-fg-2">
-                  <FolderSimple className="size-[11px]" />
-                  <span className="max-w-[140px] truncate">{project?.name}</span>
+              {visibleProperties.map(({ key, node }) => (
+                <span key={key} className="contents">
+                  {node}
                 </span>
-              ) : null}
-              {labelIds.map((labelId) => {
-                const label = labelLookup.find(
-                  (entry) => entry.id === labelId
-                )
-                if (!label) return null
-                return (
-                  <span
-                    key={labelId}
-                    className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5 text-fg-2"
-                  >
-                    <span
-                      aria-hidden
-                      className="size-[7px] rounded-full"
-                      style={{ background: label.color }}
-                    />
-                    {label.name}
-                  </span>
-                )
-              })}
+              ))}
             </div>
           ) : null}
-          <div className="flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
-            <span className="inline-flex items-center gap-1">
-              <ListBullets className="size-3" />
-              {subCount > 0 ? `${doneSubCount}/${subCount}` : "0"}
-            </span>
-            {displayProps.includes("dueDate") ? (
-              dueDate ? (
-                <span
-                  className={cn(
-                    "ml-auto inline-flex items-center gap-1 tabular-nums",
-                    isOverdue && "text-[color:var(--priority-urgent)]",
-                    !isOverdue && isSoon && "text-[color:var(--priority-high)]"
-                  )}
-                >
-                  {isOverdue ? "Overdue" : format(dueDate, "MMM d")}
-                </span>
-              ) : (
-                <span aria-hidden className="ml-auto text-fg-4">
-                  —
-                </span>
-              )
-            ) : null}
-            {assignee ? (
-              <WorkItemAssigneeAvatar user={assignee} className="size-5" />
-            ) : (
-              <span
-                aria-hidden
-                className="inline-grid size-5 place-items-center rounded-full border border-dashed border-line text-fg-4"
-              >
-                <Circle className="size-2.5" />
-              </span>
-            )}
-          </div>
         </Link>
         {details}
       </div>
@@ -1257,13 +1508,10 @@ function WorkItemChildDisclosure({
       <button
         type="button"
         className="flex w-full items-center gap-1.5 text-[11.5px] font-medium text-fg-3 transition-colors hover:text-foreground"
+        onPointerDown={stopDragPropagation}
         onClick={onToggle}
       >
-        {expanded ? (
-          <CaretDown className="size-3" />
-        ) : (
-          <CaretRight className="size-3" />
-        )}
+        <CollapseCaret open={expanded} className="size-3" />
         <span>{childCountLabel}</span>
       </button>
       {expanded ? (

@@ -23,6 +23,7 @@ Files and areas reviewed across all turns:
 - `components/app/screens/work-surface.tsx` — work surface topbar controls
 - `components/app/screens/work-item-detail-screen.tsx` — work-item detail sidebar rendering
 - `components/app/screens/collection-boards.tsx` — project board visual tokens
+- `components/app/screens/project-detail-ui.tsx` — project overview date presentation
 - `components/app/collaboration-screens/channel-ui.tsx` — channel post cards and new-post composer affordances
 - `components/app/collaboration-screens/chat-thread.tsx` — chat composer affordances
 - `components/app/screens/project-creation.tsx` — project create shortcut path
@@ -40,6 +41,7 @@ Files and areas reviewed across all turns:
 - `tests/components/create-dialogs.test.tsx` — create-view route derivation regression coverage
 - `tests/components/entity-context-menus.test.tsx` — per-view saved-view mutation authorization coverage
 - `tests/components/work-item-detail-screen.test.tsx` — main activity timeline and sidebar regression coverage
+- `tests/components/work-surface-view.test.tsx` — list/board drag affordance regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
@@ -51,10 +53,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 15:43:34 BST` |
-| **Total turns** | `17` |
+| **Last reviewed** | `2026-04-20 17:27:17 BST` |
+| **Total turns** | `19` |
 | **Open findings** | `0` |
-| **Resolved findings** | `26` |
+| **Resolved findings** | `28` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1113,4 +1115,102 @@ No new findings in this turn.
 - `pnpm vitest run tests/components/work-surface.test.tsx`
 - `pnpm vitest run tests/components/work-item-detail-screen.test.tsx`
 - `pnpm vitest run tests/components/create-dialogs.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 18 — 2026-04-20 17:27:17 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `2a91a95` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The current diff introduces two live regressions on top of the broader saved-view/work-surface refactor. First, the new project/work-item/detail surfaces parse calendar-date fields with raw `new Date(...)`, which shifts `YYYY-MM-DD` and midnight-UTC values west of UTC and can mislabel or misclassify due dates. Second, the refactored list rows and board cards moved dnd-kit listeners from dedicated handles onto the outer draggable containers, so drag competes directly with nested links and disclosure controls.
+
+| Status | Count |
+|--------|-------|
+| Findings | `2` |
+
+### Findings
+
+#### B18-01 [BUG] Medium — `components/app/screens/work-surface-view.tsx:1071` — New work/project/detail surfaces reintroduce calendar-date timezone drift
+
+**What's happening:**
+The new surfaces format and compare `dueDate` / `targetDate` values with raw `new Date(...)` calls. That is safe for timestamps, but these fields are also stored as calendar-style strings (`YYYY-MM-DD`) and midnight-UTC ISO values. In west-of-UTC time zones, those parse to the previous local day, so a due date like `2026-04-21T00:00:00.000Z` can display as Apr 20 and flip overdue/soon logic early.
+
+**Root cause:**
+The branch already added a date-input helper for this exact class of bug in create flows, but the new read surfaces each reimplemented date parsing locally instead of using a shared calendar-date abstraction.
+
+**Codebase implication:**
+The same regression shape is present across multiple touched files: `components/app/screens/work-surface-view.tsx`, `components/app/screens/collection-boards.tsx`, `components/app/screens.tsx`, `components/app/screens/work-item-detail-screen.tsx`, `components/app/screens/project-detail-ui.tsx`, and `lib/domain/selectors-internal/work-items.ts`. That creates inconsistent labels and inconsistent overdue behavior depending on which surface a user is viewing.
+
+**Solution options:**
+1. **Quick fix:** Route all due/target-date formatting and day-delta logic through a shared calendar-date helper that accepts both plain date strings and midnight-UTC ISO values.
+2. **Proper fix:** Keep all date-only domain fields on a single parsing/formatting path so new surfaces do not drift back to instant-based parsing.
+
+**Investigate:**
+Any other raw `new Date(...)` usage on `startDate` / `dueDate` / `targetDate` should be audited as follow-up polish, especially older project/detail surfaces not directly touched in this pass.
+
+> Representative callsites are `components/app/screens/work-surface-view.tsx:1071-1094`, `components/app/screens/collection-boards.tsx:101-107`, and `components/app/screens/work-item-detail-screen.tsx:152-166`.
+
+#### B18-02 [BUG] Medium — `components/app/screens/work-surface-view.tsx:1236` — Board cards and list rows make the whole navigable surface draggable
+
+**What's happening:**
+`DraggableListRow` and `DraggableWorkCard` now spread `{...listeners}` / `{...attributes}` onto the outer container div instead of a dedicated grip. Those containers also wrap title links, disclosure buttons, and action affordances.
+
+**Root cause:**
+The refactor simplified the markup by dropping the explicit drag-handle slot, but that coupled drag activation to the same node tree that users click to navigate or expand content.
+
+**Codebase implication:**
+Navigation and drag are no longer cleanly separated. On slower clicks, press-and-hold, or touch interactions, the dnd sensor can win over the nested link or disclosure affordance. That is both a UX regression and a layering problem: drag belongs on a dedicated affordance, not on the same surface that owns navigation.
+
+**Solution options:**
+1. **Quick fix:** Restore dedicated drag-handle buttons for editable list rows and board cards.
+2. **Proper fix:** Keep dnd listeners on explicit drag affordances whenever a row/card also contains nested interactive controls.
+
+**Investigate:**
+If the branch later adds drag to timeline cards or other composite surfaces, keep the same separation instead of reusing container-level listeners.
+
+> The container-level listener move is in `components/app/screens/work-surface-view.tsx:1236-1264` and `components/app/screens/work-surface-view.tsx:1341-1368`.
+
+### Recommendations
+
+1. Fix the calendar-date handling through a shared helper instead of patching each surface independently.
+2. Restore dedicated drag handles so navigation and drag remain isolated interaction paths.
+
+---
+
+## Turn 19 — 2026-04-20 17:27:17 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `2a91a95` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** Both Turn 18 findings are resolved in the working tree. Calendar-date parsing now flows through shared helpers in `lib/date-input.ts`, and the touched work/project/detail surfaces consume those helpers for labels and day-offset logic. The work-surface list and board variants now use dedicated drag-handle buttons again instead of making the whole navigable row/card the drag target. Focused regression coverage was added and the verification rerun passed.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `2` |
+
+### Status updates
+
+- `B18-01` Resolved — added shared calendar-date helpers in `lib/date-input.ts` and moved the touched work/project/detail surfaces plus `getLateItems()` / `formatDisplayValue()` onto that path so date-only strings and midnight-UTC values no longer drift by timezone.
+- `B18-02` Resolved — restored explicit drag-handle buttons for editable list rows and board cards while keeping the refactored visual structure intact.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep routing date-only domain fields through `lib/date-input.ts` so future surfaces do not regress back to `new Date(...)` parsing.
+2. Keep drag listeners on explicit handles whenever a row/card also contains links, disclosure buttons, or menus.
+
+### Verification
+
+- `pnpm vitest run tests/lib/date-input.test.ts tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/project-detail-screen.test.tsx`
+- `pnpm vitest run tests/components/views-screen.test.tsx tests/components/work-surface.test.tsx tests/app/api/work-route-contracts.test.ts tests/lib/store/view-slice.test.ts tests/lib/domain/view-item-level.test.ts`
 - `pnpm typecheck`

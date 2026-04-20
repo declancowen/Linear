@@ -27,9 +27,7 @@ import {
 } from "@/components/ui/template-primitives"
 import { HeaderTitle } from "@/components/app/screens/shared"
 import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
-import {
-  selectAppDataSnapshot,
-} from "@/components/app/screens/helpers"
+import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import {
   FilterPopover,
   getAvailableGroupOptions,
@@ -38,7 +36,6 @@ import {
   LevelChipPopover,
   PropertiesChipPopover,
   SortChipPopover,
-  ViewConfigPopover,
 } from "@/components/app/screens/work-surface-controls"
 import {
   BoardView,
@@ -55,7 +52,9 @@ function getCompatibleActiveView(
     return null
   }
 
-  const grouping = groupOptions.includes(view.grouping) ? view.grouping : "status"
+  const grouping = groupOptions.includes(view.grouping)
+    ? view.grouping
+    : "status"
   const subGrouping =
     view.subGrouping &&
     groupOptions.includes(view.subGrouping) &&
@@ -211,14 +210,13 @@ export function WorkSurface({
       {compatibleActiveView ? (
         <Viewbar
           className={
-            compatibleActiveView.layout === "timeline" ? undefined : "border-b-0"
+            compatibleActiveView.layout === "timeline"
+              ? undefined
+              : "border-b-0"
           }
         >
           <LayoutTabs view={compatibleActiveView} />
-          <div
-            aria-hidden
-            className="mx-1.5 h-[18px] w-px bg-line"
-          />
+          <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
           <FilterPopover
             view={compatibleActiveView}
             items={items}
@@ -232,10 +230,6 @@ export function WorkSurface({
           <SortChipPopover view={compatibleActiveView} />
           <PropertiesChipPopover view={compatibleActiveView} />
           <div className="ml-auto flex items-center gap-1.5">
-            <ViewConfigPopover
-              view={compatibleActiveView}
-              groupOptions={groupOptions}
-            />
             <Button
               size="sm"
               variant="default"

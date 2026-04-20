@@ -273,6 +273,10 @@ export type AppStore = AppData & {
   renameView: (viewId: string, name: string) => Promise<boolean>
   deleteView: (viewId: string) => Promise<boolean>
   toggleViewDisplayProperty: (viewId: string, property: DisplayProperty) => void
+  reorderViewDisplayProperties: (
+    viewId: string,
+    displayProps: DisplayProperty[]
+  ) => void
   toggleViewHiddenValue: (
     viewId: string,
     key: "groups" | "subgroups",
@@ -290,6 +294,7 @@ export type AppStore = AppData & {
       | "milestoneIds"
       | "relationTypes"
       | "projectIds"
+      | "parentIds"
       | "itemTypes"
       | "labelIds"
       | "teamIds",

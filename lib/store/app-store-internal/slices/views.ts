@@ -6,6 +6,7 @@ import {
   syncClearViewFilters,
   syncCreateView,
   syncDeleteView,
+  syncReorderViewDisplayProperties,
   syncRenameView,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
@@ -36,6 +37,7 @@ type ViewSlice = Pick<
   | "deleteView"
   | "updateViewConfig"
   | "toggleViewDisplayProperty"
+  | "reorderViewDisplayProperties"
   | "toggleViewHiddenValue"
   | "toggleViewFilterValue"
   | "clearViewFilters"
@@ -331,6 +333,26 @@ export function createViewSlice(
         "Failed to update view"
       )
     },
+    reorderViewDisplayProperties(viewId, displayProps) {
+      const nextDisplayProps = Array.from(new Set(displayProps))
+
+      set((state) => ({
+        views: state.views.map((view) =>
+          view.id === viewId
+            ? {
+                ...view,
+                displayProps: nextDisplayProps,
+                updatedAt: getNow(),
+              }
+            : view
+        ),
+      }))
+
+      runtime.syncInBackground(
+        syncReorderViewDisplayProperties(viewId, nextDisplayProps),
+        "Failed to update view"
+      )
+    },
     toggleViewHiddenValue(viewId, key, value) {
       set((state) => ({
         views: state.views.map((view) => {
@@ -366,7 +388,7 @@ export function createViewSlice(
             return view
           }
 
-          const current = view.filters[key]
+          const current = (view.filters[key] ?? []) as string[]
           const next = current.includes(value as never)
             ? current.filter((entry) => entry !== value)
             : [...current, value]
@@ -407,6 +429,7 @@ export function createViewSlice(
               milestoneIds: [],
               relationTypes: [],
               projectIds: [],
+              parentIds: [],
               itemTypes: [],
               labelIds: [],
               teamIds: [],

@@ -63,14 +63,12 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
 vi.mock("@/components/app/screens/work-surface-view", () => ({
   BoardView: ({
     view,
-    items,
   }: {
     view: { grouping: string; subGrouping: string | null }
-    items: unknown[]
   }) => (
     <div>
       <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
-      {items.length === 0 ? <div>Drop here</div> : null}
+      <div>board-content</div>
     </div>
   ),
   ListView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
@@ -206,7 +204,7 @@ describe("WorkSurface", () => {
       />
     )
 
-    expect(screen.getByText("Drop here")).toBeInTheDocument()
+    expect(screen.getByText("board-content")).toBeInTheDocument()
     expect(screen.queryByText("No work")).not.toBeInTheDocument()
   })
 })

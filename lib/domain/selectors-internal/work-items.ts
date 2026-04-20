@@ -1,5 +1,3 @@
-import { isAfter } from "date-fns"
-
 import type {
   AppData,
   DisplayProperty,
@@ -13,6 +11,7 @@ import type {
   WorkStatus,
 } from "@/lib/domain/types"
 import {
+  EMPTY_PARENT_FILTER_VALUE,
   getAllowedChildWorkItemTypesForItem,
   isCompletedWorkStatus,
   isExcludedFromWorkStatusRollup,
@@ -21,6 +20,10 @@ import {
   workItemTypes,
   workStatuses,
 } from "@/lib/domain/types"
+import {
+  formatCalendarDateLabel,
+  getCalendarDateDayOffset,
+} from "@/lib/date-input"
 
 import {
   getAccessibleTeams,
@@ -153,6 +156,18 @@ export function itemMatchesView(
     !view.filters.projectIds.includes(item.primaryProjectId ?? "")
   ) {
     return false
+  }
+
+  const parentIds = view.filters.parentIds ?? []
+  if (parentIds.length > 0) {
+    const matchesEmptyParent =
+      item.parentId === null && parentIds.includes(EMPTY_PARENT_FILTER_VALUE)
+    const matchesParentId =
+      item.parentId !== null && parentIds.includes(item.parentId)
+
+    if (!matchesEmptyParent && !matchesParentId) {
+      return false
+    }
   }
 
   if (
@@ -426,14 +441,19 @@ export function buildItemGroupsWithEmptyGroups(
 ) {
   const groups = new Map(buildItemGroups(data, items, view))
   const statusOrder = getStatusOrderForItems(data, items)
-
-  getAvailableGroupKeysForItems(data, items, view.grouping).forEach(
-    (groupKey) => {
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, new Map())
-      }
-    }
+  const shouldIncludeEmptyGroups = !(
+    view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE) ?? false
   )
+
+  if (shouldIncludeEmptyGroups) {
+    getAvailableGroupKeysForItems(data, items, view.grouping).forEach(
+      (groupKey) => {
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, new Map())
+        }
+      }
+    )
+  }
 
   return new Map(
     [...groups.entries()].sort((left, right) =>
@@ -504,7 +524,8 @@ export function getLateItems(data: AppData) {
       return false
     }
 
-    return isAfter(now, new Date(item.dueDate))
+    const dayOffset = getCalendarDateDayOffset(item.dueDate, now)
+    return dayOffset !== null && dayOffset < 0
   })
 }
 
@@ -544,7 +565,12 @@ export function formatDisplayValue(
   }
 
   if (property === "dueDate") {
-    return item.dueDate ?? "No due date"
+    return formatCalendarDateLabel(item.dueDate, "No due date")
+  }
+
+  if (property === "progress") {
+    const progress = getWorkItemChildProgress(data, item.id)
+    return progress.totalChildren > 0 ? `${progress.percent}%` : "No child items"
   }
 
   if (property === "id") {

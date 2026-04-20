@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { XCircle } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 
 type ChipVariant = "default" | "ghost" | "accent" | "dashed"
@@ -47,31 +48,50 @@ export function StatusRing({
   percent?: number
   className?: string
 }) {
+  const wrapperClassName = cn(
+    "inline-grid size-3 shrink-0 place-items-center",
+    className
+  )
+  const ringStyle = {
+    width: "calc(100% - 2px)",
+    height: "calc(100% - 2px)",
+  } satisfies React.CSSProperties
+
   if (status === "done") {
     return (
       <span
         aria-hidden
-        className={cn(
-          "inline-block size-3 shrink-0 rounded-full",
-          className
-        )}
-        style={{
-          background: "var(--status-done)",
-          borderColor: "var(--status-done)",
-        }}
+        className={wrapperClassName}
+      >
+        <span
+          className="rounded-full"
+          style={{
+            ...ringStyle,
+            background: "var(--status-done)",
+          }}
+        />
+      </span>
+    )
+  }
+
+  if (status === "cancelled") {
+    return (
+      <XCircle
+        aria-hidden
+        className={cn("size-3 shrink-0", className)}
+        style={{ color: "var(--priority-urgent)" }}
+        weight="fill"
       />
     )
   }
 
-  if (status === "cancelled" || status === "duplicate") {
+  if (status === "duplicate") {
     return (
-      <span
+      <XCircle
         aria-hidden
-        className={cn(
-          "inline-block size-3 shrink-0 rounded-full border-[1.5px]",
-          className
-        )}
-        style={{ borderColor: "var(--status-cancel)" }}
+        className={cn("size-3 shrink-0", className)}
+        style={{ color: "var(--status-cancel)" }}
+        weight="fill"
       />
     )
   }
@@ -81,15 +101,17 @@ export function StatusRing({
     return (
       <span
         aria-hidden
-        className={cn(
-          "inline-block size-[11px] shrink-0 rounded-full border-[1.25px]",
-          className
-        )}
-        style={{
-          borderColor: "var(--status-doing)",
-          background: `conic-gradient(var(--status-doing) ${p}%, transparent ${p}% 100%)`,
-        }}
-      />
+        className={wrapperClassName}
+      >
+        <span
+          className="rounded-full border-[1.6px]"
+          style={{
+            ...ringStyle,
+            borderColor: "var(--status-doing)",
+            background: `conic-gradient(var(--status-doing) ${p}%, transparent ${p}% 100%)`,
+          }}
+        />
+      </span>
     )
   }
 
@@ -97,24 +119,32 @@ export function StatusRing({
     return (
       <span
         aria-hidden
-        className={cn(
-          "inline-block size-3 shrink-0 rounded-full border-[1.5px]",
-          className
-        )}
-        style={{ borderColor: "var(--status-todo)" }}
-      />
+        className={wrapperClassName}
+      >
+        <span
+          className="rounded-full border-[1.6px]"
+          style={{
+            ...ringStyle,
+            borderColor: "var(--status-todo)",
+          }}
+        />
+      </span>
     )
   }
 
   return (
     <span
       aria-hidden
-      className={cn(
-        "inline-block size-3 shrink-0 rounded-full border-[1.5px]",
-        className
-      )}
-      style={{ borderColor: "var(--status-backlog)" }}
-    />
+      className={wrapperClassName}
+    >
+      <span
+        className="rounded-full border-[1.6px]"
+        style={{
+          ...ringStyle,
+          borderColor: "var(--status-backlog)",
+        }}
+      />
+    </span>
   )
 }
 
@@ -132,8 +162,10 @@ export function StatusDot({
         ? "var(--status-doing)"
         : status === "todo"
           ? "var(--status-todo)"
-          : status === "cancelled" || status === "duplicate"
-            ? "var(--status-cancel)"
+          : status === "cancelled"
+            ? "var(--priority-urgent)"
+            : status === "duplicate"
+              ? "var(--status-cancel)"
             : "var(--status-backlog)"
   return (
     <span
@@ -191,7 +223,7 @@ export function ViewTab({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors",
+        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs leading-[1.15] transition-colors",
         active
           ? "bg-surface text-foreground shadow-[0_1px_0_0_oklch(0.18_0_0/0.04)] border border-line"
           : "text-fg-2 hover:bg-surface-3 hover:text-foreground",
@@ -308,7 +340,7 @@ export function PropertyPopoverItem({
       data-selected={selected ? "" : undefined}
       onClick={onClick}
       className={cn(
-        "flex h-7 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[12.5px] leading-none transition-colors",
+        "flex h-7 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[12.5px] leading-[1.15] transition-colors",
         muted ? "text-fg-3" : "text-fg-2",
         "hover:bg-surface-3 hover:text-foreground",
         selected && "text-foreground",

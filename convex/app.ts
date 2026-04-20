@@ -123,6 +123,7 @@ import {
   clearViewFiltersHandler,
   createViewHandler,
   deleteViewHandler,
+  reorderViewDisplayPropertiesHandler,
   renameViewHandler,
   toggleViewDisplayPropertyHandler,
   toggleViewFilterValueHandler,
@@ -793,6 +794,16 @@ export const toggleViewDisplayProperty = mutation({
   handler: toggleViewDisplayPropertyHandler,
 })
 
+export const reorderViewDisplayProperties = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    viewId: v.string(),
+    displayProps: v.array(displayPropertyValidator),
+  },
+  handler: reorderViewDisplayPropertiesHandler,
+})
+
 export const toggleViewHiddenValue = mutation({
   args: {
     ...serverAccessArgs,
@@ -819,6 +830,7 @@ export const toggleViewFilterValue = mutation({
       v.literal("milestoneIds"),
       v.literal("relationTypes"),
       v.literal("projectIds"),
+      v.literal("parentIds"),
       v.literal("itemTypes"),
       v.literal("labelIds"),
       v.literal("teamIds")
