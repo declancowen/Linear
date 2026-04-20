@@ -560,7 +560,7 @@ export function CreateViewDialog({
     }
 
     setDraftConfig(createFreshDraftConfig(selectedEntityKind))
-  }, [selectedEntityKind])
+  }, [open, selectedEntityKind])
 
   useEffect(() => {
     if (!open) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { addDays, differenceInCalendarDays } from "date-fns"
+import { differenceInCalendarDays } from "date-fns"
 import { toast } from "sonner"
 
 import {
@@ -13,6 +13,7 @@ import {
 import {
   addLocalCalendarDays,
   formatLocalCalendarDate,
+  shiftCalendarDate,
 } from "@/lib/calendar-date"
 import { getLabelsForWorkspace } from "@/lib/domain/selectors"
 import {
@@ -391,10 +392,10 @@ export function createWorkItemActions({
               ...entry,
               startDate: nextStartDate,
               dueDate: entry.dueDate
-                ? addDays(new Date(entry.dueDate), delta).toISOString()
+                ? shiftCalendarDate(entry.dueDate, delta)
                 : entry.dueDate,
               targetDate: entry.targetDate
-                ? addDays(new Date(entry.targetDate), delta).toISOString()
+                ? shiftCalendarDate(entry.targetDate, delta)
                 : entry.targetDate,
               updatedAt: getNow(),
             }

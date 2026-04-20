@@ -181,6 +181,56 @@ describe("work item actions", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("shifts scheduled dates in calendar-day space for timeline moves", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    state.workItems = [
+      createItem("scheduled", {
+        startDate: "2026-03-08",
+        dueDate: "2026-03-08",
+        targetDate: "2026-03-10",
+      }),
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.shiftTimelineItem("scheduled", "2026-03-09")
+
+    expect(state.workItems.find((item) => item.id === "scheduled")).toMatchObject(
+      {
+        startDate: "2026-03-09",
+        dueDate: "2026-03-09",
+        targetDate: "2026-03-11",
+      }
+    )
+    expect(syncShiftTimelineItemMock).toHaveBeenCalledWith(
+      "scheduled",
+      "2026-03-09"
+    )
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
   it("creates labels in the selected workspace instead of the active workspace", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"

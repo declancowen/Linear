@@ -6,11 +6,11 @@ function padCalendarDateSegment(value: number) {
   return value.toString().padStart(2, "0")
 }
 
-function isValidCalendarDatePrefix(value: string) {
+function parseCalendarDatePrefix(value: string) {
   const match = CALENDAR_DATE_PATTERN.exec(value)
 
   if (!match) {
-    return false
+    return null
   }
 
   const year = Number(match[1])
@@ -18,11 +18,19 @@ function isValidCalendarDatePrefix(value: string) {
   const day = Number(match[3])
   const candidate = new Date(Date.UTC(year, month - 1, day))
 
-  return (
-    candidate.getUTCFullYear() === year &&
-    candidate.getUTCMonth() === month - 1 &&
-    candidate.getUTCDate() === day
-  )
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return { year, month, day }
+}
+
+function isValidCalendarDatePrefix(value: string) {
+  return parseCalendarDatePrefix(value) !== null
 }
 
 export function formatLocalCalendarDate(date = new Date()) {
@@ -37,6 +45,28 @@ export function addLocalCalendarDays(days: number, date = new Date()) {
   const nextDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
   nextDate.setDate(nextDate.getDate() + days)
   return formatLocalCalendarDate(nextDate)
+}
+
+export function shiftCalendarDate(
+  value: string | null | undefined,
+  days: number
+) {
+  const prefix = getCalendarDatePrefix(value)
+
+  if (!prefix) {
+    return null
+  }
+
+  const parsed = parseCalendarDatePrefix(prefix)
+
+  if (!parsed) {
+    return null
+  }
+
+  return addLocalCalendarDays(
+    days,
+    new Date(parsed.year, parsed.month - 1, parsed.day)
+  )
 }
 
 export function getCalendarDatePrefix(value: string | null | undefined) {

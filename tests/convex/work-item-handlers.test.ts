@@ -140,4 +140,35 @@ describe("work item handlers", () => {
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
+
+  it("shifts timeline dates in calendar-day space when moving a scheduled item", async () => {
+    const { shiftTimelineItemHandler } = await import(
+      "@/convex/app/work_item_handlers"
+    )
+    const ctx = createCtx()
+
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "db_item_1",
+      id: "item_1",
+      teamId: "team_1",
+      title: "Launch task",
+      startDate: "2026-03-08",
+      dueDate: "2026-03-08",
+      targetDate: "2026-03-10",
+    })
+
+    await shiftTimelineItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      itemId: "item_1",
+      nextStartDate: "2026-03-09",
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith("db_item_1", {
+      startDate: "2026-03-09",
+      dueDate: "2026-03-09",
+      targetDate: "2026-03-11",
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+  })
 })

@@ -28,6 +28,7 @@ Files and areas reviewed across all turns:
 - `components/app/collaboration-screens/chat-thread.tsx` — chat composer affordances
 - `components/app/screens/project-creation.tsx` — project create shortcut path
 - `components/app/screens/create-view-dialog.tsx` — saved-view draft routing and scope derivation
+- `components/app/screens/project-detail-screen.tsx` — builtin project-item tab templates and local project-detail view state
 - `components/app/screens/work-surface-controls.tsx` — persisted view chip controls and property popovers
 - `components/app/screens.tsx` — workspace/team saved-view directory actions
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
@@ -45,6 +46,7 @@ Files and areas reviewed across all turns:
 - `lib/domain/types-internal/schemas.ts` — client-side view/project payload schemas
 - `lib/calendar-date.ts` — shared local calendar-date formatting helpers
 - `lib/convex/client/work.ts` — client saved-view mutation contracts
+- `lib/store/app-store-internal/slices/work-item-actions.ts` — optimistic timeline shift and create-work date state
 - `lib/store/app-store-internal/slices/views.ts` — optimistic saved-view creation and mutation gates
 - `lib/store/app-store-internal/slices/projects.ts` — optimistic project creation validation path
 - `lib/date-input.ts` — calendar-date parsing and chip-label formatting for date input values
@@ -60,6 +62,8 @@ Files and areas reviewed across all turns:
 - `tests/components/work-surface-view.test.tsx` — list/board drag affordance regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
 - `tests/convex/project-handlers.test.ts` — workspace project membership and name validation coverage
+- `tests/convex/work-item-handlers.test.ts` — direct Convex work-item mutation contract coverage
+- `tests/lib/store/work-item-actions.test.ts` — optimistic timeline-shift regression coverage
 - `tests/lib/store/project-slice.test.ts` — project presentation filter validation coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/project-views.test.ts` — project-view status filter regression coverage
@@ -74,10 +78,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 22:56:06 BST` |
-| **Total turns** | `35` |
+| **Last reviewed** | `2026-04-21 00:06:19 BST` |
+| **Total turns** | `36` |
 | **Open findings** | `0` |
-| **Resolved findings** | `60` |
+| **Resolved findings** | `63` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1822,6 +1826,53 @@ No new findings in this turn.
 ### Verification
 
 - `pnpm vitest run tests/app/api/work-route-contracts.test.ts tests/lib/server/convex-teams-projects.test.ts tests/lib/store/project-slice.test.ts tests/convex/project-handlers.test.ts`
+- `pnpm typecheck`
+- `git diff --check`
+
+---
+
+## Turn 36 — 2026-04-21 00:06:19 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `9048dc0` |
+| **IDE / Agent** | `unknown` |
+| **Risk score** | `High` |
+
+**Summary:** A final branch-current diff-review pass over the long supplied issue list found one live high-confidence bug family and two smaller current-tree regressions. The live bug family was timeline schedule shifting: both the optimistic store path and the direct Convex mutation still moved `dueDate` / `targetDate` through `new Date(...) + addDays(...).toISOString()` math, which can keep items on the wrong calendar day around DST boundaries even though the branch now stores schedule fields as calendar-date strings. Two lower-risk issues were also still live in the current tree: builtin project-detail item tabs still spread a full `ViewDefinition` object into `createViewDefinition()` overrides, and the project detail milestone/target labels had unintentionally switched from compact `MMM d` formatting to `dd-MM-yyyy`. All three are now resolved in the working tree, and an additional hardening cleanup added `open` to the create-view draft-reset effect deps so the current guard and dependency contract stay aligned. The rest of the supplied notes were re-triaged against the current branch and fell into two buckets: already fixed/stale (for example saved-project layout handling, project status filters, board drag handles, CSS token regressions, label-color regressions, rich-text/XSS paths, and create-date passthrough issues) or intentional product/UX changes rather than active correctness bugs (for example the project-detail screen focusing on work-surface views, the create-view dialog’s current scope model, and the work-surface empty-state presentation).
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B36-01` Resolved — timeline item shifts now keep schedule fields in calendar-day space end to end. [shiftTimelineItemHandler](../convex/app/work_item_handlers.ts:707) and the optimistic [shiftTimelineItem](../lib/store/app-store-internal/slices/work-item-actions.ts:371) path now use shared [shiftCalendarDate](../lib/calendar-date.ts:50) logic instead of ISO timestamp math, so moving a scheduled item across DST boundaries advances `startDate`, `dueDate`, and `targetDate` by the intended number of calendar days rather than by unstable UTC offsets.
+- `B36-02` Resolved — builtin project-detail tab templates in [project-detail-screen.tsx](../components/app/screens/project-detail-screen.tsx:251) no longer spread a full `ViewDefinition` into `createViewDefinition()` overrides. The screen now passes an explicit cloned override surface, so fallback filter state such as `showCompleted`, item-level configuration, and other overlapping keys cannot leak implicitly as `ViewDefinition` evolves.
+- `B36-03` Resolved — [project-detail-ui.tsx](../components/app/screens/project-detail-ui.tsx:106) restores compact `MMM d` milestone and target-date labels instead of the unintended `dd-MM-yyyy` format introduced by the calendar-date helper migration.
+
+### Findings
+
+No new findings remain open after this turn.
+
+### Challenger pass
+
+- Re-ran the date-shift bug family across both sibling mutation surfaces: the direct Convex handler and the optimistic store path. Both previously used the same unsafe ISO timestamp math and are now closed by the same shared helper.
+- Re-triaged the remaining supplied findings against the current branch state rather than the original report text. The following clusters are already fixed/stale in the current tree: chat-reaction undefined handling, project-status filtering, saved-view layout rendering, local-only grouping fallback behavior, board drag-handle separation, label-color/CSS-token regressions, duplicate planned-status picker entries, project/work-item default-date passthrough, parentIds filter cloning, and rich-text/XSS rendering paths in the work-item detail screen.
+- The remaining notable behavior changes that are still present but did not qualify as correctness bugs in this pass are product/UX decisions already reflected in tests or in the branch’s current design direction: the work-surface-only project detail experience, builtin project tabs remaining ephemeral/local, and the create-view dialog’s current scope/entity model.
+
+### Recommendations
+
+1. Keep all timeline schedule mutations on shared calendar-date helpers. The branch has now fixed create, update, and timeline-move paths for date-only storage; reverting any one path back to timestamp math will reintroduce the same DST/UTC drift family.
+2. When deriving builtin view templates from another view, pass an explicit cloned config surface instead of spreading the whole `ViewDefinition`. That avoids future override-key collisions as the view type evolves.
+3. Treat future external diff-review notes as inputs to triage, not as assumed-open findings. This turn’s recheck confirmed that many previously reported items were already stale in the current branch state.
+
+### Verification
+
+- `pnpm vitest run tests/lib/calendar-date.test.ts tests/lib/store/work-item-actions.test.ts tests/convex/work-item-handlers.test.ts`
+- `pnpm vitest run tests/components/create-dialogs.test.tsx`
+- `pnpm vitest run tests/components/project-detail-screen.test.tsx`
 - `pnpm typecheck`
 - `git diff --check`
 

@@ -1,4 +1,4 @@
-import { addDays, differenceInCalendarDays } from "date-fns"
+import { differenceInCalendarDays } from "date-fns"
 
 import type { MutationCtx } from "../_generated/server"
 
@@ -7,6 +7,7 @@ import {
   formatLocalCalendarDate,
   getCalendarDatePrefix,
   isValidCalendarDateString,
+  shiftCalendarDate,
 } from "../../lib/calendar-date"
 import {
   buildAssignmentEmailJobs,
@@ -729,10 +730,10 @@ export async function shiftTimelineItemHandler(
   await ctx.db.patch(item._id, {
     startDate: args.nextStartDate,
     dueDate: item.dueDate
-      ? addDays(new Date(item.dueDate), delta).toISOString()
+      ? shiftCalendarDate(item.dueDate, delta)
       : item.dueDate,
     targetDate: item.targetDate
-      ? addDays(new Date(item.targetDate), delta).toISOString()
+      ? shiftCalendarDate(item.targetDate, delta)
       : item.targetDate,
     updatedAt: getNow(),
   })

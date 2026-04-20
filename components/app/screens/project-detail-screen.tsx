@@ -276,6 +276,22 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
         hiddenState: { groups: [], subgroups: [] },
       },
     }) ?? projectItemsView
+  const builtinProjectItemsOverrides = {
+    layout: fallbackProjectItemsView.layout,
+    filters: cloneViewFilters(fallbackProjectItemsView.filters),
+    grouping: fallbackProjectItemsView.grouping,
+    subGrouping: fallbackProjectItemsView.subGrouping,
+    ordering: fallbackProjectItemsView.ordering,
+    ...(fallbackProjectItemsView.itemLevel !== undefined
+      ? { itemLevel: fallbackProjectItemsView.itemLevel }
+      : {}),
+    showChildItems: fallbackProjectItemsView.showChildItems,
+    displayProps: [...fallbackProjectItemsView.displayProps],
+    hiddenState: {
+      groups: [...fallbackProjectItemsView.hiddenState.groups],
+      subgroups: [...fallbackProjectItemsView.hiddenState.subgroups],
+    },
+  }
   const activeBuiltinProjectView =
     createViewDefinition({
       id: `builtin-project-active-${project.id}`,
@@ -291,10 +307,10 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
       overrides: {
-        ...fallbackProjectItemsView,
+        ...builtinProjectItemsOverrides,
         layout: "board",
         filters: {
-          ...createEmptyViewFilters(),
+          ...cloneViewFilters(fallbackProjectItemsView.filters),
           status: ["todo", "in-progress"],
         },
         displayProps: [
@@ -322,9 +338,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
       overrides: {
-        ...fallbackProjectItemsView,
+        ...builtinProjectItemsOverrides,
         filters: {
-          ...createEmptyViewFilters(),
+          ...cloneViewFilters(fallbackProjectItemsView.filters),
           status: ["backlog"],
         },
         grouping: "priority",

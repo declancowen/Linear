@@ -106,7 +106,11 @@ export function ProjectOverviewTab({
                   <span className="text-sm font-medium">{milestone.name}</span>
                   <span className="text-xs text-muted-foreground">
                     {milestone.targetDate
-                      ? formatCalendarDateLabel(milestone.targetDate, "No date")
+                      ? formatCalendarDateLabel(
+                          milestone.targetDate,
+                          "No date",
+                          "MMM d"
+                        )
                       : "No date"}
                   </span>
                 </div>
@@ -246,7 +250,7 @@ export function ProjectPropertiesSidebar({
               label="Target"
               value={
                 project.targetDate
-                  ? formatCalendarDateLabel(project.targetDate, "—", "dd-MM-yyyy")
+                  ? formatCalendarDateLabel(project.targetDate, "—", "MMM d")
                   : "—"
               }
             />

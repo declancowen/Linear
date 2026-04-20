@@ -49,4 +49,17 @@ describe("calendar date helpers", () => {
     expect(isValidCalendarDateString("2026-04-20foo")).toBe(false)
     expect(isValidCalendarDateString("not-a-date")).toBe(false)
   })
+
+  it("shifts stored calendar dates in calendar-day space", async () => {
+    process.env.TZ = "America/Los_Angeles"
+    vi.resetModules()
+
+    const { shiftCalendarDate } = await import("@/lib/calendar-date")
+
+    expect(shiftCalendarDate("2026-03-08", 1)).toBe("2026-03-09")
+    expect(shiftCalendarDate("2026-03-08T00:00:00.000Z", 1)).toBe(
+      "2026-03-09"
+    )
+    expect(shiftCalendarDate("not-a-date", 1)).toBeNull()
+  })
 })
