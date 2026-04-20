@@ -338,4 +338,33 @@ describe("ProjectDetailScreen", () => {
     expect(screen.getByText("Board layout")).toBeInTheDocument()
     expect(screen.queryByText("List layout")).not.toBeInTheDocument()
   })
+
+  it("restores the stable all-items template after switching between builtin tabs", async () => {
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText("Board layout")).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Active" }))
+    })
+
+    expect(screen.getByText("Board layout")).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Switch layout" }))
+    })
+
+    expect(screen.getByText("List layout")).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "All work" }))
+    })
+
+    expect(screen.getByText("Board layout")).toBeInTheDocument()
+    expect(screen.queryByText("List layout")).not.toBeInTheDocument()
+  })
 })

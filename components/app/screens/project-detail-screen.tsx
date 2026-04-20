@@ -212,6 +212,14 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
         ? "project-management"
         : "software-development")
   const workCopy = getWorkSurfaceCopy(workSurfaceExperience)
+  const baselineProjectPresentation =
+    defaultProjectPresentation ?? initialProjectPresentation
+  const baselineProjectItemsLevel =
+    baselineProjectPresentation.itemLevel === undefined
+      ? (team
+          ? getDefaultViewItemLevelForTeamExperience(team.settings.experience)
+          : getDefaultViewItemLevelForProjectTemplate(project.templateType))
+      : baselineProjectPresentation.itemLevel
   const effectiveProjectItemsLevel =
     projectItemsLevel === undefined
       ? (team
@@ -255,17 +263,17 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
       overrides: {
-        layout: projectItemsView.layout,
-        filters: projectItemsView.filters,
-        grouping: projectItemsView.grouping,
-        subGrouping: projectItemsView.subGrouping,
-        ordering: projectItemsView.ordering,
-        ...(effectiveProjectItemsLevel !== undefined
-          ? { itemLevel: effectiveProjectItemsLevel }
+        layout: baselineProjectPresentation.layout,
+        filters: cloneViewFilters(baselineProjectPresentation.filters),
+        grouping: baselineProjectPresentation.grouping,
+        subGrouping: null,
+        ordering: baselineProjectPresentation.ordering,
+        ...(baselineProjectItemsLevel !== undefined
+          ? { itemLevel: baselineProjectItemsLevel }
           : {}),
-        showChildItems: projectItemsView.showChildItems,
-        displayProps: projectItemsView.displayProps,
-        hiddenState: projectItemsView.hiddenState,
+        showChildItems: baselineProjectPresentation.showChildItems ?? false,
+        displayProps: [...baselineProjectPresentation.displayProps],
+        hiddenState: { groups: [], subgroups: [] },
       },
     }) ?? projectItemsView
   const activeBuiltinProjectView =
