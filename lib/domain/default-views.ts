@@ -197,6 +197,7 @@ export function createViewDefinition(input: {
           milestoneIds: [...input.overrides.filters.milestoneIds],
           relationTypes: [...input.overrides.filters.relationTypes],
           projectIds: [...input.overrides.filters.projectIds],
+          parentIds: [...(input.overrides.filters.parentIds ?? [])],
           itemTypes: [...input.overrides.filters.itemTypes],
           labelIds: [...input.overrides.filters.labelIds],
           teamIds: [...input.overrides.filters.teamIds],

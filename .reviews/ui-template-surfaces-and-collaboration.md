@@ -64,10 +64,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 19:51:06 BST` |
-| **Total turns** | `27` |
+| **Last reviewed** | `2026-04-20 20:09:48 BST` |
+| **Total turns** | `28` |
 | **Open findings** | `0` |
-| **Resolved findings** | `32` |
+| **Resolved findings** | `37` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1551,4 +1551,33 @@ No new findings in this turn.
 ### Verification
 
 - `pnpm vitest run tests/components/create-dialogs.test.tsx tests/components/project-detail-screen.test.tsx tests/components/views-screen.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 28 — 2026-04-20 20:09:48 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `463003f` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** Another diff pass found two remaining live regressions in the current tree, both now resolved. `createViewDefinition()` now deep-clones the new `parentIds` filter array just like every other persisted filter list, preventing shared mutable filter state between derived views. The create-view dialog reopen path now resets draft config from `initialEntityKind` directly and only refreshes draft state when the selected entity kind actually changes, eliminating the stale closure reset bounce. Focused regression coverage was added for the `parentIds` clone path and for unlocked dialog entity-kind reset on reopen.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep view-filter cloning logic centralized or exhaustively mirrored anywhere view definitions are synthesized; new filter fields like `parentIds` are easy to miss when arrays are copied by hand.
+2. When dialog state has both an initial prop-derived value and a mutable local value, use the initial value directly in reset effects and reserve follow-up effects for real state transitions only.
+
+### Verification
+
+- `pnpm vitest run tests/components/create-dialogs.test.tsx tests/lib/domain/default-views.test.ts`
 - `pnpm typecheck`

@@ -269,7 +269,7 @@ export function CreateViewDialog({
     setProjectPickerOpen(false)
     setProjectQuery("")
     setSelectedProjectId(dialog.lockProject ? (dialog.defaultProjectId ?? "") : "")
-    setDraftConfig(createFreshDraftConfig(selectedEntityKind))
+    setDraftConfig(createFreshDraftConfig(initialEntityKind))
   }, [
     dialog.defaultEntityKind,
     dialog.defaultProjectId,
@@ -560,7 +560,7 @@ export function CreateViewDialog({
     }
 
     setDraftConfig(createFreshDraftConfig(selectedEntityKind))
-  }, [open, selectedEntityKind])
+  }, [selectedEntityKind])
 
   useEffect(() => {
     if (!open) {

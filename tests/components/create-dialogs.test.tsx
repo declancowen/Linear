@@ -699,6 +699,55 @@ describe("create dialogs", () => {
     }
   })
 
+  it("resets unlocked create-view entity kind on reopen", () => {
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <CreateViewDialog
+        open
+        onOpenChange={onOpenChange}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "workspace",
+          defaultScopeId: "workspace_1",
+        }}
+      />
+    )
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Entity kind" }), {
+      target: { value: "projects" },
+    })
+    expect(screen.getByRole("combobox", { name: "Entity kind" })).toHaveValue(
+      "projects"
+    )
+
+    rerender(
+      <CreateViewDialog
+        open={false}
+        onOpenChange={onOpenChange}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "workspace",
+          defaultScopeId: "workspace_1",
+        }}
+      />
+    )
+    rerender(
+      <CreateViewDialog
+        open
+        onOpenChange={onOpenChange}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "workspace",
+          defaultScopeId: "workspace_1",
+        }}
+      />
+    )
+
+    expect(screen.getByRole("combobox", { name: "Entity kind" })).toHaveValue(
+      "items"
+    )
+  })
+
   it("uses the searchable team-space picker in the create view dialog", async () => {
     render(
       <CreateViewDialog
