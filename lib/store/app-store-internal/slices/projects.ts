@@ -76,13 +76,16 @@ export function createProjectSlice(
         return
       }
 
+      const workflowSettings = getTeamWorkflowSettings(get(), parsed.data.scopeId)
+      const templateDefaults =
+        workflowSettings.templateDefaults[parsed.data.templateType]
+      const resolvedStartDate =
+        parsed.data.startDate ?? formatLocalCalendarDate()
+      const resolvedTargetDate =
+        parsed.data.targetDate ??
+        addLocalCalendarDays(templateDefaults.targetWindowDays)
+
       set((state) => {
-        const workflowSettings = getTeamWorkflowSettings(
-          state,
-          parsed.data.scopeId
-        )
-        const templateDefaults =
-          workflowSettings.templateDefaults[parsed.data.templateType]
         const presentation =
           parsed.data.presentation ??
           createDefaultProjectPresentationConfig(parsed.data.templateType, {
@@ -107,10 +110,8 @@ export function createProjectSlice(
           blockingProjectIds: [],
           blockedByProjectIds: [],
           presentation,
-          startDate: parsed.data.startDate ?? formatLocalCalendarDate(),
-          targetDate:
-            parsed.data.targetDate ??
-            addLocalCalendarDays(templateDefaults.targetWindowDays),
+          startDate: resolvedStartDate,
+          targetDate: resolvedTargetDate,
           labelIds: [...new Set(parsed.data.labelIds ?? [])],
           createdAt: getNow(),
           updatedAt: getNow(),
@@ -123,7 +124,11 @@ export function createProjectSlice(
       })
 
       runtime.syncInBackground(
-        syncCreateProject(get().currentUserId, parsed.data),
+        syncCreateProject(get().currentUserId, {
+          ...parsed.data,
+          startDate: resolvedStartDate,
+          targetDate: resolvedTargetDate,
+        }),
         "Failed to create project"
       )
 

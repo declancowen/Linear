@@ -232,6 +232,16 @@ describe("project slice", () => {
         startDate: formatLocalCalendarDate(),
         targetDate: addLocalCalendarDays(28),
       })
+      expect(syncCreateProjectMock).toHaveBeenCalledWith("user_1", {
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "software-delivery",
+        name: "Roadmap refresh",
+        summary: "Next release",
+        priority: "medium",
+        startDate: formatLocalCalendarDate(),
+        targetDate: addLocalCalendarDays(28),
+      })
     } finally {
       process.env.TZ = previousTimeZone
       vi.useRealTimers()

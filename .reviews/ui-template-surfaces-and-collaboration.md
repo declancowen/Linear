@@ -69,10 +69,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 20:46:47 BST` |
-| **Total turns** | `30` |
+| **Last reviewed** | `2026-04-20 20:58:22 BST` |
+| **Total turns** | `31` |
 | **Open findings** | `0` |
-| **Resolved findings** | `41` |
+| **Resolved findings** | `42` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1655,4 +1655,38 @@ No new findings in this turn.
 ### Verification
 
 - `pnpm vitest run tests/lib/store/work-item-actions.test.ts tests/app/api/work-route-contracts.test.ts tests/lib/calendar-date.test.ts tests/lib/date-input.test.ts`
+- `pnpm typecheck`
+
+---
+
+## Turn 31 — 2026-04-20 20:58:22 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e6102f5` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The remaining project-create date divergence is resolved in the working tree. The project slice now forwards the same resolved local-calendar `startDate` and `targetDate` values it uses for optimistic state, so project creation no longer reconciles to a different calendar day when the backend computes defaults in server time. Regression coverage was tightened to assert both the optimistic project object and the `syncCreateProject` payload use the same resolved dates.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `1` |
+
+### Status updates
+
+- `B31-01` Resolved — `lib/store/app-store-internal/slices/projects.ts` now resolves fallback `startDate` and `targetDate` once, uses them for optimistic state, and sends those same values through `syncCreateProject`, removing the client/server default-date mismatch for project creation.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. Keep the create-project and create-work-item flows symmetrical when default schedule fields are computed on the client; if one forwards resolved defaults and the other does not, they will drift under mixed time zones.
+2. Assert mutation payloads directly in regression tests for defaulted fields, not just optimistic state, so transport-layer omissions are caught immediately.
+
+### Verification
+
+- `pnpm vitest run tests/lib/store/project-slice.test.ts`
 - `pnpm typecheck`
