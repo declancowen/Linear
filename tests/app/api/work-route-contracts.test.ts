@@ -571,6 +571,35 @@ describe("work route contracts", () => {
     })
   })
 
+  it("rejects invalid project rename payloads before calling the server", async () => {
+    const { PATCH } = await import("@/app/api/projects/[projectId]/route")
+
+    const response = await PATCH(
+      new Request("http://localhost/api/projects/project_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "x".repeat(65),
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          projectId: "project_1",
+        }),
+      }
+    )
+
+    expect(updateProjectServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid project update payload",
+      message: "Invalid project update payload",
+      code: "ROUTE_INVALID_BODY",
+    })
+  })
+
   it("maps view failures to typed error responses", async () => {
     const { PATCH } = await import("@/app/api/views/[viewId]/route")
 

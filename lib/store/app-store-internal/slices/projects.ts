@@ -14,6 +14,8 @@ import {
 } from "@/lib/calendar-date"
 import {
   createDefaultProjectPresentationConfig,
+  projectNameMaxLength,
+  projectNameMinLength,
   projectSchema,
   templateMeta,
 } from "@/lib/domain/types"
@@ -139,6 +141,20 @@ export function createProjectSlice(
 
       if (!trimmedName) {
         toast.error("Project name is required")
+        return false
+      }
+
+      if (trimmedName.length < projectNameMinLength) {
+        toast.error(
+          `Project name must be at least ${projectNameMinLength} characters`
+        )
+        return false
+      }
+
+      if (trimmedName.length > projectNameMaxLength) {
+        toast.error(
+          `Project name must be at most ${projectNameMaxLength} characters`
+        )
         return false
       }
 

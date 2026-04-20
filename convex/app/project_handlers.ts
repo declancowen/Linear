@@ -11,6 +11,8 @@ import {
   type TemplateType,
   createDefaultProjectPresentationConfig,
   getAllowedTemplateTypesForTeamExperience,
+  projectNameMaxLength,
+  projectNameMinLength,
 } from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
 import {
@@ -19,6 +21,7 @@ import {
   listMilestonesByProject,
   listNotificationsByEntity,
   listProjectUpdatesByProject,
+  listWorkspaceMembershipsByWorkspace,
   listViewsByScope,
   listTeamMembershipsByTeam,
 } from "./data"
@@ -80,6 +83,20 @@ type DeleteProjectArgs = ServerAccessArgs & {
   projectId: string
 }
 
+function assertProjectNameLength(name: string) {
+  if (name.length < projectNameMinLength) {
+    throw new Error(
+      `Project name must be at least ${projectNameMinLength} characters`
+    )
+  }
+
+  if (name.length > projectNameMaxLength) {
+    throw new Error(
+      `Project name must be at most ${projectNameMaxLength} characters`
+    )
+  }
+}
+
 export async function createProjectHandler(
   ctx: MutationCtx,
   args: CreateProjectArgs
@@ -134,6 +151,10 @@ export async function createProjectHandler(
   )
   await assertWorkspaceLabelIds(ctx, workspaceId, args.labelIds)
 
+  const trimmedName = args.name.trim()
+
+  assertProjectNameLength(trimmedName)
+
   const resolvedLeadId = args.leadId ?? args.currentUserId
   const resolvedMemberIds = [
     ...new Set([...(args.memberIds ?? []), resolvedLeadId].filter(Boolean)),
@@ -151,6 +172,26 @@ export async function createProjectHandler(
 
     if (!resolvedMemberIds.every((memberId) => teamMemberIds.has(memberId))) {
       throw new Error("All project members must belong to the selected team")
+    }
+  } else if (args.scopeType === "workspace") {
+    const workspaceMemberships = await listWorkspaceMembershipsByWorkspace(
+      ctx,
+      workspaceId
+    )
+    const workspaceMemberIds = new Set(
+      workspaceMemberships.map((membership) => membership.userId)
+    )
+
+    if (!workspaceMemberIds.has(resolvedLeadId)) {
+      throw new Error("Lead must belong to the current workspace")
+    }
+
+    if (
+      !resolvedMemberIds.every((memberId) => workspaceMemberIds.has(memberId))
+    ) {
+      throw new Error(
+        "All project members must belong to the current workspace"
+      )
     }
   }
 
@@ -197,9 +238,9 @@ export async function createProjectHandler(
     scopeType: args.scopeType,
     scopeId: args.scopeId,
     templateType: args.templateType,
-    name: args.name,
+    name: trimmedName,
     summary: args.summary,
-    description: `${args.name} was created from the ${args.templateType} template.`,
+    description: `${trimmedName} was created from the ${args.templateType} template.`,
     leadId: resolvedLeadId,
     memberIds: resolvedMemberIds,
     health: "no-update",
@@ -238,8 +279,17 @@ export async function updateProjectHandler(
     )
   }
 
+  const nextPatch = { ...args.patch }
+
+  if (typeof nextPatch.name === "string") {
+    const trimmedName = nextPatch.name.trim()
+
+    assertProjectNameLength(trimmedName)
+    nextPatch.name = trimmedName
+  }
+
   await ctx.db.patch(project._id, {
-    ...args.patch,
+    ...nextPatch,
     updatedAt: getNow(),
   })
 }
@@ -265,8 +315,12 @@ export async function renameProjectHandler(
     )
   }
 
+  const trimmedName = args.name.trim()
+
+  assertProjectNameLength(trimmedName)
+
   await ctx.db.patch(project._id, {
-    name: args.name.trim(),
+    name: trimmedName,
     updatedAt: getNow(),
   })
 }

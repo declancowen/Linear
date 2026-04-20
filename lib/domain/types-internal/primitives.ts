@@ -75,6 +75,9 @@ export const projectStatuses = [
 ] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
 
+export const projectNameMinLength = 2
+export const projectNameMaxLength = 64
+
 export const viewFilterStatuses = [
   "backlog",
   "todo",

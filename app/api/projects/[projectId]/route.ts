@@ -3,6 +3,10 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
+  projectNameMaxLength,
+  projectNameMinLength,
+} from "@/lib/domain/types"
+import {
   deleteProjectServer,
   updateProjectServer,
 } from "@/lib/server/convex"
@@ -21,7 +25,12 @@ import {
 
 const projectPatchSchema = z
   .object({
-    name: z.string().trim().min(1).optional(),
+    name: z
+      .string()
+      .trim()
+      .min(projectNameMinLength)
+      .max(projectNameMaxLength)
+      .optional(),
     status: z
       .enum(["backlog", "planned", "in-progress", "completed", "cancelled"])
       .optional(),

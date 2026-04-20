@@ -32,6 +32,7 @@ Files and areas reviewed across all turns:
 - `components/app/screens.tsx` — workspace/team saved-view directory actions
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
 - `app/api/views/[viewId]/route.ts` — saved-view rename route validation
+- `app/api/projects/[projectId]/route.ts` — project update/rename route validation
 - `convex/app/view_handlers.ts` — saved-view mutation handler arg contracts
 - `convex/validators.ts` — persisted view/project presentation filter validators
 - `convex/app.ts` — Convex mutation arg contracts
@@ -58,6 +59,7 @@ Files and areas reviewed across all turns:
 - `tests/components/work-item-detail-screen.test.tsx` — main activity timeline and sidebar regression coverage
 - `tests/components/work-surface-view.test.tsx` — list/board drag affordance regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
+- `tests/convex/project-handlers.test.ts` — workspace project membership and name validation coverage
 - `tests/lib/store/project-slice.test.ts` — project presentation filter validation coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/project-views.test.ts` — project-view status filter regression coverage
@@ -72,10 +74,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 22:06:55 BST` |
-| **Total turns** | `33` |
+| **Last reviewed** | `2026-04-20 22:27:17 BST` |
+| **Total turns** | `34` |
 | **Open findings** | `0` |
-| **Resolved findings** | `54` |
+| **Resolved findings** | `57` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1775,5 +1777,50 @@ No new findings in this turn.
 
 - `pnpm vitest run tests/components/work-item-labels-editor.test.tsx`
 - `pnpm vitest run tests/components/work-item-labels-editor.test.tsx tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/work-surface-view.test.tsx tests/components/entity-context-menus.test.tsx tests/components/collapsible-right-sidebar.test.tsx tests/app/api/work-route-contracts.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/default-views.test.ts tests/lib/store/project-slice.test.ts tests/lib/store/view-slice.test.ts tests/lib/store/work-item-actions.test.ts`
+- `pnpm typecheck`
+- `git diff --check`
+
+---
+
+## Turn 34 — 2026-04-20 22:27:17 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `f7ef296` |
+| **IDE / Agent** | `unknown` |
+| **Risk score** | `High` |
+
+**Summary:** A renewed diff-review pass over the current branch and the newly reported project-contract findings confirmed two live issues and one closely related sibling on the same mutation surface. First, `/api/projects/[projectId]` still accepted project rename/update payloads with names longer than creation allows, and the client-side rename path also lacked the same max-length guard. Second, workspace-scoped project creation without a selected settings team still skipped lead/member membership validation entirely, allowing dangling or foreign user ids to persist on the project record. During the challenger pass, the same project-name invariant was still unenforced on direct `createProject` and `renameProject` server mutations when callers bypassed the Next.js route layer. All three are now resolved in the working tree: project name bounds are sourced consistently across schema, route, client rename UX, and Convex handlers, and workspace-scoped project creation now validates `leadId` and `memberIds` against workspace membership when no settings team is selected. A focused rerun after the fix passed cleanly and the adversarial re-read did not surface additional high-confidence findings in the touched project contract paths.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B34-01` Resolved — `app/api/projects/[projectId]/route.ts` now enforces the same `2..64` trimmed project-name bound as creation, and `lib/store/app-store-internal/slices/projects.ts` applies the same guard before syncing rename requests.
+- `B34-02` Resolved — `convex/app/project_handlers.ts` now validates workspace-scoped `leadId` and `memberIds` against `listWorkspaceMembershipsByWorkspace()` when no `settingsTeamId` is selected, preventing foreign or dangling user references from being persisted on workspace projects.
+- `B34-03` Resolved — the challenger pass found the same project-name invariant could still be bypassed through direct server mutations, so `convex/app/project_handlers.ts`, `lib/server/convex/teams-projects.ts`, `lib/domain/types-internal/primitives.ts`, and `lib/domain/types-internal/schemas.ts` now share the project-name bounds and typed error mappings across create/update/rename server paths.
+
+### Findings
+
+No new findings in this turn.
+
+### Challenger pass
+
+- Re-checked the surrounding project mutation chain after the initial fix: shared schema, API route contract, client rename slice, server wrapper mappings, and Convex handlers.
+- The challenger pass found one additional sibling (`createProjectHandler` still trusting upstream name validation), which is included above as `B34-03` and resolved in the same pass.
+- No additional contract holes surfaced in the touched project mutation paths after the handler hardening and focused verification rerun.
+
+### Recommendations
+
+1. Keep project name bounds defined once in shared primitives and consumed by both create and rename/update paths; repeated hardcoded `2/64` checks drift easily across route, store, and server layers.
+2. Treat workspace-scoped project ownership/member validation as a separate branch from team-scoped validation. If a settings team is optional, the workspace fallback still needs explicit membership checks instead of silently skipping validation.
+3. For high-risk contract reviews, keep a challenger pass mandatory. This turn’s direct-mutation sibling would not have been caught by a route-only fix.
+
+### Verification
+
+- `pnpm vitest run tests/app/api/work-route-contracts.test.ts tests/lib/server/convex-teams-projects.test.ts tests/lib/store/project-slice.test.ts tests/convex/project-handlers.test.ts`
 - `pnpm typecheck`
 - `git diff --check`

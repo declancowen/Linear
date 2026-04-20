@@ -81,9 +81,29 @@ const PROJECT_MUTATION_ERROR_MAPPINGS = [
     code: "PROJECT_LEAD_INVALID",
   },
   {
+    match: "Lead must belong to the current workspace",
+    status: 400,
+    code: "PROJECT_LEAD_INVALID",
+  },
+  {
     match: "All project members must belong to the selected team",
     status: 400,
     code: "PROJECT_MEMBERS_INVALID",
+  },
+  {
+    match: "All project members must belong to the current workspace",
+    status: 400,
+    code: "PROJECT_MEMBERS_INVALID",
+  },
+  {
+    match: "Project name must be at least 2 characters",
+    status: 400,
+    code: "PROJECT_NAME_INVALID",
+  },
+  {
+    match: "Project name must be at most 64 characters",
+    status: 400,
+    code: "PROJECT_NAME_INVALID",
   },
   {
     match: "Project labels must belong to the same workspace",
