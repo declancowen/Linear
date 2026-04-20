@@ -15,6 +15,7 @@ import {
   getWorkSurfaceCopy,
   type AppData,
   type Conversation,
+  type Project,
   type TeamWorkflowSettings,
   type WorkItem,
 } from "@/lib/domain/types"
@@ -68,11 +69,49 @@ export function getProjectCreationValidationMessage(
     return "Projects are disabled for this team"
   }
 
-  return getAllowedTemplateTypesForTeamExperience(
-    team.settings.experience
-  ).includes(input.templateType)
-    ? null
-    : "Project template is not allowed for this team"
+  if (
+    !getAllowedTemplateTypesForTeamExperience(team.settings.experience).includes(
+      input.templateType
+    )
+  ) {
+    return "Project template is not allowed for this team"
+  }
+
+  const teamMemberIds = new Set(getTeamMemberIds(state, team.id))
+  const resolvedLeadId = input.leadId ?? state.currentUserId
+
+  if (!resolvedLeadId || !teamMemberIds.has(resolvedLeadId)) {
+    return "Lead must belong to the selected team"
+  }
+
+  const resolvedMemberIds = [
+    ...new Set([...(input.memberIds ?? []), resolvedLeadId]),
+  ]
+
+  if (!resolvedMemberIds.every((memberId) => teamMemberIds.has(memberId))) {
+    return "All project members must belong to the selected team"
+  }
+
+  const availableLabelIds = new Set(
+    getLabelsForTeamScope(state, team.id).map((label) => label.id)
+  )
+
+  if (
+    input.labelIds &&
+    !input.labelIds.every((labelId) => availableLabelIds.has(labelId))
+  ) {
+    return "Project labels must belong to the same workspace"
+  }
+
+  if (
+    input.startDate &&
+    input.targetDate &&
+    input.targetDate < input.startDate
+  ) {
+    return "Target date must be on or after the start date"
+  }
+
+  return null
 }
 
 export function getDocumentCreationValidationMessage(
@@ -132,6 +171,14 @@ export function getWorkItemValidationMessage(
     )
   ) {
     return "One or more labels are invalid"
+  }
+
+  if (
+    input.startDate &&
+    input.targetDate &&
+    new Date(input.targetDate).getTime() < new Date(input.startDate).getTime()
+  ) {
+    return "Target date must be on or after the start date"
   }
 
   const parent = input.parentId

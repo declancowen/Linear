@@ -5,6 +5,8 @@ import { toast } from "sonner"
 
 import {
   syncCreateProject,
+  syncDeleteProject,
+  syncRenameProject,
   syncUpdateProject,
 } from "@/lib/convex/client"
 import {
@@ -14,6 +16,7 @@ import {
 } from "@/lib/domain/types"
 
 import { createId, getNow } from "../helpers"
+import { getNextStateAfterProjectRemoval } from "../domain-updates"
 import { createStoreRuntime } from "../runtime"
 import {
   canEditWorkspaceDocuments,
@@ -23,7 +26,10 @@ import {
 } from "../validation"
 import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 
-type ProjectSlice = Pick<AppStore, "createProject" | "updateProject">
+type ProjectSlice = Pick<
+  AppStore,
+  "createProject" | "renameProject" | "deleteProject" | "updateProject"
+>
 
 export function createProjectSlice(
   set: AppStoreSet,
@@ -60,6 +66,13 @@ export function createProjectSlice(
         return
       }
 
+      const resolvedLeadId = parsed.data.leadId ?? get().currentUserId
+
+      if (!resolvedLeadId) {
+        toast.error("Lead is required to create a project")
+        return
+      }
+
       set((state) => {
         const workflowSettings = getTeamWorkflowSettings(
           state,
@@ -72,6 +85,9 @@ export function createProjectSlice(
           createDefaultProjectPresentationConfig(parsed.data.templateType, {
             layout: templateDefaults.defaultViewLayout,
           })
+        const resolvedMemberIds = [
+          ...new Set([...(parsed.data.memberIds ?? []), resolvedLeadId]),
+        ]
         const project = {
           id: createId("project"),
           scopeType: parsed.data.scopeType,
@@ -80,17 +96,21 @@ export function createProjectSlice(
           name: parsed.data.name,
           summary: parsed.data.summary,
           description: `${parsed.data.name} was created from the ${parsed.data.templateType} template with a ${templateMeta[parsed.data.templateType].label.toLowerCase()} setup.`,
-          leadId: state.currentUserId,
-          memberIds: [state.currentUserId],
+          leadId: resolvedLeadId,
+          memberIds: resolvedMemberIds,
           health: "no-update" as const,
           priority: parsed.data.priority,
-          status: "planning" as const,
+          status: parsed.data.status ?? ("backlog" as const),
+          blockingProjectIds: [],
+          blockedByProjectIds: [],
           presentation,
-          startDate: getNow(),
-          targetDate: addDays(
-            new Date(),
-            templateDefaults.targetWindowDays
-          ).toISOString(),
+          startDate: parsed.data.startDate ?? getNow().slice(0, 10),
+          targetDate:
+            parsed.data.targetDate ??
+            addDays(new Date(), templateDefaults.targetWindowDays)
+              .toISOString()
+              .slice(0, 10),
+          labelIds: [...new Set(parsed.data.labelIds ?? [])],
           createdAt: getNow(),
           updatedAt: getNow(),
         }
@@ -107,6 +127,67 @@ export function createProjectSlice(
       )
 
       toast.success("Project created")
+    },
+    async renameProject(projectId, name) {
+      const trimmedName = name.trim()
+
+      if (!trimmedName) {
+        toast.error("Project name is required")
+        return false
+      }
+
+      const project = get().projects.find((entry) => entry.id === projectId)
+
+      if (!project) {
+        toast.error("Project not found")
+        return false
+      }
+
+      try {
+        await syncRenameProject(get().currentUserId, projectId, trimmedName)
+        set((current) => ({
+          projects: current.projects.map((entry) =>
+            entry.id === projectId
+              ? {
+                  ...entry,
+                  name: trimmedName,
+                  updatedAt: getNow(),
+                }
+              : entry
+          ),
+        }))
+        toast.success("Project renamed")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to rename project"
+        )
+        return false
+      }
+    },
+    async deleteProject(projectId) {
+      const project = get().projects.find((entry) => entry.id === projectId)
+
+      if (!project) {
+        toast.error("Project not found")
+        return false
+      }
+
+      try {
+        await syncDeleteProject(get().currentUserId, projectId)
+        set((state) => ({
+          ...getNextStateAfterProjectRemoval(state, projectId),
+        }))
+        toast.success("Project deleted")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to delete project"
+        )
+        return false
+      }
     },
     updateProject(projectId, patch) {
       const state = get()
@@ -129,8 +210,8 @@ export function createProjectSlice(
         return
       }
 
-      set((current) => ({
-        projects: current.projects.map((entry) =>
+      set((current) => {
+        const projects = current.projects.map((entry) =>
           entry.id === projectId
             ? {
                 ...entry,
@@ -138,8 +219,10 @@ export function createProjectSlice(
                 updatedAt: getNow(),
               }
             : entry
-        ),
-      }))
+        ) as AppStore["projects"]
+
+        return { projects }
+      })
 
       runtime.syncInBackground(
         syncUpdateProject(get().currentUserId, projectId, patch),

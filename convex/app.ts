@@ -84,6 +84,7 @@ import {
   setCallRoomHandler,
   setConversationRoomHandler,
   startChatCallHandler,
+  toggleChatMessageReactionHandler,
   toggleChannelPostReactionHandler,
 } from "./app/collaboration_handlers"
 import {
@@ -114,11 +115,15 @@ import {
 } from "./app/invite_handlers"
 import {
   createProjectHandler,
+  deleteProjectHandler,
+  renameProjectHandler,
   updateProjectHandler,
 } from "./app/project_handlers"
 import {
   clearViewFiltersHandler,
   createViewHandler,
+  deleteViewHandler,
+  renameViewHandler,
   toggleViewDisplayPropertyHandler,
   toggleViewFilterValueHandler,
   toggleViewHiddenValueHandler,
@@ -734,6 +739,8 @@ export const createView = mutation({
     scopeType: v.union(v.literal("team"), v.literal("workspace")),
     scopeId: v.string(),
     entityKind: entityKindValidator,
+    containerType: v.optional(v.union(v.literal("project-items"), v.null())),
+    containerId: v.optional(v.union(v.string(), v.null())),
     route: v.string(),
     name: v.string(),
     description: v.string(),
@@ -755,6 +762,25 @@ export const createView = mutation({
     ),
   },
   handler: createViewHandler,
+})
+
+export const renameView = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    viewId: v.string(),
+    name: v.string(),
+  },
+  handler: renameViewHandler,
+})
+
+export const deleteView = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    viewId: v.string(),
+  },
+  handler: deleteViewHandler,
 })
 
 export const toggleViewDisplayProperty = mutation({
@@ -1102,7 +1128,13 @@ export const createProject = mutation({
     templateType: templateTypeValidator,
     name: v.string(),
     summary: v.string(),
+    status: v.optional(projectStatusValidator),
     priority: priorityValidator,
+    leadId: v.optional(nullableStringValidator),
+    memberIds: v.optional(v.array(v.string())),
+    startDate: v.optional(nullableStringValidator),
+    targetDate: v.optional(nullableStringValidator),
+    labelIds: v.optional(v.array(v.string())),
     settingsTeamId: v.optional(nullableStringValidator),
     presentation: v.optional(
       v.object({
@@ -1125,11 +1157,31 @@ export const updateProject = mutation({
     currentUserId: v.string(),
     projectId: v.string(),
     patch: v.object({
+      name: v.optional(v.string()),
       status: v.optional(projectStatusValidator),
       priority: v.optional(priorityValidator),
     }),
   },
   handler: updateProjectHandler,
+})
+
+export const renameProject = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    projectId: v.string(),
+    name: v.string(),
+  },
+  handler: renameProjectHandler,
+})
+
+export const deleteProject = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    projectId: v.string(),
+  },
+  handler: deleteProjectHandler,
 })
 
 export const createDocument = mutation({
@@ -1163,6 +1215,8 @@ export const createWorkItem = mutation({
     status: v.optional(workStatusValidator),
     priority: priorityValidator,
     labelIds: v.optional(v.array(v.string())),
+    startDate: v.optional(nullableStringValidator),
+    targetDate: v.optional(nullableStringValidator),
   },
   handler: createWorkItemHandler,
 })
@@ -1253,6 +1307,16 @@ export const sendChatMessage = mutation({
     origin: v.string(),
   },
   handler: sendChatMessageHandler,
+})
+
+export const toggleChatMessageReaction = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    messageId: v.string(),
+    emoji: v.string(),
+  },
+  handler: toggleChatMessageReactionHandler,
 })
 
 export const createChannelPost = mutation({

@@ -1,12 +1,12 @@
 "use client"
 
+import type { Editor } from "@tiptap/react"
 import { useMemo, useRef, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import { Circle, Smiley } from "@phosphor-icons/react"
 
 import {
-  getCommentsForTarget,
   getStatusOrderForTeam,
   getTeam,
   getUser,
@@ -30,8 +30,10 @@ import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
 import {
   EmojiPickerPopover,
-  insertEmojiIntoTextarea,
 } from "@/components/app/emoji-picker-popover"
+import { RichTextContent } from "@/components/app/rich-text-content"
+import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -46,7 +48,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 
 import { formatInlineDescriptionContent } from "./helpers"
-import { cn } from "@/lib/utils"
+import { cn, getPlainTextContent } from "@/lib/utils"
 
 export function WorkItemTypeBadge({
   data,
@@ -99,12 +101,14 @@ function CommentThreadItem({
   editable,
   targetType,
   targetId,
+  mentionCandidates,
 }: {
   comment: AppData["comments"][number]
   repliesByParentId: Record<string, AppData["comments"]>
   editable: boolean
   targetType: "workItem" | "document"
   targetId: string
+  mentionCandidates: AppData["users"]
 }) {
   const { author, currentUserId } = useAppStore(
     useShallow((state) => ({
@@ -114,8 +118,24 @@ function CommentThreadItem({
   )
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyContent, setReplyContent] = useState("")
-  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const replyEditorRef = useRef<Editor | null>(null)
   const replies = repliesByParentId[comment.id] ?? []
+  const replyText = getPlainTextContent(replyContent)
+
+  function handleReply() {
+    if (!replyText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType,
+      targetId,
+      parentCommentId: comment.id,
+      content: replyContent,
+    })
+    setReplyContent("")
+    setReplyOpen(false)
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
@@ -126,9 +146,10 @@ function CommentThreadItem({
         </span>
       </div>
 
-      <p className="text-sm leading-7 text-muted-foreground">
-        {comment.content}
-      </p>
+      <RichTextContent
+        content={comment.content}
+        className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         {comment.reactions.map((reaction) => {
@@ -186,25 +207,30 @@ function CommentThreadItem({
 
       {replyOpen ? (
         <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
-          <Textarea
-            ref={replyTextareaRef}
-            autoFocus
-            className="min-h-[4rem] resize-none"
-            placeholder="Reply to this thread..."
-            value={replyContent}
-            onChange={(event) => setReplyContent(event.target.value)}
-          />
+          <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+            <RichTextEditor
+              content={replyContent}
+              onChange={setReplyContent}
+              editable={editable}
+              compact
+              autoFocus
+              allowSlashCommands={false}
+              showToolbar={false}
+              showStats={false}
+              placeholder="Reply to this thread..."
+              editorInstanceRef={replyEditorRef}
+              mentionCandidates={mentionCandidates}
+              onSubmitShortcut={handleReply}
+              submitOnEnter
+              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+            />
+          </div>
           <div className="flex items-center justify-between gap-2">
             <EmojiPickerPopover
               align="start"
               side="top"
               onEmojiSelect={(emoji) =>
-                insertEmojiIntoTextarea({
-                  emoji,
-                  textarea: replyTextareaRef.current,
-                  value: replyContent,
-                  onChange: setReplyContent,
-                })
+                replyEditorRef.current?.chain().focus().insertContent(emoji).run()
               }
               trigger={
                 <button
@@ -214,6 +240,11 @@ function CommentThreadItem({
                   <Smiley className="size-4" />
                 </button>
               }
+            />
+            <ShortcutKeys
+              keys={["Enter"]}
+              className="ml-auto"
+              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
             />
             <div className="flex items-center gap-2">
               <Button
@@ -228,17 +259,8 @@ function CommentThreadItem({
               </Button>
               <Button
                 size="sm"
-                disabled={!replyContent.trim()}
-                onClick={() => {
-                  useAppStore.getState().addComment({
-                    targetType,
-                    targetId,
-                    parentCommentId: comment.id,
-                    content: replyContent,
-                  })
-                  setReplyContent("")
-                  setReplyOpen(false)
-                }}
+                disabled={!replyText}
+                onClick={handleReply}
               >
                 Reply
               </Button>
@@ -257,6 +279,7 @@ function CommentThreadItem({
               editable={editable}
               targetType={targetType}
               targetId={targetId}
+              mentionCandidates={mentionCandidates}
             />
           ))}
         </div>
@@ -274,28 +297,99 @@ export function CommentsInline({
   targetId: string
   editable: boolean
 }) {
-  const comments = useAppStore(
-    useShallow((state) => getCommentsForTarget(state, targetType, targetId))
+  const {
+    allComments,
+    currentUserId,
+    documents,
+    teamMemberships,
+    users,
+    workItems,
+  } = useAppStore(
+    useShallow((state) => {
+      return {
+        allComments: state.comments,
+        currentUserId: state.currentUserId,
+        documents: state.documents,
+        teamMemberships: state.teamMemberships,
+        users: state.users,
+        workItems: state.workItems,
+      }
+    })
   )
-  const rootComments = comments.filter(
-    (comment) => comment.parentCommentId === null
+  const targetTeamId = useMemo(
+    () =>
+      targetType === "workItem"
+        ? workItems.find((item) => item.id === targetId)?.teamId ?? null
+        : documents.find((document) => document.id === targetId)?.teamId ??
+          null,
+    [documents, targetId, targetType, workItems]
   )
-  const repliesByParentId = comments.reduce<
-    Record<string, AppData["comments"]>
-  >((accumulator, comment) => {
-    if (!comment.parentCommentId) {
-      return accumulator
+  const comments = useMemo(
+    () =>
+      allComments
+        .filter(
+          (comment) =>
+            comment.targetType === targetType && comment.targetId === targetId
+        )
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    [allComments, targetId, targetType]
+  )
+  const mentionCandidates = useMemo(() => {
+    const candidateUsers = users.filter(
+      (candidate) => candidate.id !== currentUserId
+    )
+
+    if (!targetTeamId) {
+      return candidateUsers
     }
 
-    accumulator[comment.parentCommentId] = [
-      ...(accumulator[comment.parentCommentId] ?? []),
-      comment,
-    ]
+    const memberIds = new Set(
+      teamMemberships
+        .filter((membership) => membership.teamId === targetTeamId)
+        .map((membership) => membership.userId)
+    )
 
-    return accumulator
-  }, {})
+    return candidateUsers.filter((candidate) => memberIds.has(candidate.id))
+  }, [currentUserId, targetTeamId, teamMemberships, users])
+  const rootComments = useMemo(
+    () => comments.filter((comment) => comment.parentCommentId === null),
+    [comments]
+  )
+  const repliesByParentId = useMemo(
+    () =>
+      comments.reduce<Record<string, AppData["comments"]>>(
+        (accumulator, comment) => {
+          if (!comment.parentCommentId) {
+            return accumulator
+          }
+
+          accumulator[comment.parentCommentId] = [
+            ...(accumulator[comment.parentCommentId] ?? []),
+            comment,
+          ]
+
+          return accumulator
+        },
+        {}
+      ),
+    [comments]
+  )
   const [content, setContent] = useState("")
-  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const commentEditorRef = useRef<Editor | null>(null)
+  const contentText = getPlainTextContent(content)
+
+  function handleComment() {
+    if (!contentText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType,
+      targetId,
+      content,
+    })
+    setContent("")
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -307,28 +401,33 @@ export function CommentsInline({
           editable={editable}
           targetType={targetType}
           targetId={targetId}
+          mentionCandidates={mentionCandidates}
         />
       ))}
       <div className="flex flex-col gap-2">
-        <Textarea
-          ref={commentTextareaRef}
-          disabled={!editable}
-          placeholder="Leave a comment or mention a teammate with @handle..."
-          className="min-h-[4rem] resize-none"
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-        />
+        <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+          <RichTextEditor
+            content={content}
+            onChange={setContent}
+            editable={editable}
+            compact
+            allowSlashCommands={false}
+            showToolbar={false}
+            showStats={false}
+            placeholder="Leave a comment or mention a teammate with @handle..."
+            editorInstanceRef={commentEditorRef}
+            mentionCandidates={mentionCandidates}
+            onSubmitShortcut={handleComment}
+            submitOnEnter
+            className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+          />
+        </div>
         <div className="flex items-center justify-between gap-2">
           <EmojiPickerPopover
             align="start"
             side="top"
             onEmojiSelect={(emoji) =>
-              insertEmojiIntoTextarea({
-                emoji,
-                textarea: commentTextareaRef.current,
-                value: content,
-                onChange: setContent,
-              })
+              commentEditorRef.current?.chain().focus().insertContent(emoji).run()
             }
             trigger={
               <button
@@ -337,18 +436,17 @@ export function CommentsInline({
                 className="rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent"
               >
                 <Smiley className="size-4" />
-              </button>
-            }
+                </button>
+              }
+            />
+          <ShortcutKeys
+            keys={["Enter"]}
+            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
           />
           <Button
             size="sm"
-            disabled={!editable || !content.trim()}
-            onClick={() => {
-              useAppStore
-                .getState()
-                .addComment({ targetType, targetId, content })
-              setContent("")
-            }}
+            disabled={!editable || !contentText}
+            onClick={handleComment}
           >
             Comment
           </Button>

@@ -6,6 +6,7 @@ const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const requireConvexUserMock = vi.fn()
 const deleteChannelPostServerMock = vi.fn()
+const toggleChatMessageReactionServerMock = vi.fn()
 const toggleChannelPostReactionServerMock = vi.fn()
 const getSnapshotServerMock = vi.fn()
 const getSnapshotVersionServerMock = vi.fn()
@@ -21,6 +22,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 
 vi.mock("@/lib/server/convex", () => ({
   deleteChannelPostServer: deleteChannelPostServerMock,
+  toggleChatMessageReactionServer: toggleChatMessageReactionServerMock,
   toggleChannelPostReactionServer: toggleChannelPostReactionServerMock,
   getSnapshotServer: getSnapshotServerMock,
   getSnapshotVersionServer: getSnapshotVersionServerMock,
@@ -52,6 +54,7 @@ describe("platform route contracts", () => {
     requireAppContextMock.mockReset()
     requireConvexUserMock.mockReset()
     deleteChannelPostServerMock.mockReset()
+    toggleChatMessageReactionServerMock.mockReset()
     toggleChannelPostReactionServerMock.mockReset()
     getSnapshotServerMock.mockReset()
     getSnapshotVersionServerMock.mockReset()
@@ -94,6 +97,9 @@ describe("platform route contracts", () => {
 
   it("maps channel-post delete and reaction failures to typed error responses", async () => {
     const deleteRoute = await import("@/app/api/channel-posts/[postId]/route")
+    const chatReactionRoute = await import(
+      "@/app/api/chat-messages/[messageId]/reactions/route"
+    )
     const reactionsRoute = await import(
       "@/app/api/channel-posts/[postId]/reactions/route"
     )
@@ -101,6 +107,11 @@ describe("platform route contracts", () => {
     deleteChannelPostServerMock.mockRejectedValue(
       new ApplicationError("You can only delete your own posts", 403, {
         code: "CHANNEL_POST_DELETE_FORBIDDEN",
+      })
+    )
+    toggleChatMessageReactionServerMock.mockRejectedValue(
+      new ApplicationError("Message not found", 404, {
+        code: "CHAT_MESSAGE_NOT_FOUND",
       })
     )
     toggleChannelPostReactionServerMock.mockRejectedValue(
@@ -125,6 +136,30 @@ describe("platform route contracts", () => {
       error: "You can only delete your own posts",
       message: "You can only delete your own posts",
       code: "CHANNEL_POST_DELETE_FORBIDDEN",
+    })
+
+    const chatReactionResponse = await chatReactionRoute.POST(
+      new Request("http://localhost/api/chat-messages/message_1/reactions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          emoji: ":+1:",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          messageId: "message_1",
+        }),
+      }
+    )
+
+    expect(chatReactionResponse.status).toBe(404)
+    await expect(chatReactionResponse.json()).resolves.toEqual({
+      error: "Message not found",
+      message: "Message not found",
+      code: "CHAT_MESSAGE_NOT_FOUND",
     })
 
     const reactionResponse = await reactionsRoute.POST(

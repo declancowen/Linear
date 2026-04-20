@@ -11,7 +11,15 @@ import {
   getAllowedTemplateTypesForTeamExperience,
 } from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
-import { getProjectDoc, getTeamDoc } from "./data"
+import {
+  getProjectDoc,
+  getTeamDoc,
+  listMilestonesByProject,
+  listNotificationsByEntity,
+  listProjectUpdatesByProject,
+  listViewsByScope,
+  listTeamMembershipsByTeam,
+} from "./data"
 import {
   requireEditableTeamAccess,
   requireEditableWorkspaceAccess,
@@ -21,6 +29,11 @@ import {
   normalizeTeamWorkflowSettings,
 } from "./normalization"
 import { assertWorkspaceLabelIds } from "./work_helpers"
+import {
+  cleanupRemainingLinksAfterDelete,
+  cleanupViewFiltersForDeletedEntities,
+  deleteDocs,
+} from "./cleanup"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -33,7 +46,13 @@ type CreateProjectArgs = ServerAccessArgs & {
   templateType: TemplateType
   name: string
   summary: string
+  status?: ProjectStatus
   priority: Priority
+  leadId?: string | null
+  memberIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
+  labelIds?: string[]
   settingsTeamId?: string | null
   presentation?: ProjectPresentationConfig
 }
@@ -42,9 +61,21 @@ type UpdateProjectArgs = ServerAccessArgs & {
   currentUserId: string
   projectId: string
   patch: {
+    name?: string
     status?: ProjectStatus
     priority?: Priority
   }
+}
+
+type RenameProjectArgs = ServerAccessArgs & {
+  currentUserId: string
+  projectId: string
+  name: string
+}
+
+type DeleteProjectArgs = ServerAccessArgs & {
+  currentUserId: string
+  projectId: string
 }
 
 export async function createProjectHandler(
@@ -99,6 +130,35 @@ export async function createProjectHandler(
     workspaceId,
     args.presentation?.filters.labelIds
   )
+  await assertWorkspaceLabelIds(ctx, workspaceId, args.labelIds)
+
+  const resolvedLeadId = args.leadId ?? args.currentUserId
+  const resolvedMemberIds = [
+    ...new Set([...(args.memberIds ?? []), resolvedLeadId].filter(Boolean)),
+  ]
+
+  if (settingsTeam) {
+    const teamMemberships = await listTeamMembershipsByTeam(ctx, settingsTeam.id)
+    const teamMemberIds = new Set(
+      teamMemberships.map((membership) => membership.userId)
+    )
+
+    if (!teamMemberIds.has(resolvedLeadId)) {
+      throw new Error("Lead must belong to the selected team")
+    }
+
+    if (!resolvedMemberIds.every((memberId) => teamMemberIds.has(memberId))) {
+      throw new Error("All project members must belong to the selected team")
+    }
+  }
+
+  if (
+    args.startDate &&
+    args.targetDate &&
+    new Date(args.targetDate).getTime() < new Date(args.startDate).getTime()
+  ) {
+    throw new Error("Target date must be on or after the start date")
+  }
 
   const settingsTeamExperience =
     (
@@ -139,14 +199,19 @@ export async function createProjectHandler(
     name: args.name,
     summary: args.summary,
     description: `${args.name} was created from the ${args.templateType} template.`,
-    leadId: args.currentUserId,
-    memberIds: [args.currentUserId],
+    leadId: resolvedLeadId,
+    memberIds: resolvedMemberIds,
     health: "no-update",
     priority: args.priority,
-    status: "planning",
+    status: args.status ?? "backlog",
+    labelIds: [...new Set(args.labelIds ?? [])],
+    blockingProjectIds: [],
+    blockedByProjectIds: [],
     presentation,
-    startDate: getNow(),
-    targetDate: addDays(now, templateDefaults.targetWindowDays).toISOString(),
+    startDate: args.startDate ?? getNow().slice(0, 10),
+    targetDate:
+      args.targetDate ??
+      addDays(now, templateDefaults.targetWindowDays).toISOString().slice(0, 10),
     createdAt: getNow(),
     updatedAt: getNow(),
   })
@@ -177,4 +242,107 @@ export async function updateProjectHandler(
     ...args.patch,
     updatedAt: getNow(),
   })
+}
+
+export async function renameProjectHandler(
+  ctx: MutationCtx,
+  args: RenameProjectArgs
+) {
+  assertServerToken(args.serverToken)
+  const project = await getProjectDoc(ctx, args.projectId)
+
+  if (!project) {
+    throw new Error("Project not found")
+  }
+
+  if (project.scopeType === "team") {
+    await requireEditableTeamAccess(ctx, project.scopeId, args.currentUserId)
+  } else {
+    await requireEditableWorkspaceAccess(
+      ctx,
+      project.scopeId,
+      args.currentUserId
+    )
+  }
+
+  await ctx.db.patch(project._id, {
+    name: args.name.trim(),
+    updatedAt: getNow(),
+  })
+}
+
+export async function deleteProjectHandler(
+  ctx: MutationCtx,
+  args: DeleteProjectArgs
+) {
+  assertServerToken(args.serverToken)
+  const project = await getProjectDoc(ctx, args.projectId)
+
+  if (!project) {
+    throw new Error("Project not found")
+  }
+
+  if (project.scopeType === "team") {
+    await requireEditableTeamAccess(ctx, project.scopeId, args.currentUserId)
+  } else {
+    await requireEditableWorkspaceAccess(
+      ctx,
+      project.scopeId,
+      args.currentUserId
+    )
+  }
+
+  const team =
+    project.scopeType === "team" ? await getTeamDoc(ctx, project.scopeId) : null
+  const detailRoute =
+    project.scopeType === "workspace"
+      ? `/workspace/projects/${project.id}`
+      : team
+        ? `/team/${team.slug}/projects/${project.id}`
+        : null
+  const [milestones, projectUpdates, notifications, scopedViews, containerViews] =
+    await Promise.all([
+      listMilestonesByProject(ctx, project.id),
+      listProjectUpdatesByProject(ctx, project.id),
+      listNotificationsByEntity(ctx, "project", project.id),
+      listViewsByScope(ctx, project.scopeType, project.scopeId),
+      ctx.db
+        .query("views")
+        .withIndex("by_container", (q) =>
+          q.eq("containerType", "project-items").eq("containerId", project.id)
+        )
+        .collect(),
+    ])
+
+  const deletedProjectIds = new Set([project.id])
+  const deletedMilestoneIds = new Set(milestones.map((milestone) => milestone.id))
+  const customProjectViews = scopedViews.filter(
+    (view) =>
+      (view.containerType === "project-items" && view.containerId === project.id) ||
+      (detailRoute !== null &&
+        !view.containerType &&
+        view.entityKind === "items" &&
+        view.route === detailRoute)
+  )
+  const viewsToDelete = [
+    ...new Map(
+      [...customProjectViews, ...containerViews].map((view) => [view._id, view] as const)
+    ).values(),
+  ]
+
+  await cleanupRemainingLinksAfterDelete(ctx, {
+    currentUserId: args.currentUserId,
+    deletedProjectIds,
+    deletedMilestoneIds,
+  })
+  await cleanupViewFiltersForDeletedEntities(ctx, {
+    deletedProjectIds,
+    deletedMilestoneIds,
+  })
+
+  await deleteDocs(ctx, viewsToDelete)
+  await deleteDocs(ctx, projectUpdates)
+  await deleteDocs(ctx, milestones)
+  await deleteDocs(ctx, notifications)
+  await ctx.db.delete(project._id)
 }

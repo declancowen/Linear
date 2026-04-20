@@ -6,6 +6,7 @@ import type {
   OrderingField,
   Priority,
   ProjectHealth,
+  ViewContainerType,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -85,6 +86,11 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     match: "Work item title must be between 2 and 96 characters",
     status: 400,
     code: "WORK_ITEM_TITLE_INVALID",
+  },
+  {
+    match: "Target date must be on or after the start date",
+    status: 400,
+    code: "WORK_ITEM_SCHEDULE_INVALID",
   },
   {
     match: "Work item changed while you were editing",
@@ -305,12 +311,43 @@ export async function updateViewConfigServer(input: {
   }
 }
 
+export async function renameViewServer(input: {
+  currentUserId: string
+  viewId: string
+  name: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.renameView,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function deleteViewServer(input: {
+  currentUserId: string
+  viewId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteView,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
 export async function createViewServer(input: {
   currentUserId: string
   id?: string
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -506,6 +543,8 @@ export async function createWorkItemServer(input: {
   status?: WorkStatus
   priority: Priority
   labelIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
 }) {
   try {
     const origin = await resolveServerOrigin()

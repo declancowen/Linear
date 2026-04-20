@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 vi.mock("@/components/ui/select", async () => {
   const React = await import("react")
@@ -139,9 +139,12 @@ vi.mock("@/components/ui/select", async () => {
 })
 
 import { CreateProjectDialog } from "@/components/app/screens/project-creation"
+import { CreateDocumentDialog } from "@/components/app/screens/create-document-dialog"
+import { CreateViewDialog } from "@/components/app/screens/create-view-dialog"
 import { CreateWorkItemDialog } from "@/components/app/screens/create-work-item-dialog"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
+  createDefaultViewFilters,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
@@ -153,6 +156,21 @@ describe("create dialogs", () => {
       ...createEmptyState(),
       currentUserId: "user_1",
       currentWorkspaceId: "workspace_1",
+      workspaces: [
+        {
+          id: "workspace_1",
+          slug: "acme",
+          name: "Acme",
+          logoUrl: "",
+          logoImageUrl: null,
+          createdBy: "user_1",
+          workosOrganizationId: null,
+          settings: {
+            accent: "#000000",
+            description: "",
+          },
+        },
+      ],
       labels: [
         {
           id: "label_1",
@@ -171,7 +189,7 @@ describe("create dialogs", () => {
           avatarImageUrl: null,
           workosUserId: null,
           title: "Founder",
-          status: "active",
+          status: "in-progress",
           statusMessage: "",
           hasExplicitStatus: false,
           preferences: {
@@ -231,6 +249,10 @@ describe("create dialogs", () => {
         },
       ],
       projects: [],
+      ui: {
+        ...createEmptyState().ui,
+        activeTeamId: "team_1",
+      },
     })
   })
 
@@ -250,9 +272,17 @@ describe("create dialogs", () => {
 
     expect(screen.getAllByText("Platform").length).toBeGreaterThan(0)
     expect(screen.getByPlaceholderText("Epic title")).toBeInTheDocument()
+    expect(screen.queryByText("New item")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Start date" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Target date" })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("dialog")).toHaveClass("top-6", "translate-y-0")
   })
 
-  it("lets you switch team spaces without throwing when an initial type is provided", () => {
+  it("lets you switch team spaces without throwing when an initial type is provided", async () => {
     render(
       <CreateWorkItemDialog
         open
@@ -262,11 +292,10 @@ describe("create dialogs", () => {
       />
     )
 
-    fireEvent.change(screen.getAllByRole("combobox")[0]!, {
-      target: { value: "team_2" },
-    })
+    fireEvent.click(screen.getByRole("button", { name: "Platform" }))
+    fireEvent.click(await screen.findByText("Ops"))
 
-    expect(screen.getAllByDisplayValue("Ops").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Ops").length).toBeGreaterThan(0)
     expect(screen.getByPlaceholderText("Epic title")).toBeInTheDocument()
   })
 
@@ -281,5 +310,576 @@ describe("create dialogs", () => {
 
     expect(screen.getAllByText("Platform").length).toBeGreaterThan(0)
     expect(screen.getByPlaceholderText("Project name")).toBeInTheDocument()
+    expect(screen.getByRole("dialog")).toHaveClass("top-6", "translate-y-0")
+  })
+
+  it("uses the searchable team-space picker in the project create dialog and resets to the caller team on reopen", async () => {
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <CreateProjectDialog
+        open
+        onOpenChange={onOpenChange}
+        defaultTeamId="team_1"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Platform" }))
+    expect(
+      await screen.findByPlaceholderText("Switch team space…")
+    ).toBeInTheDocument()
+    fireEvent.click(await screen.findByText("Ops"))
+    expect(screen.getAllByText("Ops").length).toBeGreaterThan(0)
+
+    rerender(
+      <CreateProjectDialog
+        open={false}
+        onOpenChange={onOpenChange}
+        defaultTeamId="team_1"
+      />
+    )
+    rerender(
+      <CreateProjectDialog
+        open
+        onOpenChange={onOpenChange}
+        defaultTeamId="team_1"
+      />
+    )
+
+    expect(screen.getAllByText("Platform").length).toBeGreaterThan(0)
+  })
+
+  it("starts create view from clean defaults instead of seeded config", async () => {
+    useAppStore.setState({
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Billing v2",
+          summary: "Billing overhaul",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "high",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+      workItems: [
+        {
+          id: "item_1",
+          key: "PLAT-101",
+          teamId: "team_1",
+          type: "task",
+          title: "Ship billing work",
+          descriptionDocId: "doc_1",
+          status: "todo",
+          priority: "high",
+          assigneeId: "user_1",
+          creatorId: "user_1",
+          parentId: null,
+          primaryProjectId: "project_1",
+          linkedProjectIds: ["project_1"],
+          linkedDocumentIds: [],
+          labelIds: [],
+          milestoneId: null,
+          startDate: null,
+          dueDate: null,
+          targetDate: null,
+          subscriberIds: [],
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    })
+
+    const createViewSpy = vi
+      .spyOn(useAppStore.getState(), "createView")
+      .mockReturnValue("view_1")
+
+    try {
+      render(
+        <CreateViewDialog
+          open
+          onOpenChange={vi.fn()}
+          dialog={{
+            kind: "view",
+            defaultScopeType: "team",
+            defaultScopeId: "team_1",
+            defaultEntityKind: "items",
+            defaultRoute: "/team/platform/work",
+            lockScope: true,
+            lockEntityKind: true,
+            initialConfig: {
+              layout: "board",
+              filters: {
+                ...createDefaultViewFilters(),
+                projectIds: ["project_1"],
+              },
+              ordering: "updatedAt",
+              itemLevel: "task",
+              showChildItems: false,
+            },
+          }}
+        />
+      )
+
+      expect(screen.getByRole("button", { name: "List" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Epic" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "0 properties" })).toBeInTheDocument()
+
+      fireEvent.change(screen.getByPlaceholderText("View name"), {
+        target: { value: "Billing queue" },
+      })
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create view" })).not.toBeDisabled()
+      )
+
+      fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "team",
+          scopeId: "team_1",
+          entityKind: "items",
+          route: "/team/platform/work",
+          name: "Billing queue",
+          layout: "list",
+          ordering: "createdAt",
+          filters: expect.objectContaining({
+            projectIds: [],
+          }),
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
+  it("creates a project-specific view from the workspace dialog when a project is selected", async () => {
+    useAppStore.setState({
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Billing v2",
+          summary: "Billing overhaul",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "high",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+        {
+          id: "project_2",
+          scopeType: "team",
+          scopeId: "team_2",
+          templateType: "software-delivery",
+          name: "Ops cutover",
+          summary: "Ops readiness",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "medium",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    })
+
+    const createViewSpy = vi
+      .spyOn(useAppStore.getState(), "createView")
+      .mockReturnValue("view_1")
+
+    try {
+      render(
+        <CreateViewDialog
+          open
+          onOpenChange={vi.fn()}
+          dialog={{
+            kind: "view",
+            defaultScopeType: "workspace",
+            defaultScopeId: "workspace_1",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText("View name"), {
+        target: { value: "Ops launch board" },
+      })
+      fireEvent.click(screen.getByRole("button", { name: "Platform" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Ops" }))
+      fireEvent.click(screen.getByRole("button", { name: "Project" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Ops cutover" }))
+      fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "team",
+          scopeId: "team_2",
+          entityKind: "items",
+          route: "/team/ops/projects/project_2",
+          name: "Ops launch board",
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
+  it("defaults workspace item views to the first available team surface", async () => {
+    const createViewSpy = vi
+      .spyOn(useAppStore.getState(), "createView")
+      .mockReturnValue("view_1")
+
+    try {
+      render(
+        <CreateViewDialog
+          open
+          onOpenChange={vi.fn()}
+          dialog={{
+            kind: "view",
+            defaultScopeType: "workspace",
+            defaultScopeId: "workspace_1",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText("View name"), {
+        target: { value: "Ops intake" },
+      })
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create view" })).not.toBeDisabled()
+      )
+      fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+      expect(screen.queryByText("Select a team or project to create this view.")).not.toBeInTheDocument()
+      expect(screen.queryByText("Saved view")).not.toBeInTheDocument()
+      expect(screen.queryByText("all work")).not.toBeInTheDocument()
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "team",
+          scopeId: "team_1",
+          entityKind: "items",
+          route: "/team/platform/work",
+          name: "Ops intake",
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
+  it("uses the searchable team-space picker in the create view dialog", async () => {
+    render(
+      <CreateViewDialog
+        open
+        onOpenChange={vi.fn()}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "workspace",
+          defaultScopeId: "workspace_1",
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Platform" }))
+    expect(
+      await screen.findByPlaceholderText("Switch team space…")
+    ).toBeInTheDocument()
+  })
+
+  it("submits the create-view dialog with Ctrl/Cmd + Enter", async () => {
+    const createViewSpy = vi
+      .spyOn(useAppStore.getState(), "createView")
+      .mockReturnValue("view_1")
+
+    try {
+      render(
+        <CreateViewDialog
+          open
+          onOpenChange={vi.fn()}
+          dialog={{
+            kind: "view",
+            defaultScopeType: "team",
+            defaultScopeId: "team_1",
+            defaultEntityKind: "items",
+            defaultRoute: "/team/platform/work",
+            lockScope: true,
+            lockEntityKind: true,
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText("View name"), {
+        target: { value: "Platform queue" },
+      })
+
+      fireEvent.keyDown(window, {
+        key: "Enter",
+        ctrlKey: true,
+      })
+
+      await waitFor(() =>
+        expect(createViewSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: "Platform queue",
+          })
+        )
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
+  it("submits the document create dialog with Ctrl/Cmd + Enter", async () => {
+    const createDocumentSpy = vi
+      .spyOn(useAppStore.getState(), "createDocument")
+      .mockResolvedValue("document_1")
+
+    try {
+      render(
+        <CreateDocumentDialog
+          open
+          onOpenChange={vi.fn()}
+          input={{
+            kind: "team-document",
+            teamId: "team_1",
+          }}
+          disabled={false}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText("Untitled document"), {
+        target: { value: "Launch plan" },
+      })
+
+      fireEvent.keyDown(window, {
+        key: "Enter",
+        ctrlKey: true,
+      })
+
+      await waitFor(() =>
+        expect(createDocumentSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Launch plan",
+          })
+        )
+      )
+    } finally {
+      createDocumentSpy.mockRestore()
+    }
+  })
+
+  it("hides the project selector when there are no projects in scope", () => {
+    render(
+      <CreateViewDialog
+        open
+        onOpenChange={vi.fn()}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "team",
+          defaultScopeId: "team_1",
+          defaultEntityKind: "items",
+          defaultRoute: "/team/platform/work",
+          lockScope: true,
+          lockEntityKind: true,
+        }}
+      />
+    )
+
+    expect(screen.queryByRole("button", { name: "Project" })).not.toBeInTheDocument()
+  })
+
+  it("renders full item-view controls for project-specific views", () => {
+    useAppStore.setState({
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Billing v2",
+          summary: "Billing overhaul",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "high",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+      workItems: [
+        {
+          id: "item_1",
+          key: "PLAT-101",
+          teamId: "team_1",
+          type: "epic",
+          title: "Ship billing work",
+          descriptionDocId: "doc_1",
+          status: "todo",
+          priority: "high",
+          assigneeId: "user_1",
+          creatorId: "user_1",
+          parentId: null,
+          primaryProjectId: "project_1",
+          linkedProjectIds: ["project_1"],
+          linkedDocumentIds: [],
+          labelIds: [],
+          milestoneId: null,
+          startDate: null,
+          dueDate: null,
+          targetDate: null,
+          subscriberIds: [],
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    })
+
+    render(
+      <CreateViewDialog
+        open
+        onOpenChange={vi.fn()}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "team",
+          defaultScopeId: "team_1",
+          defaultProjectId: "project_1",
+          defaultEntityKind: "items",
+          defaultRoute: "/team/platform/projects/project_1",
+          lockScope: true,
+          lockProject: true,
+          lockEntityKind: true,
+        }}
+      />
+    )
+
+    expect(screen.getAllByText("Billing v2").length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: "List" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Epic" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "0 properties" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Project" })).not.toBeInTheDocument()
+  })
+
+  it("renders the shared chip controls for project view creation", () => {
+    render(
+      <CreateViewDialog
+        open
+        onOpenChange={vi.fn()}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "team",
+          defaultScopeId: "team_1",
+          defaultEntityKind: "projects",
+          defaultRoute: "/team/platform/projects",
+          lockScope: true,
+          lockEntityKind: true,
+        }}
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "List" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
+  })
+
+  it("limits project selection to the current team when the team scope is locked", () => {
+    useAppStore.setState({
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Billing v2",
+          summary: "Billing overhaul",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "high",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+        {
+          id: "project_2",
+          scopeType: "team",
+          scopeId: "team_2",
+          templateType: "software-delivery",
+          name: "Ops cutover",
+          summary: "Ops readiness",
+          description: "",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          health: "on-track",
+          priority: "medium",
+          status: "in-progress",
+          presentation: undefined,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    })
+
+    render(
+      <CreateViewDialog
+        open
+        onOpenChange={vi.fn()}
+        dialog={{
+          kind: "view",
+          defaultScopeType: "team",
+          defaultScopeId: "team_1",
+          defaultEntityKind: "items",
+          defaultRoute: "/team/platform/work",
+          lockScope: true,
+          lockEntityKind: true,
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Project" }))
+
+    expect(screen.getByRole("button", { name: "Billing v2" })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Ops cutover" })
+    ).not.toBeInTheDocument()
   })
 })

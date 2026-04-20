@@ -4,6 +4,11 @@ import { useMemo, useRef, useState, type ReactNode } from "react"
 import { X } from "@phosphor-icons/react"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+import {
+  ShortcutKeys,
+  useCommandEnterSubmit,
+  useShortcutModifierLabel,
+} from "@/components/app/shortcut-keys"
 import { UserAvatar } from "@/components/app/user-presence"
 import { formatShortDate } from "@/components/app/collaboration-screens/utils"
 import { Button } from "@/components/ui/button"
@@ -150,6 +155,7 @@ export function CreateWorkspaceChatDialog({
   const [search, setSearch] = useState("")
   const [groupName, setGroupName] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  const shortcutModifierLabel = useShortcutModifierLabel()
 
   const isGroup = participantIds.length > 1
   const query = search.toLowerCase().trim()
@@ -197,6 +203,8 @@ export function CreateWorkspaceChatDialog({
       setGroupName("")
     }
   }
+
+  useCommandEnterSubmit(open && participantIds.length > 0, handleCreate)
 
   if (!workspace) return null
 
@@ -329,8 +337,17 @@ export function CreateWorkspaceChatDialog({
                 ? "Direct message"
                 : `Group · ${participantIds.length} people`}
             </span>
-            <Button size="sm" className="h-7 text-xs" onClick={handleCreate}>
+            <Button
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={handleCreate}
+            >
               {isGroup ? "Create group" : "Start chat"}
+              <ShortcutKeys
+                keys={[shortcutModifierLabel, "Enter"]}
+                variant="inline"
+                className="ml-0.5 gap-0.5 text-background/65"
+              />
             </Button>
           </div>
         ) : null}

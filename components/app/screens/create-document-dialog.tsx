@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react"
 
 import { getTeam } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  ShortcutKeys,
+  useCommandEnterSubmit,
+  useShortcutModifierLabel,
+} from "@/components/app/shortcut-keys"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -41,6 +46,7 @@ export function CreateDocumentDialog({
   const [title, setTitle] = useState("")
   const [creating, setCreating] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const shortcutModifierLabel = useShortcutModifierLabel()
 
   useEffect(() => {
     if (open) {
@@ -76,6 +82,10 @@ export function CreateDocumentDialog({
       setCreating(false)
     }
   }
+
+  useCommandEnterSubmit(open && !disabled && !creating, () => {
+    void handleCreate()
+  })
 
   return (
     <Dialog
@@ -125,13 +135,26 @@ export function CreateDocumentDialog({
             onClick={handleClose}
           >
             Cancel
+            <ShortcutKeys
+              keys={["Esc"]}
+              className="ml-1"
+              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+            />
           </Button>
           <Button
             size="sm"
             disabled={disabled || creating}
             onClick={() => void handleCreate()}
+            className="gap-1"
           >
             {creating ? "Creating..." : "Create document"}
+            {!creating ? (
+              <ShortcutKeys
+                keys={[shortcutModifierLabel, "Enter"]}
+                variant="inline"
+                className="ml-0.5 gap-0.5 text-background/65"
+              />
+            ) : null}
           </Button>
         </div>
       </DialogContent>

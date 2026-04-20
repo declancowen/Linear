@@ -10,6 +10,7 @@ export type CollaborationSlice = Pick<
   | "createChannel"
   | "startConversationCall"
   | "sendChatMessage"
+  | "toggleChatMessageReaction"
   | "createChannelPost"
   | "addChannelPostComment"
   | "deleteChannelPost"

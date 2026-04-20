@@ -17,7 +17,6 @@ import {
 } from "@phosphor-icons/react"
 
 import {
-  canAdminTeam,
   canEditTeam,
   canEditWorkspace,
   getPrivateDocuments,
@@ -29,12 +28,13 @@ import {
   getTeamDocuments,
   getUser,
   getViewByRoute,
+  getViewContextLabel,
   getVisibleProjectsForView,
   getViewsForScope,
   getVisibleWorkItems,
   getWorkspaceDocuments,
+  getWorkspaceDirectoryViews,
   teamHasFeature,
-  getWorkspacePersonalViews,
 } from "@/lib/domain/selectors"
 import {
   getWorkSurfaceCopy,
@@ -43,10 +43,12 @@ import {
   type Team,
   type ViewDefinition,
 } from "@/lib/domain/types"
-import { createViewDefinition } from "@/lib/domain/default-views"
+import {
+  createViewDefinition,
+  isSystemView,
+} from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
-import { TeamWorkflowSettingsDialog } from "@/components/app/team-workflow-settings-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -72,6 +74,10 @@ import { CreateDocumentDialog } from "@/components/app/screens/create-document-d
 import {
   DocumentContextMenu,
 } from "@/components/app/screens/document-ui"
+import {
+  ProjectContextMenu,
+  ViewContextMenu,
+} from "@/components/app/screens/entity-context-menus"
 export { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
 import {
   DocumentBoard,
@@ -80,7 +86,6 @@ import {
 } from "@/components/app/screens/collection-boards"
 import { WorkSurface } from "@/components/app/screens/work-surface"
 import { getViewHref } from "@/lib/domain/default-views"
-import { cloneViewCreateConfig } from "@/components/app/screens/helpers"
 import {
   ProjectFilterPopover,
   ProjectViewConfigPopover,
@@ -244,11 +249,7 @@ export function ProjectsScreen({
   const editable = useAppStore((state) =>
     team ? canEditTeam(state, team.id) : canEditWorkspace(state, scopeId)
   )
-  const admin = useAppStore((state) =>
-    team ? canAdminTeam(state, team.id) : false
-  )
-  const canCreateProject = Boolean(team && editable)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const canCreateProject = editable
   const fallbackProjectView = useMemo(() => {
     const timestamp = new Date().toISOString()
 
@@ -295,26 +296,48 @@ export function ProjectsScreen({
           <HeaderTitle title={title} />
           {displayedProjectViews.length > 0 ? (
             <div className="flex items-center gap-1">
-              {displayedProjectViews.map((view) => (
-                <button
-                  key={view.id}
-                  className={cn(
-                    "h-6 rounded-sm px-2 text-xs transition-colors",
-                    view.id === effectiveProjectView?.id
-                      ? "bg-accent font-medium"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  onClick={() => {
-                    if (!activeView) {
-                      return
-                    }
+              {displayedProjectViews.map((view) =>
+                isSystemView(view) ? (
+                  <button
+                    key={view.id}
+                    className={cn(
+                      "h-6 rounded-sm px-2 text-xs transition-colors",
+                      view.id === effectiveProjectView?.id
+                        ? "bg-accent font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => {
+                      if (!activeView) {
+                        return
+                      }
 
-                    useAppStore.getState().setSelectedView(routeKey, view.id)
-                  }}
-                >
-                  {view.name}
-                </button>
-              ))}
+                      useAppStore.getState().setSelectedView(routeKey, view.id)
+                    }}
+                  >
+                    {view.name}
+                  </button>
+                ) : (
+                  <ViewContextMenu key={view.id} view={view} editable={editable}>
+                    <button
+                      className={cn(
+                        "h-6 rounded-sm px-2 text-xs transition-colors",
+                        view.id === effectiveProjectView?.id
+                          ? "bg-accent font-medium"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      onClick={() => {
+                        if (!activeView) {
+                          return
+                        }
+
+                        useAppStore.getState().setSelectedView(routeKey, view.id)
+                      }}
+                    >
+                      {view.name}
+                    </button>
+                  </ViewContextMenu>
+                )
+              )}
             </div>
           ) : null}
           {editable ? (
@@ -328,11 +351,8 @@ export function ProjectsScreen({
                   defaultScopeId: scopeId,
                   defaultEntityKind: "projects",
                   defaultRoute: routeKey,
-                  lockScope: true,
+                  ...(team ? { lockScope: true } : {}),
                   lockEntityKind: true,
-                  initialConfig: effectiveProjectView
-                    ? cloneViewCreateConfig(effectiveProjectView)
-                    : { layout },
                 })
               }
             >
@@ -344,82 +364,56 @@ export function ProjectsScreen({
           {activeView ? (
             <>
               <ProjectFilterPopover view={activeView} projects={projects} />
-              <ProjectViewConfigPopover
-                view={activeView}
-                extraAction={
-                  team && admin ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => setSettingsOpen(true)}
-                    >
-                      Team workflow settings
-                    </Button>
-                  ) : null
-                }
-              />
+              <ProjectViewConfigPopover view={activeView} />
             </>
           ) : (
             <CollectionDisplaySettingsPopover
               layout={layout}
               onLayoutChange={setLayout}
-              extraAction={
-                team && admin ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => setSettingsOpen(true)}
-                  >
-                    Team workflow settings
-                  </Button>
-                ) : null
-              }
             />
           )}
           {canCreateProject ? (
             <Button
-              size="icon-xs"
-              variant="ghost"
+              size="sm"
+              variant="default"
+              className="h-7 gap-1.5 px-2.5 text-[12px]"
               onClick={() => {
-                if (!team) {
-                  return
-                }
-
                 openManagedCreateDialog({
                   kind: "project",
-                  defaultTeamId: team.id,
+                  ...(team ? { defaultTeamId: team.id } : {}),
                 })
               }}
             >
               <Plus className="size-3.5" />
+              New
             </Button>
           ) : null}
         </div>
       </div>
-      {team && settingsOpen ? (
-        <TeamWorkflowSettingsDialog
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          teamId={team.id}
-        />
-      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {visibleProjects.length === 0 ? (
           <MissingState title={emptyProjectsLabel} />
         ) : layout === "board" ? (
-          <ProjectBoard data={data} projects={visibleProjects} />
+          <ProjectBoard
+            data={data}
+            projects={visibleProjects}
+            editable={editable}
+          />
         ) : (
           <div className="flex flex-col">
             {visibleProjects.map((project) => {
               const progress = getProjectProgress(data, project.id)
               return (
-                <Link
+                <ProjectContextMenu
                   key={project.id}
-                  className="group flex items-center gap-4 border-b border-line-soft px-7 py-2 transition-colors hover:bg-surface-2"
-                  href={getProjectHref(data, project) ?? "/workspace/projects"}
+                  data={data}
+                  project={project}
+                  editable={editable}
                 >
+                  <Link
+                    className="group flex items-center gap-4 border-b border-line-soft px-7 py-2 transition-colors hover:bg-surface-2"
+                    href={getProjectHref(data, project) ?? "/workspace/projects"}
+                  >
                   <div
                     aria-hidden
                     className={cn(
@@ -463,7 +457,8 @@ export function ProjectsScreen({
                       ? format(new Date(project.targetDate), "MMM d")
                       : "—"}
                   </span>
-                </Link>
+                  </Link>
+                </ProjectContextMenu>
               )
             })}
           </div>
@@ -486,11 +481,28 @@ export function ViewsScreen({
   const views = useAppStore(
     useShallow((state) =>
       scopeType === "workspace"
-        ? getWorkspacePersonalViews(state)
+        ? getWorkspaceDirectoryViews(state, scopeId)
         : state.views.filter(
-            (view) => view.scopeType === scopeType && view.scopeId === scopeId
+            (view) =>
+              !view.containerType &&
+              view.scopeType === scopeType &&
+              view.scopeId === scopeId
           )
     )
+  )
+  const viewContext = useAppStore(
+    useShallow((state) => ({
+      teams: state.teams,
+      workspaces: state.workspaces,
+      currentWorkspaceId: state.currentWorkspaceId,
+    }))
+  )
+  const viewScopeLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        views.map((view) => [view.id, getViewContextLabel(viewContext, view)])
+      ),
+    [viewContext, views]
   )
   const [layout, setLayout] = useState<"list" | "board">("list")
   const [sortBy, setSortBy] = useState<"updated" | "name" | "entity">("updated")
@@ -530,18 +542,20 @@ export function ViewsScreen({
             />
             {editable ? (
               <Button
-                size="icon-xs"
-                variant="ghost"
+                size="sm"
+                variant="default"
+                className="h-7 gap-1.5 px-2.5 text-[12px]"
                 onClick={() =>
                   openManagedCreateDialog({
                     kind: "view",
                     defaultScopeType: scopeType,
                     defaultScopeId: scopeId,
-                    lockScope: true,
+                    ...(scopeType === "team" ? { lockScope: true } : {}),
                   })
                 }
               >
                 <Plus className="size-3.5" />
+                New
               </Button>
             ) : null}
           </div>
@@ -554,6 +568,10 @@ export function ViewsScreen({
           <SavedViewsBoard
             views={orderedViews}
             showDescriptions={showDescriptions}
+            editable={editable}
+            contextLabels={
+              scopeType === "workspace" ? viewScopeLabels : undefined
+            }
           />
         ) : (
           <div className="px-6">
@@ -573,49 +591,51 @@ export function ViewsScreen({
                     Grouping
                   </TableHead>
                   <TableHead className="text-xs font-normal text-muted-foreground">
-                    Sharing
+                    {scopeType === "workspace" ? "Scope" : "Sharing"}
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orderedViews.map((view) => (
-                  <TableRow key={view.id}>
-                    <TableCell>
-                      <div className="flex flex-col gap-0.5">
-                        <Link
-                          className="flex items-center gap-2 text-sm font-medium hover:underline"
-                          href={getViewHref(view)}
-                        >
-                          <span className="text-muted-foreground">
-                            {getEntityKindIcon(view.entityKind)}
-                          </span>
-                          {view.name}
-                        </Link>
-                        {showDescriptions ? (
-                          <span className="text-xs text-muted-foreground">
-                            {view.description}
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatEntityKind(view.entityKind)}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {view.layout}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {view.grouping}
-                      {view.subGrouping ? ` / ${view.subGrouping}` : ""}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {view.isShared
-                        ? scopeType === "workspace"
-                          ? "Workspace"
-                          : "Team"
-                        : "Personal"}
-                    </TableCell>
-                  </TableRow>
+                  <ViewContextMenu key={view.id} view={view} editable={editable}>
+                    <TableRow>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5">
+                          <Link
+                            className="flex items-center gap-2 text-sm font-medium hover:underline"
+                            href={getViewHref(view)}
+                          >
+                            <span className="text-muted-foreground">
+                              {getEntityKindIcon(view.entityKind)}
+                            </span>
+                            {view.name}
+                          </Link>
+                          {showDescriptions ? (
+                            <span className="text-xs text-muted-foreground">
+                              {view.description}
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatEntityKind(view.entityKind)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {view.layout}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {view.grouping}
+                        {view.subGrouping ? ` / ${view.subGrouping}` : ""}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {scopeType === "workspace"
+                          ? (viewScopeLabels[view.id] ?? "Workspace")
+                          : view.isShared
+                            ? "Team"
+                            : "Personal"}
+                      </TableCell>
+                    </TableRow>
+                  </ViewContextMenu>
                 ))}
               </TableBody>
             </Table>

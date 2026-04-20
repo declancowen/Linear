@@ -19,15 +19,19 @@ import { useAppStore } from "@/lib/store/app-store"
 
 const {
   routerReplaceMock,
+  syncAddCommentMock,
   syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresenceMock,
   syncSendItemDescriptionMentionNotificationsMock,
+  syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
 } = vi.hoisted(() => ({
   routerReplaceMock: vi.fn(),
+  syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
   syncHeartbeatWorkItemPresenceMock: vi.fn(),
   syncSendItemDescriptionMentionNotificationsMock: vi.fn(),
+  syncToggleCommentReactionMock: vi.fn(),
   syncUpdateWorkItemMock: vi.fn(),
 }))
 
@@ -60,10 +64,12 @@ vi.mock("sonner", () => ({
 }))
 
 vi.mock("@/lib/convex/client", () => ({
+  syncAddComment: syncAddCommentMock,
   syncClearWorkItemPresence: syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresence: syncHeartbeatWorkItemPresenceMock,
   syncSendItemDescriptionMentionNotifications:
     syncSendItemDescriptionMentionNotificationsMock,
+  syncToggleCommentReaction: syncToggleCommentReactionMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
@@ -71,14 +77,30 @@ vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
     onChange,
+    placeholder,
+    onSubmitShortcut,
+    submitOnEnter,
   }: {
     content: string
     onChange: (value: string) => void
+    placeholder?: string
+    onSubmitShortcut?: () => void
+    submitOnEnter?: boolean
   }) => (
     <textarea
-      aria-label="Description editor"
+      aria-label={
+        placeholder === "Add a description…"
+          ? "Description editor"
+          : (placeholder ?? "Rich text editor")
+      }
       value={content}
       onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault()
+          onSubmitShortcut?.()
+        }
+      }}
     />
   ),
 }))
@@ -99,6 +121,8 @@ vi.mock("@/components/app/screens/shared", () => ({
     })),
   CollapsibleSection: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   MissingState: ({ title }: { title: string }) => <div>{title}</div>,
+  PROPERTY_SELECT_SEPARATOR_VALUE: "__separator__",
+  PriorityIcon: () => null,
   PriorityDot: () => null,
   PropertyDateField: ({
     label,
@@ -233,12 +257,20 @@ vi.mock("@/components/ui/separator", () => ({
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  CalendarBlank: () => null,
   CaretDown: () => null,
   CaretRight: () => null,
+  Clock: () => null,
   DotsThree: () => null,
+  Flag: () => null,
+  FolderSimple: () => null,
+  LinkSimple: () => null,
+  PaperPlaneTilt: () => null,
   Plus: () => null,
   SidebarSimple: () => null,
+  Tag: () => null,
   Trash: () => null,
+  X: () => null,
 }))
 
 function seedState() {
@@ -773,7 +805,7 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it("keeps sidebar properties editable for root and child items without entering main edit mode", () => {
+  it("keeps sidebar properties editable for root and child items without entering main edit mode", async () => {
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -831,22 +863,24 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Priority" })).not.toBeDisabled()
     expect(screen.getByRole("button", { name: "Assignee" })).not.toBeDisabled()
     expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
-    expect(screen.getByLabelText("Start date")).not.toBeDisabled()
-    expect(screen.getByLabelText("End date")).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Start" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Due" })).not.toBeDisabled()
     expect(
       screen.getByRole("button", { name: "Manage labels" })
     ).not.toBeDisabled()
 
     fireEvent.click(screen.getByRole("button", { name: "Status" }))
+    fireEvent.click(await screen.findByRole("button", { name: /backlog/i }))
     expect(
       useAppStore.getState().workItems.find((item) => item.id === "item_1")?.status
-    ).not.toBe("todo")
+    ).toBe("backlog")
 
     fireEvent.click(screen.getByRole("button", { name: "Priority" }))
+    fireEvent.click(await screen.findByRole("button", { name: /high/i }))
     expect(
       useAppStore.getState().workItems.find((item) => item.id === "item_1")
         ?.priority
-    ).not.toBe("medium")
+    ).toBe("high")
 
     rerender(<WorkItemDetailScreen itemId="item_3" />)
 
@@ -857,9 +891,48 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
 
     fireEvent.click(screen.getByRole("button", { name: "Assignee" }))
+    fireEvent.click(await screen.findByRole("button", { name: /^Alex$/ }))
     expect(
       useAppStore.getState().workItems.find((item) => item.id === "item_3")
         ?.assigneeId
     ).toBe("user_1")
+  })
+
+  it("posts activity comments on Enter and preserves mentions", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        teamMemberships: [
+          ...state.teamMemberships,
+          {
+            teamId: "team_1",
+            userId: "user_2",
+            role: "member",
+          },
+        ],
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const commentEditor = screen.getByLabelText(
+      "Leave a comment or mention a teammate with @handle..."
+    )
+    fireEvent.change(commentEditor, {
+      target: {
+        value:
+          '<p>Heads up <span data-type="mention" data-id="user_2">@Taylor</span></p>',
+      },
+    })
+    fireEvent.keyDown(commentEditor, {
+      key: "Enter",
+    })
+
+    const [comment] = useAppStore.getState().comments
+    expect(comment).toMatchObject({
+      targetType: "workItem",
+      targetId: "item_1",
+      mentionUserIds: ["user_2"],
+    })
+    expect(comment.content).toContain('data-id="user_2"')
   })
 })

@@ -2,6 +2,7 @@ import { api } from "@/convex/_generated/api"
 import type {
   Priority,
   ProjectPresentationConfig,
+  ProjectStatus,
   Role,
   TeamExperienceType,
   TeamWorkflowSettings,
@@ -73,6 +74,26 @@ const PROJECT_MUTATION_ERROR_MAPPINGS = [
     match: "One or more labels are invalid",
     status: 400,
     code: "PROJECT_LABELS_INVALID",
+  },
+  {
+    match: "Lead must belong to the selected team",
+    status: 400,
+    code: "PROJECT_LEAD_INVALID",
+  },
+  {
+    match: "All project members must belong to the selected team",
+    status: 400,
+    code: "PROJECT_MEMBERS_INVALID",
+  },
+  {
+    match: "Project labels must belong to the same workspace",
+    status: 400,
+    code: "PROJECT_LABELS_INVALID",
+  },
+  {
+    match: "Target date must be on or after the start date",
+    status: 400,
+    code: "PROJECT_DATES_INVALID",
   },
   {
     match: (message: string) =>
@@ -264,7 +285,13 @@ export async function createProjectServer(input: {
   templateType: TemplateType
   name: string
   summary: string
+  status?: ProjectStatus
   priority: Priority
+  leadId?: string | null
+  memberIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
+  labelIds?: string[]
   settingsTeamId?: string | null
   presentation?: ProjectPresentationConfig
 }) {
@@ -284,13 +311,47 @@ export async function updateProjectServer(input: {
   currentUserId: string
   projectId: string
   patch: {
-    status?: "planning" | "active" | "paused" | "completed"
+    name?: string
+    status?: "backlog" | "planned" | "in-progress" | "completed" | "cancelled"
     priority?: Priority
   }
 }) {
   try {
     return await getConvexServerClient().mutation(
       api.app.updateProject,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
+  }
+}
+
+export async function renameProjectServer(input: {
+  currentUserId: string
+  projectId: string
+  name: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.renameProject,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
+  }
+}
+
+export async function deleteProjectServer(input: {
+  currentUserId: string
+  projectId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteProject,
       withServerToken(input)
     )
   } catch (error) {

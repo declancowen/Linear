@@ -5,6 +5,8 @@ import { toast } from "sonner"
 import {
   syncClearViewFilters,
   syncCreateView,
+  syncDeleteView,
+  syncRenameView,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,
@@ -19,6 +21,7 @@ import {
 import {
   createViewDefinition,
   isRouteAllowedForViewContext,
+  isSystemView,
 } from "@/lib/domain/default-views"
 import { viewSchema } from "@/lib/domain/types"
 
@@ -29,6 +32,8 @@ import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 type ViewSlice = Pick<
   AppStore,
   | "createView"
+  | "renameView"
+  | "deleteView"
   | "updateViewConfig"
   | "toggleViewDisplayProperty"
   | "toggleViewHiddenValue"
@@ -195,6 +200,83 @@ export function createViewSlice(
 
       toast.success("View created")
       return view.id
+    },
+    async renameView(viewId, name) {
+      const trimmedName = name.trim()
+
+      if (!trimmedName) {
+        toast.error("View name is required")
+        return false
+      }
+
+      const state = get()
+      const view = state.views.find((entry) => entry.id === viewId)
+
+      if (!view) {
+        toast.error("View not found")
+        return false
+      }
+
+      if (isSystemView(view)) {
+        toast.error("System views cannot be renamed")
+        return false
+      }
+
+      try {
+        await syncRenameView(viewId, trimmedName)
+        set((current) => ({
+          views: current.views.map((entry) =>
+            entry.id === viewId
+              ? {
+                  ...entry,
+                  name: trimmedName,
+                  updatedAt: getNow(),
+                }
+              : entry
+          ),
+        }))
+        toast.success("View renamed")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(error instanceof Error ? error.message : "Failed to rename view")
+        return false
+      }
+    },
+    async deleteView(viewId) {
+      const state = get()
+      const view = state.views.find((entry) => entry.id === viewId)
+
+      if (!view) {
+        toast.error("View not found")
+        return false
+      }
+
+      if (isSystemView(view)) {
+        toast.error("System views cannot be deleted")
+        return false
+      }
+
+      try {
+        await syncDeleteView(viewId)
+        set((current) => ({
+          views: current.views.filter((entry) => entry.id !== viewId),
+          ui: {
+            ...current.ui,
+            selectedViewByRoute: Object.fromEntries(
+              Object.entries(current.ui.selectedViewByRoute).filter(
+                ([, selectedViewId]) => selectedViewId !== viewId
+              )
+            ),
+          },
+        }))
+        toast.success("View deleted")
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(error instanceof Error ? error.message : "Failed to delete view")
+        return false
+      }
     },
     updateViewConfig(viewId, patch) {
       const { showCompleted, ...viewPatch } = patch

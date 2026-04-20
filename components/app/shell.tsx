@@ -9,7 +9,6 @@ import {
   useEffectEvent,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react"
 import {
   Bell,
@@ -63,6 +62,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import { useShortcutModifierLabel } from "@/components/app/shortcut-keys"
 import { CreateViewDialog } from "@/components/app/screens/create-view-dialog"
 import { CreateProjectDialog } from "@/components/app/screens/project-creation"
 import { CreateWorkItemDialog } from "@/components/app/screens/create-work-item-dialog"
@@ -205,20 +205,6 @@ function SidebarInsetResizeHandle() {
   )
 }
 
-function getShortcutModifierLabel() {
-  if (typeof navigator === "undefined") {
-    return "Ctrl"
-  }
-
-  const platformDetails = `${navigator.platform} ${navigator.userAgent}`
-
-  return /Mac|iPhone|iPad|iPod/i.test(platformDetails) ? "Cmd" : "Ctrl"
-}
-
-function subscribeToShortcutModifier() {
-  return () => {}
-}
-
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -333,11 +319,7 @@ export function AppShell({ children }: AppShellProps) {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
-  const searchShortcutModifierLabel = useSyncExternalStore(
-    subscribeToShortcutModifier,
-    getShortcutModifierLabel,
-    getShortcutModifierLabel
-  )
+  const searchShortcutModifierLabel = useShortcutModifierLabel()
   const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
   const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
@@ -562,6 +544,7 @@ export function AppShell({ children }: AppShellProps) {
             }
           }}
           defaultTeamId={activeCreateDialog.defaultTeamId}
+          defaultProjectId={activeCreateDialog.defaultProjectId}
           initialType={activeCreateDialog.initialType}
         />
       ) : null}

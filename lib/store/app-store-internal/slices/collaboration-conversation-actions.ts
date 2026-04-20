@@ -8,6 +8,7 @@ import {
   syncEnsureTeamChat,
   syncSendChatMessage,
   syncStartConversationCall,
+  syncToggleChatMessageReaction,
 } from "@/lib/convex/client"
 import {
   channelSchema,
@@ -24,6 +25,7 @@ import {
   findWorkspaceDirectConversation,
   getNow,
   normalizeChatMessages,
+  toggleReactionUsers,
 } from "../helpers"
 import {
   canEditWorkspaceDocuments,
@@ -47,6 +49,7 @@ export function createCollaborationConversationActions({
   | "createChannel"
   | "startConversationCall"
   | "sendChatMessage"
+  | "toggleChatMessageReaction"
 > {
   return {
     createWorkspaceChat(input) {
@@ -521,6 +524,7 @@ export function createCollaborationConversationActions({
               content: parsed.data.content.trim(),
               callId: null,
               mentionUserIds,
+              reactions: [],
               createdBy: state.currentUserId,
               createdAt: now,
             },
@@ -540,6 +544,33 @@ export function createCollaborationConversationActions({
       runtime.syncInBackground(
         syncSendChatMessage(parsed.data.conversationId, parsed.data.content),
         "Failed to send message"
+      )
+    },
+    toggleChatMessageReaction(messageId, emoji) {
+      const nextEmoji = emoji.trim()
+
+      if (nextEmoji.length === 0) {
+        return
+      }
+
+      set((state) => ({
+        chatMessages: state.chatMessages.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                reactions: toggleReactionUsers(
+                  message.reactions,
+                  nextEmoji,
+                  state.currentUserId
+                ),
+              }
+            : message
+        ),
+      }))
+
+      runtime.syncInBackground(
+        syncToggleChatMessageReaction(messageId, nextEmoji),
+        "Failed to update reaction"
       )
     },
   }

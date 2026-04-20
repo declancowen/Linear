@@ -56,7 +56,7 @@ export function createLargeWorkspaceSearchFixture(
       avatarImageUrl: null,
       workosUserId: null,
       title: "Owner",
-      status: "active",
+      status: "in-progress",
       statusMessage: "",
       preferences: {
         emailMentions: true,
@@ -156,7 +156,7 @@ export function createLargeWorkspaceSearchFixture(
         memberIds: ["user_current", `user_lead_${index + 1}`],
         health: projectIndex % 3 === 0 ? "on-track" : "at-risk",
         priority: projectIndex % 4 === 0 ? "high" : "medium",
-        status: projectIndex % 3 === 0 ? "active" : "planning",
+        status: projectIndex % 3 === 0 ? "in-progress" : "planned",
         startDate: "2026-04-01",
         targetDate: "2026-06-01",
         createdAt: "2026-04-01T09:00:00.000Z",

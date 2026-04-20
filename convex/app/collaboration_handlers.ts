@@ -32,6 +32,7 @@ import { assertServerToken, createId, getNow } from "./core"
 import {
   getCallDoc,
   getChannelPostDoc,
+  getChatMessageDoc,
   getConversationDoc,
   getTeamMembershipDoc,
   getTeamDoc,
@@ -120,6 +121,12 @@ type SendChatMessageArgs = ServerAccessArgs & {
   origin: string
   conversationId: string
   content: string
+}
+
+type ToggleChatMessageReactionArgs = ServerAccessArgs & {
+  currentUserId: string
+  messageId: string
+  emoji: string
 }
 
 type CreateChannelPostArgs = ServerAccessArgs & {
@@ -468,6 +475,7 @@ export async function startChatCallHandler(
     content: "Started a call",
     callId: call.id,
     mentionUserIds: [],
+    reactions: [],
     createdBy: args.currentUserId,
     createdAt: now,
   }
@@ -746,6 +754,7 @@ export async function sendChatMessageHandler(
     content: messageHtml,
     callId: null,
     mentionUserIds,
+    reactions: [],
     createdBy: args.currentUserId,
     createdAt: now,
   })
@@ -804,6 +813,37 @@ export async function sendChatMessageHandler(
   return {
     messageId,
     mentionEmails,
+  }
+}
+
+export async function toggleChatMessageReactionHandler(
+  ctx: MutationCtx,
+  args: ToggleChatMessageReactionArgs
+) {
+  assertServerToken(args.serverToken)
+  const message = await getChatMessageDoc(ctx, args.messageId)
+
+  if (!message) {
+    throw new Error("Message not found")
+  }
+
+  await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, message.conversationId),
+    args.currentUserId,
+    "write"
+  )
+
+  await ctx.db.patch(message._id, {
+    reactions: toggleReactionUsers(
+      message.reactions,
+      args.emoji.trim(),
+      args.currentUserId
+    ),
+  })
+
+  return {
+    ok: true,
   }
 }
 

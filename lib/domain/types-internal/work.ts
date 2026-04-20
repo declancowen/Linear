@@ -479,10 +479,12 @@ export const projectHealthMeta: Record<ProjectHealth, { label: string }> = {
 }
 
 export const projectStatusMeta: Record<ProjectStatus, { label: string }> = {
-  planning: { label: "Planning" },
-  active: { label: "Active" },
-  paused: { label: "Paused" },
+  backlog: { label: "Backlog" },
+  planning: { label: "Planned" },
+  planned: { label: "Planned" },
+  "in-progress": { label: "In progress" },
   completed: { label: "Completed" },
+  cancelled: { label: "Cancelled" },
 }
 
 export const workItemTypeMeta: Record<

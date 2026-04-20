@@ -1,8 +1,10 @@
 "use client"
 
+import { format } from "date-fns"
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
+  CalendarDots,
   CaretDown,
   Check,
   FolderSimple,
@@ -35,6 +37,11 @@ import {
 import { useAppStore } from "@/lib/store/app-store"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import {
+  ShortcutKeys,
+  useCommandEnterSubmit,
+  useShortcutModifierLabel,
+} from "@/components/app/shortcut-keys"
 import {
   Dialog,
   DialogClose,
@@ -119,12 +126,12 @@ function AssigneeOption({
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
 
   return (
-    <span className="flex items-center gap-2">
-      <Avatar size="sm">
+    <span className="flex min-w-0 items-center gap-2">
+      <Avatar size="sm" className="size-4 data-[size=sm]:size-4">
         {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
         <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
       </Avatar>
-      <span className="truncate">{name}</span>
+      <span className="min-w-0 truncate">{name}</span>
     </span>
   )
 }
@@ -140,6 +147,17 @@ function matchesQuery(value: string, query: string) {
   return value.toLowerCase().includes(query.toLowerCase())
 }
 
+function formatDateChipLabel(
+  value: string | null | undefined,
+  emptyLabel: string
+) {
+  if (!value) {
+    return emptyLabel
+  }
+
+  return format(new Date(value), "MMM d")
+}
+
 const chipTriggerClass =
   "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
@@ -149,34 +167,17 @@ const chipTriggerDashedClass =
 const crumbTriggerClass =
   "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
-function KbdHint({
-  className,
-  children,
-}: {
-  className?: string
-  children: React.ReactNode
-}) {
-  return (
-    <kbd
-      className={cn(
-        "ml-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3",
-        className
-      )}
-    >
-      {children}
-    </kbd>
-  )
-}
-
 export function CreateWorkItemDialog({
   open,
   onOpenChange,
   defaultTeamId,
+  defaultProjectId,
   initialType,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   defaultTeamId?: string | null
+  defaultProjectId?: string | null
   initialType?: WorkItemType | null
 }) {
   const availableTeams = useAppStore(
@@ -234,6 +235,7 @@ export function CreateWorkItemDialog({
   const [parentQuery, setParentQuery] = useState("")
   const [labelsPickerOpen, setLabelsPickerOpen] = useState(false)
   const [labelQuery, setLabelQuery] = useState("")
+  const shortcutModifierLabel = useShortcutModifierLabel()
   const team = useMemo(
     () => filteredTeams.find((entry) => entry.id === selectedTeamId) ?? null,
     [filteredTeams, selectedTeamId]
@@ -256,11 +258,18 @@ export function CreateWorkItemDialog({
   }, [selectedTeamId, teamMemberships, users])
   const teamProjects = useMemo(
     () =>
-      projects.filter(
-        (project) =>
-          project.scopeType === "team" && project.scopeId === selectedTeamId
-      ),
-    [projects, selectedTeamId]
+      projects.filter((project) => {
+        if (!team) {
+          return false
+        }
+
+        return (
+          (project.scopeType === "team" && project.scopeId === selectedTeamId) ||
+          (project.scopeType === "workspace" &&
+            project.scopeId === team.workspaceId)
+        )
+      }),
+    [projects, selectedTeamId, team]
   )
   const availableLabels = useMemo(
     () =>
@@ -277,7 +286,14 @@ export function CreateWorkItemDialog({
   )
   const [priority, setPriority] = useState<Priority>(initialPriority)
   const [assigneeId, setAssigneeId] = useState<string>("none")
-  const [projectId, setProjectId] = useState<string>("none")
+  const [startDate, setStartDate] = useState<string | null>(null)
+  const [targetDate, setTargetDate] = useState<string | null>(null)
+  const initialProjectId =
+    defaultProjectId &&
+    teamProjects.some((project) => project.id === defaultProjectId)
+      ? defaultProjectId
+      : "none"
+  const [projectId, setProjectId] = useState<string>(initialProjectId)
   const [selectedParentId, setSelectedParentId] = useState<string>("none")
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [newLabelName, setNewLabelName] = useState("")
@@ -329,6 +345,9 @@ export function CreateWorkItemDialog({
   const selectedTypeLabel = selectedType
     ? getDisplayLabelForWorkItemType(selectedType, team?.settings.experience)
     : workCopy.singularLabel
+  const secondaryContextLabel = selectedParentItem
+    ? `${selectedParentItem.key} · child`
+    : (selectedProject?.name ?? null)
   const titlePlaceholder = selectedType
     ? `${selectedTypeLabel} title`
     : workCopy.titlePlaceholder
@@ -363,6 +382,14 @@ export function CreateWorkItemDialog({
       nextTeam,
       nextTemplateType
     ).defaultPriority
+    const nextWorkspaceId = nextTeam?.workspaceId ?? null
+    const nextProjects = projects.filter(
+      (project) =>
+        (project.scopeType === "team" && project.scopeId === nextTeamId) ||
+        (nextWorkspaceId !== null &&
+          project.scopeType === "workspace" &&
+          project.scopeId === nextWorkspaceId)
+    )
     const nextType =
       initialType &&
       getDefaultRootWorkItemTypesForTeamExperience(
@@ -378,7 +405,14 @@ export function CreateWorkItemDialog({
     )
     setPriority(nextPriority)
     setAssigneeId("none")
-    setProjectId("none")
+    setStartDate(null)
+    setTargetDate(null)
+    setProjectId(
+      defaultProjectId &&
+        nextProjects.some((project) => project.id === defaultProjectId)
+        ? defaultProjectId
+        : "none"
+    )
     setSelectedParentId("none")
     setSelectedLabelIds([])
     setNewLabelName("")
@@ -431,6 +465,8 @@ export function CreateWorkItemDialog({
       labelIds: selectedLabelIds,
       assigneeId: assigneeId === "none" ? null : assigneeId,
       primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
+      startDate,
+      targetDate,
     })
 
     if (!createdItemId) {
@@ -449,45 +485,13 @@ export function CreateWorkItemDialog({
     onOpenChange(false)
   }
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    function handleKey(event: KeyboardEvent) {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.key === "Enter" &&
-        canCreate
-      ) {
-        event.preventDefault()
-        handleCreate()
-      }
-    }
-
-    window.addEventListener("keydown", handleKey)
-    return () => window.removeEventListener("keydown", handleKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    open,
-    canCreate,
-    selectedType,
-    selectedTeamId,
-    selectedParentId,
-    normalizedTitle,
-    normalizedDescription,
-    priority,
-    status,
-    selectedLabelIds,
-    assigneeId,
-    effectiveProjectId,
-  ])
+  useCommandEnterSubmit(open && canCreate, handleCreate)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[42%] max-h-[calc(100vh-2rem)] gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[40%] sm:max-w-[640px]"
+        className="top-6 max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-10 sm:max-w-[640px]"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{workCopy.createLabel}</DialogTitle>
@@ -632,14 +636,9 @@ export function CreateWorkItemDialog({
             </PopoverContent>
           </Popover>
 
-          <span className="ml-0.5 text-fg-4">
-            →{" "}
-            {selectedParentItem
-              ? `${selectedParentItem.key} · child`
-              : selectedProject
-                ? selectedProject.name
-                : "New item"}
-          </span>
+          {secondaryContextLabel ? (
+            <span className="ml-0.5 text-fg-4">→ {secondaryContextLabel}</span>
+          ) : null}
 
           <div className="ml-auto flex items-center gap-0.5">
             <DialogClose asChild>
@@ -1045,6 +1044,106 @@ export function CreateWorkItemDialog({
             </PopoverContent>
           </Popover>
 
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !startDate && chipTriggerDashedClass
+                )}
+              >
+                <CalendarDots className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    startDate && "font-medium text-foreground"
+                  )}
+                >
+                  {formatDateChipLabel(startDate, "Start date")}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
+            >
+              <div className="px-3 py-3">
+                <div className="mb-2 text-[11px] font-medium text-fg-3">
+                  Start date
+                </div>
+                <input
+                  type="date"
+                  value={startDate ?? ""}
+                  onChange={(event) =>
+                    setStartDate(event.target.value || null)
+                  }
+                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+                />
+              </div>
+              <PropertyPopoverFoot>
+                <button
+                  type="button"
+                  className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                  onClick={() => setStartDate(null)}
+                >
+                  Clear
+                </button>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  chipTriggerClass,
+                  !targetDate && chipTriggerDashedClass
+                )}
+              >
+                <CalendarDots className="size-[13px]" />
+                <span
+                  className={cn(
+                    "truncate",
+                    targetDate && "font-medium text-foreground"
+                  )}
+                >
+                  {formatDateChipLabel(targetDate, "Target date")}
+                </span>
+                <CaretDown className="size-3 shrink-0 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
+            >
+              <div className="px-3 py-3">
+                <div className="mb-2 text-[11px] font-medium text-fg-3">
+                  Target date
+                </div>
+                <input
+                  type="date"
+                  value={targetDate ?? ""}
+                  onChange={(event) =>
+                    setTargetDate(event.target.value || null)
+                  }
+                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+                />
+              </div>
+              <PropertyPopoverFoot>
+                <button
+                  type="button"
+                  className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                  onClick={() => setTargetDate(null)}
+                >
+                  Clear
+                </button>
+              </PropertyPopoverFoot>
+            </PopoverContent>
+          </Popover>
+
           {showParentSelect ? (
             <Popover
               open={parentPickerOpen}
@@ -1364,18 +1463,24 @@ export function CreateWorkItemDialog({
               className="text-fg-2"
             >
               Cancel
-              <KbdHint>Esc</KbdHint>
+              <ShortcutKeys
+                keys={["Esc"]}
+                className="ml-1"
+                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              />
             </Button>
             <Button
               size="sm"
               disabled={!canCreate}
               onClick={handleCreate}
-              className="bg-foreground text-background hover:bg-foreground/90"
+              className="gap-1 bg-foreground text-background hover:bg-foreground/90"
             >
               Create {selectedTypeLabel.toLowerCase()}
-              <KbdHint className="border-foreground/20 bg-foreground/10 text-background/80">
-                ⌘⏎
-              </KbdHint>
+              <ShortcutKeys
+                keys={[shortcutModifierLabel, "Enter"]}
+                variant="inline"
+                className="ml-0.5 gap-0.5 text-background/65"
+              />
             </Button>
           </div>
         </div>

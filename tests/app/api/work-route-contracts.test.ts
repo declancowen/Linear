@@ -505,7 +505,7 @@ describe("work route contracts", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          status: "active",
+          status: "in-progress",
         }),
       }) as never,
       {

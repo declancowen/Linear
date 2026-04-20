@@ -67,10 +67,12 @@ export const projectHealths = [
 export type ProjectHealth = (typeof projectHealths)[number]
 
 export const projectStatuses = [
+  "backlog",
   "planning",
-  "active",
-  "paused",
+  "planned",
+  "in-progress",
   "completed",
+  "cancelled",
 ] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
 
@@ -97,6 +99,9 @@ export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 
 export const entityKinds = ["items", "projects", "docs"] as const
 export type EntityKind = (typeof entityKinds)[number]
+
+export const viewContainerTypes = ["project-items"] as const
+export type ViewContainerType = (typeof viewContainerTypes)[number]
 
 export const viewLayouts = ["list", "board", "timeline"] as const
 export type ViewLayout = (typeof viewLayouts)[number]

@@ -478,9 +478,11 @@ export function createWorkItemActions({
           linkedDocumentIds: [],
           labelIds: parsed.data.labelIds ?? [],
           milestoneId: null,
-          startDate: getNow(),
+          startDate: parsed.data.startDate ?? getNow().slice(0, 10),
           dueDate: addDays(new Date(), 7).toISOString(),
-          targetDate: addDays(new Date(), 10).toISOString(),
+          targetDate:
+            parsed.data.targetDate ??
+            addDays(new Date(), 10).toISOString().slice(0, 10),
           subscriberIds: [state.currentUserId],
           createdAt: getNow(),
           updatedAt: getNow(),

@@ -12,12 +12,6 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card"
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -26,11 +20,18 @@ import {
 } from "@/components/ui/field"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 
 import { WorkspaceUsersList } from "./member-management"
-import { ImageUploadControl, SettingsScaffold, SettingsSection } from "./shared"
+import {
+  ImageUploadControl,
+  SettingsDangerRow,
+  SettingsGroupLabel,
+  SettingsHero,
+  SettingsNav,
+  SettingsScaffold,
+  SettingsSection,
+} from "./shared"
 import { getUserInitials, uploadSettingsImage } from "./utils"
 
 const workspaceAccentOptions = [
@@ -253,14 +254,12 @@ export function WorkspaceSettingsScreen() {
         title="Workspace settings"
         subtitle="Current workspace not found"
       >
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Workspace unavailable</CardTitle>
-            <CardDescription>
-              Select a workspace before opening workspace settings.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          title="Workspace unavailable"
+          description="Select a workspace before opening workspace settings."
+        >
+          <div />
+        </SettingsSection>
       </SettingsScaffold>
     )
   }
@@ -271,14 +270,12 @@ export function WorkspaceSettingsScreen() {
         title="Workspace settings"
         subtitle="Workspace owner access required"
       >
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Redirecting</CardTitle>
-            <CardDescription>
-              Only the workspace owner can open workspace settings.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          title="Redirecting"
+          description="Only the workspace owner can open workspace settings."
+        >
+          <div />
+        </SettingsSection>
       </SettingsScaffold>
     )
   }
@@ -366,10 +363,39 @@ export function WorkspaceSettingsScreen() {
   return (
     <SettingsScaffold
       title="Workspace settings"
-      subtitle={
-        activeTab === "workspace"
-          ? "Branding, appearance, and administration"
-          : "Workspace members"
+      hero={
+        <SettingsHero
+          leading={
+            <div className="flex size-14 items-center justify-center overflow-hidden rounded-2xl border border-line bg-surface-2">
+              {currentLogoImageSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  alt={currentWorkspace.name}
+                  className="size-full object-cover"
+                  src={currentLogoImageSrc}
+                />
+              ) : (
+                <span className="text-[15px] font-semibold text-fg-2">
+                  {currentWorkspace.logoUrl ||
+                    getUserInitials(currentWorkspace.name)}
+                </span>
+              )}
+            </div>
+          }
+          title={workspace.name}
+          description={workspace.settings.description || "No description set."}
+          meta={[
+            {
+              key: "members",
+              label: `${workspaceUsersCount} member${workspaceUsersCount === 1 ? "" : "s"}`,
+            },
+            {
+              key: "teams",
+              label: `${workspaceTeamsCount} team${workspaceTeamsCount === 1 ? "" : "s"}`,
+            },
+            { key: "accent", label: `${savedAccentLabel} accent` },
+          ]}
+        />
       }
       footer={
         activeTab === "workspace" ? (
@@ -382,72 +408,26 @@ export function WorkspaceSettingsScreen() {
         ) : null
       }
     >
-      <div className="max-w-3xl space-y-10">
-        <Tabs
-          className="gap-6"
-          value={activeTab}
-          onValueChange={(value) =>
-            setActiveTab(value as "workspace" | "users")
-          }
-        >
-          <Card className="shadow-none">
-            <div className="flex items-start gap-4 px-5 py-5">
-              <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-muted/40">
-                {currentLogoImageSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    alt={currentWorkspace.name}
-                    className="size-full object-cover"
-                    src={currentLogoImageSrc}
-                  />
-                ) : (
-                  <span className="text-sm font-semibold text-muted-foreground">
-                    {currentWorkspace.logoUrl ||
-                      getUserInitials(currentWorkspace.name)}
-                  </span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-base font-semibold">{workspace.name}</div>
-                <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
-                  {workspace.settings.description || "No description set."}
-                </p>
-                <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span>{workspaceUsersCount} members</span>
-                  <span>·</span>
-                  <span>{workspaceTeamsCount} teams</span>
-                  <span>·</span>
-                  <span>{savedAccentLabel}</span>
-                </div>
-              </div>
-            </div>
-          </Card>
+      <SettingsNav
+        value={activeTab}
+        onValueChange={setActiveTab}
+        options={[
+          { value: "workspace", label: "Workspace" },
+          {
+            value: "users",
+            label: "Users",
+            count: workspaceUsersCount,
+          },
+        ]}
+      />
 
-          <div className="border-b">
-            <TabsList
-              variant="line"
-              className="h-9 justify-start gap-1 rounded-none border-0 px-0"
-            >
-              <TabsTrigger
-                value="workspace"
-                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                Workspace
-              </TabsTrigger>
-              <TabsTrigger
-                value="users"
-                className="flex-none rounded-none border-0 px-3 focus-visible:ring-0 focus-visible:outline-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                Users
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="workspace" className="space-y-10">
-            <SettingsSection
-              title="Branding"
-              description="Name, logo, and description for your workspace."
-            >
+      {activeTab === "workspace" ? (
+        <>
+          <SettingsSection
+            title="Branding"
+            description="Name, logo, and description for your workspace."
+          >
+            <div className="space-y-6">
               <ImageUploadControl
                 description="Square image used across the workspace."
                 disabled={!canManageWorkspace}
@@ -459,7 +439,7 @@ export function WorkspaceSettingsScreen() {
                 }}
                 onSelect={handleLogoUpload}
                 preview={
-                  <span className="text-base font-semibold text-muted-foreground">
+                  <span className="text-base font-semibold text-fg-2">
                     {fallbackBadge}
                   </span>
                 }
@@ -513,119 +493,115 @@ export function WorkspaceSettingsScreen() {
                     Shown in the workspace summary and any discovery surfaces.
                   </FieldDescription>
                 </Field>
-                <Field>
-                  <FieldLabel>Accent color</FieldLabel>
-                  <FieldContent>
-                    <div className="flex flex-wrap gap-3">
-                      {workspaceAccentOptions.map((option) => {
-                        const selected = accent === option.value
-
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            aria-label={option.value}
-                            className={cn(
-                              "flex size-7 items-center justify-center rounded-full transition-transform hover:scale-105 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
-                              option.swatchClassName,
-                              selected &&
-                                "ring-2 ring-offset-2 ring-offset-background"
-                            )}
-                            disabled={!canManageWorkspace}
-                            onClick={() => setAccent(option.value)}
-                          >
-                            {selected ? (
-                              <Check
-                                className="size-3.5 text-white"
-                                weight="bold"
-                              />
-                            ) : null}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </FieldContent>
-                </Field>
               </FieldGroup>
-            </SettingsSection>
+            </div>
+          </SettingsSection>
 
-            <section className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4">
-              <div className="space-y-1">
-                <h2 className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-                  Danger zone
-                </h2>
-              </div>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">Delete workspace</div>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    Permanently remove this workspace and all associated data.
-                    This action cannot be undone.
-                    {!canDeleteWorkspace
-                      ? " Only the workspace owner can delete the workspace."
-                      : ""}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={!canDeleteWorkspace || deletingWorkspace}
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  {deletingWorkspace ? "Deleting..." : "Delete workspace"}
-                </Button>
-              </div>
-            </section>
-          </TabsContent>
+          <SettingsSection
+            title="Accent color"
+            description="Used on badges, highlights, and workspace surfaces."
+          >
+            <div className="flex flex-wrap gap-3">
+              {workspaceAccentOptions.map((option) => {
+                const selected = accent === option.value
 
-          <TabsContent value="users">
-            <SettingsSection
-              title={`Workspace users · ${workspaceUsersCount}`}
-              description="People with access to this workspace through team memberships."
-            >
-              <WorkspaceUsersList
-                members={workspaceUsers}
-                canManage={canManageWorkspace}
-                pendingMemberId={removingWorkspaceUserId}
-                onRemove={(member) =>
-                  setWorkspaceUserToRemove({
-                    id: member.id,
-                    name: member.name,
-                  })
-                }
-              />
-            </SettingsSection>
-          </TabsContent>
-        </Tabs>
-        <ConfirmDialog
-          open={deleteDialogOpen}
-          onOpenChange={setDeleteDialogOpen}
-          title="Delete workspace"
-          description="This will permanently remove the workspace, all teams, and all associated data. This can't be undone."
-          confirmLabel="Delete workspace"
-          variant="destructive"
-          loading={deletingWorkspace}
-          onConfirm={() => void handleDeleteWorkspace()}
-        />
-        <ConfirmDialog
-          open={workspaceUserToRemove != null}
-          onOpenChange={(open) => {
-            if (!open && !removingWorkspaceUserId) {
-              setWorkspaceUserToRemove(null)
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-label={option.value}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-full transition-transform hover:scale-105 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+                      option.swatchClassName,
+                      selected &&
+                        "ring-2 ring-offset-2 ring-offset-background"
+                    )}
+                    disabled={!canManageWorkspace}
+                    onClick={() => setAccent(option.value)}
+                  >
+                    {selected ? (
+                      <Check
+                        className="size-3.5 text-white"
+                        weight="bold"
+                      />
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
+          </SettingsSection>
+
+          <SettingsGroupLabel label="Danger zone" />
+          <SettingsDangerRow
+            title="Delete workspace"
+            description={
+              <>
+                Permanently remove this workspace and all associated data. This
+                action cannot be undone.
+                {!canDeleteWorkspace
+                  ? " Only the workspace owner can delete the workspace."
+                  : ""}
+              </>
             }
-          }}
-          title="Remove workspace user"
-          description={
-            workspaceUserToRemove
-              ? `${workspaceUserToRemove.name} will lose access to this workspace immediately.`
-              : "This user will lose access to this workspace."
+            action={
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!canDeleteWorkspace || deletingWorkspace}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                {deletingWorkspace ? "Deleting..." : "Delete workspace"}
+              </Button>
+            }
+          />
+        </>
+      ) : (
+        <SettingsSection
+          title={`Workspace users · ${workspaceUsersCount}`}
+          description="People with access to this workspace through team memberships."
+        >
+          <WorkspaceUsersList
+            members={workspaceUsers}
+            canManage={canManageWorkspace}
+            pendingMemberId={removingWorkspaceUserId}
+            onRemove={(member) =>
+              setWorkspaceUserToRemove({
+                id: member.id,
+                name: member.name,
+              })
+            }
+          />
+        </SettingsSection>
+      )}
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete workspace"
+        description="This will permanently remove the workspace, all teams, and all associated data. This can't be undone."
+        confirmLabel="Delete workspace"
+        variant="destructive"
+        loading={deletingWorkspace}
+        onConfirm={() => void handleDeleteWorkspace()}
+      />
+      <ConfirmDialog
+        open={workspaceUserToRemove != null}
+        onOpenChange={(open) => {
+          if (!open && !removingWorkspaceUserId) {
+            setWorkspaceUserToRemove(null)
           }
-          confirmLabel="Remove user"
-          variant="destructive"
-          loading={removingWorkspaceUserId != null}
-          onConfirm={() => void handleRemoveWorkspaceUser()}
-        />
-      </div>
+        }}
+        title="Remove workspace user"
+        description={
+          workspaceUserToRemove
+            ? `${workspaceUserToRemove.name} will lose access to this workspace immediately.`
+            : "This user will lose access to this workspace."
+        }
+        confirmLabel="Remove user"
+        variant="destructive"
+        loading={removingWorkspaceUserId != null}
+        onConfirm={() => void handleRemoveWorkspaceUser()}
+      />
     </SettingsScaffold>
   )
 }

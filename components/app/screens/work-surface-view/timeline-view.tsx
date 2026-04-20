@@ -33,6 +33,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 import { WorkItemTypeBadge } from "../work-item-ui"
+import { IssueContextMenu } from "../work-item-menus"
 import { getGroupValueAdornment, getGroupValueLabel } from "./shared"
 
 type TimelineRangeDraft = {
@@ -468,6 +469,7 @@ export function TimelineView({
                     {groupItems.map((item) => (
                       <TimelineGridRow
                         key={item.id}
+                        data={data}
                         days={days}
                         gridTemplateColumns={timelineGridTemplateColumns}
                         item={item}
@@ -504,38 +506,41 @@ function TimelineLabelRow({ data, item }: { data: AppData; item: WorkItem }) {
   const assignees = getItemAssignees(data, [item])
 
   return (
-    <div className="flex h-9 items-center gap-2.5 border-b bg-background px-3">
-      <div
-        className={cn(
-          "size-2 shrink-0 rounded-full",
-          item.status === "done"
-            ? "bg-green-500"
-            : item.status === "in-progress"
-              ? "bg-blue-500"
-              : item.status === "cancelled"
-                ? "bg-red-500"
-                : "bg-muted-foreground/30"
-        )}
-      />
-      <div className="min-w-0 flex-1">
-        <Link
-          className="block truncate text-xs hover:underline"
-          href={`/items/${item.id}`}
-        >
-          {item.title}
-        </Link>
+    <IssueContextMenu data={data} item={item}>
+      <div className="flex h-9 items-center gap-2.5 border-b bg-background px-3">
+        <div
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            item.status === "done"
+              ? "bg-green-500"
+              : item.status === "in-progress"
+                ? "bg-blue-500"
+                : item.status === "cancelled"
+                  ? "bg-red-500"
+                  : "bg-muted-foreground/30"
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <Link
+            className="block truncate text-xs hover:underline"
+            href={`/items/${item.id}`}
+          >
+            {item.title}
+          </Link>
+        </div>
+        <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
+        {assignees[0] ? (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {assignees[0].name.split(" ")[0]}
+          </span>
+        ) : null}
       </div>
-      <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
-      {assignees[0] ? (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
-          {assignees[0].name.split(" ")[0]}
-        </span>
-      ) : null}
-    </div>
+    </IssueContextMenu>
   )
 }
 
 function TimelineGridRow({
+  data,
   item,
   days,
   gridTemplateColumns,
@@ -543,6 +548,7 @@ function TimelineGridRow({
   onResizeStart,
   rangeOverride,
 }: {
+  data: AppData
   item: WorkItem
   days: Date[]
   gridTemplateColumns: string
@@ -591,6 +597,7 @@ function TimelineGridRow({
           style={{ gridColumn: `${startIndex + 1} / span ${span}` }}
         >
           <TimelineBar
+            data={data}
             item={item}
             span={span}
             onCaptureDragOffset={onCaptureDragOffset}
@@ -649,11 +656,13 @@ function TimelineBarPreview({ item, span }: { item: WorkItem; span: number }) {
 }
 
 function TimelineBar({
+  data,
   item,
   span,
   onCaptureDragOffset,
   onResizeStart,
 }: {
+  data: AppData
   item: WorkItem
   span: number
   onCaptureDragOffset: (
@@ -676,40 +685,42 @@ function TimelineBar({
     barColors[item.status] ?? "bg-primary text-primary-foreground"
 
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      className={cn(
-        "group/timeline-bar relative flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm transition-shadow hover:shadow-md",
-        isDragging && "opacity-0",
-        colorClass
-      )}
-      style={{
-        transform: isDragging ? undefined : CSS.Translate.toString(transform),
-      }}
-      onPointerDownCapture={(event) => onCaptureDragOffset(item, span, event)}
-      {...listeners}
-      {...attributes}
-    >
-      <span
-        data-timeline-resize-handle="start"
-        className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize rounded-l-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
-        onPointerDown={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          onResizeStart(item, "start", event.clientX)
+    <IssueContextMenu data={data} item={item}>
+      <button
+        ref={setNodeRef}
+        type="button"
+        className={cn(
+          "group/timeline-bar relative flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm transition-shadow hover:shadow-md",
+          isDragging && "opacity-0",
+          colorClass
+        )}
+        style={{
+          transform: isDragging ? undefined : CSS.Translate.toString(transform),
         }}
-      />
-      <span className="truncate">{span >= 3 ? item.title : item.key}</span>
-      <span
-        data-timeline-resize-handle="end"
-        className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize rounded-r-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
-        onPointerDown={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          onResizeStart(item, "end", event.clientX)
-        }}
-      />
-    </button>
+        onPointerDownCapture={(event) => onCaptureDragOffset(item, span, event)}
+        {...listeners}
+        {...attributes}
+      >
+        <span
+          data-timeline-resize-handle="start"
+          className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize rounded-l-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onResizeStart(item, "start", event.clientX)
+          }}
+        />
+        <span className="truncate">{span >= 3 ? item.title : item.key}</span>
+        <span
+          data-timeline-resize-handle="end"
+          className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize rounded-r-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onResizeStart(item, "end", event.clientX)
+          }}
+        />
+      </button>
+    </IssueContextMenu>
   )
 }

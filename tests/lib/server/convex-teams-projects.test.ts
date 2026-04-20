@@ -160,7 +160,7 @@ describe("convex team-project server wrappers", () => {
         currentUserId: "user_1",
         projectId: "project_1",
         patch: {
-          status: "active",
+          status: "in-progress",
         },
       })
     ).rejects.toMatchObject({

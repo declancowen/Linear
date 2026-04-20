@@ -13,6 +13,10 @@ import {
   DocumentAuthorAvatar,
   DocumentContextMenu,
 } from "@/components/app/screens/document-ui"
+import {
+  ProjectContextMenu,
+  ViewContextMenu,
+} from "@/components/app/screens/entity-context-menus"
 import { getViewHref } from "@/lib/domain/default-views"
 import {
   getProjectHref,
@@ -47,9 +51,11 @@ const projectIconTint: Record<Project["health"], string> = {
 export function ProjectBoard({
   data,
   projects,
+  editable,
 }: {
   data: AppData
   projects: Project[]
+  editable: boolean
 }) {
   const today = new Date()
 
@@ -68,12 +74,17 @@ export function ProjectBoard({
         const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 14
 
         return (
-          <Link
+          <ProjectContextMenu
             key={project.id}
-            className="group flex min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
-            href={getProjectHref(data, project) ?? "/workspace/projects"}
+            data={data}
+            project={project}
+            editable={editable}
           >
-            <div className="flex items-center gap-2.5">
+            <Link
+              className="group flex min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
+              href={getProjectHref(data, project) ?? "/workspace/projects"}
+            >
+              <div className="flex items-center gap-2.5">
               <span
                 aria-hidden
                 className="grid size-8 shrink-0 place-items-center rounded-md text-[15px]"
@@ -129,7 +140,7 @@ export function ProjectBoard({
               <span className="tabular-nums">{progress.percent}%</span>
             </div>
 
-            <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
+              <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
               <span className="truncate">{lead?.name ?? "Unassigned"}</span>
               {progress.scope > 0 ? (
                 <>
@@ -149,8 +160,9 @@ export function ProjectBoard({
                   {format(targetDate, "MMM d")}
                 </span>
               ) : null}
-            </div>
-          </Link>
+              </div>
+            </Link>
+          </ProjectContextMenu>
         )
       })}
     </div>
@@ -166,18 +178,22 @@ const viewLayoutAccent: Record<ViewDefinition["layout"], string> = {
 export function SavedViewsBoard({
   views,
   showDescriptions,
+  contextLabels,
+  editable,
 }: {
   views: ViewDefinition[]
   showDescriptions: boolean
+  contextLabels?: Record<string, string>
+  editable: boolean
 }) {
   return (
     <div className="grid gap-3.5 px-7 py-4 sm:grid-cols-2 xl:grid-cols-3">
       {views.map((view) => (
-        <Link
-          key={view.id}
-          className="group flex h-full min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
-          href={getViewHref(view)}
-        >
+        <ViewContextMenu key={view.id} view={view} editable={editable}>
+          <Link
+            className="group flex h-full min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
+            href={getViewHref(view)}
+          >
           <div className="flex items-center gap-2.5">
             <span
               aria-hidden
@@ -218,7 +234,7 @@ export function SavedViewsBoard({
             ) : null}
           </div>
           <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
-            <span>{view.isShared ? "Shared" : "Personal"}</span>
+            <span>{contextLabels?.[view.id] ?? (view.isShared ? "Shared" : "Personal")}</span>
             {view.ordering ? (
               <>
                 <span aria-hidden>·</span>
@@ -226,7 +242,8 @@ export function SavedViewsBoard({
               </>
             ) : null}
           </div>
-        </Link>
+          </Link>
+        </ViewContextMenu>
       ))}
     </div>
   )

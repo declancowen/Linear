@@ -33,26 +33,15 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
-
-function ShortcutKeys({ keys }: { keys: string[] }) {
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-      {keys.map((key) => (
-        <kbd
-          key={key}
-          className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border/60 bg-muted/70 px-2 font-medium text-foreground/80 shadow-sm"
-        >
-          {key}
-        </kbd>
-      ))}
-    </span>
-  )
-}
+import { ShortcutKeys } from "@/components/app/shortcut-keys"
 
 function ShortcutHint({ keys, label }: { keys: string[]; label: string }) {
   return (
     <div className="flex items-center gap-2 text-muted-foreground">
-      <ShortcutKeys keys={keys} />
+      <ShortcutKeys
+        keys={keys}
+        className="text-[11px] text-muted-foreground"
+      />
       <span>{label}</span>
     </div>
   )

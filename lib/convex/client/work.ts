@@ -10,11 +10,13 @@ import type {
   OrderingField,
   Priority,
   ProjectPresentationConfig,
+  ProjectStatus,
   Role,
   ScopeType,
   TeamFeatureSettings,
   TeamWorkflowSettings,
   TemplateType,
+  ViewContainerType,
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
@@ -61,6 +63,8 @@ type CreateViewInput = {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -182,6 +186,25 @@ export function syncUpdateViewConfig(
       action: "updateConfig",
       patch,
     }),
+  })
+}
+
+export function syncRenameView(viewId: string, name: string) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "rename",
+      name,
+    }),
+  })
+}
+
+export function syncDeleteView(viewId: string) {
+  return runRouteMutation(`/api/views/${viewId}`, {
+    method: "DELETE",
   })
 }
 
@@ -598,7 +621,13 @@ export function syncCreateProject(
     templateType: TemplateType
     name: string
     summary: string
+    status?: ProjectStatus
     priority: Priority
+    leadId?: string | null
+    memberIds?: string[]
+    startDate?: string | null
+    targetDate?: string | null
+    labelIds?: string[]
     settingsTeamId?: string | null
     presentation?: ProjectPresentationConfig
   }
@@ -616,7 +645,8 @@ export function syncUpdateProject(
   _currentUserId: string,
   projectId: string,
   patch: {
-    status?: "planning" | "active" | "paused" | "completed"
+    name?: string
+    status?: "backlog" | "planned" | "in-progress" | "completed" | "cancelled"
     priority?: Priority
   }
 ) {
@@ -626,6 +656,28 @@ export function syncUpdateProject(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(patch),
+  })
+}
+
+export function syncRenameProject(
+  _currentUserId: string,
+  projectId: string,
+  name: string
+) {
+  return runRouteMutation(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+    }),
+  })
+}
+
+export function syncDeleteProject(_currentUserId: string, projectId: string) {
+  return runRouteMutation(`/api/projects/${projectId}`, {
+    method: "DELETE",
   })
 }
 
@@ -748,6 +800,8 @@ export function syncCreateWorkItem(
     status?: WorkStatus
     priority: Priority
     labelIds?: string[]
+    startDate?: string | null
+    targetDate?: string | null
   }
 ) {
   return runRouteMutation("/api/items", {

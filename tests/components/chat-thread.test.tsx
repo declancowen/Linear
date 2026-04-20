@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { createEmptyState } from "@/lib/domain/empty-state"
@@ -14,6 +14,12 @@ vi.mock("@/components/app/rich-text-editor", () => ({
 
 vi.mock("@/components/app/emoji-picker-popover", () => ({
   EmojiPickerPopover: ({ trigger }: { trigger: ReactNode }) => <>{trigger}</>,
+}))
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
 }))
 
 const currentUser = {
@@ -60,7 +66,10 @@ const formerUser = {
   },
 }
 
+const toggleChatMessageReactionMock = vi.fn()
+
 beforeEach(() => {
+  toggleChatMessageReactionMock.mockReset()
   useAppStore.setState({
     ...createEmptyState(),
     currentUserId: currentUser.id,
@@ -103,6 +112,7 @@ beforeEach(() => {
       },
     ],
     chatMessages: [],
+    toggleChatMessageReaction: toggleChatMessageReactionMock,
   })
 })
 
@@ -125,5 +135,41 @@ describe("ChatThread", () => {
     expect(
       screen.queryByTestId("mock-rich-text-editor")
     ).not.toBeInTheDocument()
+  })
+
+  it("routes chat-message reaction clicks through the store action", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          id: "message_1",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "<p>Hello</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [
+            {
+              emoji: "👍",
+              userIds: [formerUser.id],
+            },
+          ],
+          createdBy: formerUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+        },
+      ],
+    })
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+      />
+    )
+
+    fireEvent.click(screen.getByText("👍").closest("button") as HTMLButtonElement)
+
+    expect(toggleChatMessageReactionMock).toHaveBeenCalledWith("message_1", "👍")
   })
 })

@@ -305,4 +305,109 @@ describe("work item actions", () => {
     })
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(2)
   })
+
+  it("creates work items with selected schedule dates", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const createdItemId = actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Schedule work",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      startDate: "2026-05-01",
+      targetDate: "2026-05-10",
+    })
+
+    expect(createdItemId).toBeTruthy()
+    expect(state.workItems[0]).toMatchObject({
+      id: createdItemId,
+      title: "Schedule work",
+      startDate: "2026-05-01",
+      targetDate: "2026-05-10",
+    })
+    expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
+      teamId: "team_1",
+      type: "task",
+      title: "Schedule work",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      startDate: "2026-05-01",
+      targetDate: "2026-05-10",
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects work item schedule ranges where the target date is before the start date", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const createdItemId = actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Broken schedule",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      startDate: "2026-05-10",
+      targetDate: "2026-05-01",
+    })
+
+    expect(createdItemId).toBeNull()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Target date must be on or after the start date"
+    )
+    expect(syncCreateWorkItemMock).not.toHaveBeenCalled()
+    expect(syncInBackgroundMock).not.toHaveBeenCalled()
+    expect(state.workItems).toHaveLength(2)
+  })
 })

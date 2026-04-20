@@ -19,6 +19,11 @@ import {
   teamExperienceMeta,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  ShortcutKeys,
+  useCommandEnterSubmit,
+  useShortcutModifierLabel,
+} from "@/components/app/shortcut-keys"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -55,6 +60,32 @@ export function CreateTeamDialog({
     createDefaultTeamFeatureSettings("software-development")
   )
   const [saving, setSaving] = useState(false)
+  const shortcutModifierLabel = useShortcutModifierLabel()
+
+  async function handleCreate() {
+    if (saving) {
+      return
+    }
+
+    setSaving(true)
+    const created = await useAppStore.getState().createTeam({
+      name,
+      icon,
+      summary,
+      experience,
+      features,
+    })
+    setSaving(false)
+
+    if (created) {
+      onOpenChange(false)
+      router.push(getTeamLandingHref(created.teamSlug, created.features))
+    }
+  }
+
+  useCommandEnterSubmit(open && !saving, () => {
+    void handleCreate()
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -108,24 +139,17 @@ export function CreateTeamDialog({
           <Button
             size="sm"
             disabled={saving}
-            onClick={async () => {
-              setSaving(true)
-              const created = await useAppStore.getState().createTeam({
-                name,
-                icon,
-                summary,
-                experience,
-                features,
-              })
-              setSaving(false)
-
-              if (created) {
-                onOpenChange(false)
-                router.push(getTeamLandingHref(created.teamSlug, created.features))
-              }
-            }}
+            onClick={() => void handleCreate()}
+            className="gap-1"
           >
             {saving ? "Creating..." : "Create team"}
+            {!saving ? (
+              <ShortcutKeys
+                keys={[shortcutModifierLabel, "Enter"]}
+                variant="inline"
+                className="ml-0.5 gap-0.5 text-background/65"
+              />
+            ) : null}
           </Button>
         </div>
       </DialogContent>

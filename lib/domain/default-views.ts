@@ -5,6 +5,7 @@ import {
   getWorkSurfaceCopy,
   type EntityKind,
   type TeamExperienceType,
+  type ViewContainerType,
   type ViewDefinition,
 } from "@/lib/domain/types"
 
@@ -135,6 +136,8 @@ export function createViewDefinition(input: {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   createdAt: string
   updatedAt?: string
   route?: string | null
@@ -177,6 +180,8 @@ export function createViewDefinition(input: {
     scopeType: input.scopeType,
     scopeId: input.scopeId,
     entityKind: input.entityKind,
+    ...(input.containerType ? { containerType: input.containerType } : {}),
+    ...(input.containerId ? { containerId: input.containerId } : {}),
     itemLevel,
     showChildItems,
     layout: input.overrides?.layout ?? "list",
@@ -353,6 +358,35 @@ export function sortViewsForDisplay(views: ViewDefinition[]) {
 
     return left.name.localeCompare(right.name)
   })
+}
+
+export function isSystemView(view: Pick<ViewDefinition, "name" | "route" | "entityKind">) {
+  if (view.entityKind === "projects") {
+    return (
+      view.name === "All projects" &&
+      (view.route === "/workspace/projects" || /\/team\/[^/]+\/projects$/.test(view.route))
+    )
+  }
+
+  if (view.entityKind === "items") {
+    if (
+      view.name !== "All work" &&
+      view.name !== "All issues" &&
+      view.name !== "All tasks" &&
+      view.name !== "Active" &&
+      view.name !== "Backlog"
+    ) {
+      return false
+    }
+
+    return (
+      /\/team\/[^/]+\/work$/.test(view.route) ||
+      /\/team\/[^/]+\/projects\/[^/]+$/.test(view.route) ||
+      /\/workspace\/projects\/[^/]+$/.test(view.route)
+    )
+  }
+
+  return false
 }
 
 export function getViewHref(view: ViewDefinition) {

@@ -26,6 +26,16 @@ function isStringOrNull(value: unknown): value is string | null {
   return value === null || isString(value)
 }
 
+function isReactionRecord(value: unknown) {
+  return (
+    isRecord(value) && isString(value.emoji) && isStringArray(value.userIds)
+  )
+}
+
+function isReactionArray(value: unknown) {
+  return Array.isArray(value) && value.every(isReactionRecord)
+}
+
 function assertRouteContract(
   condition: unknown,
   message: string
@@ -72,6 +82,7 @@ function isChatMessageRecord(value: unknown): value is ChatMessage {
     isString(value.kind) &&
     isString(value.content) &&
     isStringArray(value.mentionUserIds) &&
+    (value.reactions === undefined || isReactionArray(value.reactions)) &&
     isString(value.createdBy) &&
     isString(value.createdAt) &&
     (value.callId === undefined || value.callId === null || isString(value.callId))

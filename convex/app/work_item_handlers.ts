@@ -124,6 +124,8 @@ type CreateWorkItemArgs = ServerAccessArgs & {
     | "duplicate"
   priority: "none" | "low" | "medium" | "high" | "urgent"
   labelIds?: string[]
+  startDate?: string | null
+  targetDate?: string | null
 }
 
 export async function updateWorkItemHandler(
@@ -738,6 +740,14 @@ export async function createWorkItemHandler(
     await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
   }
 
+  if (
+    args.startDate &&
+    args.targetDate &&
+    new Date(args.targetDate).getTime() < new Date(args.startDate).getTime()
+  ) {
+    throw new Error("Target date must be on or after the start date")
+  }
+
   if (resolvedPrimaryProjectId) {
     const project = await getProjectDoc(ctx, resolvedPrimaryProjectId)
 
@@ -803,9 +813,9 @@ export async function createWorkItemHandler(
     linkedDocumentIds: [],
     labelIds: args.labelIds ?? [],
     milestoneId: null,
-    startDate: getNow(),
+    startDate: args.startDate ?? getNow().slice(0, 10),
     dueDate: addDays(new Date(), 7).toISOString(),
-    targetDate: addDays(new Date(), 10).toISOString(),
+    targetDate: args.targetDate ?? addDays(new Date(), 10).toISOString().slice(0, 10),
     subscriberIds: [args.currentUserId],
     createdAt: getNow(),
     updatedAt: getNow(),

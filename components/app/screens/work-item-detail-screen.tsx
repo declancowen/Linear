@@ -1,9 +1,10 @@
 "use client"
 
+import type { Editor } from "@tiptap/react"
 import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarBlank,
@@ -67,6 +68,7 @@ import {
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { UserAvatar } from "@/components/app/user-presence"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -107,7 +109,7 @@ import {
   InlineChildIssueComposer,
   WorkItemTypeBadge,
 } from "./work-item-ui"
-import { cn } from "@/lib/utils"
+import { cn, getPlainTextContent } from "@/lib/utils"
 
 const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
 
@@ -268,6 +270,7 @@ function DetailSidebarSelectRow({
           <PopoverTrigger asChild>
             <button
               type="button"
+              aria-label={label}
               disabled={disabled}
               className={detailPropertyValueClassName}
             >
@@ -344,6 +347,7 @@ function DetailSidebarDateRow({
           <PopoverTrigger asChild>
             <button
               type="button"
+              aria-label={label}
               disabled={disabled}
               className={detailPropertyValueClassName}
             >
@@ -450,6 +454,7 @@ function DetailSidebarLabelsRow({
           <PopoverTrigger asChild>
             <button
               type="button"
+              aria-label="Manage labels"
               disabled={!editable}
               className={detailPropertyValueClassName}
             >
@@ -583,7 +588,10 @@ function DetailSidebarComment({
             </span>
           </div>
           <div className="mt-1 text-[13px] leading-[1.55] whitespace-pre-wrap text-fg-2">
-            {comment.content}
+            <RichTextContent
+              content={comment.content}
+              className="[&_p]:my-0 [&_p+p]:mt-1"
+            />
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {comment.reactions.map((reaction) => {
@@ -661,6 +669,24 @@ function DetailSidebarActivity({
   const creator = getUser(data, item.creatorId)
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const [content, setContent] = useState("")
+  const commentEditorRef = useRef<Editor | null>(null)
+  const contentText = getPlainTextContent(content)
+  const mentionCandidates = getTeamMembers(data, item.teamId).filter(
+    (candidate) => candidate.id !== currentUserId
+  )
+
+  function handleComment() {
+    if (!contentText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType: "workItem",
+      targetId: item.id,
+      content,
+    })
+    setContent("")
+  }
 
   const activityEvents = [
     {
@@ -718,24 +744,30 @@ function DetailSidebarActivity({
       ))}
 
       <div className="rounded-[var(--radius)] border border-line bg-surface px-3 py-2.5 transition-colors focus-within:border-fg-3">
-        <textarea
-          rows={2}
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-          disabled={!editable}
-          placeholder="Leave a comment…"
-          className="min-h-10 w-full resize-none border-0 bg-transparent text-[13px] leading-[1.55] outline-none placeholder:text-fg-4 disabled:cursor-not-allowed"
+        <RichTextEditor
+          content={content}
+          onChange={setContent}
+          editable={editable}
+          compact
+          allowSlashCommands={false}
+          showToolbar={false}
+          showStats={false}
+          placeholder="Leave a comment or mention a teammate with @handle..."
+          editorInstanceRef={commentEditorRef}
+          mentionCandidates={mentionCandidates}
+          onSubmitShortcut={handleComment}
+          submitOnEnter
+          className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
         />
-        <div className="mt-1.5 flex items-center justify-end border-t border-dashed border-line pt-1.5">
+        <div className="mt-1.5 flex items-center justify-end gap-2 border-t border-dashed border-line pt-1.5">
+          <ShortcutKeys
+            keys={["Enter"]}
+            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+          />
           <Button
             size="sm"
-            disabled={!editable || content.trim().length === 0}
-            onClick={() => {
-              useAppStore
-                .getState()
-                .addComment({ targetType: "workItem", targetId: item.id, content })
-              setContent("")
-            }}
+            disabled={!editable || contentText.length === 0}
+            onClick={handleComment}
           >
             <PaperPlaneTilt className="size-3.5" />
             Comment
@@ -1693,7 +1725,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
                     return selectedUser ? (
                       <div className="flex min-w-0 items-center gap-2">
-                        <WorkItemAssigneeAvatar user={selectedUser} />
+                        <WorkItemAssigneeAvatar
+                          user={selectedUser}
+                          className="data-[size=sm]:size-4"
+                        />
                         <span className="truncate">{selectedUser.name}</span>
                       </div>
                     ) : (
@@ -1710,7 +1745,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
                     return optionUser ? (
                       <div className="flex items-center gap-2">
-                        <WorkItemAssigneeAvatar user={optionUser} />
+                        <WorkItemAssigneeAvatar
+                          user={optionUser}
+                          className="data-[size=sm]:size-4"
+                        />
                         <span>{optionUser.name}</span>
                       </div>
                     ) : (

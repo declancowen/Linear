@@ -63,10 +63,12 @@ const projectHealthLiterals = [
 ] as const
 
 const projectStatusLiterals = [
+  v.literal("backlog"),
   v.literal("planning"),
-  v.literal("active"),
-  v.literal("paused"),
+  v.literal("planned"),
+  v.literal("in-progress"),
   v.literal("completed"),
+  v.literal("cancelled"),
 ] as const
 
 const notificationTypeLiterals = [
@@ -445,6 +447,9 @@ export const projectFields = {
   health: projectHealthValidator,
   priority: priorityValidator,
   status: projectStatusValidator,
+  labelIds: v.optional(v.array(v.string())),
+  blockingProjectIds: v.optional(v.array(v.string())),
+  blockedByProjectIds: v.optional(v.array(v.string())),
   presentation: v.optional(
     v.object({
       itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
@@ -531,6 +536,8 @@ export const viewDefinitionFields = {
   scopeType: viewScopeTypeValidator,
   scopeId: v.string(),
   entityKind: entityKindValidator,
+  containerType: v.optional(v.union(v.literal("project-items"), v.null())),
+  containerId: v.optional(v.union(v.string(), v.null())),
   itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
   showChildItems: v.optional(v.boolean()),
   layout: viewLayoutValidator,
@@ -661,6 +668,14 @@ export const chatMessageFields = {
   content: v.string(),
   callId: v.optional(nullableString),
   mentionUserIds: v.optional(v.array(v.string())),
+  reactions: v.optional(
+    v.array(
+      v.object({
+        emoji: v.string(),
+        userIds: v.array(v.string()),
+      })
+    )
+  ),
   createdBy: v.string(),
   createdAt: v.string(),
 }

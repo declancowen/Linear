@@ -21,6 +21,7 @@ import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -358,6 +359,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
                 editorInstanceRef={replyEditorRef}
                 mentionCandidates={mentionCandidates}
                 onSubmitShortcut={handleReply}
+                submitOnEnter
                 className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
               />
             </div>
@@ -377,7 +379,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
                   }
                 />
                 <span className="text-[11.5px] text-fg-3">
-                  Use `@` to mention people. Press Cmd/Ctrl + Enter to send.
+                  Use `@` to mention people. Press Enter to send.
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -537,6 +539,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
         editorInstanceRef={editorInstanceRef}
         mentionCandidates={mentionCandidates}
         onSubmitShortcut={handlePost}
+        submitOnEnter
         className="min-w-0 [&_.ProseMirror]:min-h-[2.625rem] [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
       />
       <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
@@ -555,6 +558,11 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
           }
         />
         <span className="flex-1" />
+        <ShortcutKeys
+          keys={["Enter"]}
+          className="mr-1"
+          keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+        />
         <button
           type="button"
           onClick={() => {

@@ -78,6 +78,14 @@ const ORDERING_LABELS: Record<OrderingField, string> = {
   title: "Name",
 }
 
+const PROJECT_ORDERING_OPTIONS: OrderingField[] = [
+  "priority",
+  "updatedAt",
+  "createdAt",
+  "targetDate",
+  "title",
+]
+
 const chipBase =
   "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 
@@ -91,6 +99,21 @@ const chipAccent =
   "border-transparent bg-accent-bg text-accent-fg hover:brightness-[1.03]"
 
 const chipMuted = "text-fg-3"
+const chipDashed =
+  "border-dashed bg-transparent text-fg-3 hover:bg-surface-3 hover:text-foreground"
+type ChipTone = "default" | "ghost" | "accent"
+
+function getChipToneClass(tone: ChipTone) {
+  if (tone === "accent") {
+    return chipAccent
+  }
+
+  if (tone === "ghost") {
+    return chipGhost
+  }
+
+  return chipDefault
+}
 
 export const displayPropertyOptions: DisplayProperty[] = [
   "id",
@@ -216,12 +239,18 @@ export function FilterPopover({
   onToggleFilterValue,
   onClearFilters,
   variant = "icon",
+  chipTone = "adaptive",
+  label = "Filter",
+  dashedWhenEmpty = false,
 }: {
   view: ViewDefinition
   items: WorkItem[]
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
   onClearFilters?: () => void
   variant?: "icon" | "chip"
+  chipTone?: ChipTone | "adaptive"
+  label?: string
+  dashedWhenEmpty?: boolean
 }) {
   const [query, setQuery] = useState("")
   const scopedItems = useMemo(
@@ -336,11 +365,19 @@ export function FilterPopover({
             type="button"
             className={cn(
               chipBase,
-              activeCount > 0 ? chipAccent : chipGhost
+              chipTone === "adaptive"
+                ? activeCount > 0
+                  ? chipAccent
+                  : dashedWhenEmpty
+                    ? chipDashed
+                    : chipGhost
+                : activeCount === 0 && dashedWhenEmpty
+                  ? chipDashed
+                  : getChipToneClass(chipTone)
             )}
           >
             <FunnelSimple className="size-3.5" />
-            <span>Filter</span>
+            <span>{label}</span>
             {activeCount > 0 ? (
               <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
                 {activeCount}
@@ -761,9 +798,24 @@ export function ViewConfigPopover({
 export function ProjectFilterPopover({
   view,
   projects,
+  onToggleFilterValue,
+  onClearFilters,
+  variant = "icon",
+  chipTone = "adaptive",
+  label = "Filter",
+  dashedWhenEmpty = false,
 }: {
   view: ViewDefinition
   projects: Project[]
+  onToggleFilterValue?: (
+    key: "priority" | "leadIds" | "health" | "teamIds",
+    value: string
+  ) => void
+  onClearFilters?: () => void
+  variant?: "icon" | "chip"
+  chipTone?: ChipTone | "adaptive"
+  label?: string
+  dashedWhenEmpty?: boolean
 }) {
   const [query, setQuery] = useState("")
   const users = useAppStore((state) => state.users)
@@ -808,24 +860,60 @@ export function ProjectFilterPopover({
     key: "priority" | "leadIds" | "health" | "teamIds",
     value: string
   ) {
+    if (onToggleFilterValue) {
+      onToggleFilterValue(key, value)
+      return
+    }
+
     useAppStore.getState().toggleViewFilterValue(view.id, key, value)
   }
 
   function handleClearFilters() {
+    if (onClearFilters) {
+      onClearFilters()
+      return
+    }
+
     useAppStore.getState().clearViewFilters(view.id)
   }
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="icon-xs" variant="ghost" className="relative">
-          <FadersHorizontal className="size-3.5" />
-          {activeCount > 0 ? (
-            <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
-              {activeCount}
-            </span>
-          ) : null}
-        </Button>
+        {variant === "chip" ? (
+          <button
+            type="button"
+            className={cn(
+              chipBase,
+              chipTone === "adaptive"
+                ? activeCount > 0
+                  ? chipAccent
+                  : dashedWhenEmpty
+                    ? chipDashed
+                    : chipDefault
+                : activeCount === 0 && dashedWhenEmpty
+                  ? chipDashed
+                  : getChipToneClass(chipTone)
+            )}
+          >
+            <FunnelSimple className="size-3.5" />
+            <span>{label}</span>
+            {activeCount > 0 ? (
+              <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+                {activeCount}
+              </span>
+            ) : null}
+          </button>
+        ) : (
+          <Button size="icon-xs" variant="ghost" className="relative">
+            <FadersHorizontal className="size-3.5" />
+            {activeCount > 0 ? (
+              <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+                {activeCount}
+              </span>
+            ) : null}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -950,6 +1038,162 @@ export function ProjectFilterPopover({
   )
 }
 
+export function ProjectLayoutChipPopover({
+  view,
+  onUpdateView,
+  tone = "default",
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+}) {
+  const options: Array<{
+    value: "list" | "board"
+    label: string
+    icon: ReactNode
+  }> = [
+    {
+      value: "list",
+      label: "List",
+      icon: <Rows className="size-3.5" />,
+    },
+    {
+      value: "board",
+      label: "Board",
+      icon: <SquaresFour className="size-3.5" />,
+    },
+  ]
+
+  const activeOption =
+    options.find((option) => option.value === view.layout) ?? options[0]
+
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(chipBase, getChipToneClass(tone))}
+        >
+          {activeOption.icon}
+          <span>{activeOption.label}</span>
+          <CaretDown className="size-3 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[200px]")}
+      >
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Layout</PropertyPopoverGroup>
+          {options.map((option) => {
+            const active = view.layout === option.value
+            return (
+              <PropertyPopoverItem
+                key={option.value}
+                selected={active}
+                onClick={() => handleUpdateView({ layout: option.value })}
+                trailing={
+                  active ? (
+                    <Check className="size-3.5 text-accent-fg" />
+                  ) : null
+                }
+              >
+                <span className="flex size-4 shrink-0 items-center justify-center">
+                  {option.icon}
+                </span>
+                <span>{option.label}</span>
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function ProjectSortChipPopover({
+  view,
+  onUpdateView,
+  tone = "default",
+  label,
+  showValue = true,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+  label?: string
+  showValue?: boolean
+}) {
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
+          <SortAscending className="size-3.5" />
+          <span>{label ?? ORDERING_LABELS[view.ordering]}</span>
+          {showValue ? (
+            <span className="font-semibold">
+              {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
+            </span>
+          ) : null}
+          <CaretDown className="size-3 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+      >
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
+          {PROJECT_ORDERING_OPTIONS.map((option) => {
+            const active = view.ordering === option
+            return (
+              <PropertyPopoverItem
+                key={option}
+                selected={active}
+                onClick={() => handleUpdateView({ ordering: option })}
+                trailing={
+                  active ? (
+                    <Check className="size-3.5 text-accent-fg" />
+                  ) : null
+                }
+              >
+                {ORDERING_LABELS[option]}
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+        <div className="flex items-center justify-between border-t border-line-soft px-3 py-2">
+          <span className="text-[11px] text-fg-2">Hide completed</span>
+          <Switch
+            checked={!view.filters.showCompleted}
+            onCheckedChange={(checked) =>
+              handleUpdateView({ showCompleted: !checked })
+            }
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function ProjectViewConfigPopover({
   view,
   extraAction,
@@ -1043,7 +1287,13 @@ export function ProjectViewConfigPopover({
   )
 }
 
-export function LayoutTabs({ view }: { view: ViewDefinition }) {
+export function LayoutTabs({
+  view,
+  onUpdateView,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+}) {
   const tabs: Array<{
     value: ViewDefinition["layout"]
     label: string
@@ -1066,17 +1316,22 @@ export function LayoutTabs({ view }: { view: ViewDefinition }) {
     },
   ]
 
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
   return (
     <div className="flex items-center gap-1">
       {tabs.map((tab) => (
         <ViewTab
           key={tab.value}
           active={view.layout === tab.value}
-          onClick={() =>
-            useAppStore.getState().updateViewConfig(view.id, {
-              layout: tab.value,
-            })
-          }
+          onClick={() => handleUpdateView({ layout: tab.value })}
         >
           {tab.icon}
           {tab.label}
@@ -1086,29 +1341,148 @@ export function LayoutTabs({ view }: { view: ViewDefinition }) {
   )
 }
 
-export function GroupChipPopover({
+export function LayoutChipPopover({
   view,
-  groupOptions = DEFAULT_GROUP_OPTIONS,
+  onUpdateView,
+  tone = "default",
 }: {
   view: ViewDefinition
-  groupOptions?: GroupField[]
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
 }) {
+  const options: Array<{
+    value: ViewDefinition["layout"]
+    label: string
+    icon: ReactNode
+  }> = [
+    {
+      value: "list",
+      label: "List",
+      icon: <Rows className="size-3.5" />,
+    },
+    {
+      value: "board",
+      label: "Board",
+      icon: <SquaresFour className="size-3.5" />,
+    },
+    {
+      value: "timeline",
+      label: "Timeline",
+      icon: <CalendarDots className="size-3.5" />,
+    },
+  ]
+
+  const activeOption =
+    options.find((option) => option.value === view.layout) ?? options[0]
+
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, chipAccent)}>
-          <span>Group ·</span>
-          <span className="font-semibold">
-            {getGroupFieldOptionLabel(view.grouping)}
-          </span>
+        <button
+          type="button"
+          className={cn(chipBase, getChipToneClass(tone))}
+        >
+          {activeOption?.icon}
+          <span>{activeOption?.label ?? "Layout"}</span>
           <CaretDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[360px]")}
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[200px]")}
       >
-        <div className="grid grid-cols-2 divide-x divide-line-soft">
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Layout</PropertyPopoverGroup>
+          {options.map((option) => {
+            const active = view.layout === option.value
+            return (
+              <PropertyPopoverItem
+                key={option.value}
+                selected={active}
+                onClick={() => handleUpdateView({ layout: option.value })}
+                trailing={
+                  active ? (
+                    <Check className="size-3.5 text-accent-fg" />
+                  ) : null
+                }
+              >
+                <span className="flex size-4 shrink-0 items-center justify-center">
+                  {option.icon}
+                </span>
+                <span>{option.label}</span>
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function GroupChipPopover({
+  view,
+  groupOptions = DEFAULT_GROUP_OPTIONS,
+  onUpdateView,
+  tone = "accent",
+  showValue = true,
+  label = "Group",
+  showSubGrouping = true,
+}: {
+  view: ViewDefinition
+  groupOptions?: GroupField[]
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+  showValue?: boolean
+  label?: string
+  showSubGrouping?: boolean
+}) {
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
+          <span>{label}</span>
+          {showValue ? (
+            <span className="font-semibold">
+              {label === "Group" ? "· " : ""}
+              {getGroupFieldOptionLabel(view.grouping)}
+            </span>
+          ) : null}
+          <CaretDown className="size-3 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(
+          PROPERTY_POPOVER_CLASS,
+          showSubGrouping ? "w-[360px]" : "w-[180px]"
+        )}
+      >
+        <div
+          className={cn(
+            "grid",
+            showSubGrouping
+              ? "grid-cols-2 divide-x divide-line-soft"
+              : "grid-cols-1"
+          )}
+        >
           <div className="flex min-w-0 flex-col">
             <PropertyPopoverGroup>Group by</PropertyPopoverGroup>
             <div className="flex max-h-[320px] flex-col overflow-y-auto p-1">
@@ -1118,11 +1492,7 @@ export function GroupChipPopover({
                   <PropertyPopoverItem
                     key={option}
                     selected={active}
-                    onClick={() =>
-                      useAppStore.getState().updateViewConfig(view.id, {
-                        grouping: option,
-                      })
-                    }
+                    onClick={() => handleUpdateView({ grouping: option })}
                     trailing={
                       active ? (
                         <Check className="size-3.5 text-accent-fg" />
@@ -1135,66 +1505,89 @@ export function GroupChipPopover({
               })}
             </div>
           </div>
-          <div className="flex min-w-0 flex-col">
-            <PropertyPopoverGroup>Sub-group</PropertyPopoverGroup>
-            <div className="flex max-h-[320px] flex-col overflow-y-auto p-1">
-              <PropertyPopoverItem
-                selected={view.subGrouping === null}
-                muted
-                onClick={() =>
-                  useAppStore.getState().updateViewConfig(view.id, {
-                    subGrouping: null,
-                  })
-                }
-                trailing={
-                  view.subGrouping === null ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
-                }
-              >
-                None
-              </PropertyPopoverItem>
-              {groupOptions.map((option) => {
-                const disabled = view.grouping === option
-                const active = view.subGrouping === option
-                return (
-                  <PropertyPopoverItem
-                    key={`sub-${option}`}
-                    selected={active}
-                    muted={disabled}
-                    onClick={() => {
-                      if (disabled) {
-                        return
+          {showSubGrouping ? (
+            <div className="flex min-w-0 flex-col">
+              <PropertyPopoverGroup>Sub-group</PropertyPopoverGroup>
+              <div className="flex max-h-[320px] flex-col overflow-y-auto p-1">
+                <PropertyPopoverItem
+                  selected={view.subGrouping === null}
+                  muted
+                  onClick={() => handleUpdateView({ subGrouping: null })}
+                  trailing={
+                    view.subGrouping === null ? (
+                      <Check className="size-3.5 text-accent-fg" />
+                    ) : null
+                  }
+                >
+                  None
+                </PropertyPopoverItem>
+                {groupOptions.map((option) => {
+                  const disabled = view.grouping === option
+                  const active = view.subGrouping === option
+                  return (
+                    <PropertyPopoverItem
+                      key={`sub-${option}`}
+                      selected={active}
+                      muted={disabled}
+                      onClick={() => {
+                        if (disabled) {
+                          return
+                        }
+                        handleUpdateView({ subGrouping: option })
+                      }}
+                      trailing={
+                        active ? (
+                          <Check className="size-3.5 text-accent-fg" />
+                        ) : null
                       }
-                      useAppStore.getState().updateViewConfig(view.id, {
-                        subGrouping: option,
-                      })
-                    }}
-                    trailing={
-                      active ? (
-                        <Check className="size-3.5 text-accent-fg" />
-                      ) : null
-                    }
-                  >
-                    {getGroupFieldOptionLabel(option)}
-                  </PropertyPopoverItem>
-                )
-              })}
+                    >
+                      {getGroupFieldOptionLabel(option)}
+                    </PropertyPopoverItem>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
   )
 }
 
-export function SortChipPopover({ view }: { view: ViewDefinition }) {
+export function SortChipPopover({
+  view,
+  onUpdateView,
+  tone = "default",
+  label,
+  showValue = true,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+  label?: string
+  showValue?: boolean
+}) {
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, chipDefault)}>
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
           <SortAscending className="size-3.5" />
-          <span>{ORDERING_LABELS[view.ordering]}</span>
+          <span>{label ?? ORDERING_LABELS[view.ordering]}</span>
+          {showValue ? (
+            <span className="font-semibold">
+              {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
+            </span>
+          ) : null}
+          <CaretDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -1209,11 +1602,7 @@ export function SortChipPopover({ view }: { view: ViewDefinition }) {
               <PropertyPopoverItem
                 key={option}
                 selected={active}
-                onClick={() =>
-                  useAppStore.getState().updateViewConfig(view.id, {
-                    ordering: option,
-                  })
-                }
+                onClick={() => handleUpdateView({ ordering: option })}
                 trailing={
                   active ? (
                     <Check className="size-3.5 text-accent-fg" />
@@ -1230,23 +1619,69 @@ export function SortChipPopover({ view }: { view: ViewDefinition }) {
   )
 }
 
-export function PropertiesChipPopover({ view }: { view: ViewDefinition }) {
+export function PropertiesChipPopover({
+  view,
+  onToggleDisplayProperty,
+  onClearDisplayProperties,
+  tone = "ghost",
+  showCount = true,
+  label = "Properties",
+  propertyOptions = displayPropertyOptions,
+  dashedWhenEmpty = false,
+}: {
+  view: ViewDefinition
+  onToggleDisplayProperty?: (property: DisplayProperty) => void
+  onClearDisplayProperties?: () => void
+  tone?: ChipTone
+  showCount?: boolean
+  label?: string
+  propertyOptions?: DisplayProperty[]
+  dashedWhenEmpty?: boolean
+}) {
   const count = view.displayProps.length
   const [query, setQuery] = useState("")
-  const filtered = displayPropertyOptions.filter((property) =>
+  const filtered = propertyOptions.filter((property) =>
     DISPLAY_PROPERTY_LABELS[property]
       .toLowerCase()
       .includes(query.trim().toLowerCase())
   )
 
+  function handleToggleDisplayProperty(property: DisplayProperty) {
+    if (onToggleDisplayProperty) {
+      onToggleDisplayProperty(property)
+      return
+    }
+
+    useAppStore.getState().toggleViewDisplayProperty(view.id, property)
+  }
+
+  function handleClearDisplayProperties() {
+    if (onClearDisplayProperties) {
+      onClearDisplayProperties()
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, {
+      displayProps: [],
+    })
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, chipGhost, chipMuted)}>
+        <button
+          type="button"
+          className={cn(
+            chipBase,
+            count === 0 && dashedWhenEmpty
+              ? chipDashed
+              : getChipToneClass(tone),
+            !showCount && tone === "ghost" && chipMuted
+          )}
+        >
           <Eye className="size-3.5" />
-          <span>
-            {count} {count === 1 ? "property" : "properties"}
-          </span>
+          <span>{showCount ? `${count} ${count === 1 ? "property" : "properties"}` : label}</span>
+          <CaretDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
@@ -1266,11 +1701,7 @@ export function PropertiesChipPopover({ view }: { view: ViewDefinition }) {
               <PropertyPopoverItem
                 key={property}
                 selected={active}
-                onClick={() =>
-                  useAppStore
-                    .getState()
-                    .toggleViewDisplayProperty(view.id, property)
-                }
+                onClick={() => handleToggleDisplayProperty(property)}
                 trailing={
                   active ? (
                     <Check className="size-3.5 text-accent-fg" />
@@ -1284,6 +1715,15 @@ export function PropertiesChipPopover({ view }: { view: ViewDefinition }) {
         </PropertyPopoverList>
         <PropertyPopoverFoot>
           <span>Toggle to show in view</span>
+          {count > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+              onClick={handleClearDisplayProperties}
+            >
+              Clear all
+            </button>
+          ) : null}
         </PropertyPopoverFoot>
       </PopoverContent>
     </Popover>
@@ -1293,9 +1733,11 @@ export function PropertiesChipPopover({ view }: { view: ViewDefinition }) {
 export function LevelChipPopover({
   view,
   onUpdateView,
+  tone = "default",
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
 }) {
   const team = useAppStore((state) =>
     view.scopeType === "team" ? getTeam(state, view.scopeId) : null
@@ -1343,7 +1785,7 @@ export function LevelChipPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, chipDefault)}>
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
           <Stack className="size-3.5" />
           <span>{currentLabel}</span>
           <CaretDown className="size-3 opacity-70" />

@@ -242,11 +242,13 @@ describe("convex collaboration server wrappers", () => {
       markCallJoinedServer,
       setCallRoomServer,
       setConversationRoomServer,
+      toggleChatMessageReactionServer,
       toggleChannelPostReactionServer,
     } = await import("@/lib/server/convex/collaboration")
 
     mutationMock
       .mockRejectedValueOnce(new Error("You can only delete your own posts"))
+      .mockRejectedValueOnce(new Error("Message not found"))
       .mockRejectedValueOnce(new Error("Your current role is read-only"))
       .mockRejectedValueOnce(new Error("Call has already ended"))
       .mockRejectedValueOnce(new Error("Call not found"))
@@ -260,6 +262,17 @@ describe("convex collaboration server wrappers", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "CHANNEL_POST_DELETE_FORBIDDEN",
+    })
+
+    await expect(
+      toggleChatMessageReactionServer({
+        currentUserId: "user_1",
+        messageId: "message_1",
+        emoji: ":+1:",
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "CHAT_MESSAGE_NOT_FOUND",
     })
 
     await expect(

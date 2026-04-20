@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
@@ -52,34 +53,23 @@ vi.mock("@/components/ui/sidebar", () => ({
   ),
 }))
 
-vi.mock("@/components/ui/tabs", () => ({
-  Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  TabsList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  TabsTrigger: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-  TabsContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
-
 vi.mock("@/components/app/screens/shared", () => ({
   HeaderTitle: ({ title }: { title: string }) => <div>{title}</div>,
   MissingState: ({ title }: { title: string }) => <div>{title}</div>,
 }))
 
 vi.mock("@/components/app/screens/project-detail-ui", () => ({
-  ProjectOverviewTab: () => <div>Overview</div>,
-  ProjectActivityTab: () => <div>Activity</div>,
   ProjectPropertiesSidebar: () => <div>Properties</div>,
 }))
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: () => null,
+  GroupChipPopover: () => null,
+  LayoutTabs: () => null,
   LevelChipPopover: () => null,
+  PropertiesChipPopover: () => null,
+  SortChipPopover: () => null,
+  getAvailableGroupOptions: () => [],
   ViewConfigPopover: ({
     onUpdateView,
   }: {
@@ -121,7 +111,7 @@ function seedState() {
         avatarImageUrl: null,
         workosUserId: null,
         title: "Founder",
-        status: "active",
+        status: "in-progress",
         statusMessage: "",
         hasExplicitStatus: false,
         preferences: {
@@ -171,7 +161,7 @@ function seedState() {
         memberIds: [],
         health: "on-track",
         priority: "medium",
-        status: "active",
+        status: "in-progress",
         startDate: null,
         targetDate: null,
         createdAt: "2026-04-18T09:00:00.000Z",
@@ -252,5 +242,52 @@ describe("ProjectDetailScreen", () => {
     })
 
     expect(screen.getByText("List layout")).toBeInTheDocument()
+  })
+
+  it("opens the shared create-work modal with the current project preselected", () => {
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "workItem",
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+      })
+    )
+  })
+
+  it("opens the shared create-view modal with the current project preselected", () => {
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "view",
+        defaultScopeType: "team",
+        defaultScopeId: "team_1",
+        defaultProjectId: "project_1",
+        defaultEntityKind: "items",
+        defaultRoute: "/team/platform/projects/project_1",
+        lockScope: true,
+        lockProject: true,
+        lockEntityKind: true,
+      })
+    )
+  })
+
+  it("renders the shared empty work state for projects with no items", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workItems: [],
+    }))
+
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    expect(screen.getByText("Board layout")).toBeInTheDocument()
+    expect(screen.getByText("No work items yet")).toBeInTheDocument()
+    expect(screen.queryByText("No linked items yet.")).not.toBeInTheDocument()
   })
 })

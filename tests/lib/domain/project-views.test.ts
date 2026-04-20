@@ -24,7 +24,7 @@ function createProject(id: string, overrides?: Partial<Project>): Project {
     memberIds: [],
     health: "on-track",
     priority: "medium",
-    status: "active",
+    status: "in-progress",
     startDate: null,
     targetDate: null,
     createdAt: "2026-04-18T09:00:00.000Z",
@@ -117,7 +117,7 @@ describe("project views", () => {
   it("hides completed projects when the view excludes completed work", () => {
     const state = createEmptyState()
     const projects = [
-      createProject("active", { status: "active" }),
+      createProject("active", { status: "in-progress" }),
       createProject("completed", { status: "completed" }),
     ]
 

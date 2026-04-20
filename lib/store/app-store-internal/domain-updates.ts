@@ -242,6 +242,14 @@ function buildRemovalSets(state: AppData, scope: RemovalScope): RemovalSets {
   const deletedViewIds = new Set(
     state.views
       .filter((view) => {
+        if (
+          view.containerType === "project-items" &&
+          view.containerId &&
+          deletedProjectIds.has(view.containerId)
+        ) {
+          return true
+        }
+
         if (view.scopeType === "workspace") {
           return scope.deletedWorkspaceIds.has(view.scopeId)
         }
@@ -560,4 +568,120 @@ export function getNextStateAfterWorkspaceRemoval(
     }),
     currentWorkspaceId
   )
+}
+
+export function getNextStateAfterProjectRemoval(
+  state: AppData,
+  projectId: string
+) {
+  const project = state.projects.find((entry) => entry.id === projectId)
+
+  if (!project) {
+    return state
+  }
+
+  const team =
+    project.scopeType === "team"
+      ? state.teams.find((entry) => entry.id === project.scopeId) ?? null
+      : null
+  const detailRoute =
+    project.scopeType === "workspace"
+      ? `/workspace/projects/${project.id}`
+      : team
+        ? `/team/${team.slug}/projects/${project.id}`
+        : null
+  const deletedProjectIds = new Set([project.id])
+  const deletedMilestoneIds = new Set(
+    state.milestones
+      .filter((milestone) => milestone.projectId === project.id)
+      .map((milestone) => milestone.id)
+  )
+  const deletedViewIds = new Set(
+    state.views
+      .filter((view) => {
+        if (
+          view.containerType === "project-items" &&
+          view.containerId === project.id
+        ) {
+          return true
+        }
+
+        return (
+          detailRoute !== null &&
+          !view.containerType &&
+          view.entityKind === "items" &&
+          view.route === detailRoute
+        )
+      })
+      .map((view) => view.id)
+  )
+  const deletedNotificationIds = new Set(
+    state.notifications
+      .filter(
+        (notification) =>
+          notification.entityType === "project" &&
+          notification.entityId === project.id
+      )
+      .map((notification) => notification.id)
+  )
+
+  return {
+    ...state,
+    projects: state.projects.filter((entry) => entry.id !== project.id),
+    milestones: state.milestones.filter(
+      (milestone) => !deletedMilestoneIds.has(milestone.id)
+    ),
+    workItems: state.workItems.map((item) => ({
+      ...item,
+      primaryProjectId:
+        item.primaryProjectId && deletedProjectIds.has(item.primaryProjectId)
+          ? null
+          : item.primaryProjectId,
+      linkedProjectIds: filterDeletedIds(
+        item.linkedProjectIds,
+        deletedProjectIds
+      ),
+      milestoneId:
+        item.milestoneId && deletedMilestoneIds.has(item.milestoneId)
+          ? null
+          : item.milestoneId,
+    })),
+    documents: state.documents.map((document) => ({
+      ...document,
+      linkedProjectIds: filterDeletedIds(
+        document.linkedProjectIds,
+        deletedProjectIds
+      ),
+    })),
+    views: state.views
+      .filter((view) => !deletedViewIds.has(view.id))
+      .map((view) => ({
+        ...view,
+        filters: {
+          ...view.filters,
+          projectIds: filterDeletedIds(
+            view.filters.projectIds,
+            deletedProjectIds
+          ),
+          milestoneIds: filterDeletedIds(
+            view.filters.milestoneIds,
+            deletedMilestoneIds
+          ),
+        },
+      })),
+    notifications: state.notifications.filter(
+      (notification) => !deletedNotificationIds.has(notification.id)
+    ),
+    projectUpdates: state.projectUpdates.filter(
+      (projectUpdate) => projectUpdate.projectId !== project.id
+    ),
+    ui: {
+      ...state.ui,
+      selectedViewByRoute: Object.fromEntries(
+        Object.entries(state.ui.selectedViewByRoute).filter(
+          ([, viewId]) => !deletedViewIds.has(viewId)
+        )
+      ),
+    },
+  }
 }

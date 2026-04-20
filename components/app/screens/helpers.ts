@@ -389,7 +389,7 @@ export function getPreferredCreateDialogType(
 
 export function getProjectPresentationGroupOptions(
   templateType: Project["templateType"]
-) {
+): GroupField[] {
   const baseOptions: GroupField[] = [
     "status",
     "assignee",

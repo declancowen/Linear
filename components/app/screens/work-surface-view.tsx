@@ -490,28 +490,30 @@ export function ListView({
                               subItems,
                               items,
                               showChildItems
-                            ).map((item) => {
-                              const details = showChildItems ? (
-                                <WorkItemChildDisclosure
-                                  data={data}
-                                  item={item}
-                                  scopedItems={scopedItems}
-                                  view={view}
-                                  ordering={view.ordering}
-                                  expanded={expandedItemIds.has(item.id)}
-                                  onToggle={() => toggleExpandedItem(item.id)}
-                                  variant="list"
-                                />
-                              ) : undefined
-
-                              return editable ? (
+                            ).flatMap((item) => {
+                              const children = showChildItems
+                                ? getDirectChildWorkItemsForDisplay(
+                                    data,
+                                    item,
+                                    view.ordering,
+                                    view,
+                                    scopedItems
+                                  )
+                                : []
+                              const hasChildren = children.length > 0
+                              const isExpanded = expandedItemIds.has(item.id)
+                              const parentRow = editable ? (
                                 <DraggableListRow
                                   key={item.id}
                                   data={data}
                                   item={item}
                                   displayProps={view.displayProps}
                                   depth={0}
-                                  details={details}
+                                  hasChildren={hasChildren}
+                                  expanded={isExpanded}
+                                  onToggleExpanded={() =>
+                                    toggleExpandedItem(item.id)
+                                  }
                                 />
                               ) : (
                                 <ListRow
@@ -520,9 +522,30 @@ export function ListView({
                                   item={item}
                                   displayProps={view.displayProps}
                                   depth={0}
-                                  details={details}
+                                  hasChildren={hasChildren}
+                                  expanded={isExpanded}
+                                  onToggleExpanded={() =>
+                                    toggleExpandedItem(item.id)
+                                  }
                                 />
                               )
+
+                              if (!isExpanded || !hasChildren) {
+                                return [parentRow]
+                              }
+
+                              return [
+                                parentRow,
+                                ...children.map((child) => (
+                                  <ListRow
+                                    key={child.id}
+                                    data={data}
+                                    item={child}
+                                    displayProps={view.displayProps}
+                                    depth={1}
+                                  />
+                                )),
+                              ]
                             })}
                           </ListDropLane>
                         </div>
@@ -608,7 +631,7 @@ function ListGroupHeader({
     <div
       ref={setNodeRef}
       className={cn(
-        "sticky top-0 z-[2] border-b border-line-soft backdrop-blur-[6px] transition-colors",
+        "sticky top-0 z-[2] backdrop-blur-[6px] transition-colors",
         isOver
           ? "bg-surface-2"
           : "bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)]"
@@ -685,7 +708,9 @@ function ListRowBody({
   depth,
   dragHandle,
   interactive = true,
-  details,
+  hasChildren = false,
+  expanded = false,
+  onToggleExpanded,
 }: {
   data: AppData
   item: WorkItem
@@ -693,7 +718,9 @@ function ListRowBody({
   depth: number
   dragHandle?: ReactNode
   interactive?: boolean
-  details?: ReactNode
+  hasChildren?: boolean
+  expanded?: boolean
+  onToggleExpanded?: () => void
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDate = item.dueDate ? new Date(item.dueDate) : null
@@ -717,7 +744,7 @@ function ListRowBody({
         {item.key}
       </span>
       <StatusRing status={item.status} />
-      <div className="min-w-0" style={{ paddingLeft: depth * 16 }}>
+      <div className="min-w-0">
         <div className="truncate text-[13px] text-foreground">{item.title}</div>
       </div>
       {showProject || showLabels ? (
@@ -809,17 +836,38 @@ function ListRowBody({
   )
 
   const body = (
-    <div className="group/row relative border-b border-line-soft transition-colors hover:bg-surface-2">
+    <div className="group/row relative transition-colors hover:bg-surface-2">
       <div
-        className="grid h-[34px] items-center gap-2.5 px-5 pl-3.5"
+        className="grid h-[34px] items-center gap-2.5 pr-5"
         style={{
           gridTemplateColumns: LIST_ROW_TEMPLATE,
+          paddingLeft: 14 + depth * 24,
         }}
       >
         <div className="flex items-center justify-center">
           {dragHandle ?? <span aria-hidden className="size-4" />}
         </div>
-        <span aria-hidden className="size-4" />
+        {hasChildren ? (
+          <button
+            type="button"
+            aria-label={expanded ? "Collapse sub-issues" : "Expand sub-issues"}
+            aria-expanded={expanded}
+            className="inline-grid size-4 place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onToggleExpanded?.()
+            }}
+          >
+            {expanded ? (
+              <CaretDown className="size-3" />
+            ) : (
+              <CaretRight className="size-3" />
+            )}
+          </button>
+        ) : (
+          <span aria-hidden className="size-4" />
+        )}
         {interactive ? (
           <Link href={`/items/${item.id}`} className="contents">
             {content}
@@ -837,7 +885,6 @@ function ListRowBody({
           </div>
         ) : null}
       </div>
-      {details}
     </div>
   )
 
@@ -855,13 +902,17 @@ function ListRow({
   item,
   displayProps,
   depth,
-  details,
+  hasChildren,
+  expanded,
+  onToggleExpanded,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
-  details?: ReactNode
+  hasChildren?: boolean
+  expanded?: boolean
+  onToggleExpanded?: () => void
 }) {
   return (
     <ListRowBody
@@ -869,7 +920,9 @@ function ListRow({
       item={item}
       displayProps={displayProps}
       depth={depth}
-      details={details}
+      hasChildren={hasChildren}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
     />
   )
 }
@@ -879,13 +932,17 @@ function DraggableListRow({
   item,
   displayProps,
   depth,
-  details,
+  hasChildren,
+  expanded,
+  onToggleExpanded,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
-  details?: ReactNode
+  hasChildren?: boolean
+  expanded?: boolean
+  onToggleExpanded?: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -903,7 +960,9 @@ function DraggableListRow({
         item={item}
         displayProps={displayProps}
         depth={depth}
-        details={details}
+        hasChildren={hasChildren}
+        expanded={expanded}
+        onToggleExpanded={onToggleExpanded}
         dragHandle={
           <button
             type="button"
@@ -1169,7 +1228,6 @@ function WorkItemChildDisclosure({
   ordering,
   expanded,
   onToggle,
-  variant,
 }: {
   data: AppData
   item: WorkItem
@@ -1178,7 +1236,6 @@ function WorkItemChildDisclosure({
   ordering: ViewDefinition["ordering"]
   expanded: boolean
   onToggle: () => void
-  variant: "board" | "list"
 }) {
   const team = getTeam(data, item.teamId)
   const childCopy = getChildWorkItemCopy(item.type, team?.settings.experience)
@@ -1201,13 +1258,7 @@ function WorkItemChildDisclosure({
   }`
 
   return (
-    <div
-      className={cn(
-        variant === "board"
-          ? "mt-1 rounded-md bg-surface-2 p-2"
-          : "border-t border-line-soft bg-surface-2/60 px-6 py-2"
-      )}
-    >
+    <div className="mt-1 rounded-md bg-surface-2 p-2">
       <button
         type="button"
         className="flex w-full items-center gap-1.5 text-[11.5px] font-medium text-fg-3 transition-colors hover:text-foreground"
@@ -1221,12 +1272,7 @@ function WorkItemChildDisclosure({
         <span>{childCountLabel}</span>
       </button>
       {expanded ? (
-        <div
-          className={cn(
-            "mt-1.5 flex flex-col gap-1",
-            variant === "board" ? "" : "ml-5"
-          )}
-        >
+        <div className="mt-1.5 flex flex-col gap-1">
           {childItems.map((child) => {
             const childAssignee = child.assigneeId
               ? getUser(data, child.assigneeId)
@@ -1236,12 +1282,7 @@ function WorkItemChildDisclosure({
               <Link
                 key={child.id}
                 href={`/items/${child.id}`}
-                className={cn(
-                  "flex items-center gap-2 rounded-md text-[12px] transition-colors hover:bg-surface-3",
-                  variant === "board"
-                    ? "px-1.5 py-1"
-                    : "border border-line bg-surface px-2 py-1"
-                )}
+                className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3"
               >
                 <StatusRing status={child.status} className="size-2.5" />
                 <span className="shrink-0 text-[11px] text-fg-3">

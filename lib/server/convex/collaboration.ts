@@ -66,6 +66,24 @@ const SEND_CHAT_MESSAGE_ERROR_MAPPINGS = [
   },
 ] as const
 
+const TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS = [
+  {
+    match: "Message not found",
+    status: 404,
+    code: "CHAT_MESSAGE_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHAT_ACCESS_DENIED",
+  },
+  {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "CHAT_READ_ONLY",
+  },
+] as const
+
 const CREATE_CHANNEL_POST_ERROR_MAPPINGS = [
   {
     match: "Conversation not found",
@@ -418,6 +436,26 @@ export async function sendChatMessageServer(input: {
     )
   } catch (error) {
     throw coerceApplicationError(error, [...SEND_CHAT_MESSAGE_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function toggleChatMessageReactionServer(input: {
+  currentUserId: string
+  messageId: string
+  emoji: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.toggleChatMessageReaction,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(
+        error,
+        [...TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS]
+      ) ?? error
+    )
   }
 }
 

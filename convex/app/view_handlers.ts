@@ -3,6 +3,7 @@ import type { MutationCtx } from "../_generated/server"
 import {
   createViewDefinition,
   isRouteAllowedForViewContext,
+  isSystemView,
 } from "../../lib/domain/default-views"
 import { assertServerToken, createId, getNow } from "./core"
 import { getTeamDoc } from "./data"
@@ -70,6 +71,8 @@ type CreateViewArgs = ServerAccessArgs & {
   scopeType: "team" | "workspace"
   scopeId: string
   entityKind: "items" | "projects" | "docs"
+  containerType?: "project-items" | null
+  containerId?: string | null
   route: string
   name: string
   description: string
@@ -199,6 +202,17 @@ type ClearViewFiltersArgs = ServerAccessArgs & {
   viewId: string
 }
 
+type RenameViewArgs = ServerAccessArgs & {
+  currentUserId: string
+  viewId: string
+  name: string
+}
+
+type DeleteViewArgs = ServerAccessArgs & {
+  currentUserId: string
+  viewId: string
+}
+
 export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) {
   assertServerToken(args.serverToken)
 
@@ -262,6 +276,8 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
     scopeType: args.scopeType,
     scopeId: args.scopeId,
     entityKind: args.entityKind,
+    containerType: args.containerType,
+    containerId: args.containerId,
     route: args.route,
     teamSlug,
     experience,
@@ -431,4 +447,43 @@ export async function clearViewFiltersHandler(
     },
     updatedAt: getNow(),
   })
+}
+
+export async function renameViewHandler(
+  ctx: MutationCtx,
+  args: RenameViewArgs
+) {
+  assertServerToken(args.serverToken)
+  const view = await requireViewMutationAccess(
+    ctx,
+    args.viewId,
+    args.currentUserId
+  )
+
+  if (isSystemView(view)) {
+    throw new Error("System views cannot be renamed")
+  }
+
+  await ctx.db.patch(view._id, {
+    name: args.name.trim(),
+    updatedAt: getNow(),
+  })
+}
+
+export async function deleteViewHandler(
+  ctx: MutationCtx,
+  args: DeleteViewArgs
+) {
+  assertServerToken(args.serverToken)
+  const view = await requireViewMutationAccess(
+    ctx,
+    args.viewId,
+    args.currentUserId
+  )
+
+  if (isSystemView(view)) {
+    throw new Error("System views cannot be deleted")
+  }
+
+  await ctx.db.delete(view._id)
 }

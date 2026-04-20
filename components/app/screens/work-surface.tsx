@@ -10,6 +10,7 @@ import {
   getVisibleItemsForView,
   getViewByRoute,
 } from "@/lib/domain/selectors"
+import { isSystemView } from "@/lib/domain/default-views"
 import {
   getDefaultTemplateTypeForTeamExperience,
   type Team,
@@ -25,8 +26,8 @@ import {
   Viewbar,
 } from "@/components/ui/template-primitives"
 import { HeaderTitle } from "@/components/app/screens/shared"
+import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
 import {
-  cloneViewCreateConfig,
   selectAppDataSnapshot,
 } from "@/components/app/screens/helpers"
 import {
@@ -144,22 +145,40 @@ export function WorkSurface({
         <HeaderTitle title={title} />
         {views.length > 0 && activeView ? (
           <div className="ml-2 flex items-center gap-0.5">
-            {views.map((view) => (
-              <button
-                key={view.id}
-                className={cn(
-                  "h-7 rounded-md px-2 text-[12px] transition-colors",
-                  view.id === activeView.id
-                    ? "bg-surface-3 font-medium text-foreground"
-                    : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
-                )}
-                onClick={() =>
-                  useAppStore.getState().setSelectedView(routeKey, view.id)
-                }
-              >
-                {view.name}
-              </button>
-            ))}
+            {views.map((view) =>
+              isSystemView(view) ? (
+                <button
+                  key={view.id}
+                  className={cn(
+                    "h-7 rounded-md px-2 text-[12px] transition-colors",
+                    view.id === activeView.id
+                      ? "bg-surface-3 font-medium text-foreground"
+                      : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
+                  )}
+                  onClick={() =>
+                    useAppStore.getState().setSelectedView(routeKey, view.id)
+                  }
+                >
+                  {view.name}
+                </button>
+              ) : (
+                <ViewContextMenu key={view.id} view={view} editable={editable}>
+                  <button
+                    className={cn(
+                      "h-7 rounded-md px-2 text-[12px] transition-colors",
+                      view.id === activeView.id
+                        ? "bg-surface-3 font-medium text-foreground"
+                        : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
+                    )}
+                    onClick={() =>
+                      useAppStore.getState().setSelectedView(routeKey, view.id)
+                    }
+                  >
+                    {view.name}
+                  </button>
+                </ViewContextMenu>
+              )
+            )}
             {editable && team ? (
               <IconButton
                 className="size-6"
@@ -172,9 +191,6 @@ export function WorkSurface({
                     defaultRoute: routeKey,
                     lockScope: true,
                     lockEntityKind: true,
-                    initialConfig: activeView
-                      ? cloneViewCreateConfig(activeView)
-                      : undefined,
                   })
                 }
               >

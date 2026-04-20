@@ -7,10 +7,12 @@ import {
   commentTargetTypes,
   displayProperties,
   entityKinds,
+  viewContainerTypes,
   groupFields,
   orderingFields,
   priorities,
   projectHealths,
+  projectStatuses,
   roles,
   scopeTypes,
   teamExperienceTypes,
@@ -143,7 +145,15 @@ export const projectSchema = z.object({
   ]),
   name: z.string().trim().min(2).max(64),
   summary: z.string().trim().min(2).max(140),
+  status: z.enum(projectStatuses).optional(),
   priority: z.enum(priorities),
+  leadId: z.string().nullable().optional(),
+  memberIds: z.array(z.string()).optional(),
+  blockingProjectIds: z.array(z.string()).optional(),
+  blockedByProjectIds: z.array(z.string()).optional(),
+  startDate: z.string().nullable().optional(),
+  targetDate: z.string().nullable().optional(),
+  labelIds: z.array(z.string()).optional(),
   settingsTeamId: z.string().nullable().optional(),
   presentation: z
     .object({
@@ -193,6 +203,8 @@ export const viewSchema = z.object({
   scopeType: z.enum(["team", "workspace"]),
   scopeId: z.string().min(1),
   entityKind: z.enum(entityKinds),
+  containerType: z.enum(viewContainerTypes).nullable().optional(),
+  containerId: z.string().trim().min(1).nullable().optional(),
   route: z.string().trim().min(1),
   name: z.string().trim().min(2).max(64),
   description: z.string().trim().max(160).default(""),
@@ -210,6 +222,17 @@ export const viewSchema = z.object({
       subgroups: z.array(z.string()),
     })
     .optional(),
+}).superRefine((value, ctx) => {
+  const hasContainerType = value.containerType !== undefined && value.containerType !== null
+  const hasContainerId = value.containerId !== undefined && value.containerId !== null
+
+  if (hasContainerType !== hasContainerId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "containerType and containerId must be provided together",
+      path: hasContainerType ? ["containerId"] : ["containerType"],
+    })
+  }
 })
 
 export const workItemSchema = z.object({
@@ -222,6 +245,8 @@ export const workItemSchema = z.object({
   status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),
+  startDate: z.string().nullable().optional(),
+  targetDate: z.string().nullable().optional(),
 })
 
 const createDocumentBaseSchema = {

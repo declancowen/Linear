@@ -10,6 +10,8 @@ import {
 } from "@/lib/domain/types"
 import {
   clearViewFiltersServer,
+  deleteViewServer,
+  renameViewServer,
   toggleViewDisplayPropertyServer,
   toggleViewFilterValueServer,
   toggleViewHiddenValueServer,
@@ -70,6 +72,10 @@ const viewMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("clearFilters"),
+  }),
+  z.object({
+    action: z.literal("rename"),
+    name: z.string().trim().min(1),
   }),
 ])
 
@@ -138,6 +144,13 @@ export async function PATCH(
           viewId,
         })
         break
+      case "rename":
+        await renameViewServer({
+          currentUserId: appContext.ensuredUser.userId,
+          viewId,
+          name: parsed.name,
+        })
+        break
     }
 
     return jsonOk({ ok: true })
@@ -152,6 +165,46 @@ export async function PATCH(
       500,
       {
         code: "VIEW_UPDATE_FAILED",
+      }
+    )
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ viewId: string }> }
+) {
+  const session = await requireSession()
+
+  if (isRouteResponse(session)) {
+    return session
+  }
+
+  try {
+    const { viewId } = await params
+    const appContext = await requireAppContext(session)
+
+    if (isRouteResponse(appContext)) {
+      return appContext
+    }
+
+    await deleteViewServer({
+      currentUserId: appContext.ensuredUser.userId,
+      viewId,
+    })
+
+    return jsonOk({ ok: true })
+  } catch (error) {
+    if (error instanceof ApplicationError) {
+      return jsonApplicationError(error)
+    }
+
+    logProviderError("Failed to delete view", error)
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete view"),
+      500,
+      {
+        code: "VIEW_DELETE_FAILED",
       }
     )
   }

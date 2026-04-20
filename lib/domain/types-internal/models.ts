@@ -25,6 +25,7 @@ import type {
   TemplateType,
   ThemePreference,
   UserStatus,
+  ViewContainerType,
   ViewFilters,
   ViewLayout,
   ViewScopeType,
@@ -118,9 +119,12 @@ export interface Project {
   health: ProjectHealth
   priority: Priority
   status: ProjectStatus
+  blockingProjectIds?: string[]
+  blockedByProjectIds?: string[]
   presentation?: ProjectPresentationConfig
   startDate: string | null
   targetDate: string | null
+  labelIds?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -189,6 +193,8 @@ export interface ViewDefinition {
   scopeType: ViewScopeType
   scopeId: string
   entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   layout: ViewLayout
@@ -290,6 +296,7 @@ export interface ChatMessage {
   content: string
   callId?: string | null
   mentionUserIds: string[]
+  reactions: CommentReaction[]
   createdBy: string
   createdAt: string
 }
@@ -344,6 +351,7 @@ export type CreateDialogState =
   | {
       kind: "workItem"
       defaultTeamId?: string | null
+      defaultProjectId?: string | null
       initialType?: WorkItemType | null
     }
   | {
@@ -354,9 +362,11 @@ export type CreateDialogState =
       kind: "view"
       defaultScopeType?: "team" | "workspace" | null
       defaultScopeId?: string | null
+      defaultProjectId?: string | null
       defaultEntityKind?: EntityKind | null
       defaultRoute?: string | null
       lockScope?: boolean
+      lockProject?: boolean
       lockEntityKind?: boolean
       initialConfig?: Partial<{
         layout: ViewLayout
