@@ -15,14 +15,18 @@ import {
   Flag,
   FolderSimple,
   LinkSimple,
+  NotePencil,
   PaperPlaneTilt,
   Plus,
   SidebarSimple,
+  Smiley,
   Tag,
   Trash,
   X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
+
+import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 
 import {
   filterPendingDocumentMentionsByContent,
@@ -70,7 +74,6 @@ import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { UserAvatar } from "@/components/app/user-presence"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -86,7 +89,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
 import { DocumentPresenceAvatarGroup } from "./document-ui"
@@ -104,10 +106,8 @@ import {
   buildPropertyStatusOptions,
 } from "./shared"
 import {
-  CommentsInline,
   WorkItemAssigneeAvatar,
   InlineChildIssueComposer,
-  WorkItemTypeBadge,
 } from "./work-item-ui"
 import { cn, getPlainTextContent } from "@/lib/utils"
 
@@ -781,6 +781,516 @@ function DetailSidebarActivity({
   )
 }
 
+function MainActivityThreadItem({
+  avatar,
+  children,
+  showLine = true,
+  variant = "event",
+}: {
+  avatar: ReactNode
+  children: ReactNode
+  showLine?: boolean
+  variant?: "event" | "comment" | "composer"
+}) {
+  return (
+    <li className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3">
+      {showLine ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-7 bottom-0 left-[13px] w-px bg-line-soft"
+        />
+      ) : null}
+      <div className="relative z-[1] flex h-7 w-7 items-start justify-center pt-0.5">
+        {avatar}
+      </div>
+      <div
+        className={cn(
+          "min-w-0",
+          variant === "event" && "flex min-h-7 items-center pb-5",
+          variant === "comment" && "pb-5",
+          variant === "composer" && "pb-0"
+        )}
+      >
+        {children}
+      </div>
+    </li>
+  )
+}
+
+function MainActivityReactionButton({
+  emoji,
+  count,
+  active,
+  disabled,
+  onToggle,
+}: {
+  emoji: string
+  count: number
+  active: boolean
+  disabled?: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onToggle}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] transition-colors",
+        active
+          ? "border-transparent bg-accent-bg text-accent-fg"
+          : "border-line bg-surface-2 text-fg-2 hover:bg-surface-3 hover:text-foreground",
+        disabled && "opacity-60"
+      )}
+    >
+      <span>{emoji}</span>
+      <span className="tabular-nums">{count}</span>
+    </button>
+  )
+}
+
+function MainActivityCommentCard({
+  data,
+  comment,
+  repliesByParentId,
+  currentUserId,
+  editable,
+  mentionCandidates,
+  nested = false,
+}: {
+  data: AppData
+  comment: AppData["comments"][number]
+  repliesByParentId: Record<string, AppData["comments"]>
+  currentUserId: string
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  nested?: boolean
+}) {
+  const author = getUser(data, comment.createdBy)
+  const replies = repliesByParentId[comment.id] ?? []
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyContent, setReplyContent] = useState("")
+  const replyEditorRef = useRef<Editor | null>(null)
+  const replyText = getPlainTextContent(replyContent)
+
+  function handleReply() {
+    if (!replyText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType: "workItem",
+      targetId: comment.targetId,
+      parentCommentId: comment.id,
+      content: replyContent,
+    })
+    setReplyContent("")
+    setReplyOpen(false)
+  }
+
+  return (
+    <article
+      className={cn(
+        "group/comment overflow-hidden rounded-xl border border-line bg-surface transition-colors",
+        !nested && "shadow-[0_1px_0_0_var(--line-soft)]"
+      )}
+    >
+      <header className="flex items-center gap-2 px-3.5 pt-2.5">
+        {nested ? (
+          <UserAvatar
+            name={author?.name ?? "Unknown"}
+            avatarImageUrl={author?.avatarImageUrl}
+            avatarUrl={author?.avatarUrl}
+            status={author?.status}
+            size="sm"
+            showStatus={false}
+            className="size-5"
+          />
+        ) : null}
+        <span className="text-[12.5px] font-semibold text-foreground">
+          {author?.name ?? "Unknown"}
+        </span>
+        <span className="text-[11px] text-fg-4">
+          commented {formatRelativeTimestamp(comment.createdAt)}
+        </span>
+        <span className="ml-auto hidden text-[11px] text-fg-4 group-hover/comment:inline">
+          {format(new Date(comment.createdAt), "MMM d, h:mm a")}
+        </span>
+      </header>
+      <div className="px-3.5 pt-1 pb-3">
+        <RichTextContent
+          content={comment.content}
+          className="text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
+        />
+      </div>
+      {comment.reactions.length > 0 || editable ? (
+        <footer className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-surface-2/40 px-3.5 py-1.5">
+          {comment.reactions.map((reaction) => (
+            <MainActivityReactionButton
+              key={`${comment.id}-${reaction.emoji}`}
+              emoji={reaction.emoji}
+              count={reaction.userIds.length}
+              active={reaction.userIds.includes(currentUserId)}
+              disabled={!editable}
+              onToggle={() =>
+                useAppStore
+                  .getState()
+                  .toggleCommentReaction(comment.id, reaction.emoji)
+              }
+            />
+          ))}
+          {editable ? (
+            <>
+              <EmojiPickerPopover
+                align="start"
+                side="top"
+                onEmojiSelect={(emoji) => {
+                  useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+                }}
+                trigger={
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2 py-0.5 text-[11.5px] text-fg-3 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
+                  >
+                    <Smiley className="size-3" />
+                    <span>React</span>
+                  </button>
+                }
+              />
+              <button
+                type="button"
+                className="ml-1 text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
+                onClick={() => setReplyOpen((current) => !current)}
+              >
+                {replyOpen ? "Cancel reply" : "Reply"}
+              </button>
+            </>
+          ) : null}
+        </footer>
+      ) : null}
+
+      {replies.length > 0 ? (
+        <div className="border-t border-line-soft bg-surface-2/30 px-3.5 py-3">
+          <ul className="flex flex-col gap-2.5">
+            {replies.map((reply) => (
+              <li key={reply.id}>
+                <MainActivityCommentCard
+                  data={data}
+                  comment={reply}
+                  repliesByParentId={repliesByParentId}
+                  currentUserId={currentUserId}
+                  editable={editable}
+                  mentionCandidates={mentionCandidates}
+                  nested
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {replyOpen ? (
+        <div className="border-t border-line-soft bg-background px-3.5 py-3">
+          <div className="rounded-lg border border-line bg-surface transition-colors focus-within:border-fg-3">
+            <div className="px-3 py-2">
+              <RichTextEditor
+                content={replyContent}
+                onChange={setReplyContent}
+                editable={editable}
+                compact
+                autoFocus
+                allowSlashCommands={false}
+                showToolbar={false}
+                showStats={false}
+                placeholder="Write a reply…"
+                editorInstanceRef={replyEditorRef}
+                mentionCandidates={mentionCandidates}
+                onSubmitShortcut={handleReply}
+                submitOnEnter
+                className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-dashed border-line px-3 py-1.5">
+              <EmojiPickerPopover
+                align="start"
+                side="top"
+                onEmojiSelect={(emoji) =>
+                  replyEditorRef.current?.chain().focus().insertContent(emoji).run()
+                }
+                trigger={
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+                  >
+                    <Smiley className="size-3.5" />
+                  </button>
+                }
+              />
+              <div className="flex items-center gap-2">
+                <ShortcutKeys
+                  keys={["Enter"]}
+                  keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setReplyContent("")
+                    setReplyOpen(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button size="sm" disabled={!replyText} onClick={handleReply}>
+                  Reply
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </article>
+  )
+}
+
+function MainActivityTimeline({
+  data,
+  item,
+  currentUserId,
+  editable,
+}: {
+  data: AppData
+  item: WorkItem
+  currentUserId: string
+  editable: boolean
+}) {
+  const comments = getCommentsForTarget(data, "workItem", item.id)
+  const rootComments = comments.filter(
+    (comment) => comment.parentCommentId === null
+  )
+  const repliesByParentId = comments.reduce<Record<string, AppData["comments"]>>(
+    (accumulator, comment) => {
+      if (!comment.parentCommentId) {
+        return accumulator
+      }
+
+      accumulator[comment.parentCommentId] = [
+        ...(accumulator[comment.parentCommentId] ?? []),
+        comment,
+      ]
+
+      return accumulator
+    },
+    {}
+  )
+  const creator = getUser(data, item.creatorId)
+  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
+  const currentUser = getUser(data, currentUserId)
+  const mentionCandidates = getTeamMembers(data, item.teamId).filter(
+    (candidate) => candidate.id !== currentUserId
+  )
+  const [content, setContent] = useState("")
+  const commentEditorRef = useRef<Editor | null>(null)
+  const contentText = getPlainTextContent(content)
+
+  function handleComment() {
+    if (!contentText) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType: "workItem",
+      targetId: item.id,
+      content,
+    })
+    setContent("")
+  }
+
+  type TimelineEntry =
+    | {
+        kind: "event"
+        id: string
+        user: AppData["users"][number]
+        body: string
+        when: string
+      }
+    | {
+        kind: "comment"
+        id: string
+        comment: AppData["comments"][number]
+        when: string
+      }
+
+  const entries: TimelineEntry[] = []
+
+  if (creator) {
+    entries.push({
+      kind: "event",
+      id: `${item.id}-created`,
+      user: creator,
+      body: "created this item",
+      when: item.createdAt,
+    })
+  }
+
+  if (assignee && assignee.id !== creator?.id) {
+    entries.push({
+      kind: "event",
+      id: `${item.id}-assignee`,
+      user: assignee,
+      body: "was assigned to this item",
+      when: item.updatedAt,
+    })
+  }
+
+  for (const rootComment of rootComments) {
+    entries.push({
+      kind: "comment",
+      id: rootComment.id,
+      comment: rootComment,
+      when: rootComment.createdAt,
+    })
+  }
+
+  entries.sort((left, right) => left.when.localeCompare(right.when))
+
+  return (
+    <ol className="flex flex-col">
+      {entries.map((entry) => {
+        if (entry.kind === "event") {
+          return (
+            <MainActivityThreadItem
+              key={entry.id}
+              avatar={
+                <UserAvatar
+                  name={entry.user.name}
+                  avatarImageUrl={entry.user.avatarImageUrl}
+                  avatarUrl={entry.user.avatarUrl}
+                  status={entry.user.status}
+                  size="sm"
+                  showStatus={false}
+                  className="size-6"
+                />
+              }
+            >
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[12.5px] leading-[1.55] text-fg-2">
+                <span className="font-medium text-foreground">
+                  {entry.user.name}
+                </span>
+                <span className="text-fg-3">{entry.body}</span>
+                <span className="text-[11px] text-fg-4">
+                  · {formatRelativeTimestamp(entry.when)}
+                </span>
+              </div>
+            </MainActivityThreadItem>
+          )
+        }
+
+        const author = getUser(data, entry.comment.createdBy)
+
+        return (
+          <MainActivityThreadItem
+            key={entry.id}
+            variant="comment"
+            avatar={
+              <UserAvatar
+                name={author?.name ?? "Unknown"}
+                avatarImageUrl={author?.avatarImageUrl}
+                avatarUrl={author?.avatarUrl}
+                status={author?.status}
+                size="sm"
+                showStatus={false}
+                className="size-7"
+              />
+            }
+          >
+            <MainActivityCommentCard
+              data={data}
+              comment={entry.comment}
+              repliesByParentId={repliesByParentId}
+              currentUserId={currentUserId}
+              editable={editable}
+              mentionCandidates={mentionCandidates}
+            />
+          </MainActivityThreadItem>
+        )
+      })}
+
+      <MainActivityThreadItem
+        showLine={false}
+        variant="composer"
+        avatar={
+          currentUser ? (
+            <UserAvatar
+              name={currentUser.name}
+              avatarImageUrl={currentUser.avatarImageUrl}
+              avatarUrl={currentUser.avatarUrl}
+              status={currentUser.status}
+              size="sm"
+              showStatus={false}
+              className="size-7"
+            />
+          ) : (
+            <span className="size-7 rounded-full bg-surface-3" />
+          )
+        }
+      >
+        <div className="rounded-xl border border-line bg-surface transition-colors focus-within:border-fg-3">
+          <div className="px-3 py-2">
+            <RichTextEditor
+              content={content}
+              onChange={setContent}
+              editable={editable}
+              compact
+              allowSlashCommands={false}
+              showToolbar={false}
+              showStats={false}
+              placeholder="Leave a comment or mention a teammate with @handle…"
+              editorInstanceRef={commentEditorRef}
+              mentionCandidates={mentionCandidates}
+              onSubmitShortcut={handleComment}
+              submitOnEnter
+              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-dashed border-line px-3 py-1.5">
+            <EmojiPickerPopover
+              align="start"
+              side="top"
+              onEmojiSelect={(emoji) =>
+                commentEditorRef.current?.chain().focus().insertContent(emoji).run()
+              }
+              trigger={
+                <button
+                  type="button"
+                  disabled={!editable}
+                  className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+                >
+                  <Smiley className="size-4" />
+                </button>
+              }
+            />
+            <div className="flex items-center gap-2">
+              <ShortcutKeys
+                keys={["Enter"]}
+                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              />
+              <Button
+                size="sm"
+                disabled={!editable || contentText.length === 0}
+                onClick={handleComment}
+              >
+                <PaperPlaneTilt className="size-3.5" />
+                Comment
+              </Button>
+            </div>
+          </div>
+        </div>
+      </MainActivityThreadItem>
+    </ol>
+  )
+}
+
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const router = useRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
@@ -1368,39 +1878,79 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl px-8 py-8">
+            <article className="mx-auto flex max-w-[44rem] flex-col px-10 pt-12 pb-24">
               {parentItem ? (
-                <Link
-                  href={`/items/${parentItem.id}`}
-                  className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <span>{workCopy.parentLabel}</span>
-                  <Badge variant="outline">{parentItem.key}</Badge>
-                  <span className="truncate">{parentItem.title}</span>
-                </Link>
+                <div className="mb-6">
+                  <Link
+                    href={`/items/${parentItem.id}`}
+                    className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-fg-2 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
+                  >
+                    <span className="text-[10px] font-semibold tracking-[0.06em] text-fg-4 uppercase">
+                      {workCopy.parentLabel}
+                    </span>
+                    <span className="font-mono text-[11px] text-fg-4">
+                      {parentItem.key}
+                    </span>
+                    <span className="max-w-[20rem] truncate">
+                      {parentItem.title}
+                    </span>
+                  </Link>
+                </div>
               ) : null}
-              {isMainEditing ? (
-                <Input
-                  value={mainDraftTitle}
-                  onChange={(event) => setMainDraftTitle(event.target.value)}
-                  placeholder={`${getDisplayLabelForWorkItemType(
-                    currentItem.type,
-                    team?.settings.experience
-                  )} title`}
-                  className="mb-2.5 h-auto border-none bg-transparent px-0 py-0 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em] shadow-none focus-visible:ring-0 dark:bg-transparent"
-                  autoFocus
-                />
-              ) : (
-                <h1 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
-                  {currentItem.title}
-                </h1>
-              )}
-              <div className="mb-4">
-                <WorkItemTypeBadge data={data} item={currentItem} />
-              </div>
+
+              <header className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] leading-none">
+                  <span className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
+                    <span
+                      aria-hidden
+                      className="inline-block size-1.5 rounded-full bg-fg-4"
+                    />
+                    <span>
+                      {getDisplayLabelForWorkItemType(
+                        currentItem.type,
+                        team?.settings.experience
+                      )}
+                    </span>
+                  </span>
+                  <span aria-hidden className="text-fg-4">
+                    ·
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-2">
+                    <StatusIcon status={currentItem.status} />
+                    <span>{statusMeta[currentItem.status].label}</span>
+                  </span>
+                  {currentItem.priority !== "none" ? (
+                    <>
+                      <span aria-hidden className="text-fg-4">
+                        ·
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-2">
+                        <PriorityIcon priority={currentItem.priority} />
+                        <span>{priorityMeta[currentItem.priority].label}</span>
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+                {isMainEditing ? (
+                  <Input
+                    value={mainDraftTitle}
+                    onChange={(event) => setMainDraftTitle(event.target.value)}
+                    placeholder={`${getDisplayLabelForWorkItemType(
+                      currentItem.type,
+                      team?.settings.experience
+                    )} title`}
+                    className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
+                    autoFocus
+                  />
+                ) : (
+                  <h1 className="text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] text-foreground">
+                    {currentItem.title}
+                  </h1>
+                )}
+              </header>
 
               {mainDraftStale ? (
-                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2.5">
+                <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2.5">
                   <div className="min-w-0">
                     <div className="text-sm font-medium">
                       This item changed while you were editing
@@ -1420,7 +1970,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 </div>
               ) : null}
               {isMainEditing && concurrentEditorLabel ? (
-                <div className="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5">
+                <div className="mt-5 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5">
                   <div className="text-sm font-medium">
                     {concurrentEditorLabel}
                   </div>
@@ -1431,48 +1981,79 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                 </div>
               ) : null}
 
-              <div className="mt-4">
-                <RichTextEditor
-                  content={isMainEditing ? mainDraftDescription : descriptionContent}
-                  editable={editable && isMainEditing}
-                  placeholder="Add a description…"
-                  mentionCandidates={
-                    team ? getTeamMembers(data, team.id) : data.users
-                  }
-                  onChange={setMainDraftDescription}
-                  onUploadAttachment={(file) =>
-                    useAppStore
-                      .getState()
-                      .uploadAttachment("workItem", currentItem.id, file)
-                  }
-                />
-              </div>
-
-              {showSubIssuesSection ? (
-                <div className="mt-8">
-                  <div className="flex items-center justify-between gap-3">
+              <section className="mt-7">
+                {isMainEditing ? (
+                  <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
+                    <RichTextEditor
+                      content={mainDraftDescription}
+                      editable={editable}
+                      placeholder="Add a description…"
+                      mentionCandidates={
+                        team ? getTeamMembers(data, team.id) : data.users
+                      }
+                      onChange={setMainDraftDescription}
+                      onUploadAttachment={(file) =>
+                        useAppStore
+                          .getState()
+                          .uploadAttachment("workItem", currentItem.id, file)
+                      }
+                    />
+                  </div>
+                ) : isDescriptionPlaceholder(descriptionContent) ? (
+                  editable ? (
                     <button
                       type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={handleStartMainEdit}
+                      className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-4 py-3 text-left text-[13px] text-fg-4 transition-colors hover:border-fg-4 hover:bg-surface hover:text-fg-2"
+                    >
+                      <NotePencil className="size-3.5" />
+                      <span>Add a description…</span>
+                    </button>
+                  ) : (
+                    <p className="text-[13px] text-fg-4">No description yet.</p>
+                  )
+                ) : (
+                  <RichTextContent
+                    content={descriptionContent}
+                    className="text-[14px] leading-[1.65] text-fg-1 [&_p]:my-0 [&_p+p]:mt-3 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2"
+                  />
+                )}
+              </section>
+
+              {showSubIssuesSection ? (
+                <section className="mt-8 overflow-hidden rounded-xl border border-line bg-surface">
+                  <div className="flex items-center gap-3 px-4 pt-3.5 pb-2.5">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-[13px] font-semibold text-foreground transition-colors hover:text-fg-2"
                       onClick={() => setSubIssuesOpen((current) => !current)}
                     >
                       {subIssuesOpen ? (
-                        <CaretDown className="size-3" />
+                        <CaretDown className="size-3 text-fg-4" />
                       ) : (
-                        <CaretRight className="size-3" />
+                        <CaretRight className="size-3 text-fg-4" />
                       )}
                       <span>{childCopy.childPluralLabel}</span>
-                      <span className="text-xs font-normal tabular-nums">
-                        {childItems.length > 0
-                          ? `${childProgress.percent}%`
-                          : "0%"}
-                      </span>
                     </button>
+                    {childItems.length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium tabular-nums text-fg-2">
+                        <span>
+                          {childProgress.completedChildren}/
+                          {childProgress.includedChildren > 0
+                            ? childProgress.includedChildren
+                            : childItems.length}
+                        </span>
+                        <span className="text-fg-4">·</span>
+                        <span>{childProgress.percent}%</span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-fg-4">None yet</span>
+                    )}
                     {canCreateChildItem ? (
                       <Button
                         size="icon-sm"
                         variant={childComposerOpen ? "outline" : "ghost"}
-                        disabled={!canCreateChildItem}
+                        className="ml-auto"
                         onClick={() => {
                           setSubIssuesOpen(true)
                           setChildComposerOpen((current) => !current)
@@ -1484,9 +2065,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   </div>
 
                   {childItems.length > 0 ? (
-                    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+                    <div className="mx-4 mb-3 h-[3px] overflow-hidden rounded-full bg-surface-3">
                       <div
-                        className="h-full rounded-full bg-green-500 transition-all"
+                        className="h-full rounded-full bg-status-done transition-all"
                         style={{
                           width: `${childProgress.percent}%`,
                         }}
@@ -1494,44 +2075,57 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     </div>
                   ) : null}
 
-                  {childItems.length > 0 ? (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {childProgress.includedChildren > 0
-                        ? `${childProgress.completedChildren} of ${childProgress.includedChildren} active ${childCopy.childPluralLabel.toLowerCase()} done`
-                        : `No active ${childCopy.childPluralLabel.toLowerCase()} in progress tracking`}
-                    </p>
-                  ) : null}
-
                   {subIssuesOpen ? (
-                    <div className="mt-2 flex flex-col gap-0.5">
-                      {childItems.map((child) => (
-                        <Link
-                          key={child.id}
-                          href={`/items/${child.id}`}
-                          className="group/sub flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[12.5px] transition-colors hover:bg-surface-2"
-                        >
-                          <StatusIcon status={child.status} />
-                          <span className="shrink-0 font-mono text-[11.5px] text-fg-3">
-                            {child.key}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">
-                            {child.title}
-                          </span>
-                          <WorkItemTypeBadge data={data} item={child} />
-                          <span className="shrink-0 text-[11.5px] text-fg-4">
-                            {priorityMeta[child.priority].label}
-                          </span>
-                          {child.assigneeId ? (
-                            <WorkItemAssigneeAvatar
-                              user={getUser(data, child.assigneeId)}
-                              className="shrink-0"
-                            />
-                          ) : null}
-                        </Link>
-                      ))}
+                    <div className="border-t border-line-soft">
+                      {childItems.length > 0 ? (
+                        <ul className="flex flex-col divide-y divide-line-soft">
+                          {childItems.map((child) => {
+                            const childDone = child.status === "done"
+
+                            return (
+                              <li key={child.id}>
+                                <Link
+                                  href={`/items/${child.id}`}
+                                  className="group/sub flex items-center gap-3 px-4 py-2 text-[12.5px] transition-colors hover:bg-surface-2"
+                                >
+                                  <StatusIcon status={child.status} />
+                                  <span className="shrink-0 font-mono text-[11px] text-fg-4">
+                                    {child.key}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "min-w-0 flex-1 truncate",
+                                      childDone &&
+                                        "text-fg-3 line-through decoration-line"
+                                    )}
+                                  >
+                                    {child.title}
+                                  </span>
+                                  {child.priority !== "none" ? (
+                                    <span className="hidden shrink-0 items-center gap-1 text-[11px] text-fg-4 sm:inline-flex">
+                                      <PriorityIcon priority={child.priority} />
+                                      <span>
+                                        {priorityMeta[child.priority].label}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                  {child.assigneeId ? (
+                                    <WorkItemAssigneeAvatar
+                                      user={getUser(data, child.assigneeId)}
+                                      className="shrink-0"
+                                    />
+                                  ) : (
+                                    <span className="size-5 shrink-0" />
+                                  )}
+                                </Link>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      ) : null}
 
                       {childComposerOpen ? (
-                        <div className="mt-1 rounded-md border border-line">
+                        <div className="border-t border-line-soft bg-background">
                           <InlineChildIssueComposer
                             teamId={currentItem.teamId}
                             parentItem={currentItem}
@@ -1543,7 +2137,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       ) : canCreateChildItem ? (
                         <button
                           type="button"
-                          className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                          className={cn(
+                            "inline-flex w-full items-center gap-2 px-4 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground",
+                            childItems.length > 0 &&
+                              "border-t border-line-soft"
+                          )}
                           onClick={() => setChildComposerOpen(true)}
                         >
                           <Plus className="size-3" />
@@ -1552,22 +2150,27 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       ) : null}
                     </div>
                   ) : null}
-                </div>
+                </section>
               ) : null}
 
-              <Separator className="my-6" />
-
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Activity</h3>
+              <section className="mt-10">
+                <div className="mb-5 flex items-center gap-2">
+                  <h2 className="text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
+                    Activity
+                  </h2>
+                  <span
+                    aria-hidden
+                    className="h-px flex-1 bg-line-soft"
+                  />
                 </div>
-                <CommentsInline
-                  targetType="workItem"
-                  targetId={currentItem.id}
+                <MainActivityTimeline
+                  data={data}
+                  item={currentItem}
+                  currentUserId={currentUserId}
                   editable={editable}
                 />
-              </div>
-            </div>
+              </section>
+            </article>
           </div>
 
           <CollapsibleRightSidebar

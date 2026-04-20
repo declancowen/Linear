@@ -438,7 +438,9 @@ describe("create dialogs", () => {
       expect(screen.getByRole("button", { name: "List" })).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
-      expect(screen.getByRole("button", { name: "Epic" })).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: /Level.*Epic/ })
+      ).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "0 properties" })).toBeInTheDocument()
@@ -791,7 +793,9 @@ describe("create dialogs", () => {
     expect(screen.getAllByText("Billing v2").length).toBeGreaterThan(0)
     expect(screen.getByRole("button", { name: "List" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Epic" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Level.*Epic/ })
+    ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "0 properties" })).toBeInTheDocument()

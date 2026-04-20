@@ -1432,7 +1432,7 @@ export function GroupChipPopover({
   view,
   groupOptions = DEFAULT_GROUP_OPTIONS,
   onUpdateView,
-  tone = "accent",
+  tone = "default",
   showValue = true,
   label = "Group",
   showSubGrouping = true,
@@ -1736,10 +1736,14 @@ export function LevelChipPopover({
   view,
   onUpdateView,
   tone = "default",
+  label = "Level",
+  showValue = true,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
+  label?: string
+  showValue?: boolean
 }) {
   const team = useAppStore((state) =>
     view.scopeType === "team" ? getTeam(state, view.scopeId) : null
@@ -1789,7 +1793,10 @@ export function LevelChipPopover({
       <PopoverTrigger asChild>
         <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
           <Stack className="size-3.5" />
-          <span>{currentLabel}</span>
+          <span>{label}</span>
+          {showValue ? (
+            <span className="font-semibold">· {currentLabel}</span>
+          ) : null}
           <CaretDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>

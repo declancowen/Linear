@@ -129,15 +129,16 @@ function GroupPill({
   adornment: ReactNode
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[12px] font-semibold text-foreground">
-      {adornment ?? (
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+      {accentVar ? (
         <span
           aria-hidden
-          className="inline-block size-2 rounded-full"
-          style={{ background: accentVar ?? "var(--text-3)" }}
+          className="inline-block h-3.5 w-[3px] rounded-full"
+          style={{ background: accentVar }}
         />
-      )}
-      <span>{label}</span>
+      ) : null}
+      {adornment}
+      <span className="truncate">{label}</span>
     </span>
   )
 }
@@ -474,7 +475,7 @@ export function ListView({
                       return (
                         <div key={`${groupName}-${subgroupName}`}>
                           {view.subGrouping ? (
-                            <div className="border-b border-line-soft bg-surface-2 px-8 py-1 text-[11.5px] font-medium tracking-[0.02em] text-fg-3 uppercase">
+                            <div className="px-11 py-1.5 text-[11px] font-medium tracking-[0.04em] text-fg-3 uppercase">
                               {getGroupValueLabel(
                                 view.subGrouping,
                                 subgroupName
@@ -551,7 +552,7 @@ export function ListView({
                     }
                   )}
                   {subgroups.size === 0 ? (
-                    <div className="border-b border-line-soft px-8 py-3 text-xs text-muted-foreground">
+                    <div className="px-11 py-3 text-xs text-muted-foreground">
                       {editable
                         ? "Drop items onto the group header"
                         : "No items"}
@@ -628,50 +629,54 @@ function ListGroupHeader({
   return (
     <div
       ref={setNodeRef}
-      className={cn(
-        "sticky top-0 z-[2] backdrop-blur-[6px] transition-colors",
-        isOver
-          ? "bg-surface-2"
-          : "bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)]"
-      )}
+      className="sticky top-0 z-[2] bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)] backdrop-blur-[6px]"
     >
       <button
         type="button"
         className="group/grp flex w-full items-center gap-2.5 px-5 pt-2 pb-1.5 pl-3.5 text-left"
         onClick={onClick}
       >
-        <span className="grid size-5 place-items-center text-fg-3">
+        <span className="grid size-5 shrink-0 place-items-center text-fg-3">
           {isCollapsed ? (
             <CaretRight className="size-3" />
           ) : (
             <CaretDown className="size-3" />
           )}
         </span>
-        <GroupPill
-          label={groupLabel}
-          accentVar={accentVar}
-          adornment={groupAdornment}
-        />
-        <span className="text-[12px] tabular-nums text-fg-3">{groupCount}</span>
-        {groupCount > 0 ? (
-          <div className="ml-auto flex items-center gap-2">
-            <div
-              className="h-1 w-[120px] overflow-hidden rounded-full bg-surface-3"
-              aria-label="Completion"
-            >
+        <div
+          className={cn(
+            "flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-[min(var(--radius-md),12px)] border border-line bg-surface px-3.5 shadow-[0_1px_0_0_oklch(0.18_0_0/0.03)] transition-colors",
+            isOver ? "border-fg-4 bg-surface-2" : "group-hover/grp:bg-surface-3"
+          )}
+        >
+          <GroupPill
+            label={groupLabel}
+            accentVar={accentVar}
+            adornment={groupAdornment}
+          />
+          <span className="text-[12px] tabular-nums text-fg-3">
+            {groupCount}
+          </span>
+          {groupCount > 0 ? (
+            <div className="ml-auto flex items-center gap-2">
               <div
-                className="block h-full rounded-full transition-all"
-                style={{
-                  width: `${progressPercent}%`,
-                  background: accentVar ?? "var(--text-2)",
-                }}
-              />
+                className="h-1 w-[120px] overflow-hidden rounded-full bg-surface-3"
+                aria-label="Completion"
+              >
+                <div
+                  className="block h-full rounded-full transition-all"
+                  style={{
+                    width: `${progressPercent}%`,
+                    background: accentVar ?? "var(--text-2)",
+                  }}
+                />
+              </div>
+              <span className="w-9 text-right text-[11.5px] tabular-nums text-fg-3">
+                {progressPercent}%
+              </span>
             </div>
-            <span className="w-9 text-right text-[11.5px] tabular-nums text-fg-3">
-              {progressPercent}%
-            </span>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </button>
     </div>
   )

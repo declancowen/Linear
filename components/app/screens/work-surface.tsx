@@ -209,7 +209,11 @@ export function WorkSurface({
       </Topbar>
 
       {compatibleActiveView ? (
-        <Viewbar>
+        <Viewbar
+          className={
+            compatibleActiveView.layout === "timeline" ? undefined : "border-b-0"
+          }
+        >
           <LayoutTabs view={compatibleActiveView} />
           <div
             aria-hidden

@@ -39,6 +39,7 @@ Files and areas reviewed across all turns:
 - `lib/server/convex/teams-projects.ts` — project update server contract typing
 - `tests/components/create-dialogs.test.tsx` — create-view route derivation regression coverage
 - `tests/components/entity-context-menus.test.tsx` — per-view saved-view mutation authorization coverage
+- `tests/components/work-item-detail-screen.test.tsx` — main activity timeline and sidebar regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
@@ -50,10 +51,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 15:19:30 BST` |
-| **Total turns** | `15` |
+| **Last reviewed** | `2026-04-20 15:43:34 BST` |
+| **Total turns** | `17` |
 | **Open findings** | `0` |
-| **Resolved findings** | `24` |
+| **Resolved findings** | `26` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1007,4 +1008,109 @@ No new findings in this turn.
 - `pnpm vitest run tests/components/create-dialogs.test.tsx`
 - `pnpm vitest run tests/lib/date-input.test.ts`
 - `pnpm vitest run tests/components/views-screen.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 16 — 2026-04-20 15:43:34 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `352f760` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** This rerun does not reproduce the old product bugs from the pasted list in the current tree. The live failures are verification regressions introduced by the new activity/thread polish and shared level-chip copy changes: the work-item detail test harness no longer mocks the new icon exports used by the activity UI, and the create-dialog tests still assert the old value-only accessible name for the level chip even though the shared control now exposes `Level · <value>`.
+
+| Status | Count |
+|--------|-------|
+| Findings | `2` |
+
+### Findings
+
+#### B16-01 [BUG] Low — `tests/components/work-item-detail-screen.test.tsx:253` — Work-item detail suite no longer mocks the new activity-thread icon exports
+
+**What's happening:**
+`work-item-detail-screen.tsx` now renders `Smiley` and `NotePencil` in the main activity thread and description affordances, but the test mock for `@phosphor-icons/react` still only returns the older icon set.
+
+**Root cause:**
+The screen implementation gained new icon dependencies without the test harness being updated alongside the UI change.
+
+**Codebase implication:**
+The entire work-item detail screen suite fails before it can exercise any of the real main-section or comment behavior, so it no longer protects the concurrent-edit, mention-delivery, and activity-composer flows it is supposed to cover.
+
+**Solution options:**
+1. **Quick fix:** Extend the icon mock with `Smiley` and `NotePencil`.
+2. **Proper fix:** Keep the phosphor mock aligned with screen-level imports whenever new icon affordances are introduced in tested surfaces.
+
+**Investigate:**
+Any other tests that fully mock `@phosphor-icons/react` should be checked when screen components gain new icon-only affordances; otherwise unrelated suites will fail for harness reasons instead of product reasons.
+
+> The failing harness is in `tests/components/work-item-detail-screen.test.tsx:253-268`.
+
+#### B16-02 [BUG] Low — `tests/components/create-dialogs.test.tsx:441` — Create-dialog tests still assert the old value-only level-chip name
+
+**What's happening:**
+The create-dialog suite still looks for a button named `Epic`, but the shared `LevelChipPopover` now renders a labeled control whose accessible name is `Level · Epic`.
+
+**Root cause:**
+The verification layer is still coupled to the previous unnamed chip contract even though the shared presentation component now exposes explicit control labeling.
+
+**Codebase implication:**
+The item-view create-dialog tests fail even though the UI is rendering the intended control. That blocks verification of the wider create-view flow and obscures real regressions behind stale assertions.
+
+**Solution options:**
+1. **Quick fix:** Update the tests to assert the current accessible name.
+2. **Proper fix:** When shared control copy changes, audit the tests that intentionally query accessible names so the verification contract evolves with the UI contract.
+
+**Investigate:**
+If we later decide that `Level` is the wrong label, change the shared component and the tests together; the important part is that the verification layer should describe the live accessible contract, not an obsolete one.
+
+> The stale assertions are in `tests/components/create-dialogs.test.tsx:441` and `tests/components/create-dialogs.test.tsx:794`.
+
+### Notes on reviewed-but-not-promoted reports
+
+- The repeated pasted reports about grouping persistence, due-date list alignment, full-card drag handles, label colors, CSS tokens, XSS in the sidebar description, duplicate empty states, stale label-id writes, dead board-column controls, and `ViewContextMenu.editable` are stale against the current tree; those fixes remain in place.
+- The collection-board progress-bar naming/layering note, dialog overlay opacity, sidebar child unmounting, `today` capture, `dt`/`dd` parent requirement, resize-handle width, `countChildItems()` scale path, and the multi-sync `Clear all` fallback remain follow-up observations rather than blockers in this pass.
+- The current unstaged product changes in `work-surface.tsx`, `work-surface-view.tsx`, `work-item-detail-screen.tsx`, and `work-surface-controls.tsx` did not surface new product defects in the focused rerun; the live failures were confined to the verification layer.
+
+### Recommendations
+
+1. **Fix now:** Align the work-item-detail icon mock and the create-dialog accessible-name assertions with the current UI contract.
+2. **Then rerun:** Re-exercise the work-item-detail and create-dialog suites plus `pnpm typecheck` before committing the branch state.
+
+---
+
+## Turn 17 — 2026-04-20 15:43:34 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `352f760` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The two Turn 16 verification findings are resolved in the working tree. The work-item detail test harness now mocks the icon exports required by the new activity UI, and the create-dialog tests now assert the labeled `Level · <value>` chip contract used by the shared control. Focused reruns of the touched suites and `pnpm typecheck` passed.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `2` |
+
+### Status updates
+
+- `B16-01` Resolved — the work-item detail test harness now includes the `Smiley` and `NotePencil` phosphor exports required by the current activity-thread and description affordances.
+- `B16-02` Resolved — the create-dialog tests now assert the current labeled level-chip accessibility contract instead of the obsolete value-only `Epic` name.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain from this rerun.
+2. Keep the collection-board progress semantics note and the other follow-up UI observations as future polish, not blockers for this branch pass.
+
+### Verification
+
+- `pnpm vitest run tests/components/work-surface.test.tsx`
+- `pnpm vitest run tests/components/work-item-detail-screen.test.tsx`
+- `pnpm vitest run tests/components/create-dialogs.test.tsx`
 - `pnpm typecheck`
