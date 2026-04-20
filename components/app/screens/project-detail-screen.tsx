@@ -471,7 +471,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
               )
 
               return isSavedView ? (
-                <ViewContextMenu key={view.id} view={view} editable={editable}>
+                <ViewContextMenu key={view.id} view={view}>
                   {tabButton}
                 </ViewContextMenu>
               ) : (

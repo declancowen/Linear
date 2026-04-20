@@ -61,8 +61,17 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-surface-view", () => ({
-  BoardView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
-    <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
+  BoardView: ({
+    view,
+    items,
+  }: {
+    view: { grouping: string; subGrouping: string | null }
+    items: unknown[]
+  }) => (
+    <div>
+      <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
+      {items.length === 0 ? <div>Drop here</div> : null}
+    </div>
   ),
   ListView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
     <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
@@ -172,5 +181,32 @@ describe("WorkSurface", () => {
     expect(updateViewConfigSpy).not.toHaveBeenCalled()
 
     updateViewConfigSpy.mockRestore()
+  })
+
+  it("does not render a duplicate surface-level empty state below empty board content", () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      views: [
+        createView({
+          layout: "board",
+          grouping: "status",
+          subGrouping: null,
+        }),
+      ],
+    })
+
+    render(
+      <WorkSurface
+        title="Work"
+        routeKey="/team/platform/work"
+        views={useAppStore.getState().views}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="No work"
+      />
+    )
+
+    expect(screen.getByText("Drop here")).toBeInTheDocument()
+    expect(screen.queryByText("No work")).not.toBeInTheDocument()
   })
 })

@@ -134,7 +134,6 @@ export function ViewContextMenu({
   children,
 }: {
   view: ViewDefinition
-  editable?: boolean
   children: ReactNode
 }) {
   const router = useRouter()

@@ -31,12 +31,16 @@ Files and areas reviewed across all turns:
 - `components/app/screens.tsx` — workspace/team saved-view directory actions
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
 - `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
+- `lib/domain/default-views.ts` — canonical saved-view identity and route helpers
+- `lib/store/app-store-internal/slices/views.ts` — optimistic saved-view creation and mutation gates
 - `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
 - `lib/convex/client/work.ts` — project update route contract typing
 - `lib/server/convex/teams-projects.ts` — project update server contract typing
 - `tests/components/create-dialogs.test.tsx` — create-view route derivation regression coverage
 - `tests/components/entity-context-menus.test.tsx` — per-view saved-view mutation authorization coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
+- `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
+- `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
 ## Review status (updated every turn)
@@ -44,10 +48,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 14:21:40 BST` |
-| **Total turns** | `11` |
+| **Last reviewed** | `2026-04-20 14:55:46 BST` |
+| **Total turns** | `13` |
 | **Open findings** | `0` |
-| **Resolved findings** | `19` |
+| **Resolved findings** | `22` |
 | **Accepted findings** | `0` |
 
 ---
@@ -766,4 +770,132 @@ No new findings in this turn.
 - `pnpm vitest run tests/components/work-surface.test.tsx`
 - `pnpm vitest run tests/components/views-screen.test.tsx`
 - `pnpm vitest run tests/components/project-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 12 — 2026-04-20 14:55:46 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `fe23583` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** This rerun surfaces three live issues in the branch-current tree. One is a presentation-boundary bug where `WorkSurface` renders a second empty state below view-owned empty content. One is a state-shape bug where optimistic saved-view creation drops validated container metadata for project-scoped item views. The last is a resource-identity bug: system-view protection is still keyed off labels/routes instead of canonical ids, which can freeze custom views that happen to reuse names like `All work` or `All projects`.
+
+| Status | Count |
+|--------|-------|
+| Findings | `3` |
+
+### Findings
+
+#### B12-01 [BUG] Medium — `components/app/screens/work-surface.tsx:254` — WorkSurface renders a duplicate empty state below view-owned empty layouts
+
+**What's happening:**
+When an active view exists and `visibleItems` is empty, `WorkSurface` still renders a standalone centered `emptyLabel` block below the active layout.
+
+**Root cause:**
+The surface shell is trying to own empty-state presentation even though the active board/list layouts already render their own empty affordances.
+
+**Codebase implication:**
+Empty board/list views now show two independent empty states at once: the layout-level placeholder and the extra shell-level message below it. This mixes concerns between the shell and the view implementation and produces visibly duplicated empty UI.
+
+**Solution options:**
+1. **Quick fix:** Remove the shell-level empty block for active views.
+2. **Proper fix:** Make each layout own its own empty state and keep `WorkSurface` responsible only for the no-active-view case.
+
+**Investigate:**
+If timeline needs a dedicated empty message, add it inside `TimelineView` rather than keeping a generic shell-level fallback for all layouts.
+
+> The duplicate shell-level empty block is at `work-surface.tsx:254-258`.
+
+#### B12-02 [BUG] High — `lib/store/app-store-internal/slices/views.ts:98` — Optimistic createView drops validated container metadata
+
+**What's happening:**
+`createView()` validates `containerType` and `containerId` through `viewSchema`, but the optimistic `createViewDefinition(...)` call omits both fields when constructing the local view object.
+
+**Root cause:**
+The optimistic state path reconstructs the `ViewDefinition` from a partial subset of validated input instead of carrying the full persisted identity/placement fields forward.
+
+**Codebase implication:**
+Newly created project-item views are temporarily misclassified as top-level saved views until a refresh arrives from the server. Anything that relies on `containerType/containerId` in local state can show the wrong UI immediately after creation.
+
+**Solution options:**
+1. **Quick fix:** Thread `containerType` and `containerId` into the optimistic `createViewDefinition(...)` call.
+2. **Proper fix:** Centralize optimistic view construction so it mirrors the validated create contract instead of hand-selecting fields at each callsite.
+
+**Investigate:**
+Check other optimistic entity creation flows for the same pattern: validated transport fields being silently dropped in the local reconstruction step.
+
+> The optimistic reconstruction currently omits container metadata at `views.ts:98-116`.
+
+#### B12-03 [BUG] High — `lib/domain/default-views.ts:363` — System-view protection still depends on mutable labels and routes
+
+**What's happening:**
+`isSystemView(...)` still treats any matching name/route pair like `All work`, `Active`, `Backlog`, or `All projects` as a built-in system view.
+
+**Root cause:**
+Protection logic is keyed off presentation labels and routes instead of stable canonical identity.
+
+**Codebase implication:**
+A user-created view that legitimately reuses one of the canonical names on a matching route becomes undeletable and unrenamable because both the menu layer and the local mutation guards treat it as a system view even though it is not one of the canonical defaults.
+
+**Solution options:**
+1. **Quick fix:** Identify system views by canonical ids generated by the default-view builders.
+2. **Proper fix:** Model built-in/default status explicitly in view data instead of inferring it from display labels.
+
+**Investigate:**
+Any other logic that infers resource identity from names should be treated similarly; labels are presentation, not authority.
+
+> The label/route-based classification is at `default-views.ts:363-382`.
+
+### Notes on reviewed-but-not-promoted reports
+
+- The grouping-persistence bug, due-date grid placeholder regression, whole-card drag target, label-color hashing, CSS token leaks, sidebar XSS path, dead board-column button, and async label-id race reports are stale against the current tree; they were fixed in earlier passes and remain fixed.
+- The project progress-bar naming/layering comments remain valid observations, but I am still treating them as follow-up clarity work rather than release-blocking defects.
+- The `CreateViewDialog` workspace-scope fallback for top-level item views is still branch-current behavior and is covered by existing tests; I am treating that as an intentional product behavior for this branch unless we explicitly choose to reopen workspace item-view support as a separate change.
+- `CollapsibleRightSidebar` unmounting children, the shell resize-handle width, and the `countChildItems()` O(N²) path remain watchpoints rather than blockers in this rerun.
+
+### Recommendations
+
+1. **Fix first:** Remove the duplicate `WorkSurface` empty state, preserve container metadata in optimistic saved-view creation, and move system-view detection onto canonical ids.
+2. **Then rerun:** Exercise `WorkSurface`, saved-view menu flows, view-slice optimistic creation, and the adjacent screen suites before committing.
+
+---
+
+## Turn 13 — 2026-04-20 14:55:46 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `fe23583` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The three Turn 12 findings are resolved in the working tree. `WorkSurface` no longer appends a second shell-level empty state under empty layouts, optimistic `createView` now preserves `containerType/containerId`, and system-view protection now keys off canonical built-in ids rather than mutable labels. A small follow-on cleanup also removed the now-misleading `editable` prop from `ViewContextMenu` and its callers. Focused regression tests plus adjacent screen suites and `pnpm typecheck` all passed.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `3` |
+
+### Status updates
+
+- `B12-01` Resolved — the shell-level empty-state block for active views was removed from `WorkSurface`, so empty board/list layouts no longer show a duplicate message below their own empty affordances.
+- `B12-02` Resolved — optimistic saved-view creation now carries validated `containerType` and `containerId` into `createViewDefinition(...)`, preserving project-view placement in local state before the server round-trip completes.
+- `B12-03` Resolved — `isSystemView(...)` now recognizes only canonical built-in ids, so custom views that reuse labels like `All work` or `All projects` remain renameable and deletable.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain in this review slice after the Turn 12 fixes and rerun.
+2. Leave the progress-bar naming/layering notes, workspace item-view scope behavior, sidebar unmount tradeoff, and `countChildItems()` scale path as follow-up review topics rather than blockers for this pass.
+
+### Verification
+
+- `pnpm vitest run tests/components/work-surface.test.tsx`
+- `pnpm vitest run tests/components/entity-context-menus.test.tsx`
+- `pnpm vitest run tests/lib/store/view-slice.test.ts tests/lib/domain/default-views.test.ts`
+- `pnpm vitest run tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/create-dialogs.test.tsx`
 - `pnpm typecheck`

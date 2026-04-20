@@ -169,7 +169,7 @@ export function WorkSurface({
                   {view.name}
                 </button>
               ) : (
-                <ViewContextMenu key={view.id} view={view} editable={editable}>
+                <ViewContextMenu key={view.id} view={view}>
                   <button
                     className={cn(
                       "h-7 rounded-md px-2 text-[12px] transition-colors",
@@ -291,11 +291,6 @@ export function WorkSurface({
             ) : null}
           </div>
         )}
-        {compatibleActiveView && visibleItems.length === 0 ? (
-          <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
-            {emptyLabel}
-          </div>
-        ) : null}
       </div>
     </div>
   )

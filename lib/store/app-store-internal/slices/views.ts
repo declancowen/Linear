@@ -120,6 +120,8 @@ export function createViewSlice(
         scopeType: parsed.data.scopeType,
         scopeId: parsed.data.scopeId,
         entityKind: parsed.data.entityKind,
+        containerType: parsed.data.containerType,
+        containerId: parsed.data.containerId,
         route: parsed.data.route,
         teamSlug: team?.slug,
         experience: team?.settings.experience,

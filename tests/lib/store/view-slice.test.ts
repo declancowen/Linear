@@ -137,6 +137,60 @@ describe("view slice", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("View created")
   })
 
+  it("preserves container metadata on the optimistic view", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockImplementation(async (_currentUserId, input) => ({
+      ok: true,
+      viewId: input.id ?? null,
+    }))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+      name: "Billing queue",
+      description: "Tracks the billing project",
+    })
+
+    expect(createdViewId).toBeTruthy()
+    expect(state.views[0]).toMatchObject({
+      id: createdViewId,
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+    })
+
+    await backgroundTask
+  })
+
   it("reconciles from the server if the persisted view id differs", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"

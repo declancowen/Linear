@@ -189,7 +189,7 @@ export function SavedViewsBoard({
   return (
     <div className="grid gap-3.5 px-7 py-4 sm:grid-cols-2 xl:grid-cols-3">
       {views.map((view) => (
-        <ViewContextMenu key={view.id} view={view} editable={editable}>
+        <ViewContextMenu key={view.id} view={view}>
           <Link
             className="group flex h-full min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
             href={getViewHref(view)}

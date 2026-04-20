@@ -360,33 +360,20 @@ export function sortViewsForDisplay(views: ViewDefinition[]) {
   })
 }
 
-export function isSystemView(view: Pick<ViewDefinition, "name" | "route" | "entityKind">) {
-  if (view.entityKind === "projects") {
-    return (
-      view.name === "All projects" &&
-      (view.route === "/workspace/projects" || /\/team\/[^/]+\/projects$/.test(view.route))
-    )
+function isCanonicalSystemViewId(id: string, entityKind: ViewDefinition["entityKind"]) {
+  if (entityKind === "projects") {
+    return /^view_.+_all_projects$/.test(id)
   }
 
-  if (view.entityKind === "items") {
-    if (
-      view.name !== "All work" &&
-      view.name !== "All issues" &&
-      view.name !== "All tasks" &&
-      view.name !== "Active" &&
-      view.name !== "Backlog"
-    ) {
-      return false
-    }
-
-    return (
-      /\/team\/[^/]+\/work$/.test(view.route) ||
-      /\/team\/[^/]+\/projects\/[^/]+$/.test(view.route) ||
-      /\/workspace\/projects\/[^/]+$/.test(view.route)
-    )
+  if (entityKind === "items") {
+    return /^view_.+_(all|active|backlog)_items$/.test(id)
   }
 
   return false
+}
+
+export function isSystemView(view: Pick<ViewDefinition, "id" | "entityKind">) {
+  return isCanonicalSystemViewId(view.id, view.entityKind)
 }
 
 export function getViewHref(view: ViewDefinition) {

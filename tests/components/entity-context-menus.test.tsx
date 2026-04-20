@@ -201,7 +201,6 @@ describe("ViewContextMenu", () => {
           scopeId: "team_2",
           route: "/team/design/work",
         })}
-        editable
       >
         <button type="button">Open</button>
       </ViewContextMenu>
@@ -222,7 +221,23 @@ describe("ViewContextMenu", () => {
           scopeId: "workspace_1",
           route: "/workspace/projects",
         })}
-        editable
+      >
+        <button type="button">Open</button>
+      </ViewContextMenu>
+    )
+
+    expect(screen.getByText("Rename view")).toBeInTheDocument()
+    expect(screen.getByText("Delete view")).toBeInTheDocument()
+  })
+
+  it("allows custom views that reuse a system label", () => {
+    render(
+      <ViewContextMenu
+        view={createView({
+          id: "view_custom_1",
+          name: "All work",
+          route: "/team/platform/work",
+        })}
       >
         <button type="button">Open</button>
       </ViewContextMenu>

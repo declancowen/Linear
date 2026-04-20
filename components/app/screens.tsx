@@ -317,7 +317,7 @@ export function ProjectsScreen({
                     {view.name}
                   </button>
                 ) : (
-                  <ViewContextMenu key={view.id} view={view} editable={editable}>
+                  <ViewContextMenu key={view.id} view={view}>
                     <button
                       className={cn(
                         "h-6 rounded-sm px-2 text-xs transition-colors",
@@ -597,7 +597,7 @@ export function ViewsScreen({
               </TableHeader>
               <TableBody>
                 {orderedViews.map((view) => (
-                  <ViewContextMenu key={view.id} view={view} editable={editable}>
+                  <ViewContextMenu key={view.id} view={view}>
                     <TableRow>
                       <TableCell>
                         <div className="flex flex-col gap-0.5">
