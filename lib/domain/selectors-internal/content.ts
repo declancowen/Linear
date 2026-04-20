@@ -1,5 +1,10 @@
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
-import type { AppData, Document, ViewDefinition } from "@/lib/domain/types"
+import type {
+  AppData,
+  Document,
+  Project,
+  ViewDefinition,
+} from "@/lib/domain/types"
 
 import {
   canEditTeam,
@@ -116,6 +121,14 @@ export function canMutateView(data: AppData, view: ViewDefinition) {
   }
 
   return canEditWorkspace(data, view.scopeId)
+}
+
+export function canMutateProject(data: AppData, project: Project) {
+  if (project.scopeType === "team") {
+    return canEditTeam(data, project.scopeId)
+  }
+
+  return canEditWorkspace(data, project.scopeId)
 }
 
 export function getDocumentsForScope(

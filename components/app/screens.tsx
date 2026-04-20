@@ -394,11 +394,7 @@ export function ProjectsScreen({
         {visibleProjects.length === 0 ? (
           <MissingState title={emptyProjectsLabel} />
         ) : layout === "board" ? (
-          <ProjectBoard
-            data={data}
-            projects={visibleProjects}
-            editable={editable}
-          />
+          <ProjectBoard data={data} projects={visibleProjects} />
         ) : (
           <div className="flex flex-col">
             {visibleProjects.map((project) => {
@@ -408,7 +404,6 @@ export function ProjectsScreen({
                   key={project.id}
                   data={data}
                   project={project}
-                  editable={editable}
                 >
                   <Link
                     className="group flex items-center gap-4 border-b border-line-soft px-7 py-2 transition-colors hover:bg-surface-2"

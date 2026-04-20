@@ -71,12 +71,16 @@ vi.mock("@phosphor-icons/react", () => ({
   Trash: () => null,
 }))
 
-import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
+import {
+  ProjectContextMenu,
+  ViewContextMenu,
+} from "@/components/app/screens/entity-context-menus"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultViewFilters,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
+  type Project,
   type ViewDefinition,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
@@ -103,6 +107,28 @@ function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
     },
     isShared: true,
     route: "/team/platform/work",
+    createdAt: "2026-04-20T12:00:00.000Z",
+    updatedAt: "2026-04-20T12:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function createProject(overrides?: Partial<Project>): Project {
+  return {
+    id: "project_1",
+    scopeType: "team",
+    scopeId: "team_1",
+    templateType: "software-delivery",
+    name: "Platform roadmap",
+    summary: "",
+    description: "",
+    leadId: "user_1",
+    memberIds: [],
+    health: "on-track",
+    priority: "medium",
+    status: "backlog",
+    startDate: null,
+    targetDate: null,
     createdAt: "2026-04-20T12:00:00.000Z",
     updatedAt: "2026-04-20T12:00:00.000Z",
     ...overrides,
@@ -245,5 +271,54 @@ describe("ViewContextMenu", () => {
 
     expect(screen.getByText("Rename view")).toBeInTheDocument()
     expect(screen.getByText("Delete view")).toBeInTheDocument()
+  })
+})
+
+describe("ProjectContextMenu", () => {
+  beforeEach(() => {
+    seedState()
+  })
+
+  afterEach(() => {
+    useAppStore.setState(createEmptyState())
+    vi.clearAllMocks()
+  })
+
+  it("hides rename and delete for team projects the user cannot edit", () => {
+    render(
+      <ProjectContextMenu
+        data={useAppStore.getState()}
+        project={createProject({
+          id: "project_design",
+          name: "Design system refresh",
+          scopeId: "team_2",
+        })}
+      >
+        <button type="button">Open</button>
+      </ProjectContextMenu>
+    )
+
+    expect(screen.getByText("Open project")).toBeInTheDocument()
+    expect(screen.queryByText("Rename project")).not.toBeInTheDocument()
+    expect(screen.queryByText("Delete project")).not.toBeInTheDocument()
+  })
+
+  it("keeps rename and delete for workspace-scoped projects when the workspace is editable", () => {
+    render(
+      <ProjectContextMenu
+        data={useAppStore.getState()}
+        project={createProject({
+          id: "project_workspace",
+          name: "Workspace roadmap",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+        })}
+      >
+        <button type="button">Open</button>
+      </ProjectContextMenu>
+    )
+
+    expect(screen.getByText("Rename project")).toBeInTheDocument()
+    expect(screen.getByText("Delete project")).toBeInTheDocument()
   })
 })

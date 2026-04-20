@@ -10,7 +10,11 @@ import {
 } from "@phosphor-icons/react"
 
 import { useAppStore } from "@/lib/store/app-store"
-import { canMutateView, getProjectHref } from "@/lib/domain/selectors"
+import {
+  canMutateProject,
+  canMutateView,
+  getProjectHref,
+} from "@/lib/domain/selectors"
 import { getViewHref, isSystemView } from "@/lib/domain/default-views"
 import type { AppData, Project, ViewDefinition } from "@/lib/domain/types"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
@@ -212,12 +216,10 @@ export function ViewContextMenu({
 export function ProjectContextMenu({
   data,
   project,
-  editable,
   children,
 }: {
   data: AppData
   project: Project
-  editable: boolean
   children: ReactNode
 }) {
   const router = useRouter()
@@ -226,6 +228,7 @@ export function ProjectContextMenu({
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const href = getProjectHref(data, project) ?? "/workspace/projects"
+  const canMutate = canMutateProject(data, project)
 
   return (
     <>
@@ -238,7 +241,7 @@ export function ProjectContextMenu({
             <ArrowSquareOut className="size-4" />
             Open project
           </ContextMenuItem>
-          {editable ? (
+          {canMutate ? (
             <>
               <ContextMenuItem
                 onSelect={(event) => {

@@ -51,11 +51,9 @@ const projectIconTint: Record<Project["health"], string> = {
 export function ProjectBoard({
   data,
   projects,
-  editable,
 }: {
   data: AppData
   projects: Project[]
-  editable: boolean
 }) {
   const today = new Date()
 
@@ -78,7 +76,6 @@ export function ProjectBoard({
             key={project.id}
             data={data}
             project={project}
-            editable={editable}
           >
             <Link
               className="group flex min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"

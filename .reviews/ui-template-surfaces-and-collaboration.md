@@ -33,6 +33,7 @@ Files and areas reviewed across all turns:
 - `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
 - `lib/domain/default-views.ts` — canonical saved-view identity and route helpers
 - `lib/store/app-store-internal/slices/views.ts` — optimistic saved-view creation and mutation gates
+- `lib/date-input.ts` — calendar-date parsing and chip-label formatting for date input values
 - `components/ui/collapsible-right-sidebar.tsx` — sidebar mount/unmount behavior
 - `lib/convex/client/work.ts` — project update route contract typing
 - `lib/server/convex/teams-projects.ts` — project update server contract typing
@@ -41,6 +42,7 @@ Files and areas reviewed across all turns:
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
 - `tests/lib/store/view-slice.test.ts` — optimistic saved-view creation regression coverage
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
+- `tests/lib/date-input.test.ts` — date-only input formatting regression coverage
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
 ## Review status (updated every turn)
@@ -48,10 +50,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 14:55:46 BST` |
-| **Total turns** | `13` |
+| **Last reviewed** | `2026-04-20 15:19:30 BST` |
+| **Total turns** | `15` |
 | **Open findings** | `0` |
-| **Resolved findings** | `22` |
+| **Resolved findings** | `24` |
 | **Accepted findings** | `0` |
 
 ---
@@ -898,4 +900,111 @@ No new findings in this turn.
 - `pnpm vitest run tests/components/entity-context-menus.test.tsx`
 - `pnpm vitest run tests/lib/store/view-slice.test.ts tests/lib/domain/default-views.test.ts`
 - `pnpm vitest run tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/create-dialogs.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 14 — 2026-04-20 15:19:30 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `14716a7` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** This rerun surfaces two live issues in the branch-current tree. The first is another authorization-boundary leak: workspace project directories can mix workspace and team-scoped projects, but destructive project actions are still gated by one page-level `editable` flag instead of the project’s actual scope. The second is a date-only value handling bug in both creation flows: chip labels format `input[type="date"]` strings through `new Date(value)`, which treats `YYYY-MM-DD` as UTC and can render the prior day in negative UTC offsets.
+
+| Status | Count |
+|--------|-------|
+| Findings | `2` |
+
+### Findings
+
+#### B14-01 [BUG] Medium — `components/app/screens.tsx:407` — Project mutation affordances still inherit page-level editability in mixed-scope directories
+
+**What's happening:**
+Workspace project directories render `ProjectContextMenu` with the page-level `editable` flag even though the directory can include a mix of workspace-scoped projects and team-scoped projects from accessible teams.
+
+**Root cause:**
+Mutation authorization is still being decided at the container/page layer instead of at the project resource boundary.
+
+**Codebase implication:**
+If a user can edit the workspace directory but only has read-only access in one of the included teams, that team’s projects still show rename/delete actions locally and then fail server-side on mutation. This is the same cross-scope permission leak pattern that previously affected saved views.
+
+**Solution options:**
+1. **Quick fix:** Derive a `canMutateProject(data, project)` selector and gate project menu actions off the project’s own scope.
+2. **Proper fix:** Remove page-level mutability props from `ProjectContextMenu` entirely so mutation UI can only be authorized from resource-aware selectors.
+
+**Investigate:**
+Any other mixed-scope collection surface that passes one `editable` flag into per-entity destructive actions should be reviewed for the same leak.
+
+> The page-level prop flow is visible at `screens.tsx:397-411`, with the destructive gating still inside `entity-context-menus.tsx:212-246`.
+
+#### B14-02 [BUG] Medium — `components/app/screens/create-work-item-dialog.tsx:150` — Date chip labels parse date-input values as UTC instants instead of calendar dates
+
+**What's happening:**
+Both create dialogs format `YYYY-MM-DD` values from `input[type="date"]` with `new Date(value)`, then render the chip label from that timestamp.
+
+**Root cause:**
+Date-only form values are being coerced through the JavaScript timestamp model instead of being treated as calendar values.
+
+**Codebase implication:**
+For users west of UTC, the chip can show one day earlier than the chosen value. That misleads users in the create flow and can push them to compensate manually, resulting in the wrong saved date. The duplication across work-item and project creation also makes future drift more likely.
+
+**Solution options:**
+1. **Quick fix:** Parse the `YYYY-MM-DD` string into local calendar parts before formatting.
+2. **Proper fix:** Centralize date-input parsing/formatting in a shared helper so date-only values never flow through `new Date(value)` in UI code.
+
+**Investigate:**
+Search other create/edit surfaces for `new Date(<date-input-string>)`; any date-only form value should be modeled as a calendar date, not as an instant.
+
+> The duplicated helper lives at `create-work-item-dialog.tsx:150-158` and `project-creation.tsx:137-148`.
+
+### Notes on reviewed-but-not-promoted reports
+
+- The repeated `WorkSurface` duplicate empty-state, grouping-persistence, due-date grid placeholder, full-card drag target, label-color hashing, template-only CSS token leaks, sidebar XSS path, stale label-id append, dead board-column button, and ignored `ViewContextMenu.editable` reports are stale against the current tree; those fixes remain in place.
+- The progress-bar layering/naming comments, dialog overlay darkness, sidebar child unmounting, `today` capture, `dt`/`dd` structural requirement, resize-handle width, property clear-all sync pattern, `countChildItems()` scaling path, and duplicated create-effect logic remain valid observations or follow-up refactors, but I am not promoting them as blockers in this pass.
+- The workspace item-view scope behavior in `CreateViewDialog` remains branch-current product behavior and is covered by existing tests; I am not reopening that scope decision here.
+
+### Recommendations
+
+1. **Fix first:** Move project mutation rights to a per-project selector and remove the page-level mutability prop from `ProjectContextMenu`.
+2. **Then fix:** Replace the duplicated `new Date(value)` chip helpers with a shared date-only formatter/parser.
+3. **After that:** Re-run the affected menu/create-dialog suites, add a direct regression test for the date-only helper, and then append a clean rerun turn before committing.
+
+---
+
+## Turn 15 — 2026-04-20 15:19:30 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `14716a7` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The two Turn 14 findings are resolved in the working tree. Project rename/delete affordances now derive from each project’s own scope via a shared selector instead of inheriting page-level editability, and both creation dialogs now share a date-only formatting helper that treats `YYYY-MM-DD` values as calendar dates rather than UTC timestamps. Focused regression tests and `pnpm typecheck` passed.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `2` |
+
+### Status updates
+
+- `B14-01` Resolved — `ProjectContextMenu` no longer accepts a page-level `editable` prop; it now gates destructive actions through `canMutateProject(data, project)`, and the mixed-scope project directory callers stopped threading container-level mutability into per-project actions.
+- `B14-02` Resolved — work-item and project creation now share `lib/date-input.ts`, which parses `YYYY-MM-DD` values as calendar dates and formats chip labels without timezone drift.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. No open findings remain from this rerun.
+2. Keep the progress-bar semantics note and the broader create-flow cleanup observations as follow-up refactors unless a later pass turns them into user-visible regressions.
+
+### Verification
+
+- `pnpm vitest run tests/components/entity-context-menus.test.tsx`
+- `pnpm vitest run tests/components/create-dialogs.test.tsx`
+- `pnpm vitest run tests/lib/date-input.test.ts`
+- `pnpm vitest run tests/components/views-screen.test.tsx`
 - `pnpm typecheck`

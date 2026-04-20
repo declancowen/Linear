@@ -1,6 +1,5 @@
 "use client"
 
-import { format } from "date-fns"
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
@@ -20,6 +19,7 @@ import {
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
+import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   canParentWorkItemTypeAcceptChild,
   getAllowedWorkItemTypesForTemplate,
@@ -145,17 +145,6 @@ function matchesQuery(value: string, query: string) {
     return true
   }
   return value.toLowerCase().includes(query.toLowerCase())
-}
-
-function formatDateChipLabel(
-  value: string | null | undefined,
-  emptyLabel: string
-) {
-  if (!value) {
-    return emptyLabel
-  }
-
-  return format(new Date(value), "MMM d")
 }
 
 const chipTriggerClass =

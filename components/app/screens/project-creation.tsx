@@ -7,7 +7,6 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { format } from "date-fns"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarDots,
@@ -26,6 +25,7 @@ import {
   getTemplateDefaultsForTeam,
   getVisibleWorkItems,
 } from "@/lib/domain/selectors"
+import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   createDefaultProjectPresentationConfig,
   getDefaultTemplateTypeForTeamExperience,
@@ -132,20 +132,6 @@ function toggleSelection(current: string[], value: string) {
   return current.includes(value)
     ? current.filter((entry) => entry !== value)
     : [...current, value]
-}
-
-function formatDateChipLabel(value: string | null | undefined, emptyLabel: string) {
-  if (!value) {
-    return emptyLabel
-  }
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return emptyLabel
-  }
-
-  return format(date, "MMM d")
 }
 
 function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
