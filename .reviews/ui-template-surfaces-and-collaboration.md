@@ -1422,3 +1422,73 @@ No new findings in this turn.
 - `pnpm vitest run tests/lib/store/view-slice.test.ts tests/lib/store/project-slice.test.ts tests/lib/domain/project-views.test.ts`
 - `pnpm vitest run tests/components/create-dialogs.test.tsx`
 - `pnpm typecheck`
+
+---
+
+## Turn 24 — 2026-04-20 18:34:11 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `ff1236c` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The current tree already resolves the previously reported project-status persistence mismatch, so that finding is stale. The live regression in this pass is the fallback `ProjectsScreen` path: when no saved project view exists, the screen builds an ephemeral view object and renders the project layout/filter/group/sort/properties controls against it, but those controls default to persisted store mutations by `view.id`. Because the fallback view is never stored, those mutations are no-ops. In practice the project viewbar only works once a real saved project view exists; without one, layout stays stuck on list and the other controls silently fail as well.
+
+| Status | Count |
+|--------|-------|
+| Findings | `1` |
+
+### Findings
+
+#### B24-01 [BUG] Medium — `components/app/screens.tsx:1225` — Fallback project view controls mutate a non-existent saved view
+
+**What's happening:**
+`ProjectsScreen` uses `useCollectionLayout()` plus a synthesized `fallbackProjectView` whenever there are no saved project views for the current scope. The rendered project controls (`ProjectLayoutTabs`, `ProjectFilterPopover`, `GroupChipPopover`, `ProjectSortChipPopover`, and `PropertiesChipPopover`) are given that fallback view, but no local callback overrides. Each control therefore falls back to `updateViewConfig`, `toggleViewFilterValue`, or related persisted store actions keyed by `view.id`.
+
+**Root cause:**
+The screen mixes two view lifecycles without drawing the boundary explicitly:
+1. persisted saved project views that should write through the store; and
+2. ephemeral fallback project presentation state that exists only inside the screen.
+
+`ProjectDetailScreen` already handles this distinction by swapping to local update callbacks whenever the active project-items view is not persisted, but `ProjectsScreen` never adopted the same pattern.
+
+**Codebase implication:**
+The bug is broader than the visible “layout tabs stuck on list” symptom. Any project-viewbar action in the no-saved-view state mutates a non-existent record, so the screen becomes effectively read-only until the user creates a saved project view. That is a presentation-state boundary regression, not a one-off tab bug.
+
+**Solution options:**
+1. **Quick fix:** Pass local fallback handlers from `ProjectsScreen` into every project viewbar control whenever `activeView` is null.
+2. **Proper fix:** Extract a shared “ephemeral view controller” pattern for screens that can operate without a persisted saved view so the fallback/persisted boundary is implemented consistently across project, item, and create flows.
+
+### Recommendations
+
+1. Mirror the `ProjectDetailScreen` fallback-view pattern here instead of patching just the layout tabs.
+2. Add a regression test that exercises `ProjectsScreen` with zero saved project views and confirms the viewbar still updates locally.
+
+---
+
+## Turn 25 — 2026-04-20 18:34:11 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `ff1236c` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The `ProjectsScreen` fallback-view regression is resolved in the working tree. The screen now keeps local project-view state for filters, grouping, ordering, and display properties alongside the existing local layout state, and it passes those local handlers into the project viewbar controls whenever there is no persisted saved project view. Persisted project views still write through the store unchanged. Regression coverage was added to verify the no-saved-view path updates layout, grouping, filters, and properties locally.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `1` |
+
+### Status updates
+
+- `B24-01` Resolved — `ProjectsScreen` now mirrors the `ProjectDetailScreen` fallback-view pattern by keeping local view config state and injecting local callbacks into `ProjectLayoutTabs`, `ProjectFilterPopover`, `GroupChipPopover`, `ProjectSortChipPopover`, and `PropertiesChipPopover` when no saved project view exists.
+
+### Findings
+
+No new findings in this turn.
+
+### Verification
+
+- `pnpm vitest run tests/components/views-screen.test.tsx`
+- `pnpm typecheck`

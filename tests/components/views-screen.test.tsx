@@ -8,7 +8,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
-import { ViewsScreen } from "@/components/app/screens"
+import { ProjectsScreen, ViewsScreen } from "@/components/app/screens"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
@@ -140,13 +140,97 @@ vi.mock("@/components/app/screens/document-ui", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
-  GroupChipPopover: () => null,
-  PROJECT_DISPLAY_PROPERTY_OPTIONS: [],
-  PROJECT_GROUP_OPTIONS: [],
-  ProjectFilterPopover: () => null,
-  ProjectLayoutTabs: () => null,
-  ProjectSortChipPopover: () => null,
-  PropertiesChipPopover: () => null,
+  GroupChipPopover: ({
+    onUpdateView,
+    view,
+  }: {
+    onUpdateView?: (patch: { grouping?: string }) => void
+    view: ViewDefinition
+  }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onUpdateView?.({
+          grouping: view.grouping === "status" ? "priority" : "status",
+        })
+      }
+    >
+      {`Group:${view.grouping}`}
+    </button>
+  ),
+  PROJECT_DISPLAY_PROPERTY_OPTIONS: [
+    "id",
+    "status",
+    "assignee",
+    "priority",
+    "updated",
+    "dueDate",
+  ],
+  PROJECT_GROUP_OPTIONS: ["status", "priority"],
+  ProjectFilterPopover: ({
+    onToggleFilterValue,
+    view,
+  }: {
+    onToggleFilterValue?: (key: "status", value: string) => void
+    view: ViewDefinition
+  }) => (
+    <button
+      type="button"
+      onClick={() => onToggleFilterValue?.("status", "in-progress")}
+    >
+      {`Status filters:${view.filters.status.join(",") || "none"}`}
+    </button>
+  ),
+  ProjectLayoutTabs: ({
+    onUpdateView,
+    view,
+  }: {
+    onUpdateView?: (patch: { layout?: "list" | "board" }) => void
+    view: ViewDefinition
+  }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onUpdateView?.({
+          layout: view.layout === "list" ? "board" : "list",
+        })
+      }
+    >
+      {`Layout:${view.layout}`}
+    </button>
+  ),
+  ProjectSortChipPopover: ({
+    onUpdateView,
+    view,
+  }: {
+    onUpdateView?: (patch: { ordering?: string }) => void
+    view: ViewDefinition
+  }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onUpdateView?.({
+          ordering: view.ordering === "priority" ? "updatedAt" : "priority",
+        })
+      }
+    >
+      {`Sort:${view.ordering}`}
+    </button>
+  ),
+  PropertiesChipPopover: ({
+    onToggleDisplayProperty,
+    view,
+  }: {
+    onToggleDisplayProperty?: (property: "dueDate") => void
+    view: ViewDefinition
+  }) => (
+    <button
+      type="button"
+      onClick={() => onToggleDisplayProperty?.("dueDate")}
+    >
+      {`Props:${view.displayProps.join(",")}`}
+    </button>
+  ),
   getGroupFieldOptionLabel: (value: string) => value,
 }))
 
@@ -379,5 +463,72 @@ describe("ViewsScreen", () => {
     const firstDialog = vi.mocked(openManagedCreateDialog).mock
       .calls[0]?.[0] as Extract<CreateDialogState, { kind: "view" }> | undefined
     expect(firstDialog?.lockScope).toBeUndefined()
+  })
+
+  it("keeps fallback project view controls local when no saved project view exists", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [],
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Launch",
+          summary: "",
+          description: "",
+          leadId: "user_1",
+          memberIds: [],
+          health: "on-track",
+          priority: "medium",
+          status: "in-progress",
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-18T09:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+          presentation: undefined,
+        },
+      ],
+    }))
+
+    render(
+      <ProjectsScreen
+        scopeId="team_1"
+        scopeType="team"
+        team={useAppStore.getState().teams[0]}
+        title="Projects"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Layout:list" }))
+    expect(
+      screen.getByRole("button", { name: "Layout:board" })
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Group:status" }))
+    expect(
+      screen.getByRole("button", { name: "Group:priority" })
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Status filters:none" })
+    )
+    expect(
+      screen.getByRole("button", {
+        name: "Status filters:in-progress",
+      })
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Props:id,status,assignee,priority,updated",
+      })
+    )
+    expect(
+      screen.getByRole("button", {
+        name: "Props:id,status,assignee,priority,updated,dueDate",
+      })
+    ).toBeInTheDocument()
   })
 })

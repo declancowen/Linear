@@ -67,6 +67,10 @@ import {
   ViewContextMenu,
 } from "@/components/app/screens/entity-context-menus"
 export { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
+import {
+  createEmptyViewFilters,
+  type ViewFilterKey,
+} from "@/components/app/screens/helpers"
 import { DocumentBoard } from "@/components/app/screens/collection-boards"
 import { WorkSurface } from "@/components/app/screens/work-surface"
 import { getViewHref } from "@/lib/domain/default-views"
@@ -78,6 +82,7 @@ import {
   ProjectLayoutTabs,
   ProjectSortChipPopover,
   PropertiesChipPopover,
+  type ViewConfigPatch,
   getGroupFieldOptionLabel,
 } from "@/components/app/screens/work-surface-controls"
 import {
@@ -192,6 +197,14 @@ const PROJECT_STATUS_ORDER = [
   "completed",
   "cancelled",
 ] as const
+
+const DEFAULT_PROJECT_DISPLAY_PROPS: DisplayProperty[] = [
+  "id",
+  "status",
+  "assignee",
+  "priority",
+  "updated",
+]
 
 const DEFAULT_VIEW_DIRECTORY_PROPERTIES: ViewsDirectoryProperty[] = [
   "description",
@@ -1066,10 +1079,22 @@ export function ProjectsScreen({
     routeKey,
     projectViews
   )
+  const [projectFilters, setProjectFilters] = useState(() =>
+    createEmptyViewFilters()
+  )
+  const [projectGrouping, setProjectGrouping] = useState<GroupField>("status")
+  const [projectSubGrouping, setProjectSubGrouping] =
+    useState<GroupField | null>(null)
+  const [projectOrdering, setProjectOrdering] =
+    useState<ViewDefinition["ordering"]>("priority")
+  const [projectDisplayProperties, setProjectDisplayProperties] = useState<
+    DisplayProperty[]
+  >(DEFAULT_PROJECT_DISPLAY_PROPS)
   const editable = useAppStore((state) =>
     team ? canEditTeam(state, team.id) : canEditWorkspace(state, scopeId)
   )
   const canCreateProject = editable
+  const hasSavedProjectView = activeView !== null
   const fallbackProjectView = useMemo(() => {
     const timestamp = new Date().toISOString()
 
@@ -1087,10 +1112,26 @@ export function ProjectsScreen({
         updatedAt: timestamp,
         overrides: {
           layout,
+          filters: projectFilters,
+          grouping: projectGrouping,
+          subGrouping: projectSubGrouping,
+          ordering: projectOrdering,
+          displayProps: projectDisplayProperties,
         },
       }) ?? null
     )
-  }, [layout, routeKey, scopeId, scopeType, team])
+  }, [
+    layout,
+    projectDisplayProperties,
+    projectFilters,
+    projectGrouping,
+    projectOrdering,
+    projectSubGrouping,
+    routeKey,
+    scopeId,
+    scopeType,
+    team,
+  ])
   const displayedProjectViews =
     projectViews.length > 0
       ? projectViews
@@ -1146,6 +1187,67 @@ export function ProjectsScreen({
     projects.length === 0
       ? "No projects yet"
       : "No projects match the current view."
+
+  function updateProjectView(patch: ViewConfigPatch) {
+    if (patch.layout) {
+      setLayout(patch.layout === "board" ? "board" : "list")
+    }
+
+    if (patch.grouping) {
+      setProjectGrouping(patch.grouping)
+    }
+
+    if ("subGrouping" in patch) {
+      setProjectSubGrouping(patch.subGrouping ?? null)
+    }
+
+    if (patch.ordering) {
+      setProjectOrdering(patch.ordering)
+    }
+
+    if (patch.showCompleted !== undefined) {
+      setProjectFilters((current) => ({
+        ...current,
+        showCompleted: patch.showCompleted ?? true,
+      }))
+    }
+  }
+
+  function toggleProjectFilterValue(key: ViewFilterKey, value: string) {
+    setProjectFilters((current) => {
+      const nextFilters = { ...current } as ViewDefinition["filters"]
+      const currentValues = nextFilters[key] as string[]
+      const nextValues = currentValues.includes(value)
+        ? currentValues.filter((entry) => entry !== value)
+        : [...currentValues, value]
+
+      nextFilters[key] = nextValues as never
+      return nextFilters
+    })
+  }
+
+  function clearProjectFilters() {
+    setProjectFilters((current) => ({
+      ...createEmptyViewFilters(),
+      showCompleted: current.showCompleted,
+    }))
+  }
+
+  function toggleProjectDisplayProperty(property: DisplayProperty) {
+    setProjectDisplayProperties((current) =>
+      current.includes(property)
+        ? current.filter((value) => value !== property)
+        : [...current, property]
+    )
+  }
+
+  function reorderProjectDisplayProperties(displayProps: DisplayProperty[]) {
+    setProjectDisplayProperties(displayProps)
+  }
+
+  function clearProjectDisplayProperties() {
+    setProjectDisplayProperties([])
+  }
 
   if (team && !teamHasFeature(team, "projects")) {
     return <MissingState title="Projects are disabled for this team" />
@@ -1222,23 +1324,45 @@ export function ProjectsScreen({
       </Topbar>
       {effectiveProjectView ? (
         <Viewbar>
-          <ProjectLayoutTabs view={effectiveProjectView} />
+          <ProjectLayoutTabs
+            view={effectiveProjectView}
+            onUpdateView={hasSavedProjectView ? undefined : updateProjectView}
+          />
           <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
           <ProjectFilterPopover
             view={effectiveProjectView}
             projects={projects}
             variant="chip"
+            onToggleFilterValue={
+              hasSavedProjectView ? undefined : toggleProjectFilterValue
+            }
+            onClearFilters={hasSavedProjectView ? undefined : clearProjectFilters}
           />
           <GroupChipPopover
             view={effectiveProjectView}
             getOptionLabel={getProjectGroupOptionLabel}
             groupOptions={PROJECT_GROUP_OPTIONS}
+            onUpdateView={hasSavedProjectView ? undefined : updateProjectView}
           />
-          <ProjectSortChipPopover view={effectiveProjectView} />
+          <ProjectSortChipPopover
+            view={effectiveProjectView}
+            onUpdateView={hasSavedProjectView ? undefined : updateProjectView}
+          />
           <PropertiesChipPopover
             view={effectiveProjectView}
             getPropertyLabel={getProjectPropertyLabel}
             propertyOptions={PROJECT_DISPLAY_PROPERTY_OPTIONS}
+            onToggleDisplayProperty={
+              hasSavedProjectView ? undefined : toggleProjectDisplayProperty
+            }
+            onReorderDisplayProperties={
+              hasSavedProjectView
+                ? undefined
+                : reorderProjectDisplayProperties
+            }
+            onClearDisplayProperties={
+              hasSavedProjectView ? undefined : clearProjectDisplayProperties
+            }
           />
           <div className="ml-auto flex items-center gap-1.5">
             {canCreateProject ? (
