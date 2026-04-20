@@ -422,6 +422,11 @@ export function createWorkItemActions({
       }
 
       let createdItemId: string | null = null
+      const resolvedStartDate =
+        parsed.data.startDate ?? formatLocalCalendarDate()
+      const resolvedDueDate = parsed.data.dueDate ?? addLocalCalendarDays(7)
+      const resolvedTargetDate =
+        parsed.data.targetDate ?? addLocalCalendarDays(10)
 
       set((state) => {
         const role = effectiveRole(state, parsed.data.teamId)
@@ -482,10 +487,9 @@ export function createWorkItemActions({
           linkedDocumentIds: [],
           labelIds: parsed.data.labelIds ?? [],
           milestoneId: null,
-          startDate: parsed.data.startDate ?? formatLocalCalendarDate(),
-          dueDate: addLocalCalendarDays(7),
-          targetDate:
-            parsed.data.targetDate ?? addLocalCalendarDays(10),
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
+          targetDate: resolvedTargetDate,
           subscriberIds: [state.currentUserId],
           createdAt: getNow(),
           updatedAt: getNow(),
@@ -526,7 +530,12 @@ export function createWorkItemActions({
       }
 
       runtime.syncInBackground(
-        syncCreateWorkItem(get().currentUserId, parsed.data),
+        syncCreateWorkItem(get().currentUserId, {
+          ...parsed.data,
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
+          targetDate: resolvedTargetDate,
+        }),
         "Failed to create work item"
       )
 

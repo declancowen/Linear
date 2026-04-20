@@ -129,6 +129,7 @@ type CreateWorkItemArgs = ServerAccessArgs & {
   priority: "none" | "low" | "medium" | "high" | "urgent"
   labelIds?: string[]
   startDate?: string | null
+  dueDate?: string | null
   targetDate?: string | null
 }
 
@@ -818,7 +819,7 @@ export async function createWorkItemHandler(
     labelIds: args.labelIds ?? [],
     milestoneId: null,
     startDate: args.startDate ?? formatLocalCalendarDate(),
-    dueDate: addLocalCalendarDays(7),
+    dueDate: args.dueDate ?? addLocalCalendarDays(7),
     targetDate: args.targetDate ?? addLocalCalendarDays(10),
     subscriberIds: [args.currentUserId],
     createdAt: getNow(),

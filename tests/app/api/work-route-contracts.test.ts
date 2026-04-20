@@ -140,6 +140,48 @@ describe("work route contracts", () => {
     })
   })
 
+  it("accepts and forwards dueDate in create-work-item requests", async () => {
+    const { POST } = await import("@/app/api/items/route")
+
+    createWorkItemServerMock.mockResolvedValue({
+      itemId: "item_1",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamId: "team_1",
+          type: "task",
+          title: "Launch task",
+          primaryProjectId: null,
+          assigneeId: null,
+          priority: "medium",
+          dueDate: "2026-04-27",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(createWorkItemServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      teamId: "team_1",
+      type: "task",
+      title: "Launch task",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      dueDate: "2026-04-27",
+    })
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      itemId: "item_1",
+    })
+  })
+
   it("maps work-item update and delete failures to typed error responses", async () => {
     const itemRoute = await import("@/app/api/items/[itemId]/route")
 

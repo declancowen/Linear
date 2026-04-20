@@ -371,6 +371,7 @@ describe("work item actions", () => {
       assigneeId: null,
       priority: "medium",
       startDate: "2026-05-01",
+      dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       targetDate: "2026-05-10",
     })
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
@@ -425,6 +426,17 @@ describe("work item actions", () => {
       expect(createdItemId).toBeTruthy()
       expect(state.workItems[0]).toMatchObject({
         id: createdItemId,
+        startDate: formatLocalCalendarDate(),
+        dueDate: addLocalCalendarDays(7),
+        targetDate: addLocalCalendarDays(10),
+      })
+      expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
+        teamId: "team_1",
+        type: "task",
+        title: "Schedule work",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
         startDate: formatLocalCalendarDate(),
         dueDate: addLocalCalendarDays(7),
         targetDate: addLocalCalendarDays(10),

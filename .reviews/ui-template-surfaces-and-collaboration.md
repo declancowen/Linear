@@ -33,6 +33,7 @@ Files and areas reviewed across all turns:
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
 - `convex/app/view_handlers.ts` — saved-view mutation handler arg contracts
 - `convex/validators.ts` — persisted view/project presentation filter validators
+- `convex/app.ts` — Convex mutation arg contracts
 - `convex/app/work_item_handlers.ts` — default work-item schedule date generation
 - `lib/domain/selectors-internal/content.ts` — view authorization selectors for mixed-scope directories
 - `lib/domain/selectors-internal/projects.ts` — project view filtering selectors
@@ -60,6 +61,7 @@ Files and areas reviewed across all turns:
 - `tests/lib/domain/default-views.test.ts` — canonical system-view identity coverage
 - `tests/lib/calendar-date.test.ts` — local calendar-date helper regression coverage
 - `tests/lib/date-input.test.ts` — date-only input formatting regression coverage
+- `tests/app/api/work-route-contracts.test.ts` — work-item route contract coverage
 - `templates/*.html`, `templates/*.js`, `templates/*.css` — imported HTML/CSS reference assets, including duplicate `* 2.*` copies
 
 ## Review status (updated every turn)
@@ -67,10 +69,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 20:28:35 BST` |
-| **Total turns** | `29` |
+| **Last reviewed** | `2026-04-20 20:46:47 BST` |
+| **Total turns** | `30` |
 | **Open findings** | `0` |
-| **Resolved findings** | `40` |
+| **Resolved findings** | `41` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1619,4 +1621,38 @@ No new findings in this turn.
 ### Verification
 
 - `pnpm vitest run tests/lib/calendar-date.test.ts tests/lib/date-input.test.ts tests/lib/store/project-slice.test.ts tests/lib/store/work-item-actions.test.ts tests/components/work-surface-view.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 30 — 2026-04-20 20:46:47 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `59abc9a` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** The remaining create-work-item contract gap is resolved in the working tree. `dueDate` is now part of the create-work-item schema and mutation contract from the browser client through the API route, server wrapper, Convex args, and handler input, so the client-computed local calendar date is preserved during server reconciliation. The optimistic store now sends the resolved `startDate`, `dueDate`, and `targetDate` payload instead of only the raw dialog input, and focused route/store regression coverage reran cleanly.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `1` |
+
+### Status updates
+
+- `B30-01` Resolved — work-item creation now accepts and forwards `dueDate` all the way through `lib/domain/types-internal/schemas.ts`, `lib/convex/client/work.ts`, `lib/server/convex/work.ts`, `convex/app.ts`, and `convex/app/work_item_handlers.ts`, eliminating the client/server default-date drift caused by the missing passthrough field.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. When optimistic state computes fallback values that affect persisted records, send the resolved values through the create mutation instead of relying on the server to independently recompute defaults.
+2. Keep create-route schemas, client mutation helpers, server wrappers, Convex arg validators, and handler input types in sync whenever a new persisted field is added; this class of bug comes from one missing hop in that chain.
+
+### Verification
+
+- `pnpm vitest run tests/lib/store/work-item-actions.test.ts tests/app/api/work-route-contracts.test.ts tests/lib/calendar-date.test.ts tests/lib/date-input.test.ts`
 - `pnpm typecheck`

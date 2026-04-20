@@ -1228,6 +1228,7 @@ export const createWorkItem = mutation({
     priority: priorityValidator,
     labelIds: v.optional(v.array(v.string())),
     startDate: v.optional(nullableStringValidator),
+    dueDate: v.optional(nullableStringValidator),
     targetDate: v.optional(nullableStringValidator),
   },
   handler: createWorkItemHandler,

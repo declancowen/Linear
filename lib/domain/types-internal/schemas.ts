@@ -249,6 +249,7 @@ export const workItemSchema = z.object({
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),
   startDate: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
   targetDate: z.string().nullable().optional(),
 })
 

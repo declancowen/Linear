@@ -535,6 +535,7 @@ export async function createWorkItemServer(input: {
   priority: Priority
   labelIds?: string[]
   startDate?: string | null
+  dueDate?: string | null
   targetDate?: string | null
 }) {
   try {
