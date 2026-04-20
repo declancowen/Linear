@@ -146,7 +146,9 @@ export function ViewContextMenu({
   const deleteView = useAppStore((state) => state.deleteView)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const canMutate = !isSystemView(view) && canMutateView(data, view)
+  const isPersistedView = data.views.some((entry) => entry.id === view.id)
+  const canMutate =
+    isPersistedView && !isSystemView(view) && canMutateView(data, view)
 
   return (
     <>

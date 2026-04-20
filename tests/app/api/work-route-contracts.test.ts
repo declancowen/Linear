@@ -15,6 +15,7 @@ const createProjectServerMock = vi.fn()
 const createViewServerMock = vi.fn()
 const updateProjectServerMock = vi.fn()
 const updateViewConfigServerMock = vi.fn()
+const renameViewServerMock = vi.fn()
 const reorderViewDisplayPropertiesServerMock = vi.fn()
 const toggleViewDisplayPropertyServerMock = vi.fn()
 const toggleViewHiddenValueServerMock = vi.fn()
@@ -40,6 +41,7 @@ vi.mock("@/lib/server/convex", () => ({
   createViewServer: createViewServerMock,
   updateProjectServer: updateProjectServerMock,
   updateViewConfigServer: updateViewConfigServerMock,
+  renameViewServer: renameViewServerMock,
   reorderViewDisplayPropertiesServer: reorderViewDisplayPropertiesServerMock,
   toggleViewDisplayPropertyServer: toggleViewDisplayPropertyServerMock,
   toggleViewHiddenValueServer: toggleViewHiddenValueServerMock,
@@ -73,6 +75,7 @@ describe("work route contracts", () => {
     createViewServerMock.mockReset()
     updateProjectServerMock.mockReset()
     updateViewConfigServerMock.mockReset()
+    renameViewServerMock.mockReset()
     reorderViewDisplayPropertiesServerMock.mockReset()
     toggleViewDisplayPropertyServerMock.mockReset()
     toggleViewHiddenValueServerMock.mockReset()
@@ -760,6 +763,36 @@ describe("work route contracts", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       ok: true,
+    })
+  })
+
+  it("rejects invalid view rename payloads before calling the server", async () => {
+    const { PATCH } = await import("@/app/api/views/[viewId]/route")
+
+    const response = await PATCH(
+      new Request("http://localhost/api/views/view_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "rename",
+          name: "x",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          viewId: "view_1",
+        }),
+      }
+    )
+
+    expect(renameViewServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid view request",
+      message: "Invalid view request",
+      code: "ROUTE_INVALID_BODY",
     })
   })
 })

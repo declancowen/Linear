@@ -24,7 +24,11 @@ import {
   isRouteAllowedForViewContext,
   isSystemView,
 } from "@/lib/domain/default-views"
-import { viewSchema } from "@/lib/domain/types"
+import {
+  viewNameMaxLength,
+  viewNameMinLength,
+  viewSchema,
+} from "@/lib/domain/types"
 
 import { createId, getNow } from "../helpers"
 import { createStoreRuntime } from "../runtime"
@@ -210,6 +214,16 @@ export function createViewSlice(
 
       if (!trimmedName) {
         toast.error("View name is required")
+        return false
+      }
+
+      if (trimmedName.length < viewNameMinLength) {
+        toast.error(`View name must be at least ${viewNameMinLength} characters`)
+        return false
+      }
+
+      if (trimmedName.length > viewNameMaxLength) {
+        toast.error(`View name must be at most ${viewNameMaxLength} characters`)
         return false
       }
 

@@ -22,6 +22,8 @@ import {
   userStatuses,
   viewLayouts,
   viewFilterStatuses,
+  viewNameMaxLength,
+  viewNameMinLength,
   workItemTypes,
   workStatuses,
 } from "./primitives"
@@ -209,7 +211,7 @@ export const viewSchema = z.object({
   containerType: z.enum(viewContainerTypes).nullable().optional(),
   containerId: z.string().trim().min(1).nullable().optional(),
   route: z.string().trim().min(1),
-  name: z.string().trim().min(2).max(64),
+  name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
   description: z.string().trim().max(160).default(""),
   layout: z.enum(viewLayouts).optional(),
   grouping: z.enum(groupFields).optional(),

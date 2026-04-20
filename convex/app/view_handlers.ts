@@ -6,6 +6,10 @@ import {
   isRouteAllowedForViewContext,
   isSystemView,
 } from "../../lib/domain/default-views"
+import {
+  viewNameMaxLength,
+  viewNameMinLength,
+} from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
 import { getTeamDoc } from "./data"
 import { requireEditableTeamAccess, requireEditableWorkspaceAccess } from "./access"
@@ -489,8 +493,18 @@ export async function renameViewHandler(
     throw new Error("System views cannot be renamed")
   }
 
+  const trimmedName = args.name.trim()
+
+  if (trimmedName.length < viewNameMinLength) {
+    throw new Error(`View name must be at least ${viewNameMinLength} characters`)
+  }
+
+  if (trimmedName.length > viewNameMaxLength) {
+    throw new Error(`View name must be at most ${viewNameMaxLength} characters`)
+  }
+
   await ctx.db.patch(view._id, {
-    name: args.name.trim(),
+    name: trimmedName,
     updatedAt: getNow(),
   })
 }

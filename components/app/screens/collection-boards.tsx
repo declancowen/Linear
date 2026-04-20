@@ -295,11 +295,7 @@ export function SavedViewsBoard({
                     <span className="truncate">Sort {view.ordering}</span>
                   </>
                 ) : null}
-                {editable ? (
-                  <span className="ml-auto truncate">{scopeLabel}</span>
-                ) : (
-                  <span className="ml-auto truncate">{scopeLabel}</span>
-                )}
+                <span className="ml-auto truncate">{scopeLabel}</span>
               </div>
             </Link>
           </ViewContextMenu>

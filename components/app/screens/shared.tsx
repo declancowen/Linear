@@ -684,12 +684,16 @@ export function WorkItemLabelsEditor({
 
     setNewLabelName("")
 
-    if (item.labelIds.includes(created.id)) {
+    const latestItem =
+      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ??
+      item
+
+    if (latestItem.labelIds.includes(created.id)) {
       return
     }
 
     useAppStore.getState().updateWorkItem(item.id, {
-      labelIds: [...item.labelIds, created.id],
+      labelIds: [...latestItem.labelIds, created.id],
     })
   }
 

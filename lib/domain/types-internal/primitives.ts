@@ -111,6 +111,9 @@ export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 export const entityKinds = ["items", "projects", "docs"] as const
 export type EntityKind = (typeof entityKinds)[number]
 
+export const viewNameMinLength = 2
+export const viewNameMaxLength = 64
+
 export const viewContainerTypes = ["project-items"] as const
 export type ViewContainerType = (typeof viewContainerTypes)[number]
 

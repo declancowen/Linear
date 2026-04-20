@@ -516,6 +516,7 @@ function getProjectDisplayTokens(
         key: property,
         label: `Updated ${format(new Date(project.updatedAt), "MMM d")}`,
       })
+      continue
     }
   }
 
@@ -1139,6 +1140,7 @@ export function ProjectsScreen({
       : fallbackProjectView
         ? [fallbackProjectView]
         : []
+  const persistedProjectViewIds = new Set(projectViews.map((view) => view.id))
   const effectiveProjectView = useMemo(() => {
     const source = activeView ?? fallbackProjectView
 
@@ -1262,7 +1264,7 @@ export function ProjectsScreen({
         {displayedProjectViews.length > 0 ? (
           <div className="ml-2 flex items-center gap-0.5">
             {displayedProjectViews.map((view) =>
-              isSystemView(view) ? (
+              isSystemView(view) || !persistedProjectViewIds.has(view.id) ? (
                 <button
                   key={view.id}
                   className={cn(

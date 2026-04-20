@@ -6,6 +6,8 @@ import {
   displayProperties,
   groupFields,
   orderingFields,
+  viewNameMaxLength,
+  viewNameMinLength,
   workItemTypes,
 } from "@/lib/domain/types"
 import {
@@ -81,7 +83,7 @@ const viewMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("rename"),
-    name: z.string().trim().min(1),
+    name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
   }),
 ])
 

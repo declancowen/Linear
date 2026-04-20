@@ -205,6 +205,7 @@ function seedState() {
         role: "admin",
       },
     ],
+    views: [createView()],
   })
 }
 
@@ -238,6 +239,20 @@ describe("ViewContextMenu", () => {
   })
 
   it("keeps rename and delete for workspace-scoped views when the workspace is editable", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [
+        ...state.views,
+        createView({
+          id: "view_workspace",
+          name: "Workspace roadmap",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          route: "/workspace/projects",
+        }),
+      ],
+    }))
+
     render(
       <ViewContextMenu
         view={createView({
@@ -257,6 +272,18 @@ describe("ViewContextMenu", () => {
   })
 
   it("allows custom views that reuse a system label", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [
+        ...state.views,
+        createView({
+          id: "view_custom_1",
+          name: "All work",
+          route: "/team/platform/work",
+        }),
+      ],
+    }))
+
     render(
       <ViewContextMenu
         view={createView({
@@ -271,6 +298,25 @@ describe("ViewContextMenu", () => {
 
     expect(screen.getByText("Rename view")).toBeInTheDocument()
     expect(screen.getByText("Delete view")).toBeInTheDocument()
+  })
+
+  it("hides rename and delete for synthetic views that are not persisted", () => {
+    render(
+      <ViewContextMenu
+        view={createView({
+          id: "view_fallback_project",
+          name: "All projects",
+          entityKind: "projects",
+          route: "/team/platform/projects",
+        })}
+      >
+        <button type="button">Open</button>
+      </ViewContextMenu>
+    )
+
+    expect(screen.getByText("Open view")).toBeInTheDocument()
+    expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
+    expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
   })
 })
 

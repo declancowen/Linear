@@ -1074,7 +1074,9 @@ function ListRowBody({
     displayProps.includes("dueDate") && item.dueDate
       ? formatCalendarDateLabel(item.dueDate, "")
       : null
-  const daysUntilDue = getCalendarDateDayOffset(item.dueDate)
+  const daysUntilDue = dueDateLabel
+    ? getCalendarDateDayOffset(item.dueDate)
+    : null
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
   const childProgress = getChildProgressRollup(data, item)
@@ -1389,7 +1391,9 @@ function BoardCardBody({
     displayProps.includes("dueDate") && item.dueDate
       ? formatCalendarDateLabel(item.dueDate, "")
       : null
-  const daysUntilDue = getCalendarDateDayOffset(item.dueDate)
+  const daysUntilDue = dueDateLabel
+    ? getCalendarDateDayOffset(item.dueDate)
+    : null
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
   const childProgress = getChildProgressRollup(data, item)

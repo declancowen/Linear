@@ -31,6 +31,7 @@ Files and areas reviewed across all turns:
 - `components/app/screens/work-surface-controls.tsx` — persisted view chip controls and property popovers
 - `components/app/screens.tsx` — workspace/team saved-view directory actions
 - `components/app/screens/entity-context-menus.tsx` — per-view mutation authorization
+- `app/api/views/[viewId]/route.ts` — saved-view rename route validation
 - `convex/app/view_handlers.ts` — saved-view mutation handler arg contracts
 - `convex/validators.ts` — persisted view/project presentation filter validators
 - `convex/app.ts` — Convex mutation arg contracts
@@ -51,7 +52,9 @@ Files and areas reviewed across all turns:
 - `lib/server/convex/work.ts` — server saved-view mutation contracts
 - `lib/server/convex/teams-projects.ts` — project update server contract typing
 - `tests/components/create-dialogs.test.tsx` — create-view route derivation regression coverage
+- `tests/components/collapsible-right-sidebar.test.tsx` — sidebar child-state preservation coverage
 - `tests/components/entity-context-menus.test.tsx` — per-view saved-view mutation authorization coverage
+- `tests/components/work-item-labels-editor.test.tsx` — shared label-editor async race coverage
 - `tests/components/work-item-detail-screen.test.tsx` — main activity timeline and sidebar regression coverage
 - `tests/components/work-surface-view.test.tsx` — list/board drag affordance regression coverage
 - `tests/components/work-surface.test.tsx` — non-persisted view compatibility fallback coverage
@@ -69,10 +72,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-19 18:41:21 BST` |
-| **Last reviewed** | `2026-04-20 20:58:22 BST` |
-| **Total turns** | `31` |
+| **Last reviewed** | `2026-04-20 22:06:55 BST` |
+| **Total turns** | `33` |
 | **Open findings** | `0` |
-| **Resolved findings** | `42` |
+| **Resolved findings** | `54` |
 | **Accepted findings** | `0` |
 
 ---
@@ -1690,3 +1693,87 @@ No new findings in this turn.
 
 - `pnpm vitest run tests/lib/store/project-slice.test.ts`
 - `pnpm typecheck`
+
+---
+
+## Turn 32 — 2026-04-20 21:58:35 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e111170` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** A post-fix rerun review of the current `ui-templates` branch found one remaining cluster of live branch-current regressions and a few lower-risk cleanup issues. The rename path still allowed view names that creation would reject, synthetic fallback project views in the projects topbar still exposed saved-view context-menu mutations, the main channel post composer still submitted on plain Enter, and the collapsible right sidebar still unmounted children while closed and dropped local draft state. Those issues are now resolved in the working tree. As additional hardening, the project display-token loop now preserves its explicit `continue` pattern, the saved-views board no longer carries a dead conditional branch, the global dialog overlay is softened closer to the pre-PR baseline, and work-item rows/cards now skip due-date offset math when the due-date property is hidden. A fresh targeted rerun after these changes did not surface any new high-confidence findings.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `6` |
+
+### Status updates
+
+- `B32-01` Resolved — the view rename path now enforces the same `2..64` trimmed name bounds as view creation across `app/api/views/[viewId]/route.ts`, `lib/store/app-store-internal/slices/views.ts`, `convex/app/view_handlers.ts`, and the shared view schema/constants.
+- `B32-02` Resolved — `ViewContextMenu` mutation affordances now require a persisted saved view, and `ProjectsScreen` no longer wraps synthetic fallback project views in saved-view mutation UI.
+- `B32-03` Resolved — the main channel new-post composer in `components/app/collaboration-screens/channel-ui.tsx` now uses modifier+Enter submit again instead of plain Enter, and the shortcut hint was updated to match.
+- `B32-04` Resolved — `components/ui/collapsible-right-sidebar.tsx` keeps children mounted while closed, preserving local sidebar state such as draft comment content.
+- `B32-05` Resolved — `components/app/screens.tsx` restores the explicit `continue` in `getProjectDisplayTokens()` for the `updated` branch so future handlers cannot accidentally fall through.
+- `B32-06` Resolved — focused cleanup removed the dead `editable` branch in `components/app/screens/collection-boards.tsx`, softened the global dialog overlay treatment in `components/ui/dialog.tsx`, and avoided hidden due-date offset work in `components/app/screens/work-surface-view.tsx`.
+
+### Findings
+
+No new findings in this turn.
+
+### Rerun review notes
+
+- The previously reported project-create date passthrough bug and work-item due-date passthrough bug remain fixed in the current tree.
+- The previously reported saved-project-layout override, project-status filter omission, project progress stacking issue, fallback project tab reset, XSS sidebar render path, and fallback view filter cloning/reset bugs remain fixed in the current tree.
+- The `YYYY-MM-DD` date storage change is retained intentionally; the read-side helpers still accept both legacy ISO timestamps and date-only strings.
+- The direct-server fallback timezone note remains an accepted theoretical integration concern rather than a branch-current app bug, because the first-party client now always forwards resolved local-calendar defaults and the server cannot infer a third-party caller’s local timezone without explicit input.
+- The legacy project-status migration concern is stale for this branch state: the strict canonical status model remains in place after the earlier environment cleanup and post-cleanup review turn.
+
+### Recommendations
+
+1. Keep view creation and rename validation sourced from the same shared constants so the contract cannot drift again through separate UI/API/server edits.
+2. Treat synthetic fallback views as presentation state, not persisted entities: if they must share UI with saved views, gate mutation affordances on persistence explicitly.
+3. For future review passes, distinguish correctness bugs from product-direction flags early; several of the pasted findings were already fixed or intentionally retained and only needed confirmation, not more churn.
+
+### Verification
+
+- `pnpm vitest run tests/components/entity-context-menus.test.tsx tests/components/collapsible-right-sidebar.test.tsx tests/app/api/work-route-contracts.test.ts tests/components/work-surface-view.test.tsx`
+- `pnpm typecheck`
+
+---
+
+## Turn 33 — 2026-04-20 22:06:55 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e111170` |
+| **IDE / Agent** | `unknown` |
+
+**Summary:** A final rerun review of the current working tree found one last live sibling of an already-fixed bug class. The shared `WorkItemLabelsEditor` in `components/app/screens/shared.tsx` still used render-time `item.labelIds` after awaiting `createLabel()`, so toggling labels while create was in flight could be reverted when the promise resolved. That path now re-reads the latest work item from store state before applying the created label, matching the hardening already applied to the detail-sidebar copy. A broader regression sweep after the fix passed cleanly and did not surface any additional high-confidence findings.
+
+| Status | Count |
+|--------|-------|
+| Findings | `0` |
+| Resolved | `1` |
+
+### Status updates
+
+- `B33-01` Resolved — `components/app/screens/shared.tsx` now re-reads the latest `workItem` from store state after `createLabel()` resolves before appending the created label id, so in-flight label toggles are preserved instead of being overwritten by the stale render-time array.
+
+### Findings
+
+No new findings in this turn.
+
+### Recommendations
+
+1. When UI helpers mutate array-backed entity fields after an awaited store action, re-read the latest entity snapshot from store state before composing the next value. This bug class already appeared twice on the branch because the render-time prop looked harmless in synchronous flows.
+2. Keep regression coverage at the shared component level for cross-surface editors like `WorkItemLabelsEditor`; fixing only one screen-specific copy leaves the generic path behind.
+
+### Verification
+
+- `pnpm vitest run tests/components/work-item-labels-editor.test.tsx`
+- `pnpm vitest run tests/components/work-item-labels-editor.test.tsx tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/work-surface-view.test.tsx tests/components/entity-context-menus.test.tsx tests/components/collapsible-right-sidebar.test.tsx tests/app/api/work-route-contracts.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/default-views.test.ts tests/lib/store/project-slice.test.ts tests/lib/store/view-slice.test.ts tests/lib/store/work-item-actions.test.ts`
+- `pnpm typecheck`
+- `git diff --check`
