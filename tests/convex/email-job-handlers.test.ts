@@ -632,6 +632,53 @@ describe("email job handlers", () => {
     vi.useRealTimers()
   })
 
+  it("accounts for active digest claims when computing the next wake delay", async () => {
+    const { getNextEmailJobWakeDelayMs } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const ctx = createCtx({
+      emailJobs: [
+        {
+          _id: "job_1_doc",
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_1",
+          toEmail: "alex@example.com",
+          subject: "Digest blocked",
+          text: "digest blocked",
+          html: "<p>digest blocked</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+      notifications: [
+        {
+          _id: "notification_1_doc",
+          id: "notification_1",
+          emailedAt: null,
+          readAt: null,
+          archivedAt: null,
+          digestClaimId: "digest_1",
+          digestClaimedAt: "2026-04-17T10:55:00.000Z",
+        },
+      ],
+    })
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-17T11:00:00.000Z"))
+
+    await expect(getNextEmailJobWakeDelayMs(ctx as never)).resolves.toBe(
+      10 * 60 * 1000
+    )
+
+    vi.useRealTimers()
+  })
+
   it("marks sent jobs and their notifications as emailed", async () => {
     const { markEmailJobsSentHandler } = await import(
       "@/convex/app/email_job_handlers"

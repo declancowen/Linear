@@ -69,6 +69,7 @@ import {
   listPendingEmailJobsHandler,
   markEmailJobsSentHandler,
   releaseEmailJobClaimHandler,
+  triggerEmailJobProcessingHandler,
 } from "./app/email_job_handlers"
 import {
   addChannelPostCommentHandler,
@@ -385,6 +386,13 @@ export const releaseEmailJobClaim = operationalMutation({
     errorMessage: v.optional(v.string()),
   },
   handler: releaseEmailJobClaimHandler,
+})
+
+export const triggerEmailJobProcessing = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+  },
+  handler: triggerEmailJobProcessingHandler,
 })
 
 export const getCallJoinContext = query({

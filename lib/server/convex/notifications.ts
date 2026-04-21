@@ -72,6 +72,9 @@ const NOTIFICATION_MUTATION_ERROR_MAPPINGS = [
   },
 ] as const
 
+const EMAIL_JOB_BOOTSTRAP_THROTTLE_MS = 30 * 1000
+let lastQueuedEmailBootstrapAt = 0
+
 type InviteMutationErrorResult = {
   error: string
   status: number
@@ -213,6 +216,37 @@ export async function enqueueEmailJobsServer(
       jobs,
     })
   )
+}
+
+export async function triggerEmailJobProcessingServer() {
+  const nowMs = Date.now()
+
+  if (nowMs - lastQueuedEmailBootstrapAt < EMAIL_JOB_BOOTSTRAP_THROTTLE_MS) {
+    return {
+      scheduled: false,
+    }
+  }
+
+  lastQueuedEmailBootstrapAt = nowMs
+
+  try {
+    return await runConvexRequestWithRetry("triggerEmailJobProcessingServer", () =>
+      getConvexServerClient().mutation(
+        api.app.triggerEmailJobProcessing,
+        withServerToken({})
+      )
+    )
+  } catch (error) {
+    lastQueuedEmailBootstrapAt = 0
+    console.warn("Failed to trigger queued email processing", {
+      error:
+        error instanceof Error ? error.message : String(error),
+    })
+
+    return {
+      scheduled: false,
+    }
+  }
 }
 
 export async function markNotificationReadServer(input: {

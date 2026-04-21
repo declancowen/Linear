@@ -3,7 +3,10 @@ import type { QueuedEmailJob } from "../../lib/email/builders"
 
 import { internal } from "../_generated/api"
 import { assertServerToken, createId, getNow } from "./core"
-import { isActiveDigestClaim } from "./claim_utils"
+import {
+  getDigestClaimRemainingMs,
+  isActiveDigestClaim,
+} from "./claim_utils"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -212,6 +215,17 @@ export async function queueEmailJobs(
   return jobs.length
 }
 
+export async function triggerEmailJobProcessingHandler(
+  ctx: MutationCtx,
+  _args: ServerAccessArgs
+) {
+  await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
+
+  return {
+    scheduled: true,
+  }
+}
+
 export async function claimPendingEmailJobs(
   ctx: MutationCtx,
   args: ClaimPendingEmailJobsInput
@@ -395,15 +409,43 @@ export async function getNextEmailJobWakeDelayMs(ctx: QueryCtx) {
 
     if (!job.claimId || !job.claimedAt) {
       const retryCooldownRemainingMs = getRetryCooldownRemainingMs(job, nowMs)
+      let digestClaimRemainingMs: number | null = null
 
-      if (retryCooldownRemainingMs === null) {
+      if (job.notificationId) {
+        const notificationId = job.notificationId
+        const notification = await ctx.db
+          .query("notifications")
+          .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
+          .unique()
+
+        if (
+          !notification ||
+          notification.emailedAt ||
+          notification.readAt ||
+          notification.archivedAt
+        ) {
+          return 0
+        }
+
+        digestClaimRemainingMs = getDigestClaimRemainingMs(notification, nowMs)
+      }
+
+      if (
+        retryCooldownRemainingMs === null &&
+        digestClaimRemainingMs === null
+      ) {
         return 0
       }
 
+      const jobWakeDelayMs = Math.max(
+        retryCooldownRemainingMs ?? 0,
+        digestClaimRemainingMs ?? 0
+      )
+
       nextWakeDelayMs =
         nextWakeDelayMs === null
-          ? retryCooldownRemainingMs
-          : Math.min(nextWakeDelayMs, retryCooldownRemainingMs)
+          ? jobWakeDelayMs
+          : Math.min(nextWakeDelayMs, jobWakeDelayMs)
       continue
     }
 
