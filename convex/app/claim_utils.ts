@@ -1,6 +1,6 @@
 export const DIGEST_CLAIM_TTL_MS = 15 * 60 * 1000
 
-export function isActiveDigestClaim(
+export function getDigestClaimRemainingMs(
   notification: {
     digestClaimId?: string | null
     digestClaimedAt?: string | null
@@ -8,14 +8,26 @@ export function isActiveDigestClaim(
   nowMs: number
 ) {
   if (!notification.digestClaimId || !notification.digestClaimedAt) {
-    return false
+    return null
   }
 
   const claimedAtMs = Date.parse(notification.digestClaimedAt)
 
   if (Number.isNaN(claimedAtMs)) {
-    return false
+    return null
   }
 
-  return nowMs - claimedAtMs < DIGEST_CLAIM_TTL_MS
+  const remainingMs = DIGEST_CLAIM_TTL_MS - (nowMs - claimedAtMs)
+
+  return remainingMs > 0 ? remainingMs : null
+}
+
+export function isActiveDigestClaim(
+  notification: {
+    digestClaimId?: string | null
+    digestClaimedAt?: string | null
+  },
+  nowMs: number
+) {
+  return getDigestClaimRemainingMs(notification, nowMs) !== null
 }

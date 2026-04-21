@@ -1,8 +1,12 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { QueuedEmailJob } from "../../lib/email/builders"
 
+import { internal } from "../_generated/api"
 import { assertServerToken, createId, getNow } from "./core"
-import { isActiveDigestClaim } from "./claim_utils"
+import {
+  getDigestClaimRemainingMs,
+  isActiveDigestClaim,
+} from "./claim_utils"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -41,10 +45,41 @@ type ReleaseEmailJobClaimArgs = ServerAccessArgs & {
   errorMessage?: string
 }
 
-const EMAIL_JOB_CLAIM_TTL_MS = 15 * 60 * 1000
-const DEFAULT_EMAIL_JOB_CLAIM_LIMIT = 25
-const EMAIL_JOB_RETRY_BACKOFF_BASE_MS = 60 * 1000
+export const EMAIL_JOB_CLAIM_TTL_MS = 15 * 60 * 1000
+export const DEFAULT_EMAIL_JOB_CLAIM_LIMIT = 25
+export const EMAIL_JOB_RETRY_BACKOFF_BASE_MS = 60 * 1000
 const EMAIL_JOB_RETRY_BACKOFF_MAX_MS = 60 * 60 * 1000
+
+type ClaimPendingEmailJobsInput = {
+  claimId: string
+  limit?: number
+}
+
+type MarkEmailJobsSentInput = {
+  claimId: string
+  jobIds: string[]
+}
+
+type ReleaseEmailJobClaimInput = {
+  claimId: string
+  jobIds: string[]
+  errorMessage?: string
+}
+
+export type ClaimedEmailJob = {
+  id: string
+  kind: "mention" | "assignment" | "invite" | "access-change"
+  notificationId?: string
+  toEmail: string
+  subject: string
+  text: string
+  html: string
+}
+
+export type ReleasedEmailJobClaim = {
+  jobId: string
+  retryBackoffMs: number
+}
 
 function isActiveClaim(
   job: {
@@ -77,7 +112,7 @@ function getRetryBackoffMs(attemptCount: number) {
   )
 }
 
-function isRetryCoolingDown(
+function getRetryCooldownRemainingMs(
   job: {
     attemptCount?: number | null
     lastAttemptAt?: string | null
@@ -86,22 +121,36 @@ function isRetryCoolingDown(
   nowMs: number
 ) {
   if (job.sentAt) {
-    return false
+    return null
   }
 
   const attemptCount = job.attemptCount ?? 0
 
   if (attemptCount <= 0 || !job.lastAttemptAt) {
-    return false
+    return null
   }
 
   const lastAttemptAtMs = Date.parse(job.lastAttemptAt)
 
   if (Number.isNaN(lastAttemptAtMs)) {
-    return false
+    return null
   }
 
-  return nowMs - lastAttemptAtMs < getRetryBackoffMs(attemptCount)
+  const retryBackoffMs = getRetryBackoffMs(attemptCount)
+  const remainingMs = retryBackoffMs - (nowMs - lastAttemptAtMs)
+
+  return remainingMs > 0 ? remainingMs : null
+}
+
+function isRetryCoolingDown(
+  job: {
+    attemptCount?: number | null
+    lastAttemptAt?: string | null
+    sentAt?: string | null
+  },
+  nowMs: number
+) {
+  return getRetryCooldownRemainingMs(job, nowMs) !== null
 }
 
 function getRetiredNotificationTimestamp(
@@ -159,26 +208,33 @@ export async function queueEmailJobs(
     })
   }
 
+  if (jobs.length > 0) {
+    await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
+  }
+
   return jobs.length
 }
 
-export async function claimPendingEmailJobsHandler(
+export async function triggerEmailJobProcessingHandler(
   ctx: MutationCtx,
-  args: ClaimPendingEmailJobsArgs
+  args: ServerAccessArgs
 ) {
   assertServerToken(args.serverToken)
+  await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
+
+  return {
+    scheduled: true,
+  }
+}
+
+export async function claimPendingEmailJobs(
+  ctx: MutationCtx,
+  args: ClaimPendingEmailJobsInput
+) {
   const now = getNow()
   const nowMs = Date.parse(now)
   const claimLimit = args.limit ?? DEFAULT_EMAIL_JOB_CLAIM_LIMIT
-  const claimedJobs: Array<{
-    id: string
-    kind: "mention" | "assignment" | "invite" | "access-change"
-    notificationId?: string
-    toEmail: string
-    subject: string
-    text: string
-    html: string
-  }> = []
+  const claimedJobs: ClaimedEmailJob[] = []
 
   const pendingJobs = ctx.db
     .query("emailJobs")
@@ -245,11 +301,18 @@ export async function claimPendingEmailJobsHandler(
   return claimedJobs
 }
 
-export async function markEmailJobsSentHandler(
+export async function claimPendingEmailJobsHandler(
   ctx: MutationCtx,
-  args: MarkEmailJobsSentArgs
+  args: ClaimPendingEmailJobsArgs
 ) {
   assertServerToken(args.serverToken)
+  return claimPendingEmailJobs(ctx, args)
+}
+
+export async function markEmailJobsSent(
+  ctx: MutationCtx,
+  args: MarkEmailJobsSentInput
+) {
   const now = getNow()
 
   for (const jobId of args.jobIds) {
@@ -288,12 +351,20 @@ export async function markEmailJobsSentHandler(
   }
 }
 
-export async function releaseEmailJobClaimHandler(
+export async function markEmailJobsSentHandler(
   ctx: MutationCtx,
-  args: ReleaseEmailJobClaimArgs
+  args: MarkEmailJobsSentArgs
 ) {
   assertServerToken(args.serverToken)
+  return markEmailJobsSent(ctx, args)
+}
+
+export async function releaseEmailJobClaim(
+  ctx: MutationCtx,
+  args: ReleaseEmailJobClaimInput
+) {
   const now = getNow()
+  const releasedClaims: ReleasedEmailJobClaim[] = []
 
   for (const jobId of args.jobIds) {
     const job = await ctx.db
@@ -305,14 +376,108 @@ export async function releaseEmailJobClaimHandler(
       continue
     }
 
+    const attemptCount = (job.attemptCount ?? 0) + 1
+
     await ctx.db.patch(job._id, {
       claimId: null,
       claimedAt: null,
       lastError: args.errorMessage ?? job.lastError ?? null,
-      attemptCount: (job.attemptCount ?? 0) + 1,
+      attemptCount,
       lastAttemptAt: now,
     })
+
+    releasedClaims.push({
+      jobId: job.id,
+      retryBackoffMs: getRetryBackoffMs(attemptCount),
+    })
   }
+
+  return releasedClaims
+}
+
+export async function getNextEmailJobWakeDelayMs(ctx: QueryCtx) {
+  const nowMs = Date.now()
+  let nextWakeDelayMs: number | null = null
+
+  const pendingJobs = ctx.db
+    .query("emailJobs")
+    .withIndex("by_sent_at", (q) => q.eq("sentAt", null))
+
+  for await (const job of pendingJobs) {
+    if (job.sentAt) {
+      continue
+    }
+
+    if (!job.claimId || !job.claimedAt) {
+      const retryCooldownRemainingMs = getRetryCooldownRemainingMs(job, nowMs)
+      let digestClaimRemainingMs: number | null = null
+
+      if (job.notificationId) {
+        const notificationId = job.notificationId
+        const notification = await ctx.db
+          .query("notifications")
+          .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
+          .unique()
+
+        if (
+          !notification ||
+          notification.emailedAt ||
+          notification.readAt ||
+          notification.archivedAt
+        ) {
+          return 0
+        }
+
+        digestClaimRemainingMs = getDigestClaimRemainingMs(notification, nowMs)
+      }
+
+      if (
+        retryCooldownRemainingMs === null &&
+        digestClaimRemainingMs === null
+      ) {
+        return 0
+      }
+
+      const jobWakeDelayMs = Math.max(
+        retryCooldownRemainingMs ?? 0,
+        digestClaimRemainingMs ?? 0
+      )
+
+      nextWakeDelayMs =
+        nextWakeDelayMs === null
+          ? jobWakeDelayMs
+          : Math.min(nextWakeDelayMs, jobWakeDelayMs)
+      continue
+    }
+
+    const claimedAtMs = Date.parse(job.claimedAt)
+
+    if (Number.isNaN(claimedAtMs)) {
+      return 0
+    }
+
+    const activeClaimRemainingMs =
+      EMAIL_JOB_CLAIM_TTL_MS - (nowMs - claimedAtMs)
+
+    if (activeClaimRemainingMs <= 0) {
+      return 0
+    }
+
+    nextWakeDelayMs =
+      nextWakeDelayMs === null
+        ? activeClaimRemainingMs
+        : Math.min(nextWakeDelayMs, activeClaimRemainingMs)
+  }
+
+  return nextWakeDelayMs
+}
+
+export async function releaseEmailJobClaimHandler(
+  ctx: MutationCtx,
+  args: ReleaseEmailJobClaimArgs
+) {
+  assertServerToken(args.serverToken)
+  return releaseEmailJobClaim(ctx, args)
 }
 
 export async function listPendingEmailJobsHandler(

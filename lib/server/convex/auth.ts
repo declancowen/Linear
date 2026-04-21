@@ -1,6 +1,7 @@
 import { api } from "@/convex/_generated/api"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
+import { triggerEmailJobProcessingServer } from "./notifications"
 
 import {
   getConvexServerClient,
@@ -51,6 +52,8 @@ export async function getAuthContextServer(input: {
   workosUserId: string
   email?: string
 }) {
+  await triggerEmailJobProcessingServer()
+
   return runConvexRequestWithRetry("getAuthContextServer", () =>
     getConvexServerClient().query(api.app.getAuthContext, withServerToken(input))
   )
@@ -61,6 +64,8 @@ export async function getSnapshotServer(input?: {
   email?: string
 }) {
   try {
+    await triggerEmailJobProcessingServer()
+
     return await runConvexRequestWithRetry("getSnapshotServer", () =>
       getConvexServerClient().query(
         api.app.getSnapshot,

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const queryMock = vi.fn()
+const mutationMock = vi.fn()
 
 vi.mock("@/lib/server/convex/core", () => ({
   getConvexServerClient: () => ({
     query: queryMock,
+    mutation: mutationMock,
   }),
   withServerToken: <T extends Record<string, unknown>>(input: T) => input,
   runConvexRequestWithRetry: async (
@@ -16,6 +18,8 @@ vi.mock("@/lib/server/convex/core", () => ({
 describe("convex auth server wrappers", () => {
   beforeEach(() => {
     queryMock.mockReset()
+    mutationMock.mockReset()
+    mutationMock.mockResolvedValue({ scheduled: true })
   })
 
   it("maps snapshot lookup failures to typed application errors", async () => {
@@ -46,5 +50,7 @@ describe("convex auth server wrappers", () => {
       status: 404,
       code: "SNAPSHOT_USER_NOT_FOUND",
     })
+
+    expect(mutationMock).toHaveBeenCalled()
   })
 })

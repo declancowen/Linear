@@ -37,6 +37,8 @@ import type * as app_view_handlers from "../app/view_handlers.js";
 import type * as app_work_helpers from "../app/work_helpers.js";
 import type * as app_work_item_handlers from "../app/work_item_handlers.js";
 import type * as app_workspace_team_handlers from "../app/workspace_team_handlers.js";
+import type * as email_job_mutations from "../email_job_mutations.js";
+import type * as email_jobs from "../email_jobs.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -75,6 +77,8 @@ declare const fullApi: ApiFromModules<{
   "app/work_helpers": typeof app_work_helpers;
   "app/work_item_handlers": typeof app_work_item_handlers;
   "app/workspace_team_handlers": typeof app_workspace_team_handlers;
+  email_job_mutations: typeof email_job_mutations;
+  email_jobs: typeof email_jobs;
   validators: typeof validators;
 }>;
 

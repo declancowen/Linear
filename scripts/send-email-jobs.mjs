@@ -11,6 +11,22 @@ function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+async function releaseEmailJobClaimSafely(input) {
+  try {
+    await input.releaseEmailJobClaim({
+      claimId: input.claimId,
+      jobIds: [input.jobId],
+      errorMessage: input.errorMessage,
+    })
+  } catch (error) {
+    console.error("Failed to release queued email job claim", {
+      claimId: input.claimId,
+      jobId: input.jobId,
+      error: toErrorMessage(error),
+    })
+  }
+}
+
 export async function processEmailJobsBatch(input) {
   let sentCount = 0
   let failedCount = 0
@@ -20,8 +36,10 @@ export async function processEmailJobsBatch(input) {
   )
 
   for (const job of input.jobs) {
+    let sendResult
+
     try {
-      await input.resend.emails.send(
+      sendResult = await input.resend.emails.send(
         {
           from: resendFrom,
           to: job.toEmail,
@@ -34,10 +52,22 @@ export async function processEmailJobsBatch(input) {
         }
       )
     } catch (error) {
-      await input.releaseEmailJobClaim({
+      await releaseEmailJobClaimSafely({
         claimId: input.claimId,
-        jobIds: [job.id],
+        jobId: job.id,
         errorMessage: toErrorMessage(error),
+        releaseEmailJobClaim: input.releaseEmailJobClaim,
+      })
+      failedCount += 1
+      continue
+    }
+
+    if (sendResult.error) {
+      await releaseEmailJobClaimSafely({
+        claimId: input.claimId,
+        jobId: job.id,
+        errorMessage: sendResult.error.message,
+        releaseEmailJobClaim: input.releaseEmailJobClaim,
       })
       failedCount += 1
       continue
@@ -49,7 +79,13 @@ export async function processEmailJobsBatch(input) {
         jobIds: [job.id],
       })
       sentCount += 1
-    } catch {
+    } catch (error) {
+      await releaseEmailJobClaimSafely({
+        claimId: input.claimId,
+        jobId: job.id,
+        errorMessage: toErrorMessage(error),
+        releaseEmailJobClaim: input.releaseEmailJobClaim,
+      })
       failedCount += 1
     }
   }

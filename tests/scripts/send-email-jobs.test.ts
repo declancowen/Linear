@@ -47,7 +47,7 @@ describe("send-email-jobs worker", () => {
     })
   })
 
-  it("uses a stable provider idempotency key and keeps the claim on ack failure", async () => {
+  it("uses a stable provider idempotency key and releases the claim on ack failure", async () => {
     const { processEmailJobsBatch } = await import(
       "../../scripts/send-email-jobs.mjs"
     )
@@ -98,7 +98,59 @@ describe("send-email-jobs worker", () => {
       claimId: "claim_1",
       jobIds: ["job_1"],
     })
-    expect(releaseEmailJobClaimMock).not.toHaveBeenCalled()
+    expect(releaseEmailJobClaimMock).toHaveBeenCalledWith({
+      claimId: "claim_1",
+      jobIds: ["job_1"],
+      errorMessage: "Convex unavailable",
+    })
+    expect(result).toEqual({
+      processedCount: 1,
+      sentCount: 0,
+      failedCount: 1,
+    })
+  })
+
+  it("releases the claim when Resend returns an API error response", async () => {
+    const { processEmailJobsBatch } = await import(
+      "../../scripts/send-email-jobs.mjs"
+    )
+
+    const releaseEmailJobClaimMock = vi.fn().mockResolvedValue(undefined)
+
+    const result = await processEmailJobsBatch({
+      jobs: [
+        {
+          id: "job_1",
+          kind: "mention",
+          notificationId: "notification_1",
+          toEmail: "alex@example.com",
+          subject: "Mention",
+          text: "text",
+          html: "<p>text</p>",
+        },
+      ],
+      claimId: "claim_1",
+      resend: {
+        emails: {
+          send: vi.fn().mockResolvedValue({
+            data: null,
+            error: {
+              message: "domain not verified",
+            },
+          }),
+        },
+      },
+      resendFromEmail: "noreply@example.com",
+      resendFromName: undefined,
+      markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
+      releaseEmailJobClaim: releaseEmailJobClaimMock,
+    })
+
+    expect(releaseEmailJobClaimMock).toHaveBeenCalledWith({
+      claimId: "claim_1",
+      jobIds: ["job_1"],
+      errorMessage: "domain not verified",
+    })
     expect(result).toEqual({
       processedCount: 1,
       sentCount: 0,
