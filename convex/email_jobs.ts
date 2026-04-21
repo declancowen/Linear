@@ -4,10 +4,7 @@ import { v } from "convex/values"
 
 import { internal } from "./_generated/api"
 import { internalAction } from "./_generated/server"
-import {
-  DEFAULT_EMAIL_JOB_CLAIM_LIMIT,
-  EMAIL_JOB_CLAIM_TTL_MS,
-} from "./app/email_job_handlers"
+import { DEFAULT_EMAIL_JOB_CLAIM_LIMIT } from "./app/email_job_handlers"
 import {
   getRequiredEnv,
   processQueuedEmailJobsBatch,
@@ -47,9 +44,14 @@ export const processQueuedEmailJobs = internalAction({
       })
     }
 
-    if (result.failedCount > 0) {
+    const nextWakeDelayMs = await ctx.runQuery(
+      internal.email_job_mutations.getNextEmailJobWakeDelayInternal,
+      {}
+    )
+
+    if (nextWakeDelayMs !== null && !result.claimedFullBatch) {
       await ctx.scheduler.runAfter(
-        result.nextRetryDelayMs ?? EMAIL_JOB_CLAIM_TTL_MS,
+        nextWakeDelayMs,
         internal.email_jobs.processQueuedEmailJobs,
         {
           limit,

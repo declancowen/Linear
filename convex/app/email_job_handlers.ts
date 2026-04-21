@@ -109,7 +109,7 @@ function getRetryBackoffMs(attemptCount: number) {
   )
 }
 
-function isRetryCoolingDown(
+function getRetryCooldownRemainingMs(
   job: {
     attemptCount?: number | null
     lastAttemptAt?: string | null
@@ -118,22 +118,36 @@ function isRetryCoolingDown(
   nowMs: number
 ) {
   if (job.sentAt) {
-    return false
+    return null
   }
 
   const attemptCount = job.attemptCount ?? 0
 
   if (attemptCount <= 0 || !job.lastAttemptAt) {
-    return false
+    return null
   }
 
   const lastAttemptAtMs = Date.parse(job.lastAttemptAt)
 
   if (Number.isNaN(lastAttemptAtMs)) {
-    return false
+    return null
   }
 
-  return nowMs - lastAttemptAtMs < getRetryBackoffMs(attemptCount)
+  const retryBackoffMs = getRetryBackoffMs(attemptCount)
+  const remainingMs = retryBackoffMs - (nowMs - lastAttemptAtMs)
+
+  return remainingMs > 0 ? remainingMs : null
+}
+
+function isRetryCoolingDown(
+  job: {
+    attemptCount?: number | null
+    lastAttemptAt?: string | null
+    sentAt?: string | null
+  },
+  nowMs: number
+) {
+  return getRetryCooldownRemainingMs(job, nowMs) !== null
 }
 
 function getRetiredNotificationTimestamp(
@@ -364,6 +378,55 @@ export async function releaseEmailJobClaim(
   }
 
   return releasedClaims
+}
+
+export async function getNextEmailJobWakeDelayMs(ctx: QueryCtx) {
+  const nowMs = Date.now()
+  let nextWakeDelayMs: number | null = null
+
+  const pendingJobs = ctx.db
+    .query("emailJobs")
+    .withIndex("by_sent_at", (q) => q.eq("sentAt", null))
+
+  for await (const job of pendingJobs) {
+    if (job.sentAt) {
+      continue
+    }
+
+    if (!job.claimId || !job.claimedAt) {
+      const retryCooldownRemainingMs = getRetryCooldownRemainingMs(job, nowMs)
+
+      if (retryCooldownRemainingMs === null) {
+        return 0
+      }
+
+      nextWakeDelayMs =
+        nextWakeDelayMs === null
+          ? retryCooldownRemainingMs
+          : Math.min(nextWakeDelayMs, retryCooldownRemainingMs)
+      continue
+    }
+
+    const claimedAtMs = Date.parse(job.claimedAt)
+
+    if (Number.isNaN(claimedAtMs)) {
+      return 0
+    }
+
+    const activeClaimRemainingMs =
+      EMAIL_JOB_CLAIM_TTL_MS - (nowMs - claimedAtMs)
+
+    if (activeClaimRemainingMs <= 0) {
+      return 0
+    }
+
+    nextWakeDelayMs =
+      nextWakeDelayMs === null
+        ? activeClaimRemainingMs
+        : Math.min(nextWakeDelayMs, activeClaimRemainingMs)
+  }
+
+  return nextWakeDelayMs
 }
 
 export async function releaseEmailJobClaimHandler(

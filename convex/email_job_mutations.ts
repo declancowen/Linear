@@ -1,8 +1,9 @@
 import { v } from "convex/values"
 
-import { internalMutation } from "./_generated/server"
+import { internalMutation, internalQuery } from "./_generated/server"
 import {
   claimPendingEmailJobs,
+  getNextEmailJobWakeDelayMs,
   markEmailJobsSent,
   releaseEmailJobClaim,
 } from "./app/email_job_handlers"
@@ -30,4 +31,9 @@ export const releaseEmailJobClaimInternal = internalMutation({
     errorMessage: v.optional(v.string()),
   },
   handler: (ctx, args) => releaseEmailJobClaim(ctx, args),
+})
+
+export const getNextEmailJobWakeDelayInternal = internalQuery({
+  args: {},
+  handler: (ctx) => getNextEmailJobWakeDelayMs(ctx),
 })

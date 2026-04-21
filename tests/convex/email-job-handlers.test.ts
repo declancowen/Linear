@@ -581,6 +581,57 @@ describe("email job handlers", () => {
     })
   })
 
+  it("reports the next wake delay for cooling-down and claimed jobs", async () => {
+    const { getNextEmailJobWakeDelayMs } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const ctx = createCtx({
+      emailJobs: [
+        {
+          _id: "job_1_doc",
+          id: "job_1",
+          kind: "invite",
+          toEmail: "alex@example.com",
+          subject: "Cooling down",
+          text: "cooling down",
+          html: "<p>cooling down</p>",
+          sentAt: null,
+          claimId: null,
+          claimedAt: null,
+          lastError: "Mailbox unavailable",
+          attemptCount: 5,
+          lastAttemptAt: "2026-04-17T10:59:30.000Z",
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+        {
+          _id: "job_2_doc",
+          id: "job_2",
+          kind: "invite",
+          toEmail: "jamie@example.com",
+          subject: "Claimed",
+          text: "claimed",
+          html: "<p>claimed</p>",
+          sentAt: null,
+          claimId: "claim_2",
+          claimedAt: "2026-04-17T10:58:00.000Z",
+          lastError: null,
+          attemptCount: 0,
+          lastAttemptAt: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+    })
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-17T11:00:00.000Z"))
+
+    await expect(getNextEmailJobWakeDelayMs(ctx as never)).resolves.toBe(
+      13 * 60 * 1000
+    )
+
+    vi.useRealTimers()
+  })
+
   it("marks sent jobs and their notifications as emailed", async () => {
     const { markEmailJobsSentHandler } = await import(
       "@/convex/app/email_job_handlers"
