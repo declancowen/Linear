@@ -217,8 +217,9 @@ export async function queueEmailJobs(
 
 export async function triggerEmailJobProcessingHandler(
   ctx: MutationCtx,
-  _args: ServerAccessArgs
+  args: ServerAccessArgs
 ) {
+  assertServerToken(args.serverToken)
   await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
 
   return {

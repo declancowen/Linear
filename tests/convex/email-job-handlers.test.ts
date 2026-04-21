@@ -160,6 +160,29 @@ describe("email job handlers", () => {
     )
   })
 
+  it("requires the server token before triggering queued email processing", async () => {
+    const { triggerEmailJobProcessingHandler } = await import(
+      "@/convex/app/email_job_handlers"
+    )
+    const { internal } = await import("@/convex/_generated/api")
+    const ctx = createCtx()
+
+    await expect(
+      triggerEmailJobProcessingHandler(ctx as never, {
+        serverToken: "server_token",
+      })
+    ).resolves.toEqual({
+      scheduled: true,
+    })
+
+    expect(assertServerTokenMock).toHaveBeenCalledWith("server_token")
+    expect(ctx.scheduler.runAfter).toHaveBeenCalledWith(
+      0,
+      internal.email_jobs.processQueuedEmailJobs,
+      {}
+    )
+  })
+
   it("claims only unclaimed or stale pending jobs", async () => {
     const { claimPendingEmailJobsHandler } = await import(
       "@/convex/app/email_job_handlers"
