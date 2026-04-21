@@ -328,9 +328,62 @@ export function itemMatchesView(
 export function getVisibleItemsForView(
   data: AppData,
   items: WorkItem[],
-  view: ViewDefinition
+  view: ViewDefinition,
+  options?: {
+    matchItems?: WorkItem[]
+    childDisplayMode?: "direct" | "assigned-descendants"
+  }
 ) {
-  const filteredItems = items.filter((item) =>
+  if (
+    options?.matchItems &&
+    options.childDisplayMode === "assigned-descendants"
+  ) {
+    // Match filters against the assigned descendants, then lift matches back to
+    // the container rows the surface renders.
+    const itemsById = new Map(items.map((item) => [item.id, item] as const))
+    const visibleContainerIds = new Set<string>()
+
+    options.matchItems.forEach((item) => {
+      if (
+        !itemMatchesView(data, item, view, {
+          ignoreItemLevel: true,
+        })
+      ) {
+        return
+      }
+
+      let cursor = itemsById.get(item.id) ?? null
+      const visitedIds = new Set<string>()
+
+      if (view.itemLevel) {
+        while (cursor && !visitedIds.has(cursor.id)) {
+          if (cursor.type === view.itemLevel) {
+            visibleContainerIds.add(cursor.id)
+            return
+          }
+
+          visitedIds.add(cursor.id)
+          cursor = cursor.parentId ? itemsById.get(cursor.parentId) ?? null : null
+        }
+
+        return
+      }
+
+      while (cursor && !visitedIds.has(cursor.id)) {
+        if (!cursor.parentId) {
+          visibleContainerIds.add(cursor.id)
+          return
+        }
+
+        visitedIds.add(cursor.id)
+        cursor = itemsById.get(cursor.parentId) ?? null
+      }
+    })
+
+    return items.filter((item) => visibleContainerIds.has(item.id))
+  }
+
+  const filteredItems = (options?.matchItems ?? items).filter((item) =>
     itemMatchesView(data, item, view)
   )
 

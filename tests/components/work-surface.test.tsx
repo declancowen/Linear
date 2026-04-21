@@ -2,6 +2,10 @@ import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
+const { getVisibleItemsForViewMock } = vi.hoisted(() => ({
+  getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
+}))
+
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
@@ -12,7 +16,7 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 
 vi.mock("@/lib/domain/selectors", () => ({
   canEditTeam: () => true,
-  getVisibleItemsForView: (_data: unknown, items: unknown[]) => items,
+  getVisibleItemsForView: getVisibleItemsForViewMock,
   getViewByRoute: (
     data: { views: Array<{ route: string }> },
     routeKey: string
@@ -163,6 +167,7 @@ describe("WorkSurface", () => {
 
   afterEach(() => {
     useAppStore.setState(createEmptyState())
+    getVisibleItemsForViewMock.mockClear()
     vi.clearAllMocks()
   })
 
@@ -262,5 +267,51 @@ describe("WorkSurface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Active" }))
 
     expect(screen.getByText("board-content")).toBeInTheDocument()
+  })
+
+  it("matches assigned descendant filters against the assigned rows", () => {
+    const assignedItem = {
+      id: "story_1",
+      parentId: "epic_1",
+    }
+    const displayItem = {
+      id: "epic_1",
+      parentId: null,
+    }
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_all_items",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            showChildItems: true,
+          }),
+        ]}
+        items={[displayItem] as never[]}
+        filterItems={[assignedItem] as never[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        childDisplayMode="assigned-descendants"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(getVisibleItemsForViewMock).toHaveBeenCalledWith(
+      expect.anything(),
+      [displayItem],
+      expect.objectContaining({
+        id: "view_assigned_all_items",
+      }),
+      {
+        matchItems: [assignedItem],
+        childDisplayMode: "assigned-descendants",
+      }
+    )
   })
 })

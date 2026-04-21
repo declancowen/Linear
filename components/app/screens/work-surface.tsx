@@ -218,11 +218,22 @@ export function WorkSurface({
     [activeView, groupOptions]
   )
   const displayedViews = usingFallbackViews ? localFallbackViews : views
+  const filterScopeItems = filterItems ?? items
+  const shouldMatchAssignedItems =
+    childDisplayMode === "assigned-descendants" && Boolean(filterItems)
 
   const visibleItems = compatibleActiveView
-    ? getVisibleItemsForView(data, items, compatibleActiveView)
-    : items
-  const filterScopeItems = filterItems ?? items
+    ? getVisibleItemsForView(data, items, compatibleActiveView, {
+        ...(shouldMatchAssignedItems
+          ? {
+              matchItems: filterScopeItems,
+              ...(compatibleActiveView.showChildItems
+                ? { childDisplayMode }
+                : {}),
+            }
+          : {}),
+      })
+    : filterScopeItems
 
   function updateLocalActiveView(patch: ViewConfigPatch) {
     if (!usingFallbackViews || !activeView) {

@@ -374,6 +374,43 @@ describe("view item levels", () => {
     ).toEqual(["story"])
   })
 
+  it("matches assigned descendant filters against assigned items while rendering the parent level", () => {
+    const state = createEmptyState()
+    const epic = createItem("epic", {
+      type: "epic",
+      status: "backlog",
+    })
+    const feature = createItem("feature", {
+      type: "feature",
+      parentId: epic.id,
+      status: "backlog",
+    })
+    const story = createItem("story", {
+      type: "story",
+      parentId: feature.id,
+      assigneeId: "user_1",
+      status: "in-progress",
+    })
+
+    expect(
+      getVisibleItemsForView(
+        state,
+        [epic, feature, story],
+        createView({
+          itemLevel: "epic",
+          filters: {
+            ...createView().filters,
+            status: ["todo", "in-progress"],
+          },
+        }),
+        {
+          matchItems: [story],
+          childDisplayMode: "assigned-descendants",
+        }
+      ).map((item) => item.id)
+    ).toEqual(["epic"])
+  })
+
   it("includes workspace-scoped views when listing workspace views", () => {
     const state = createEmptyState()
     state.currentWorkspaceId = "workspace_1"

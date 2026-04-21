@@ -140,6 +140,57 @@ describe("view slice", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("View created")
   })
 
+  it("derives the default item level from the team experience for optimistic item views", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState()
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncCreateViewMock.mockImplementation(async (_currentUserId, input) => ({
+      ok: true,
+      viewId: input.id ?? null,
+    }))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    const createdViewId = slice.createView({
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      route: "/team/platform/work",
+      name: "Delivery view",
+      description: "Tracks delivery work",
+    })
+
+    expect(createdViewId).toBeTruthy()
+    expect(state.views[0]).toMatchObject({
+      id: createdViewId,
+      itemLevel: "epic",
+      showChildItems: true,
+    })
+
+    await backgroundTask
+  })
+
   it("preserves container metadata on the optimistic view", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"

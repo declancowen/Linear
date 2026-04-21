@@ -137,6 +137,7 @@ export function createViewSlice(
         containerId: parsed.data.containerId,
         route: parsed.data.route,
         teamSlug: team?.slug,
+        defaultItemLevelExperience: team?.settings.experience,
         createdAt: getNow(),
         overrides: {
           layout: parsed.data.layout,
