@@ -20,8 +20,10 @@ export async function processEmailJobsBatch(input) {
   )
 
   for (const job of input.jobs) {
+    let sendResult
+
     try {
-      await input.resend.emails.send(
+      sendResult = await input.resend.emails.send(
         {
           from: resendFrom,
           to: job.toEmail,
@@ -43,13 +45,28 @@ export async function processEmailJobsBatch(input) {
       continue
     }
 
+    if (sendResult.error) {
+      await input.releaseEmailJobClaim({
+        claimId: input.claimId,
+        jobIds: [job.id],
+        errorMessage: sendResult.error.message,
+      })
+      failedCount += 1
+      continue
+    }
+
     try {
       await input.markEmailJobsSent({
         claimId: input.claimId,
         jobIds: [job.id],
       })
       sentCount += 1
-    } catch {
+    } catch (error) {
+      await input.releaseEmailJobClaim({
+        claimId: input.claimId,
+        jobIds: [job.id],
+        errorMessage: toErrorMessage(error),
+      })
       failedCount += 1
     }
   }

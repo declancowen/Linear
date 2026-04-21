@@ -1,6 +1,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { QueuedEmailJob } from "../../lib/email/builders"
 
+import { internal } from "../_generated/api"
 import { assertServerToken, createId, getNow } from "./core"
 import { isActiveDigestClaim } from "./claim_utils"
 
@@ -41,10 +42,41 @@ type ReleaseEmailJobClaimArgs = ServerAccessArgs & {
   errorMessage?: string
 }
 
-const EMAIL_JOB_CLAIM_TTL_MS = 15 * 60 * 1000
-const DEFAULT_EMAIL_JOB_CLAIM_LIMIT = 25
-const EMAIL_JOB_RETRY_BACKOFF_BASE_MS = 60 * 1000
+export const EMAIL_JOB_CLAIM_TTL_MS = 15 * 60 * 1000
+export const DEFAULT_EMAIL_JOB_CLAIM_LIMIT = 25
+export const EMAIL_JOB_RETRY_BACKOFF_BASE_MS = 60 * 1000
 const EMAIL_JOB_RETRY_BACKOFF_MAX_MS = 60 * 60 * 1000
+
+type ClaimPendingEmailJobsInput = {
+  claimId: string
+  limit?: number
+}
+
+type MarkEmailJobsSentInput = {
+  claimId: string
+  jobIds: string[]
+}
+
+type ReleaseEmailJobClaimInput = {
+  claimId: string
+  jobIds: string[]
+  errorMessage?: string
+}
+
+export type ClaimedEmailJob = {
+  id: string
+  kind: "mention" | "assignment" | "invite" | "access-change"
+  notificationId?: string
+  toEmail: string
+  subject: string
+  text: string
+  html: string
+}
+
+export type ReleasedEmailJobClaim = {
+  jobId: string
+  retryBackoffMs: number
+}
 
 function isActiveClaim(
   job: {
@@ -159,26 +191,21 @@ export async function queueEmailJobs(
     })
   }
 
+  if (jobs.length > 0) {
+    await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
+  }
+
   return jobs.length
 }
 
-export async function claimPendingEmailJobsHandler(
+export async function claimPendingEmailJobs(
   ctx: MutationCtx,
-  args: ClaimPendingEmailJobsArgs
+  args: ClaimPendingEmailJobsInput
 ) {
-  assertServerToken(args.serverToken)
   const now = getNow()
   const nowMs = Date.parse(now)
   const claimLimit = args.limit ?? DEFAULT_EMAIL_JOB_CLAIM_LIMIT
-  const claimedJobs: Array<{
-    id: string
-    kind: "mention" | "assignment" | "invite" | "access-change"
-    notificationId?: string
-    toEmail: string
-    subject: string
-    text: string
-    html: string
-  }> = []
+  const claimedJobs: ClaimedEmailJob[] = []
 
   const pendingJobs = ctx.db
     .query("emailJobs")
@@ -245,11 +272,18 @@ export async function claimPendingEmailJobsHandler(
   return claimedJobs
 }
 
-export async function markEmailJobsSentHandler(
+export async function claimPendingEmailJobsHandler(
   ctx: MutationCtx,
-  args: MarkEmailJobsSentArgs
+  args: ClaimPendingEmailJobsArgs
 ) {
   assertServerToken(args.serverToken)
+  return claimPendingEmailJobs(ctx, args)
+}
+
+export async function markEmailJobsSent(
+  ctx: MutationCtx,
+  args: MarkEmailJobsSentInput
+) {
   const now = getNow()
 
   for (const jobId of args.jobIds) {
@@ -288,12 +322,20 @@ export async function markEmailJobsSentHandler(
   }
 }
 
-export async function releaseEmailJobClaimHandler(
+export async function markEmailJobsSentHandler(
   ctx: MutationCtx,
-  args: ReleaseEmailJobClaimArgs
+  args: MarkEmailJobsSentArgs
 ) {
   assertServerToken(args.serverToken)
+  return markEmailJobsSent(ctx, args)
+}
+
+export async function releaseEmailJobClaim(
+  ctx: MutationCtx,
+  args: ReleaseEmailJobClaimInput
+) {
   const now = getNow()
+  const releasedClaims: ReleasedEmailJobClaim[] = []
 
   for (const jobId of args.jobIds) {
     const job = await ctx.db
@@ -305,14 +347,31 @@ export async function releaseEmailJobClaimHandler(
       continue
     }
 
+    const attemptCount = (job.attemptCount ?? 0) + 1
+
     await ctx.db.patch(job._id, {
       claimId: null,
       claimedAt: null,
       lastError: args.errorMessage ?? job.lastError ?? null,
-      attemptCount: (job.attemptCount ?? 0) + 1,
+      attemptCount,
       lastAttemptAt: now,
     })
+
+    releasedClaims.push({
+      jobId: job.id,
+      retryBackoffMs: getRetryBackoffMs(attemptCount),
+    })
   }
+
+  return releasedClaims
+}
+
+export async function releaseEmailJobClaimHandler(
+  ctx: MutationCtx,
+  args: ReleaseEmailJobClaimArgs
+) {
+  assertServerToken(args.serverToken)
+  return releaseEmailJobClaim(ctx, args)
 }
 
 export async function listPendingEmailJobsHandler(

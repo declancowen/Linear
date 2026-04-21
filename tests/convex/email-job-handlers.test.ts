@@ -60,6 +60,9 @@ function createCtx(input?: {
 
   return {
     tables,
+    scheduler: {
+      runAfter: vi.fn(async () => undefined),
+    },
     db: {
       insert: vi.fn(async (
         table: keyof typeof tables,
@@ -102,6 +105,7 @@ describe("email job handlers", () => {
     const { enqueueEmailJobsHandler } = await import(
       "@/convex/app/email_job_handlers"
     )
+    const { internal } = await import("@/convex/_generated/api")
     const ctx = createCtx()
 
     await enqueueEmailJobsHandler(
@@ -149,6 +153,11 @@ describe("email job handlers", () => {
       attemptCount: 0,
       lastError: null,
     })
+    expect(ctx.scheduler.runAfter).toHaveBeenCalledWith(
+      0,
+      internal.email_jobs.processQueuedEmailJobs,
+      {}
+    )
   })
 
   it("claims only unclaimed or stale pending jobs", async () => {
@@ -696,7 +705,7 @@ describe("email job handlers", () => {
       ],
     })
 
-    await releaseEmailJobClaimHandler(
+    const result = await releaseEmailJobClaimHandler(
       ctx as never,
       {
         serverToken: "server_token",
@@ -713,5 +722,11 @@ describe("email job handlers", () => {
       attemptCount: 1,
       lastAttemptAt: "2026-04-17T11:00:00.000Z",
     })
+    expect(result).toEqual([
+      {
+        jobId: "job_1",
+        retryBackoffMs: 60 * 1000,
+      },
+    ])
   })
 })
