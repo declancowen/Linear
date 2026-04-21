@@ -13,7 +13,7 @@ import { cn, resolveImageAssetSource } from "@/lib/utils"
 type AcceptInviteCardProps = {
   authenticated: boolean
   token: string
-  teamName: string
+  teamNames: string[]
   workspaceLogo: string
   workspaceName: string
   inviteEmail: string
@@ -30,7 +30,7 @@ type AcceptInviteCardProps = {
 export function AcceptInviteCard({
   authenticated,
   token,
-  teamName,
+  teamNames,
   workspaceLogo,
   workspaceName,
   loginHref,
@@ -110,6 +110,11 @@ export function AcceptInviteCard({
   const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
   const workspaceBadgeFallback =
     workspaceName.trim().charAt(0).toUpperCase() || "?"
+  const teamLabel =
+    teamNames.length <= 2
+      ? teamNames.join(", ")
+      : `${teamNames.slice(0, 2).join(", ")} +${teamNames.length - 2}`
+  const teamLineLabel = teamNames.length === 1 ? "Team" : "Teams"
 
   return (
     <Card className={cn("w-full shadow-none", className)}>
@@ -128,7 +133,7 @@ export function AcceptInviteCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <div className="truncate text-sm font-medium">{teamName}</div>
+            <div className="truncate text-sm font-medium">{teamLabel}</div>
             <span className="shrink-0 text-xs text-muted-foreground">·</span>
             {expired ? (
               <span className="shrink-0 text-xs text-destructive">Expired</span>
@@ -142,6 +147,9 @@ export function AcceptInviteCard({
           </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
             {workspaceName}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {teamLineLabel}: {teamNames.join(", ")}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

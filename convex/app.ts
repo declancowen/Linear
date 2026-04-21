@@ -1097,8 +1097,7 @@ export const createInvite = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
-    teamId: v.string(),
-    batchId: v.optional(v.string()),
+    teamIds: v.array(v.string()),
     email: v.string(),
     role: roleValidator,
     origin: v.string(),

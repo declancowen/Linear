@@ -34,13 +34,17 @@ export async function DELETE(
       return appContext
     }
 
-    await cancelInviteServer({
+    const cancelled = await cancelInviteServer({
       currentUserId: appContext.ensuredUser.userId,
       inviteId,
     })
 
     return jsonOk({
       ok: true,
+      inviteId: cancelled.inviteId,
+      cancelledInviteIds: cancelled.cancelledInviteIds,
+      teamName: cancelled.teamName,
+      workspaceName: cancelled.workspaceName,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

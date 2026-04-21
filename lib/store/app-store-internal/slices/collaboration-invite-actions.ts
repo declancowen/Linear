@@ -29,6 +29,9 @@ export function createCollaborationInviteActions({
         return
       }
 
+      const optimisticBatchId = createId("invite_batch")
+      const optimisticToken = createId("token")
+
       set((state) => {
         const teams = state.teams.filter((entry) =>
           parsed.data.teamIds.includes(entry.id)
@@ -47,15 +50,14 @@ export function createCollaborationInviteActions({
           return state
         }
 
-        const batchId = createId("invite_batch")
         const invites = teams.map((team) => ({
           id: createId("invite"),
-          batchId,
+          batchId: optimisticBatchId,
           workspaceId: team.workspaceId,
           teamId: team.id,
           email: parsed.data.email,
           role: parsed.data.role,
-          token: createId("token"),
+          token: optimisticToken,
           joinCode: team.settings.joinCode,
           invitedBy: state.currentUserId,
           expiresAt: addDays(new Date(), 7).toISOString(),
@@ -69,13 +71,40 @@ export function createCollaborationInviteActions({
         }
       })
 
+      const syncTask = syncCreateInvite(
+        get().currentUserId,
+        parsed.data.teamIds,
+        parsed.data.email,
+        parsed.data.role
+      ).then((result) => {
+        set((current) => ({
+          invites: current.invites.map((invite, index) => {
+            if (invite.batchId !== optimisticBatchId) {
+              return invite
+            }
+
+            const persistedInvite = result.invites.find(
+              (entry) => entry.teamId === invite.teamId
+            )
+
+            if (!persistedInvite) {
+              return invite
+            }
+
+            return {
+              ...invite,
+              id: persistedInvite.id,
+              batchId: persistedInvite.batchId,
+              token: persistedInvite.token,
+            }
+          }),
+        }))
+
+        return result
+      })
+
       runtime.syncInBackground(
-        syncCreateInvite(
-          get().currentUserId,
-          parsed.data.teamIds,
-          parsed.data.email,
-          parsed.data.role
-        ),
+        syncTask,
         "Failed to create invite"
       )
 
@@ -116,13 +145,11 @@ export function createCollaborationInviteActions({
       }
 
       try {
-        await syncCancelInvite(inviteId)
+        const cancelled = await syncCancelInvite(inviteId)
 
         set((current) => ({
           invites: current.invites.filter((entry) =>
-            invite.batchId
-              ? entry.batchId !== invite.batchId
-              : entry.id !== inviteId
+            !cancelled.cancelledInviteIds.includes(entry.id)
           ),
         }))
 

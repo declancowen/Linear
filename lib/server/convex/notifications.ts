@@ -10,9 +10,19 @@ import { resolveServerOrigin } from "../request-origin"
 
 const INVITE_MUTATION_ERROR_MAPPINGS = [
   {
+    match: "Invite batch must include at least one team",
+    status: 400,
+    code: "INVITE_TARGET_REQUIRED",
+  },
+  {
     match: "Team not found",
     status: 404,
     code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Invites must target teams in the same workspace",
+    status: 400,
+    code: "INVITE_WORKSPACE_MISMATCH",
   },
   {
     match: "Only admins and members can invite",
@@ -61,8 +71,7 @@ const NOTIFICATION_MUTATION_ERROR_MAPPINGS = [
 
 export async function createInviteServer(input: {
   currentUserId: string
-  teamId: string
-  batchId?: string
+  teamIds: string[]
   email: string
   role: "admin" | "member" | "viewer" | "guest"
 }) {

@@ -564,7 +564,18 @@ export function syncCreateInvite(
   email: string,
   role: Role
 ) {
-  return runRouteMutation("/api/invites", {
+  return runRouteMutation<{
+    ok: true
+    inviteIds: string[]
+    batchId: string
+    token: string
+    invites: Array<{
+      id: string
+      batchId: string
+      teamId: string
+      token: string
+    }>
+  }>("/api/invites", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -578,7 +589,13 @@ export function syncCreateInvite(
 }
 
 export function syncCancelInvite(inviteId: string) {
-  return runRouteMutation(`/api/invites/${inviteId}`, {
+  return runRouteMutation<{
+    ok: true
+    inviteId: string
+    cancelledInviteIds: string[]
+    teamName: string | null
+    workspaceName: string | null
+  }>(`/api/invites/${inviteId}`, {
     method: "DELETE",
   })
 }

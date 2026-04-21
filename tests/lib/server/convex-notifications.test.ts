@@ -35,7 +35,7 @@ describe("convex notification and invite wrappers", () => {
     await expect(
       createInviteServer({
         currentUserId: "user_1",
-        teamId: "team_1",
+        teamIds: ["team_1"],
         email: "alex@example.com",
         role: "member",
       })

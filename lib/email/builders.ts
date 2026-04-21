@@ -56,7 +56,7 @@ export type MentionEmail = {
 export type TeamInviteEmail = {
   email: string
   workspaceName: string
-  teamName: string
+  teamNames: string[]
   role: string
   inviteToken: string
 }
@@ -366,12 +366,18 @@ function renderSubheading(html: string) {
 
 function renderInviteEmailText(input: {
   workspaceName: string
-  teamName: string
+  teamNames: string[]
   role: string
   acceptUrl: string
 }) {
+  const teamLine =
+    input.teamNames.length === 1
+      ? `Team: ${input.teamNames[0]}`
+      : `Teams: ${input.teamNames.join(", ")}`
+
   return [
-    `You've been invited to join ${input.teamName} in ${input.workspaceName}.`,
+    `You've been invited to join ${input.workspaceName}.`,
+    teamLine,
     `Role: ${input.role}`,
     "This access is issued at the workspace team level.",
     `Accept the invite: ${input.acceptUrl}`,
@@ -404,11 +410,15 @@ function renderAccessChangeEmail(input: {
 function renderInviteEmailHtml(input: {
   origin: string
   workspaceName: string
-  teamName: string
+  teamNames: string[]
   role: string
   acceptUrl: string
   logoUrl: string
 }) {
+  const teamValue =
+    input.teamNames.length === 1
+      ? input.teamNames[0]
+      : input.teamNames.join(", ")
   const primaryButton = renderEmailButton({
     href: input.acceptUrl,
     label: "Accept invite",
@@ -416,12 +426,16 @@ function renderInviteEmailHtml(input: {
   })
 
   const content = [
-    renderHeadline(`Join ${input.teamName}`),
+    renderHeadline(`Join ${input.workspaceName}`),
     renderSubheading(
-      `You&rsquo;ve been invited to <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.workspaceName)}</strong> through the <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.teamName)}</strong> team.`
+      `You&rsquo;ve been invited to <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.workspaceName)}</strong> with access to ${input.teamNames.length === 1 ? "the following team" : "the following teams"}.`
     ),
     renderDetailCard({
       rows: [
+        {
+          label: input.teamNames.length === 1 ? "Team" : "Teams",
+          value: teamValue,
+        },
         {
           label: "Role",
           value: toTitleCase(input.role),
@@ -448,7 +462,10 @@ function renderInviteEmailHtml(input: {
     origin: input.origin,
     logoUrl: input.logoUrl,
     eyebrow: "Workspace invite",
-    preheader: `Join ${input.teamName} in ${input.workspaceName}`,
+    preheader:
+      input.teamNames.length === 1
+        ? `Join ${input.teamNames[0]} in ${input.workspaceName}`
+        : `Join ${input.workspaceName}`,
     content,
   })
 }
@@ -680,17 +697,20 @@ export function buildTeamInviteEmailJobs(input: {
     )
     const logoUrl = buildAbsoluteUrl(origin, "/app-icon.png")
     const message = {
-      subject: `Join ${invite.teamName} in ${invite.workspaceName}`,
+      subject:
+        invite.teamNames.length === 1
+          ? `Join ${invite.teamNames[0]} in ${invite.workspaceName}`
+          : `Join ${invite.workspaceName}`,
       text: renderInviteEmailText({
         workspaceName: invite.workspaceName,
-        teamName: invite.teamName,
+        teamNames: invite.teamNames,
         role: invite.role,
         acceptUrl,
       }),
       html: renderInviteEmailHtml({
         origin,
         workspaceName: invite.workspaceName,
-        teamName: invite.teamName,
+        teamNames: invite.teamNames,
         role: invite.role,
         acceptUrl,
         logoUrl,
