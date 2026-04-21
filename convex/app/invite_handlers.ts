@@ -6,6 +6,7 @@ import { buildTeamInviteEmailJobs } from "../../lib/email/builders"
 import {
   requireTeamAdminAccess,
   requireWorkspaceAdminAccess,
+  WORKSPACE_ADMIN_ACCESS_ERROR,
 } from "./access"
 import { createNotification } from "./collaboration_utils"
 import { insertAuditEvent } from "./audit"
@@ -305,7 +306,14 @@ export async function cancelInviteHandler(
 
   try {
     await requireWorkspaceAdminAccess(ctx, invite.workspaceId, args.currentUserId)
-  } catch {
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      error.message !== WORKSPACE_ADMIN_ACCESS_ERROR
+    ) {
+      throw error
+    }
+
     canCancelViaWorkspace = false
   }
 

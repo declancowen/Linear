@@ -60,6 +60,7 @@ vi.mock("@/convex/app/core", () => ({
 vi.mock("@/convex/app/access", () => ({
   requireTeamAdminAccess: requireTeamAdminAccessMock,
   requireWorkspaceAdminAccess: requireWorkspaceAdminAccessMock,
+  WORKSPACE_ADMIN_ACCESS_ERROR: "Only workspace admins can perform this action",
 }))
 
 vi.mock("@/convex/app/collaboration_utils", () => ({
@@ -559,6 +560,33 @@ describe("invite handlers", () => {
     expect(ctx.db.delete).toHaveBeenCalledWith("invite_1_doc")
     expect(ctx.db.delete).not.toHaveBeenCalledWith("notification_2_doc")
     expect(ctx.db.delete).not.toHaveBeenCalledWith("invite_2_doc")
+  })
+
+  it("rethrows unexpected workspace access errors instead of downgrading to team scope", async () => {
+    const { cancelInviteHandler } = await import("@/convex/app/invite_handlers")
+    const ctx = createCtx()
+
+    getInviteDocMock.mockResolvedValue({
+      _id: "invite_1_doc",
+      id: "invite_1",
+      batchId: "invite_batch_1",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      email: "alex@example.com",
+      role: "member",
+      acceptedAt: null,
+      declinedAt: null,
+    })
+    requireWorkspaceAdminAccessMock.mockRejectedValue(new Error("datastore offline"))
+
+    await expect(
+      cancelInviteHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        inviteId: "invite_1",
+      })
+    ).rejects.toThrow("datastore offline")
+    expect(requireTeamAdminAccessMock).not.toHaveBeenCalled()
   })
 
   it("accepts every pending invite that shares the token", async () => {

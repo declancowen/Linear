@@ -8,6 +8,9 @@ import {
   type AppCtx,
 } from "./data"
 
+export const WORKSPACE_ADMIN_ACCESS_ERROR =
+  "Only workspace admins can perform this action"
+
 function isReadOnlyRole(role: Awaited<ReturnType<typeof getEffectiveRole>>) {
   return role === "viewer" || role === "guest" || !role
 }
@@ -182,6 +185,6 @@ export async function requireWorkspaceAdminAccess(
   )
 
   if (workspaceMembership?.role !== "admin") {
-    throw new Error("Only workspace admins can perform this action")
+    throw new Error(WORKSPACE_ADMIN_ACCESS_ERROR)
   }
 }

@@ -43,6 +43,36 @@ function getRequiredEnv(name: "CRON_SECRET" | "RESEND_API_KEY" | "RESEND_FROM_EM
   return value
 }
 
+function isConfigurationErrorMessage(message: string) {
+  return message.endsWith("is not configured")
+}
+
+async function releaseEmailJobClaimSafely(input: {
+  client: ReturnType<typeof getConvexServerClient>
+  claimId: string
+  jobId: string
+  errorMessage: string
+  context: "send" | "mark_sent"
+}) {
+  try {
+    await input.client.mutation(
+      api.app.releaseEmailJobClaim,
+      withServerToken({
+        claimId: input.claimId,
+        jobIds: [input.jobId],
+        errorMessage: input.errorMessage,
+      })
+    )
+  } catch (error) {
+    console.error("Failed to release queued email job claim", {
+      claimId: input.claimId,
+      jobId: input.jobId,
+      context: input.context,
+      error: toErrorMessage(error),
+    })
+  }
+}
+
 async function processEmailJobsBatch() {
   const client = getConvexServerClient()
   const claimId = randomUUID()
@@ -75,14 +105,13 @@ async function processEmailJobsBatch() {
         }
       )
     } catch (error) {
-      await client.mutation(
-        api.app.releaseEmailJobClaim,
-        withServerToken({
-          claimId,
-          jobIds: [job.id],
-          errorMessage: toErrorMessage(error),
-        })
-      )
+      await releaseEmailJobClaimSafely({
+        client,
+        claimId,
+        jobId: job.id,
+        errorMessage: toErrorMessage(error),
+        context: "send",
+      })
       failedCount += 1
       continue
     }
@@ -95,14 +124,42 @@ async function processEmailJobsBatch() {
           jobIds: [job.id],
         })
       )
-      sentCount += 1
     } catch (error) {
       console.error("Failed to mark queued email job as sent", {
         claimId,
         jobId: job.id,
         error: toErrorMessage(error),
       })
+      await releaseEmailJobClaimSafely({
+        client,
+        claimId,
+        jobId: job.id,
+        errorMessage: toErrorMessage(error),
+        context: "mark_sent",
+      })
       failedCount += 1
+      continue
+    }
+
+    sentCount += 1
+
+    if (!job.notificationId) {
+      continue
+    }
+
+    try {
+      await client.mutation(
+        api.app.markNotificationsEmailed,
+        withServerToken({
+          notificationIds: [job.notificationId],
+        })
+      )
+    } catch (error) {
+      console.error("Failed to mark notification emailed after queued email delivery", {
+        notificationId: job.notificationId,
+        jobId: job.id,
+        error: toErrorMessage(error),
+      })
     }
   }
 
@@ -149,10 +206,14 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     const message = toErrorMessage(error)
-    const status =
-      message.endsWith("is not configured") || message === "Unauthorized"
-        ? 503
-        : 500
+    const unauthorized = message === "Unauthorized"
+    const configurationError = isConfigurationErrorMessage(message)
+    const status = unauthorized ? 401 : configurationError ? 503 : 500
+    const responseMessage = unauthorized
+      ? "Unauthorized"
+      : configurationError
+        ? "Service unavailable"
+        : "Failed to process queued email jobs"
 
     console.error("Failed to process queued email jobs", {
       error: message,
@@ -160,7 +221,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: message,
+        error: responseMessage,
       },
       { status }
     )
