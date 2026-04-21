@@ -1165,9 +1165,17 @@ export async function getInviteByTokenHandler(
     scopedInvites.map((entry) => getTeamDoc(ctx, entry.teamId))
   )
   const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
-  const teamNames = [...new Set(
-    teams.flatMap((team) => (team ? [team.name] : []))
-  )].sort((left, right) => left.localeCompare(right))
+  const teamNames = [
+    ...new Set(teams.flatMap((team) => (team ? [team.name] : []))),
+  ].sort((left, right) => left.localeCompare(right))
+
+  if (!workspace) {
+    return null
+  }
+
+  if (!invite.acceptedAt && !invite.declinedAt && teamNames.length === 0) {
+    return null
+  }
 
   return {
     invite: {
@@ -1181,14 +1189,12 @@ export async function getInviteByTokenHandler(
       declinedAt: invite.declinedAt ?? null,
     },
     teamNames,
-    workspace: workspace
-      ? {
-          id: workspace.id,
-          slug: workspace.slug,
-          name: workspace.name,
-          logoUrl: workspace.logoUrl,
-        }
-      : null,
+    workspace: {
+      id: workspace.id,
+      slug: workspace.slug,
+      name: workspace.name,
+      logoUrl: workspace.logoUrl,
+    },
   }
 }
 

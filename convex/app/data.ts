@@ -990,19 +990,25 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
     }
   }
 
-  return Promise.all(
+  const groupedPendingInvites = await Promise.all(
     [...groupedInvites.values()].map(async (inviteGroup) => {
       const [primaryInvite] = inviteGroup
-      let mergedRole = primaryInvite.role
       const teamNames = new Set<string>()
       const [teams, workspace] = await Promise.all([
-        Promise.all(inviteGroup.map((invite) => getTeamDoc(ctx, invite.teamId))),
+        Promise.all(
+          inviteGroup.map((invite) => getTeamDoc(ctx, invite.teamId))
+        ),
         getWorkspaceDoc(ctx, primaryInvite.workspaceId),
       ])
-
-      for (const invite of inviteGroup) {
-        mergedRole = mergeMembershipRole(mergedRole, invite.role)
-      }
+      const survivingInvites = inviteGroup.filter((_invite, index) =>
+        Boolean(teams[index])
+      )
+      const mergedRole =
+        survivingInvites.reduce<(typeof primaryInvite.role) | null>(
+          (currentRole, invite) =>
+            mergeMembershipRole(currentRole, invite.role),
+          null
+        ) ?? primaryInvite.role
 
       for (const team of teams) {
         if (team) {
@@ -1021,7 +1027,9 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
           declinedAt: primaryInvite.declinedAt ?? null,
           joinCode: primaryInvite.joinCode,
         },
-        teamNames: [...teamNames].sort((left, right) => left.localeCompare(right)),
+        teamNames: [...teamNames].sort((left, right) =>
+          left.localeCompare(right)
+        ),
         workspace: workspace
           ? {
               id: workspace.id,
@@ -1032,6 +1040,10 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
           : null,
       }
     })
+  )
+
+  return groupedPendingInvites.filter(
+    (entry) => entry.workspace && entry.teamNames.length > 0
   )
 }
 
@@ -1311,10 +1323,9 @@ export async function getWorkspaceEditRole(
       .filter((team) => team.workspaceId === workspaceId)
       .map((team) => team.id)
   )
-  const highestTeamRole =
-    memberships
-      .filter((membership) => workspaceTeamIds.has(membership.teamId))
-      .map((membership) => membership.role)
+  const highestTeamRole = memberships
+    .filter((membership) => workspaceTeamIds.has(membership.teamId))
+    .map((membership) => membership.role)
 
   return resolveWorkspaceEditRole({
     directRole,

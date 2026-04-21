@@ -1,5 +1,8 @@
 import { api } from "@/convex/_generated/api"
-import { coerceApplicationError } from "@/lib/server/application-errors"
+import {
+  ApplicationError,
+  coerceApplicationError,
+} from "@/lib/server/application-errors"
 
 import {
   getConvexServerClient,
@@ -69,6 +72,34 @@ const NOTIFICATION_MUTATION_ERROR_MAPPINGS = [
   },
 ] as const
 
+type InviteMutationErrorResult = {
+  error: string
+  status: number
+  code: string
+}
+
+function isInviteMutationErrorResult(
+  result: unknown
+): result is InviteMutationErrorResult {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "error" in result &&
+    "status" in result &&
+    "code" in result
+  )
+}
+
+function unwrapInviteMutationResult<T>(result: T): Exclude<T, InviteMutationErrorResult> {
+  if (isInviteMutationErrorResult(result)) {
+    throw new ApplicationError(result.error, result.status, {
+      code: result.code,
+    })
+  }
+
+  return result as Exclude<T, InviteMutationErrorResult>
+}
+
 export async function createInviteServer(input: {
   currentUserId: string
   teamIds: string[]
@@ -109,9 +140,11 @@ export async function acceptInviteServer(input: {
   token: string
 }) {
   try {
-    return await getConvexServerClient().mutation(
-      api.app.acceptInvite,
-      withServerToken(input)
+    return unwrapInviteMutationResult(
+      await getConvexServerClient().mutation(
+        api.app.acceptInvite,
+        withServerToken(input)
+      )
     )
   } catch (error) {
     throw coerceApplicationError(error, [...INVITE_MUTATION_ERROR_MAPPINGS]) ?? error
@@ -123,9 +156,11 @@ export async function declineInviteServer(input: {
   token: string
 }) {
   try {
-    return await getConvexServerClient().mutation(
-      api.app.declineInvite,
-      withServerToken(input)
+    return unwrapInviteMutationResult(
+      await getConvexServerClient().mutation(
+        api.app.declineInvite,
+        withServerToken(input)
+      )
     )
   } catch (error) {
     throw coerceApplicationError(error, [...INVITE_MUTATION_ERROR_MAPPINGS]) ?? error

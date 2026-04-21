@@ -66,6 +66,12 @@ type JoinTeamByCodeArgs = ServerAccessArgs & {
   code: string
 }
 
+type InviteActionErrorResult = {
+  error: "Invite not found"
+  status: 404
+  code: "INVITE_NOT_FOUND"
+}
+
 function isPendingInvite(invite: {
   acceptedAt?: string | null
   declinedAt?: string | null
@@ -147,6 +153,91 @@ async function deleteInviteAndNotifications(
       source: "convex",
     },
   })
+}
+
+async function deleteInviteArtifacts(
+  ctx: MutationCtx,
+  invite: Awaited<ReturnType<typeof getInviteDoc>>
+) {
+  if (!invite) {
+    return
+  }
+
+  const inviteNotifications = await ctx.db
+    .query("notifications")
+    .withIndex("by_entity", (q) =>
+      q.eq("entityType", "invite").eq("entityId", invite.id)
+    )
+    .collect()
+
+  for (const notification of inviteNotifications) {
+    await ctx.db.delete(notification._id)
+  }
+
+  await ctx.db.delete(invite._id)
+}
+
+async function buildAcceptedInviteResult(
+  ctx: MutationCtx,
+  representativeInvite: {
+    workspaceId: string
+  },
+  acceptedInvites: Array<{
+    teamId: string
+  }>
+) {
+  const team =
+    acceptedInvites.length === 1
+      ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
+      : null
+  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
+
+  return {
+    teamSlug: team?.slug ?? null,
+    workspaceId: representativeInvite.workspaceId,
+    workspaceSlug: workspace?.slug ?? null,
+    workosOrganizationId: workspace?.workosOrganizationId ?? null,
+  }
+}
+
+function buildInviteNotFoundResult(): InviteActionErrorResult {
+  return {
+    error: "Invite not found",
+    status: 404,
+    code: "INVITE_NOT_FOUND",
+  }
+}
+
+async function partitionPendingInvitesByExistingTeams<
+  T extends {
+    teamId: string
+  },
+>(ctx: MutationCtx, pendingInvites: T[]) {
+  const pendingInviteTeams = await Promise.all(
+    pendingInvites.map((invite) => getTeamDoc(ctx, invite.teamId))
+  )
+  const activePendingInvites: T[] = []
+  const activePendingTeams: Array<NonNullable<(typeof pendingInviteTeams)[number]>> =
+    []
+  const stalePendingInvites: T[] = []
+
+  for (const [index, invite] of pendingInvites.entries()) {
+    const team = pendingInviteTeams[index]
+
+    if (team) {
+      activePendingInvites.push(invite)
+      activePendingTeams.push(team)
+      continue
+    }
+
+    stalePendingInvites.push(invite)
+  }
+
+  return {
+    activePendingInvites,
+    activePendingTeams,
+    stalePendingInvites,
+  }
 }
 
 export async function createInviteHandler(
@@ -385,22 +476,31 @@ export async function acceptInviteHandler(
   }
 
   if (pendingInvites.length === 0) {
-    const team =
-      acceptedInvites.length === 1
-        ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
-        : null
-    const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
-    return {
-      teamSlug: team?.slug ?? null,
-      workspaceId: representativeInvite.workspaceId,
-      workspaceSlug: workspace?.slug ?? null,
-      workosOrganizationId: workspace?.workosOrganizationId ?? null,
+    return buildAcceptedInviteResult(ctx, representativeInvite, acceptedInvites)
+  }
+
+  const { activePendingInvites, activePendingTeams, stalePendingInvites } =
+    await partitionPendingInvitesByExistingTeams(ctx, pendingInvites)
+
+  for (const invite of stalePendingInvites) {
+    await deleteInviteArtifacts(ctx, invite)
+  }
+
+  if (activePendingInvites.length === 0) {
+    if (acceptedInvites.length > 0) {
+      return buildAcceptedInviteResult(
+        ctx,
+        representativeInvite,
+        acceptedInvites
+      )
     }
+
+    return buildInviteNotFoundResult()
   }
 
   let fallbackRole: InviteRole | null = null
 
-  for (const invite of pendingInvites) {
+  for (const invite of activePendingInvites) {
     const existingMembership = await ctx.db
       .query("teamMemberships")
       .withIndex("by_team_and_user", (q) =>
@@ -455,16 +555,17 @@ export async function acceptInviteHandler(
     fallbackRole: fallbackRole ?? representativeInvite.role,
   })
 
-  const team =
-    pendingInvites.length === 1
-      ? await getTeamDoc(ctx, pendingInvites[0].teamId)
-      : null
+  const team = activePendingInvites.length === 1 ? activePendingTeams[0] : null
   const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
-  await setCurrentWorkspaceForUser(ctx, args.currentUserId, representativeInvite.workspaceId)
+  await setCurrentWorkspaceForUser(
+    ctx,
+    args.currentUserId,
+    representativeInvite.workspaceId
+  )
 
   await archiveInviteNotifications(ctx, {
     userId: args.currentUserId,
-    inviteIds: pendingInvites.map((invite) => invite.id),
+    inviteIds: activePendingInvites.map((invite) => invite.id),
   })
 
   return {
@@ -494,13 +595,31 @@ export async function declineInviteHandler(
   )
   const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
 
+  if (
+    pendingInvites.length === 0 &&
+    scopedTokenInvites.every((invite) => invite.declinedAt)
+  ) {
+    throw new Error("Invite has been declined")
+  }
+
   if (scopedTokenInvites.some((invite) => invite.acceptedAt)) {
     throw new Error("Invite has already been accepted")
   }
 
+  const { activePendingInvites, stalePendingInvites } =
+    await partitionPendingInvitesByExistingTeams(ctx, pendingInvites)
+
+  for (const invite of stalePendingInvites) {
+    await deleteInviteArtifacts(ctx, invite)
+  }
+
+  if (activePendingInvites.length === 0) {
+    return buildInviteNotFoundResult()
+  }
+
   const declinedAt = getNow()
 
-  for (const invite of pendingInvites) {
+  for (const invite of activePendingInvites) {
     await ctx.db.patch(invite._id, {
       declinedAt,
     })
@@ -522,11 +641,11 @@ export async function declineInviteHandler(
 
   await archiveInviteNotifications(ctx, {
     userId: args.currentUserId,
-    inviteIds: pendingInvites.map((invite) => invite.id),
+    inviteIds: activePendingInvites.map((invite) => invite.id),
   })
 
   return {
-    inviteId: pendingInvites[0]?.id ?? representativeInvite.id,
+    inviteId: activePendingInvites[0]?.id ?? representativeInvite.id,
     declinedAt,
   }
 }
