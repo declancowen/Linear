@@ -31,6 +31,16 @@ export function WorkspaceEntryJoinSection({
   pendingInvites,
   signupHref = "/signup",
 }: WorkspaceEntryJoinSectionProps) {
+  const visiblePendingInvites = pendingInvites.filter(
+    (
+      entry
+    ): entry is WorkspaceEntryJoinSectionProps["pendingInvites"][number] & {
+      workspace: NonNullable<
+        WorkspaceEntryJoinSectionProps["pendingInvites"][number]["workspace"]
+      >
+    } => Boolean(entry.workspace) && entry.teamNames.length > 0
+  )
+
   return (
     <section className="mx-auto flex w-full max-w-lg flex-col gap-8">
       <div className="space-y-3">
@@ -39,32 +49,30 @@ export function WorkspaceEntryJoinSection({
             Pending invites
           </h2>
           <span className="text-xs text-muted-foreground">
-            {pendingInvites.length}
+            {visiblePendingInvites.length}
           </span>
         </div>
 
-        {pendingInvites.length > 0 ? (
+        {visiblePendingInvites.length > 0 ? (
           <div className="space-y-2">
-            {pendingInvites.map((entry) =>
-              entry.workspace ? (
-                <AcceptInviteCard
-                  key={entry.invite.id}
-                  authenticated
-                  token={entry.invite.token}
-                  teamNames={entry.teamNames}
-                  workspaceLogo={entry.workspace.logoUrl}
-                  workspaceName={entry.workspace.name}
-                  inviteEmail={entry.invite.email}
-                  loginHref={loginHref}
-                  signupHref={signupHref}
-                  role={entry.invite.role}
-                  expired={false}
-                  accepted={Boolean(entry.invite.acceptedAt)}
-                  autoAccept={entry.invite.token === autoAcceptToken}
-                  showDecline
-                />
-              ) : null
-            )}
+            {visiblePendingInvites.map((entry) => (
+              <AcceptInviteCard
+                key={entry.invite.id}
+                authenticated
+                token={entry.invite.token}
+                teamNames={entry.teamNames}
+                workspaceLogo={entry.workspace.logoUrl}
+                workspaceName={entry.workspace.name}
+                inviteEmail={entry.invite.email}
+                loginHref={loginHref}
+                signupHref={signupHref}
+                role={entry.invite.role}
+                expired={false}
+                accepted={Boolean(entry.invite.acceptedAt)}
+                autoAccept={entry.invite.token === autoAcceptToken}
+                showDecline
+              />
+            ))}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No pending invites</p>

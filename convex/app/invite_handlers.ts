@@ -149,6 +149,51 @@ async function deleteInviteAndNotifications(
   })
 }
 
+async function deleteInviteArtifacts(
+  ctx: MutationCtx,
+  invite: Awaited<ReturnType<typeof getInviteDoc>>
+) {
+  if (!invite) {
+    return
+  }
+
+  const inviteNotifications = await ctx.db
+    .query("notifications")
+    .withIndex("by_entity", (q) =>
+      q.eq("entityType", "invite").eq("entityId", invite.id)
+    )
+    .collect()
+
+  for (const notification of inviteNotifications) {
+    await ctx.db.delete(notification._id)
+  }
+
+  await ctx.db.delete(invite._id)
+}
+
+async function buildAcceptedInviteResult(
+  ctx: MutationCtx,
+  representativeInvite: {
+    workspaceId: string
+  },
+  acceptedInvites: Array<{
+    teamId: string
+  }>
+) {
+  const team =
+    acceptedInvites.length === 1
+      ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
+      : null
+  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
+
+  return {
+    teamSlug: team?.slug ?? null,
+    workspaceId: representativeInvite.workspaceId,
+    workspaceSlug: workspace?.slug ?? null,
+    workosOrganizationId: workspace?.workosOrganizationId ?? null,
+  }
+}
+
 export async function createInviteHandler(
   ctx: MutationCtx,
   args: CreateInviteArgs
@@ -385,22 +430,38 @@ export async function acceptInviteHandler(
   }
 
   if (pendingInvites.length === 0) {
-    const team =
-      acceptedInvites.length === 1
-        ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
-        : null
-    const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
-    return {
-      teamSlug: team?.slug ?? null,
-      workspaceId: representativeInvite.workspaceId,
-      workspaceSlug: workspace?.slug ?? null,
-      workosOrganizationId: workspace?.workosOrganizationId ?? null,
+    return buildAcceptedInviteResult(ctx, representativeInvite, acceptedInvites)
+  }
+
+  const pendingInviteTeams = await Promise.all(
+    pendingInvites.map((invite) => getTeamDoc(ctx, invite.teamId))
+  )
+  const activePendingInvites = pendingInvites.filter(
+    (_invite, index) => pendingInviteTeams[index]
+  )
+  const stalePendingInvites = pendingInvites.filter(
+    (_invite, index) => !pendingInviteTeams[index]
+  )
+
+  for (const invite of stalePendingInvites) {
+    await deleteInviteArtifacts(ctx, invite)
+  }
+
+  if (activePendingInvites.length === 0) {
+    if (acceptedInvites.length > 0) {
+      return buildAcceptedInviteResult(
+        ctx,
+        representativeInvite,
+        acceptedInvites
+      )
     }
+
+    throw new Error("Invite not found")
   }
 
   let fallbackRole: InviteRole | null = null
 
-  for (const invite of pendingInvites) {
+  for (const invite of activePendingInvites) {
     const existingMembership = await ctx.db
       .query("teamMemberships")
       .withIndex("by_team_and_user", (q) =>
@@ -456,15 +517,19 @@ export async function acceptInviteHandler(
   })
 
   const team =
-    pendingInvites.length === 1
-      ? await getTeamDoc(ctx, pendingInvites[0].teamId)
+    activePendingInvites.length === 1
+      ? await getTeamDoc(ctx, activePendingInvites[0].teamId)
       : null
   const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
-  await setCurrentWorkspaceForUser(ctx, args.currentUserId, representativeInvite.workspaceId)
+  await setCurrentWorkspaceForUser(
+    ctx,
+    args.currentUserId,
+    representativeInvite.workspaceId
+  )
 
   await archiveInviteNotifications(ctx, {
     userId: args.currentUserId,
-    inviteIds: pendingInvites.map((invite) => invite.id),
+    inviteIds: activePendingInvites.map((invite) => invite.id),
   })
 
   return {
