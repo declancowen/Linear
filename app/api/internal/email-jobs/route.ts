@@ -218,12 +218,9 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     const message = toErrorMessage(error)
-    const unauthorized = message === "Unauthorized"
     const configurationError = isConfigurationErrorMessage(message)
-    const status = unauthorized ? 401 : configurationError ? 503 : 500
-    const responseMessage = unauthorized
-      ? "Unauthorized"
-      : configurationError
+    const status = configurationError ? 503 : 500
+    const responseMessage = configurationError
         ? "Service unavailable"
         : "Failed to process queued email jobs"
 
