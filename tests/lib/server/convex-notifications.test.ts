@@ -75,6 +75,44 @@ describe("convex notification and invite wrappers", () => {
     })
   })
 
+  it("maps invite mutation error payloads to typed application errors", async () => {
+    const { acceptInviteServer, declineInviteServer } = await import(
+      "@/lib/server/convex/notifications"
+    )
+
+    mutationMock
+      .mockResolvedValueOnce({
+        error: "Invite not found",
+        status: 404,
+        code: "INVITE_NOT_FOUND",
+      })
+      .mockResolvedValueOnce({
+        error: "Invite has been declined",
+        status: 409,
+        code: "INVITE_DECLINED",
+      })
+
+    await expect(
+      acceptInviteServer({
+        currentUserId: "user_1",
+        token: "token_1",
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "INVITE_NOT_FOUND",
+    })
+
+    await expect(
+      declineInviteServer({
+        currentUserId: "user_1",
+        token: "token_1",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "INVITE_DECLINED",
+    })
+  })
+
   it("maps notification mutation failures to typed application errors", async () => {
     const {
       archiveNotificationServer,

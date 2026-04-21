@@ -709,7 +709,11 @@ describe("invite handlers", () => {
         currentUserId: "user_1",
         token: "token_1",
       })
-    ).rejects.toThrow("Invite not found")
+    ).resolves.toEqual({
+      error: "Invite not found",
+      status: 404,
+      code: "INVITE_NOT_FOUND",
+    })
 
     expect(ctx.tables.invites).toHaveLength(0)
     expect(ctx.tables.notifications).toHaveLength(0)
@@ -891,7 +895,11 @@ describe("invite handlers", () => {
         currentUserId: "user_1",
         token: "token_1",
       })
-    ).rejects.toThrow("Invite not found")
+    ).resolves.toEqual({
+      error: "Invite not found",
+      status: 404,
+      code: "INVITE_NOT_FOUND",
+    })
 
     expect(ctx.tables.invites).toHaveLength(0)
     expect(ctx.tables.notifications).toHaveLength(0)
@@ -999,6 +1007,33 @@ describe("invite handlers", () => {
       userId: "user_1",
       inviteIds: ["invite_2"],
     })
+  })
+
+  it("returns the declined conflict for already-declined invite batches", async () => {
+    const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
+    const ctx = createCtx()
+
+    listInvitesByTokenMock.mockResolvedValue([
+      {
+        _id: "invite_1_doc",
+        id: "invite_1",
+        batchId: "invite_batch_1",
+        token: "token_1",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        role: "member",
+        acceptedAt: null,
+        declinedAt: "2026-04-20T12:00:00.000Z",
+      },
+    ])
+
+    await expect(
+      declineInviteHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        token: "token_1",
+      })
+    ).rejects.toThrow("Invite has been declined")
   })
 
   it("ignores colliding token invites outside the representative batch", async () => {

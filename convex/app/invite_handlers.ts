@@ -66,6 +66,12 @@ type JoinTeamByCodeArgs = ServerAccessArgs & {
   code: string
 }
 
+type InviteActionErrorResult = {
+  error: "Invite not found"
+  status: 404
+  code: "INVITE_NOT_FOUND"
+}
+
 function isPendingInvite(invite: {
   acceptedAt?: string | null
   declinedAt?: string | null
@@ -191,6 +197,14 @@ async function buildAcceptedInviteResult(
     workspaceId: representativeInvite.workspaceId,
     workspaceSlug: workspace?.slug ?? null,
     workosOrganizationId: workspace?.workosOrganizationId ?? null,
+  }
+}
+
+function buildInviteNotFoundResult(): InviteActionErrorResult {
+  return {
+    error: "Invite not found",
+    status: 404,
+    code: "INVITE_NOT_FOUND",
   }
 }
 
@@ -481,7 +495,7 @@ export async function acceptInviteHandler(
       )
     }
 
-    throw new Error("Invite not found")
+    return buildInviteNotFoundResult()
   }
 
   let fallbackRole: InviteRole | null = null
@@ -581,6 +595,13 @@ export async function declineInviteHandler(
   )
   const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
 
+  if (
+    pendingInvites.length === 0 &&
+    scopedTokenInvites.every((invite) => invite.declinedAt)
+  ) {
+    throw new Error("Invite has been declined")
+  }
+
   if (scopedTokenInvites.some((invite) => invite.acceptedAt)) {
     throw new Error("Invite has already been accepted")
   }
@@ -593,7 +614,7 @@ export async function declineInviteHandler(
   }
 
   if (activePendingInvites.length === 0) {
-    throw new Error("Invite not found")
+    return buildInviteNotFoundResult()
   }
 
   const declinedAt = getNow()
