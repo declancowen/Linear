@@ -21,12 +21,14 @@ describe("convex notification and invite wrappers", () => {
   it("maps invite mutation failures to typed application errors", async () => {
     const {
       acceptInviteServer,
+      cancelInviteServer,
       createInviteServer,
       declineInviteServer,
     } = await import("@/lib/server/convex/notifications")
 
     mutationMock
       .mockRejectedValueOnce(new Error("Team not found"))
+      .mockRejectedValueOnce(new Error("Only team admins can cancel invites"))
       .mockRejectedValueOnce(new Error("Invite has been declined"))
       .mockRejectedValueOnce(new Error("Invite has already been accepted"))
 
@@ -40,6 +42,16 @@ describe("convex notification and invite wrappers", () => {
     ).rejects.toMatchObject({
       status: 404,
       code: "TEAM_NOT_FOUND",
+    })
+
+    await expect(
+      cancelInviteServer({
+        currentUserId: "user_1",
+        inviteId: "invite_1",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "INVITE_CANCEL_FORBIDDEN",
     })
 
     await expect(

@@ -54,7 +54,11 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   getAvailableGroupOptions: () => ["status"],
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
-  LevelChipPopover: () => null,
+  LevelChipPopover: ({
+    showLabel,
+  }: {
+    showLabel?: boolean
+  }) => <div>{showLabel === false ? "level:value-only" : "level:label"}</div>,
   PropertiesChipPopover: () => null,
   SortChipPopover: () => null,
   ViewConfigPopover: () => null,
@@ -176,6 +180,7 @@ describe("WorkSurface", () => {
     )
 
     expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
+    expect(screen.getByText("level:label")).toBeInTheDocument()
     expect(updateViewConfigSpy).not.toHaveBeenCalled()
 
     updateViewConfigSpy.mockRestore()

@@ -3,7 +3,7 @@
 import { addDays } from "date-fns"
 import { toast } from "sonner"
 
-import { syncCreateInvite } from "@/lib/convex/client"
+import { syncCancelInvite, syncCreateInvite } from "@/lib/convex/client"
 import { inviteSchema } from "@/lib/domain/types"
 
 import { createId } from "../helpers"
@@ -17,7 +17,10 @@ export function createCollaborationInviteActions({
   get,
   runtime,
   set,
-}: CollaborationSliceFactoryArgs): Pick<CollaborationSlice, "createInvite"> {
+}: CollaborationSliceFactoryArgs): Pick<
+  CollaborationSlice,
+  "createInvite" | "cancelInvite"
+> {
   return {
     createInvite(input) {
       const parsed = inviteSchema.safeParse(input)
@@ -44,8 +47,10 @@ export function createCollaborationInviteActions({
           return state
         }
 
+        const batchId = createId("invite_batch")
         const invites = teams.map((team) => ({
           id: createId("invite"),
+          batchId,
           workspaceId: team.workspaceId,
           teamId: team.id,
           email: parsed.data.email,
@@ -79,6 +84,54 @@ export function createCollaborationInviteActions({
           ? "Invite created"
           : `Invites created for ${parsed.data.teamIds.length} teams`
       )
+    },
+    async cancelInvite(inviteId) {
+      const state = get()
+      const invite = state.invites.find((entry) => entry.id === inviteId)
+
+      if (!invite) {
+        toast.error("Invite not found")
+        return false
+      }
+
+      const isWorkspaceOwner = state.workspaces.some(
+        (workspace) =>
+          workspace.id === invite.workspaceId &&
+          workspace.createdBy === state.currentUserId
+      )
+      const workspaceRole = state.workspaceMemberships.find(
+        (membership) =>
+          membership.workspaceId === invite.workspaceId &&
+          membership.userId === state.currentUserId
+      )?.role
+      const teamRole = effectiveRole(state, invite.teamId)
+
+      if (
+        !isWorkspaceOwner &&
+        workspaceRole !== "admin" &&
+        teamRole !== "admin"
+      ) {
+        toast.error("Only admins can cancel invites")
+        return false
+      }
+
+      try {
+        await syncCancelInvite(inviteId)
+
+        set((current) => ({
+          invites: current.invites.filter((entry) =>
+            invite.batchId
+              ? entry.batchId !== invite.batchId
+              : entry.id !== inviteId
+          ),
+        }))
+
+        toast.success("Invite cancelled")
+        return true
+      } catch (error) {
+        await runtime.handleSyncFailure(error, "Failed to cancel invite")
+        return false
+      }
     },
   }
 }

@@ -10,6 +10,7 @@ import {
   Rows,
   SortAscending,
   SquaresFour,
+  TreeStructure,
 } from "@phosphor-icons/react"
 
 import type { ViewDefinition } from "@/lib/domain/types"
@@ -250,6 +251,7 @@ export function ViewsDirectoryGroupChipPopover({
     <Popover>
       <PopoverTrigger asChild>
         <button type="button" className={cn(chipBase, chipDefault)}>
+          <TreeStructure className="size-3.5" />
           <span>Group</span>
           {grouping !== "none" ? (
             <span className="font-semibold">· {GROUP_LABELS[grouping]}</span>

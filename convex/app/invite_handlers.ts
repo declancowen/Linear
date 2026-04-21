@@ -3,6 +3,10 @@ import { addDays } from "date-fns"
 import type { MutationCtx } from "../_generated/server"
 
 import { buildTeamInviteEmailJobs } from "../../lib/email/builders"
+import {
+  requireTeamAdminAccess,
+  requireWorkspaceAdminAccess,
+} from "./access"
 import { createNotification } from "./collaboration_utils"
 import { insertAuditEvent } from "./audit"
 import {
@@ -15,7 +19,9 @@ import {
 } from "./core"
 import {
   getActiveInvitesForTeamAndEmail,
+  listInvitesByBatchId,
   getEffectiveRole,
+  getInviteDoc,
   getInviteByTokenDoc,
   getTeamByJoinCode,
   getTeamDoc,
@@ -40,6 +46,7 @@ type CreateInviteArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
   teamId: string
+  batchId?: string
   email: string
   role: InviteRole
 }
@@ -47,6 +54,11 @@ type CreateInviteArgs = ServerAccessArgs & {
 type TokenActionArgs = ServerAccessArgs & {
   currentUserId: string
   token: string
+}
+
+type CancelInviteArgs = ServerAccessArgs & {
+  currentUserId: string
+  inviteId: string
 }
 
 type JoinTeamByCodeArgs = ServerAccessArgs & {
@@ -73,6 +85,7 @@ export async function createInviteHandler(
 
   const invite = {
     id: createId("invite"),
+    batchId: args.batchId?.trim() || createId("invite_batch"),
     workspaceId: team.workspaceId,
     teamId: team.id,
     email: args.email,
@@ -132,7 +145,6 @@ export async function createInviteHandler(
           teamName: team.name,
           role: args.role,
           inviteToken: invite.token,
-          joinCode: invite.joinCode,
         },
       ],
     })
@@ -142,6 +154,92 @@ export async function createInviteHandler(
     invite,
     teamName: team.name,
     workspaceName: workspace?.name ?? "Workspace",
+  }
+}
+
+export async function cancelInviteHandler(
+  ctx: MutationCtx,
+  args: CancelInviteArgs
+) {
+  assertServerToken(args.serverToken)
+  const invite = await getInviteDoc(ctx, args.inviteId)
+
+  if (!invite) {
+    throw new Error("Invite not found")
+  }
+
+  if (invite.acceptedAt) {
+    throw new Error("Invite has already been accepted")
+  }
+
+  if (invite.declinedAt) {
+    throw new Error("Invite has been declined")
+  }
+
+  let canCancelViaWorkspace = true
+
+  try {
+    await requireWorkspaceAdminAccess(ctx, invite.workspaceId, args.currentUserId)
+  } catch {
+    canCancelViaWorkspace = false
+  }
+
+  if (!canCancelViaWorkspace) {
+    await requireTeamAdminAccess(
+      ctx,
+      invite.teamId,
+      args.currentUserId,
+      "Only team admins can cancel invites"
+    )
+  }
+
+  const relatedInvites = invite.batchId
+    ? await listInvitesByBatchId(ctx, invite.batchId)
+    : [invite]
+  const pendingInvites = relatedInvites.filter(
+    (entry) => !entry.acceptedAt && !entry.declinedAt
+  )
+
+  for (const relatedInvite of pendingInvites) {
+    const inviteNotifications = await ctx.db
+      .query("notifications")
+      .withIndex("by_entity", (q) =>
+        q.eq("entityType", "invite").eq("entityId", relatedInvite.id)
+      )
+      .collect()
+
+    for (const notification of inviteNotifications) {
+      await ctx.db.delete(notification._id)
+    }
+
+    await ctx.db.delete(relatedInvite._id)
+
+    await insertAuditEvent(ctx, {
+      type: "invite.cancelled",
+      actorUserId: args.currentUserId,
+      subjectUserId: null,
+      workspaceId: relatedInvite.workspaceId,
+      teamId: relatedInvite.teamId,
+      entityId: relatedInvite.id,
+      summary: `Invite ${relatedInvite.id} was cancelled.`,
+      details: {
+        email: relatedInvite.email,
+        inviteRole: relatedInvite.role,
+        source: "convex",
+      },
+    })
+  }
+
+  const [team, workspace] = await Promise.all([
+    getTeamDoc(ctx, invite.teamId),
+    getWorkspaceDoc(ctx, invite.workspaceId),
+  ])
+
+  return {
+    inviteId: invite.id,
+    cancelledInviteIds: pendingInvites.map((entry) => entry.id),
+    teamName: team?.name ?? null,
+    workspaceName: workspace?.name ?? null,
   }
 }
 

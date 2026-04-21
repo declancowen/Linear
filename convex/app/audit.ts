@@ -28,6 +28,7 @@ export type AuditEventInput = {
     | "invite.created"
     | "invite.accepted"
     | "invite.declined"
+    | "invite.cancelled"
     | "provider.membership_cleanup_failed"
     | "provider.account_cleanup_failed"
   outcome?: "success" | "failure"

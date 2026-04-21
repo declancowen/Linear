@@ -252,7 +252,7 @@ export function MembersSidebar({
       open={open}
       width="17.5rem"
       containerClassName="hidden xl:block"
-      className="border-line bg-bg-sunken"
+      className="border-sidebar-border bg-sidebar"
     >
       <ScrollArea className="min-h-0 flex-1">
         <SurfaceSidebarContent
@@ -284,7 +284,7 @@ export function TeamSurfaceSidebar({
       open={open}
       width="18rem"
       containerClassName="hidden xl:block"
-      className="border-line bg-bg-sunken"
+      className="border-sidebar-border bg-sidebar"
     >
       <ScrollArea className="min-h-0 flex-1">
         <SurfaceSidebarContent

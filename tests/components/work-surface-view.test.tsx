@@ -17,6 +17,12 @@ vi.mock("next/link", () => ({
   ),
 }))
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}))
+
 vi.mock("@/components/ui/scroll-area", () => ({
   ScrollArea: ({
     children,
@@ -336,7 +342,7 @@ describe("ListView", () => {
 
     const assignee = screen.getByText("Assignee")
     const roadmap = screen.getByText("Roadmap")
-    const dueDate = screen.getByText("25-04-2026")
+    const dueDate = screen.getByText("Due 25 April")
 
     expect(
       assignee.compareDocumentPosition(roadmap) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -359,7 +365,7 @@ describe("ListView", () => {
     )
 
     const roadmap = screen.getByText("Roadmap")
-    const dueDate = screen.getByText("25-04-2026")
+    const dueDate = screen.getByText("Due 25 April")
     const assignee = screen.getByText("Assignee")
 
     expect(
@@ -370,7 +376,7 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
-  it("keeps drag affordances on dedicated handles instead of the whole item body", () => {
+  it("keeps list drag handles and makes board cards draggable from the full card surface", () => {
     const data = createData()
     const { rerender } = render(
       <ListView
@@ -392,6 +398,10 @@ describe("ListView", () => {
       />
     )
 
-    expect(screen.getByLabelText("Drag Ship it")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Drag Ship it")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /ship it/i })).toHaveAttribute(
+      "aria-roledescription",
+      "draggable"
+    )
   })
 })

@@ -40,11 +40,15 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
+    const batchId = `invite_batch_${crypto.randomUUID()}`
+    const teamIds = [...new Set(parsed.teamIds)]
+
     const createdInvites = await Promise.all(
-      parsed.teamIds.map((teamId) =>
+      teamIds.map((teamId) =>
         createInviteServer({
           currentUserId: appContext.ensuredUser.userId,
           teamId,
+          batchId,
           email: parsed.email,
           role: parsed.role,
         })

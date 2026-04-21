@@ -577,6 +577,12 @@ export function syncCreateInvite(
   })
 }
 
+export function syncCancelInvite(inviteId: string) {
+  return runRouteMutation(`/api/invites/${inviteId}`, {
+    method: "DELETE",
+  })
+}
+
 export function syncJoinTeamByCode(_currentUserId: string, code: string) {
   return runRouteMutation<unknown>("/api/teams/join", {
     method: "POST",

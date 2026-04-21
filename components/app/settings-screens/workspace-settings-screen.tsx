@@ -22,7 +22,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
-import { WorkspaceUsersList } from "./member-management"
+import { PendingInvitesList, WorkspaceUsersList } from "./member-management"
 import {
   ImageUploadControl,
   SettingsDangerRow,
@@ -78,7 +78,14 @@ export function WorkspaceSettingsScreen() {
       ? isWorkspaceOwner(state, currentWorkspace.id)
       : false
   })
-  const { teams, workspaceMemberships, teamMemberships, users, currentUserId } =
+  const {
+    teams,
+    workspaceMemberships,
+    teamMemberships,
+    users,
+    invites,
+    currentUserId,
+  } =
     useAppStore(
     useShallow((state) => {
       return {
@@ -86,6 +93,7 @@ export function WorkspaceSettingsScreen() {
         workspaceMemberships: state.workspaceMemberships,
         teamMemberships: state.teamMemberships,
         users: state.users,
+        invites: state.invites,
         currentUserId: state.currentUserId,
       }
     })
@@ -167,6 +175,67 @@ export function WorkspaceSettingsScreen() {
         return left.name.localeCompare(right.name)
       })
   }, [currentUserId, teamMemberships, teams, users, workspace, workspaceMemberships])
+  const pendingInvites = useMemo(() => {
+    if (!workspace) {
+      return []
+    }
+
+    const teamNameMap = new Map(
+      teams
+        .filter((team) => team.workspaceId === workspace.id)
+        .map((team) => [team.id, team.name])
+    )
+
+    const groupedInvites = new Map<
+      string,
+      {
+        id: string
+        email: string
+        role: typeof invites[number]["role"]
+        invitedByName: string
+        teamNames: Set<string>
+      }
+    >()
+
+    for (const invite of invites) {
+      if (
+        invite.workspaceId !== workspace.id ||
+        invite.acceptedAt ||
+        invite.declinedAt
+      ) {
+        continue
+      }
+
+      const inviter = users.find((entry) => entry.id === invite.invitedBy)
+      const groupKey = invite.batchId ?? invite.id
+      const existingInvite = groupedInvites.get(groupKey)
+      const teamName = teamNameMap.get(invite.teamId)
+
+      if (existingInvite) {
+        if (teamName) {
+          existingInvite.teamNames.add(teamName)
+        }
+        continue
+      }
+
+      groupedInvites.set(groupKey, {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        invitedByName: inviter?.name ?? "Unknown sender",
+        teamNames: new Set(teamName ? [teamName] : []),
+      })
+    }
+
+    return [...groupedInvites.values()]
+      .map((invite) => ({
+        ...invite,
+        teamNames: [...invite.teamNames].sort((left, right) =>
+          left.localeCompare(right)
+        ),
+      }))
+      .sort((left, right) => left.email.localeCompare(right.email))
+  }, [invites, teams, users, workspace])
   const canDeleteWorkspace = canManageWorkspace
   const workspaceTeamsCount = useAppStore((state) => {
     if (!state.currentWorkspaceId) {
@@ -203,9 +272,16 @@ export function WorkspaceSettingsScreen() {
     id: string
     name: string
   } | null>(null)
+  const [inviteToCancel, setInviteToCancel] = useState<{
+    id: string
+    email: string
+  } | null>(null)
   const [removingWorkspaceUserId, setRemovingWorkspaceUserId] = useState<
     string | null
   >(null)
+  const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
+    null
+  )
   const fallbackBadge =
     logoUrl.trim() || getUserInitials(name || workspace?.name)
   const savedAccent = workspace?.settings.accent ?? "emerald"
@@ -357,6 +433,23 @@ export function WorkspaceSettingsScreen() {
       }
     } finally {
       setRemovingWorkspaceUserId(null)
+    }
+  }
+
+  async function handleCancelInvite() {
+    if (!inviteToCancel) {
+      return
+    }
+
+    try {
+      setCancellingInviteId(inviteToCancel.id)
+      const cancelled = await useAppStore.getState().cancelInvite(inviteToCancel.id)
+
+      if (cancelled) {
+        setInviteToCancel(null)
+      }
+    } finally {
+      setCancellingInviteId(null)
     }
   }
 
@@ -556,22 +649,41 @@ export function WorkspaceSettingsScreen() {
           />
         </>
       ) : (
-        <SettingsSection
-          title={`Workspace users · ${workspaceUsersCount}`}
-          description="People with access to this workspace through team memberships."
-        >
-          <WorkspaceUsersList
-            members={workspaceUsers}
-            canManage={canManageWorkspace}
-            pendingMemberId={removingWorkspaceUserId}
-            onRemove={(member) =>
-              setWorkspaceUserToRemove({
-                id: member.id,
-                name: member.name,
-              })
-            }
-          />
-        </SettingsSection>
+        <>
+          <SettingsSection
+            title={`Workspace users · ${workspaceUsersCount}`}
+            description="People with access to this workspace through team memberships."
+          >
+            <WorkspaceUsersList
+              members={workspaceUsers}
+              canManage={canManageWorkspace}
+              pendingMemberId={removingWorkspaceUserId}
+              onRemove={(member) =>
+                setWorkspaceUserToRemove({
+                  id: member.id,
+                  name: member.name,
+                })
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection
+            title={`Pending invites · ${pendingInvites.length}`}
+            description="Pending invites still grant access until you cancel them."
+          >
+            <PendingInvitesList
+              invites={pendingInvites}
+              canManage={canManageWorkspace}
+              pendingInviteId={cancellingInviteId}
+              onCancel={(invite) =>
+                setInviteToCancel({
+                  id: invite.id,
+                  email: invite.email,
+                })
+              }
+            />
+          </SettingsSection>
+        </>
       )}
 
       <ConfirmDialog
@@ -601,6 +713,24 @@ export function WorkspaceSettingsScreen() {
         variant="destructive"
         loading={removingWorkspaceUserId != null}
         onConfirm={() => void handleRemoveWorkspaceUser()}
+      />
+      <ConfirmDialog
+        open={inviteToCancel != null}
+        onOpenChange={(open) => {
+          if (!open && cancellingInviteId == null) {
+            setInviteToCancel(null)
+          }
+        }}
+        title="Cancel pending invite"
+        description={
+          inviteToCancel
+            ? `${inviteToCancel.email} will lose access to this invite immediately and the link will stop working.`
+            : "This invite will be deleted immediately."
+        }
+        confirmLabel="Cancel invite"
+        variant="destructive"
+        loading={cancellingInviteId != null}
+        onConfirm={() => void handleCancelInvite()}
       />
     </SettingsScaffold>
   )

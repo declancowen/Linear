@@ -812,7 +812,7 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it("keeps sidebar properties editable for root and child items without entering main edit mode", async () => {
+  it("shows the reduced sidebar header and simplified child rows", () => {
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -844,7 +844,7 @@ describe("work item detail screen", () => {
             descriptionDocId: "document_3",
             status: "todo",
             priority: "medium",
-            assigneeId: null,
+            assigneeId: "user_1",
             creatorId: "user_1",
             parentId: "item_1",
             primaryProjectId: null,
@@ -853,7 +853,7 @@ describe("work item detail screen", () => {
             labelIds: [],
             milestoneId: null,
             startDate: null,
-            dueDate: null,
+            dueDate: "2030-12-19T09:00:00.000Z",
             targetDate: null,
             subscriberIds: [],
             createdAt: "2026-04-18T10:00:00.000Z",
@@ -863,47 +863,23 @@ describe("work item detail screen", () => {
       }))
     })
 
-    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
+    render(<WorkItemDetailScreen itemId="item_1" />)
 
+    expect(screen.getAllByText("PLA-1").length).toBeGreaterThan(0)
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Status" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Priority" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Assignee" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Start" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Due" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Copy item link" })).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Manage labels" })
-    ).not.toBeDisabled()
-
-    fireEvent.click(screen.getByRole("button", { name: "Status" }))
-    fireEvent.click(await screen.findByRole("button", { name: /backlog/i }))
+      screen.queryByRole("button", { name: "More actions" })
+    ).not.toBeInTheDocument()
     expect(
-      useAppStore.getState().workItems.find((item) => item.id === "item_1")
-        ?.status
-    ).toBe("backlog")
-
-    fireEvent.click(screen.getByRole("button", { name: "Priority" }))
-    fireEvent.click(await screen.findByRole("button", { name: /high/i }))
-    expect(
-      useAppStore.getState().workItems.find((item) => item.id === "item_1")
-        ?.priority
-    ).toBe("high")
-
-    rerender(<WorkItemDetailScreen itemId="item_3" />)
-
-    expect(screen.getByRole("button", { name: "Status" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Priority" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Assignee" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Parent" })).not.toBeDisabled()
-    expect(screen.getByRole("button", { name: "Project" })).not.toBeDisabled()
-
-    fireEvent.click(screen.getByRole("button", { name: "Assignee" }))
-    fireEvent.click(await screen.findByRole("button", { name: /^Alex$/ }))
-    expect(
-      useAppStore.getState().workItems.find((item) => item.id === "item_3")
-        ?.assigneeId
-    ).toBe("user_1")
+      screen.queryByRole("button", { name: "Close sidebar" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Status" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Priority" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Assignee" })).not.toBeInTheDocument()
+    expect(screen.getAllByText("PLA-3").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Child item").length).toBeGreaterThan(0)
+    expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
   })
 
   it("shows sidebar subtask progress above the child list", () => {

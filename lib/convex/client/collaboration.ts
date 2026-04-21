@@ -46,7 +46,11 @@ export function syncStartConversationCall(conversationId: string) {
   }).then(normalizeStartConversationCallResult)
 }
 
-export function syncSendChatMessage(conversationId: string, content: string) {
+export function syncSendChatMessage(
+  conversationId: string,
+  content: string,
+  messageId?: string
+) {
   return runRouteMutation<{ messageId: string }>(
     `/api/chats/${conversationId}/messages`,
     {
@@ -56,6 +60,7 @@ export function syncSendChatMessage(conversationId: string, content: string) {
       },
       body: JSON.stringify({
         content,
+        messageId,
       }),
     }
   )

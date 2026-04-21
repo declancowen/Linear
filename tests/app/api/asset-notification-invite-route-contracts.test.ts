@@ -10,6 +10,7 @@ const createAttachmentServerMock = vi.fn()
 const deleteAttachmentServerMock = vi.fn()
 const createLabelServerMock = vi.fn()
 const createInviteServerMock = vi.fn()
+const cancelInviteServerMock = vi.fn()
 const getInviteByTokenServerMock = vi.fn()
 const acceptInviteServerMock = vi.fn()
 const declineInviteServerMock = vi.fn()
@@ -35,6 +36,7 @@ vi.mock("@/lib/server/convex", () => ({
   deleteAttachmentServer: deleteAttachmentServerMock,
   createLabelServer: createLabelServerMock,
   createInviteServer: createInviteServerMock,
+  cancelInviteServer: cancelInviteServerMock,
   getInviteByTokenServer: getInviteByTokenServerMock,
   acceptInviteServer: acceptInviteServerMock,
   declineInviteServer: declineInviteServerMock,
@@ -71,6 +73,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     deleteAttachmentServerMock.mockReset()
     createLabelServerMock.mockReset()
     createInviteServerMock.mockReset()
+    cancelInviteServerMock.mockReset()
     getInviteByTokenServerMock.mockReset()
     acceptInviteServerMock.mockReset()
     declineInviteServerMock.mockReset()
@@ -216,12 +219,18 @@ describe("asset, notification, invite, and document route contracts", () => {
 
   it("maps invite failures to typed error responses", async () => {
     const inviteRoute = await import("@/app/api/invites/route")
+    const cancelRoute = await import("@/app/api/invites/[inviteId]/route")
     const acceptRoute = await import("@/app/api/invites/accept/route")
     const declineRoute = await import("@/app/api/invites/decline/route")
 
     createInviteServerMock.mockRejectedValue(
       new ApplicationError("Team not found", 404, {
         code: "TEAM_NOT_FOUND",
+      })
+    )
+    cancelInviteServerMock.mockRejectedValue(
+      new ApplicationError("Only team admins can cancel invites", 403, {
+        code: "INVITE_CANCEL_FORBIDDEN",
       })
     )
     getInviteByTokenServerMock.mockResolvedValue({
@@ -257,6 +266,18 @@ describe("asset, notification, invite, and document route contracts", () => {
     )
     expect(inviteResponse.status).toBe(404)
 
+    const cancelResponse = await cancelRoute.DELETE(
+      new Request("http://localhost/api/invites/invite_1", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          inviteId: "invite_1",
+        }),
+      }
+    )
+    expect(cancelResponse.status).toBe(403)
+
     const acceptResponse = await acceptRoute.POST(
       new Request("http://localhost/api/invites/accept", {
         method: "POST",
@@ -269,6 +290,11 @@ describe("asset, notification, invite, and document route contracts", () => {
       }) as never
     )
     expect(acceptResponse.status).toBe(409)
+    await expect(cancelResponse.json()).resolves.toEqual({
+      error: "Only team admins can cancel invites",
+      message: "Only team admins can cancel invites",
+      code: "INVITE_CANCEL_FORBIDDEN",
+    })
 
     const declineResponse = await declineRoute.POST(
       new Request("http://localhost/api/invites/decline", {

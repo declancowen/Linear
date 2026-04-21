@@ -16,6 +16,7 @@ export type CollaborationSlice = Pick<
   | "deleteChannelPost"
   | "toggleChannelPostReaction"
   | "createInvite"
+  | "cancelInvite"
 >
 
 export type CollaborationSliceFactoryArgs = {

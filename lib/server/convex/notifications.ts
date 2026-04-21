@@ -34,6 +34,16 @@ const INVITE_MUTATION_ERROR_MAPPINGS = [
     status: 409,
     code: "INVITE_ALREADY_ACCEPTED",
   },
+  {
+    match: "Only team admins can cancel invites",
+    status: 403,
+    code: "INVITE_CANCEL_FORBIDDEN",
+  },
+  {
+    match: "Only workspace admins can perform this action",
+    status: 403,
+    code: "INVITE_CANCEL_FORBIDDEN",
+  },
 ] as const
 
 const NOTIFICATION_MUTATION_ERROR_MAPPINGS = [
@@ -52,6 +62,7 @@ const NOTIFICATION_MUTATION_ERROR_MAPPINGS = [
 export async function createInviteServer(input: {
   currentUserId: string
   teamId: string
+  batchId?: string
   email: string
   role: "admin" | "member" | "viewer" | "guest"
 }) {
@@ -64,6 +75,20 @@ export async function createInviteServer(input: {
         ...input,
         origin,
       })
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...INVITE_MUTATION_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function cancelInviteServer(input: {
+  currentUserId: string
+  inviteId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.cancelInvite,
+      withServerToken(input)
     )
   } catch (error) {
     throw coerceApplicationError(error, [...INVITE_MUTATION_ERROR_MAPPINGS]) ?? error

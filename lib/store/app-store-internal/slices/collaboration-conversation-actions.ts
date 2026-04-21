@@ -10,6 +10,7 @@ import {
   syncStartConversationCall,
   syncToggleChatMessageReaction,
 } from "@/lib/convex/client"
+import { RouteMutationError } from "@/lib/convex/client/shared"
 import {
   channelSchema,
   chatMessageSchema,
@@ -39,7 +40,10 @@ import type {
   CollaborationSliceFactoryArgs,
 } from "./collaboration-shared"
 
+const pendingChatMessageSyncs = new Map<string, Promise<unknown>>()
+
 export function createCollaborationConversationActions({
+  get,
   runtime,
   set,
 }: CollaborationSliceFactoryArgs): Pick<
@@ -439,6 +443,8 @@ export function createCollaborationConversationActions({
         return
       }
 
+      const optimisticMessageId = createId("chat_message")
+
       set((state) => {
         const conversation = state.conversations.find(
           (entry) => entry.id === parsed.data.conversationId
@@ -518,7 +524,7 @@ export function createCollaborationConversationActions({
           chatMessages: [
             ...state.chatMessages,
             {
-              id: createId("chat_message"),
+              id: optimisticMessageId,
               conversationId: conversation.id,
               kind: "text",
               content: parsed.data.content.trim(),
@@ -541,8 +547,18 @@ export function createCollaborationConversationActions({
         }
       })
 
+      const sendTask = syncSendChatMessage(
+        parsed.data.conversationId,
+        parsed.data.content,
+        optimisticMessageId
+      ).finally(() => {
+        pendingChatMessageSyncs.delete(optimisticMessageId)
+      })
+
+      pendingChatMessageSyncs.set(optimisticMessageId, sendTask)
+
       runtime.syncInBackground(
-        syncSendChatMessage(parsed.data.conversationId, parsed.data.content),
+        sendTask,
         "Failed to send message"
       )
     },
@@ -551,6 +567,40 @@ export function createCollaborationConversationActions({
 
       if (nextEmoji.length === 0) {
         return
+      }
+
+      const state = get()
+      const message = state.chatMessages.find((entry) => entry.id === messageId)
+
+      if (!message) {
+        return
+      }
+
+      const conversation = state.conversations.find(
+        (entry) => entry.id === message.conversationId
+      )
+
+      if (!conversation || conversation.kind !== "chat") {
+        return
+      }
+
+      if (conversation.scopeType === "workspace") {
+        if (!conversation.participantIds.includes(state.currentUserId)) {
+          toast.error("You do not have access to this chat")
+          return
+        }
+
+        if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+          toast.error("Your current role is read-only")
+          return
+        }
+      } else {
+        const role = effectiveRole(state, conversation.scopeId)
+
+        if (role === "viewer" || role === "guest" || !role) {
+          toast.error("Your current role is read-only")
+          return
+        }
       }
 
       set((state) => ({
@@ -568,10 +618,38 @@ export function createCollaborationConversationActions({
         ),
       }))
 
-      runtime.syncInBackground(
-        syncToggleChatMessageReaction(messageId, nextEmoji),
-        "Failed to update reaction"
-      )
+      const reactionTask = (async () => {
+        const pendingMessageSync = pendingChatMessageSyncs.get(messageId)
+
+        if (pendingMessageSync) {
+          try {
+            await pendingMessageSync
+          } catch {
+            return null
+          }
+        }
+
+        try {
+          return await syncToggleChatMessageReaction(messageId, nextEmoji)
+        } catch (error) {
+          if (
+            error instanceof RouteMutationError &&
+            (error.code === "CHAT_MESSAGE_NOT_FOUND" || error.status === 404)
+          ) {
+            await runtime.refreshFromServer()
+
+            if (!get().chatMessages.some((entry) => entry.id === messageId)) {
+              return null
+            }
+
+            return syncToggleChatMessageReaction(messageId, nextEmoji)
+          }
+
+          throw error
+        }
+      })()
+
+      runtime.syncInBackground(reactionTask, "Failed to update reaction")
     },
   }
 }

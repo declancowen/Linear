@@ -81,6 +81,7 @@ unless the runtime actually reads them.
 
 - `RESEND_API_KEY`: Resend API key
 - `RESEND_FROM_EMAIL`: sender address for outbound email
+- `CRON_SECRET`: bearer secret used by Vercel cron routes
 - `DRY_RUN`: optional script flag for previewing notification digests without sending them
 
 ### Video / calls
@@ -149,6 +150,7 @@ These scripts require a correctly configured `.env.local` and usually talk to li
 - `pnpm bootstrap:workspace`: create/bootstrap a workspace for a user
 - `pnpm emails:send-jobs`: send queued outbound email jobs from the durable email outbox
 - `pnpm notifications:send-digests`: send notification digest emails
+- production queued email delivery runs through the scheduled `/api/internal/email-jobs` worker
 - `pnpm sync:workos:workspaces`: sync Convex workspaces to WorkOS organizations
 
 Operational expectations for deploys, backfills, sync jobs, and desktop smoke checks are documented in [docs/architecture/deployment-migration-runbook.md](docs/architecture/deployment-migration-runbook.md).

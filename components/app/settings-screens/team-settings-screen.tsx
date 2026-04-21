@@ -22,7 +22,11 @@ import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
-import { TeamMembersList, teamRoleRank } from "./member-management"
+import {
+  PendingInvitesList,
+  TeamMembersList,
+  teamRoleRank,
+} from "./member-management"
 import {
   SettingsDangerRow,
   SettingsGroupLabel,
@@ -53,10 +57,11 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         : defaultTeamSurfaceDisableReasons
     })
   )
-  const { teamMemberships, users, currentUserId } = useAppStore(
+  const { teamMemberships, users, invites, currentUserId } = useAppStore(
     useShallow((state) => ({
       teamMemberships: state.teamMemberships,
       users: state.users,
+      invites: state.invites,
       currentUserId: state.currentUserId,
     }))
   )
@@ -99,6 +104,29 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         return left.name.localeCompare(right.name)
       })
   }, [currentUserId, team, teamMemberships, users])
+  const pendingInvites = useMemo(() => {
+    if (!team) {
+      return []
+    }
+
+    return invites
+      .filter(
+        (invite) =>
+          invite.teamId === team.id && !invite.acceptedAt && !invite.declinedAt
+      )
+      .map((invite) => {
+        const inviter = users.find((entry) => entry.id === invite.invitedBy)
+
+        return {
+          id: invite.id,
+          email: invite.email,
+          role: invite.role,
+          invitedByName: inviter?.name ?? "Unknown sender",
+          teamNames: [team.name],
+        }
+      })
+      .sort((left, right) => left.email.localeCompare(right.email))
+  }, [invites, team, users])
   const [saving, setSaving] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingTeam, setDeletingTeam] = useState(false)
@@ -111,6 +139,13 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     id: string
     name: string
   } | null>(null)
+  const [inviteToCancel, setInviteToCancel] = useState<{
+    id: string
+    email: string
+  } | null>(null)
+  const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
+    null
+  )
   const experience: TeamExperienceType =
     team?.settings.experience ?? "software-development"
   const [name, setName] = useState(team?.name ?? "")
@@ -235,6 +270,23 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     }
   }
 
+  async function handleCancelInvite() {
+    if (!inviteToCancel) {
+      return
+    }
+
+    try {
+      setCancellingInviteId(inviteToCancel.id)
+      const cancelled = await useAppStore.getState().cancelInvite(inviteToCancel.id)
+
+      if (cancelled) {
+        setInviteToCancel(null)
+      }
+    } finally {
+      setCancellingInviteId(null)
+    }
+  }
+
   return (
     <SettingsScaffold
       title="Team settings"
@@ -349,26 +401,45 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
           />
         </>
       ) : (
-        <SettingsSection
-          title={`Team members · ${teamMembers.length}`}
-          description="Admins manage membership and roles for this team."
-        >
-          <TeamMembersList
-            members={teamMembers}
-            canManage={canManageTeam}
-            pendingMemberId={pendingMemberId}
-            pendingAction={pendingMemberAction}
-            onRoleChange={(userId, role) =>
-              void handleRoleChange(userId, role)
-            }
-            onRemove={(member) =>
-              setMemberToRemove({
-                id: member.id,
-                name: member.name,
-              })
-            }
-          />
-        </SettingsSection>
+        <>
+          <SettingsSection
+            title={`Team members · ${teamMembers.length}`}
+            description="Admins manage membership and roles for this team."
+          >
+            <TeamMembersList
+              members={teamMembers}
+              canManage={canManageTeam}
+              pendingMemberId={pendingMemberId}
+              pendingAction={pendingMemberAction}
+              onRoleChange={(userId, role) =>
+                void handleRoleChange(userId, role)
+              }
+              onRemove={(member) =>
+                setMemberToRemove({
+                  id: member.id,
+                  name: member.name,
+                })
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection
+            title={`Pending invites · ${pendingInvites.length}`}
+            description="Pending invites still grant access until you cancel them."
+          >
+            <PendingInvitesList
+              invites={pendingInvites}
+              canManage={canManageTeam}
+              pendingInviteId={cancellingInviteId}
+              onCancel={(invite) =>
+                setInviteToCancel({
+                  id: invite.id,
+                  email: invite.email,
+                })
+              }
+            />
+          </SettingsSection>
+        </>
       )}
 
       <ConfirmDialog
@@ -398,6 +469,24 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         variant="destructive"
         loading={pendingMemberAction === "remove"}
         onConfirm={() => void handleRemoveTeamMember()}
+      />
+      <ConfirmDialog
+        open={inviteToCancel != null}
+        onOpenChange={(open) => {
+          if (!open && cancellingInviteId == null) {
+            setInviteToCancel(null)
+          }
+        }}
+        title="Cancel pending invite"
+        description={
+          inviteToCancel
+            ? `${inviteToCancel.email} will lose access to this invite immediately and the link will stop working.`
+            : "This invite will be deleted immediately."
+        }
+        confirmLabel="Cancel invite"
+        variant="destructive"
+        loading={cancellingInviteId != null}
+        onConfirm={() => void handleCancelInvite()}
       />
     </SettingsScaffold>
   )

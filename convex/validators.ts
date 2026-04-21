@@ -221,6 +221,7 @@ const auditEventTypeLiterals = [
   v.literal("invite.created"),
   v.literal("invite.accepted"),
   v.literal("invite.declined"),
+  v.literal("invite.cancelled"),
   v.literal("provider.membership_cleanup_failed"),
   v.literal("provider.account_cleanup_failed"),
 ] as const
@@ -637,6 +638,7 @@ export const emailJobFields = {
 
 export const inviteFields = {
   id: v.string(),
+  batchId: v.optional(v.string()),
   workspaceId: v.string(),
   teamId: v.string(),
   email: v.string(),
@@ -723,6 +725,7 @@ export const channelPostFields = {
   conversationId: v.string(),
   title: v.string(),
   content: v.string(),
+  mentionUserIds: v.optional(v.array(v.string())),
   reactions: v.optional(v.array(channelPostReactionValidator)),
   createdBy: v.string(),
   createdAt: v.string(),

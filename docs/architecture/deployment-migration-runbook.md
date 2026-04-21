@@ -40,6 +40,7 @@ Minimum high-risk variables:
 - `WORKOS_CLIENT_ID`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
+- `CRON_SECRET`
 - `APP_URL` or `NEXT_PUBLIC_APP_URL`
 
 Rules:
@@ -127,7 +128,7 @@ The repo currently owns:
 The repo does not yet fully own:
 
 - desktop packaging/signing/update automation
-- scheduled execution for digest/email/sync flows
-- scheduling/automation ownership for the durable outbound-email worker
+- scheduled execution for digest and sync flows
 
-Those are active architecture work items, not undefined responsibilities.
+The queued outbound-email worker is now repo-owned through the scheduled
+`/api/internal/email-jobs` route.

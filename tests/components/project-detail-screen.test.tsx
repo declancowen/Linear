@@ -70,7 +70,11 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: () => null,
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
-  LevelChipPopover: () => null,
+  LevelChipPopover: ({
+    showLabel,
+  }: {
+    showLabel?: boolean
+  }) => <div>{showLabel === false ? "level:value-only" : "level:label"}</div>,
   PropertiesChipPopover: () => null,
   SortChipPopover: () => null,
   getAvailableGroupOptions: () => [],
@@ -228,6 +232,7 @@ describe("ProjectDetailScreen", () => {
     })
 
     expect(screen.getByText("List layout")).toBeInTheDocument()
+    expect(screen.getByText("level:label")).toBeInTheDocument()
 
     await act(async () => {
       useAppStore.setState((state) => ({

@@ -506,43 +506,23 @@ export function ChatThread({
                       groupedWithPrev ? "py-0" : "py-0.5",
                       !showDayDivider && idx > 0 && !groupedWithPrev && "mt-2"
                     )}
-                    style={{ gridTemplateColumns: "32px 1fr" }}
+                    style={{ gridTemplateColumns: "24px 1fr" }}
                   >
                     {groupedWithPrev ? (
                       <div aria-hidden />
                     ) : (
-                      <div className="mt-[3px]">
+                      <div className="mt-[4px]">
                         <UserAvatar
                           name={authorView?.name ?? author?.name}
                           avatarImageUrl={authorView?.avatarImageUrl}
                           avatarUrl={authorView?.avatarUrl}
                           status={authorView?.status ?? undefined}
                           showStatus={!authorView?.isFormerMember}
-                          size="default"
+                          size="sm"
                         />
                       </div>
                     )}
-                    <div className="relative flex min-w-0 flex-col pr-10">
-                      <div className="absolute top-0 right-0 hidden items-center rounded-md border border-line bg-surface p-0.5 shadow-sm group-hover/msg:flex">
-                        <EmojiPickerPopover
-                          align="end"
-                          side="bottom"
-                          onEmojiSelect={(emoji) => {
-                            useAppStore
-                              .getState()
-                              .toggleChatMessageReaction(message.id, emoji)
-                          }}
-                          trigger={
-                            <button
-                              type="button"
-                              aria-label="React"
-                              className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-                            >
-                              <Smiley className="size-[14px]" />
-                            </button>
-                          }
-                        />
-                      </div>
+                    <div className="flex min-w-0 flex-col">
                       {!groupedWithPrev ? (
                         <div className="-mt-px flex items-baseline gap-2">
                           <UserHoverCard
@@ -587,39 +567,56 @@ export function ChatThread({
                           className="max-w-full text-[13.5px] leading-[1.55] text-foreground [overflow-wrap:anywhere] break-words [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
                         />
                       )}
-                      {reactions.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {reactions.map((reaction) => {
-                            const active = reaction.userIds.includes(
-                              currentUserId
-                            )
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {reactions.map((reaction) => {
+                          const active = reaction.userIds.includes(
+                            currentUserId
+                          )
 
-                            return (
-                              <button
-                                key={`${message.id}-${reaction.emoji}`}
-                                type="button"
-                                onClick={() =>
-                                  useAppStore
-                                    .getState()
-                                    .toggleChatMessageReaction(
-                                      message.id,
-                                      reaction.emoji
-                                    )
-                                }
-                                className={cn(
-                                  "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
-                                  active
-                                    ? "border-primary/40 bg-primary/10 text-foreground"
-                                    : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
-                                )}
-                              >
-                                <span>{reaction.emoji}</span>
-                                <span>{reaction.userIds.length}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      ) : null}
+                          return (
+                            <button
+                              key={`${message.id}-${reaction.emoji}`}
+                              type="button"
+                              onClick={() =>
+                                useAppStore
+                                  .getState()
+                                  .toggleChatMessageReaction(
+                                    message.id,
+                                    reaction.emoji
+                                  )
+                              }
+                              className={cn(
+                                "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
+                                active
+                                  ? "border-primary/40 bg-primary/10 text-foreground"
+                                  : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+                              )}
+                            >
+                              <span>{reaction.emoji}</span>
+                              <span>{reaction.userIds.length}</span>
+                            </button>
+                          )
+                        })}
+                        <EmojiPickerPopover
+                          align="start"
+                          side="top"
+                          onEmojiSelect={(emoji) => {
+                            useAppStore
+                              .getState()
+                              .toggleChatMessageReaction(message.id, emoji)
+                          }}
+                          trigger={
+                            <button
+                              type="button"
+                              aria-label="React"
+                              className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                            >
+                              <Smiley className="size-3.5" />
+                              <span>React</span>
+                            </button>
+                          }
+                        />
+                      </div>
                     </div>
                     </div>
                   </div>

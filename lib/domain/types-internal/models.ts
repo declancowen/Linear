@@ -252,6 +252,7 @@ export interface Notification {
 
 export interface Invite {
   id: string
+  batchId?: string | null
   workspaceId: string
   teamId: string
   email: string
@@ -332,6 +333,7 @@ export interface ChannelPost {
   conversationId: string
   title: string
   content: string
+  mentionUserIds: string[]
   reactions: ChannelPostReaction[]
   createdBy: string
   createdAt: string

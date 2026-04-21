@@ -952,10 +952,23 @@ export async function listInvitesByNormalizedEmail(ctx: AppCtx, email: string) {
     .collect()
 }
 
+export async function listInvitesByBatchId(ctx: AppCtx, batchId: string) {
+  const invites = await ctx.db.query("invites").collect()
+
+  return invites.filter((invite) => invite.batchId === batchId)
+}
+
 export async function getInviteByTokenDoc(ctx: AppCtx, token: string) {
   return ctx.db
     .query("invites")
     .withIndex("by_token", (q) => q.eq("token", token))
+    .unique()
+}
+
+export async function getInviteDoc(ctx: AppCtx, inviteId: string) {
+  return ctx.db
+    .query("invites")
+    .withIndex("by_domain_id", (q) => q.eq("id", inviteId))
     .unique()
 }
 

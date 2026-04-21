@@ -78,6 +78,14 @@ export type TeamSettingsMember = MemberIdentity & {
   isCurrentUser: boolean
 }
 
+export type SettingsPendingInvite = {
+  id: string
+  email: string
+  role: Role
+  invitedByName: string
+  teamNames: string[]
+}
+
 function getNormalizedMemberQuery(value: string) {
   return value.trim().toLowerCase()
 }
@@ -90,6 +98,21 @@ function matchesMemberQuery(member: MemberIdentity, query: string) {
   return (
     member.name.toLowerCase().includes(query) ||
     member.email.toLowerCase().includes(query)
+  )
+}
+
+function matchesPendingInviteQuery(
+  invite: SettingsPendingInvite,
+  query: string
+) {
+  if (!query) {
+    return true
+  }
+
+  return (
+    invite.email.toLowerCase().includes(query) ||
+    invite.invitedByName.toLowerCase().includes(query) ||
+    invite.teamNames.some((teamName) => teamName.toLowerCase().includes(query))
   )
 }
 
@@ -236,6 +259,36 @@ function MemberListRow({
   )
 }
 
+function PendingInviteIdentityBlock({
+  invite,
+}: {
+  invite: SettingsPendingInvite
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-3">
+      <UserAvatar
+        name={invite.email}
+        avatarImageUrl={null}
+        avatarUrl={null}
+        size="default"
+        showStatus={false}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="truncate text-sm font-medium">{invite.email}</div>
+          <Badge variant="secondary">Pending</Badge>
+        </div>
+        <div className="truncate text-xs text-muted-foreground">
+          Invited by {invite.invitedByName}
+        </div>
+        {invite.teamNames.length > 0 ? (
+          <MemberTeamNote teamNames={invite.teamNames} />
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function WorkspaceUsersList({
   members,
   canManage = false,
@@ -306,6 +359,71 @@ export function WorkspaceUsersList({
         )
       }}
     />
+  )
+}
+
+export function PendingInvitesList({
+  invites,
+  canManage = false,
+  pendingInviteId = null,
+  onCancel,
+}: {
+  invites: SettingsPendingInvite[]
+  canManage?: boolean
+  pendingInviteId?: string | null
+  onCancel?: (invite: SettingsPendingInvite) => void
+}) {
+  const [query, setQuery] = useState("")
+  const deferredQuery = useDeferredValue(query)
+  const normalizedQuery = getNormalizedMemberQuery(deferredQuery)
+  const filteredInvites = useMemo(() => {
+    return invites.filter((invite) =>
+      matchesPendingInviteQuery(invite, normalizedQuery)
+    )
+  }, [invites, normalizedQuery])
+
+  return (
+    <div className="space-y-4">
+      {invites.length > 0 ? (
+        <MemberSearchInput query={query} onQueryChange={setQuery} />
+      ) : null}
+      {filteredInvites.length > 0 ? (
+        <div className="divide-y">
+          {filteredInvites.map((invite) => {
+            const isBusy = pendingInviteId === invite.id
+
+            return (
+              <MemberListRow
+                key={invite.id}
+                identity={<PendingInviteIdentityBlock invite={invite} />}
+                actions={
+                  <>
+                    <Badge variant="outline">{getRoleLabel(invite.role)}</Badge>
+                    {canManage && onCancel ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={isBusy}
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => onCancel(invite)}
+                      >
+                        <Trash className="size-3.5" />
+                        {isBusy ? "Cancelling..." : "Cancel invite"}
+                      </Button>
+                    ) : null}
+                  </>
+                }
+              />
+            )
+          })}
+        </div>
+      ) : (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {invites.length === 0 ? "No pending invites." : "No invites found."}
+        </p>
+      )}
+    </div>
   )
 }
 

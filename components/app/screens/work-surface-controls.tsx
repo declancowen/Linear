@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react"
 import {
@@ -1618,6 +1617,7 @@ export function GroupChipPopover({
     <Popover>
       <PopoverTrigger asChild>
         <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
+          <TreeStructure className="size-3.5" />
           <span>{label}</span>
           {showValue ? (
             <span className="font-semibold">
@@ -2044,85 +2044,46 @@ function SortableDisplayPropertyRow({
   onToggle: () => void
 }) {
   const {
-    attributes,
     listeners,
     setNodeRef,
     transform,
     transition,
     isDragging,
   } = useSortable({ id: property })
-  const pointerStartRef = useRef<{
-    x: number
-    y: number
-    time: number
-  } | null>(null)
-
-  function resetPointerStart() {
-    pointerStartRef.current = null
-  }
-
-  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    pointerStartRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      time: performance.now(),
-    }
-  }
-
-  function handlePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
-    const pointerStart = pointerStartRef.current
-    resetPointerStart()
-
-    if (!pointerStart || isDragActive || isDragging) {
-      return
-    }
-
-    const elapsed = performance.now() - pointerStart.time
-    const deltaX = Math.abs(event.clientX - pointerStart.x)
-    const deltaY = Math.abs(event.clientY - pointerStart.y)
-
-    if (elapsed <= 180 && deltaX <= 4 && deltaY <= 4) {
-      onToggle()
-    }
-  }
 
   return (
-    <button
-      type="button"
+    <div
       ref={setNodeRef}
+      {...listeners}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
       }}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={resetPointerStart}
-      onPointerLeave={() => {
-        if (!isDragActive && !isDragging) {
-          resetPointerStart()
-        }
-      }}
-      onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onToggle()
-        }
-      }}
       className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[12.5px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground touch-none will-change-transform",
+        "flex h-8 w-full cursor-grab items-center gap-2 rounded-[5px] px-2 text-[12.5px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground touch-none will-change-transform active:cursor-grabbing",
         isDragging && "z-10 bg-surface-3 opacity-80 shadow-sm"
       )}
-      {...attributes}
-      {...listeners}
     >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <button
+        type="button"
+        onClick={onToggle}
+        onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            onToggle()
+          }
+        }}
+        className="min-w-0 flex-1 truncate text-left"
+      >
+        {label}
+      </button>
       <span
         aria-hidden
-        className="inline-flex size-5 shrink-0 items-center justify-center text-fg-4"
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-[4px] text-fg-4"
       >
         <DotsSixVertical className="size-3.5" />
       </span>
-    </button>
+    </div>
   )
 }
 
@@ -2131,12 +2092,14 @@ export function LevelChipPopover({
   onUpdateView,
   tone = "default",
   label = "Level",
+  showLabel = true,
   showValue = true,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
   label?: string
+  showLabel?: boolean
   showValue?: boolean
 }) {
   const team = useAppStore((state) =>
@@ -2187,9 +2150,11 @@ export function LevelChipPopover({
       <PopoverTrigger asChild>
         <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
           <Stack className="size-3.5" />
-          <span>{label}</span>
+          {showLabel ? <span>{label}</span> : null}
           {showValue ? (
-            <span className="font-semibold">· {currentLabel}</span>
+            <span className="font-semibold">
+              {showLabel ? `· ${currentLabel}` : currentLabel}
+            </span>
           ) : null}
           <CaretDown className="size-3 opacity-70" />
         </button>

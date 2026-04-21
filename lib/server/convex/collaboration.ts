@@ -408,6 +408,7 @@ export async function sendChatMessageServer(input: {
   currentUserId: string
   conversationId: string
   content: string
+  messageId?: string
 }) {
   const preparedContent = prepareRichTextForStorage(input.content, {
     minPlainTextCharacters: 1,
