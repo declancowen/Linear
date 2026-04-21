@@ -1,6 +1,7 @@
 import {
   getDocumentDoc,
   getEffectiveRole,
+  getWorkspaceMembershipDoc,
   getWorkspaceEditRole,
   getWorkspaceRoleMapForUser,
   isWorkspaceOwner,
@@ -174,10 +175,13 @@ export async function requireWorkspaceAdminAccess(
     return
   }
 
-  const workspaceRoles =
-    (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
+  const workspaceMembership = await getWorkspaceMembershipDoc(
+    ctx,
+    workspaceId,
+    userId
+  )
 
-  if (!workspaceRoles.includes("admin")) {
+  if (workspaceMembership?.role !== "admin") {
     throw new Error("Only workspace admins can perform this action")
   }
 }
