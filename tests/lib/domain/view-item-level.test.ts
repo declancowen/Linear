@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
-import { EMPTY_PARENT_FILTER_VALUE, type ViewDefinition, type WorkItem } from "@/lib/domain/types"
+import {
+  EMPTY_PARENT_FILTER_VALUE,
+  createDefaultTeamFeatureSettings,
+  createDefaultTeamWorkflowSettings,
+  type ViewDefinition,
+  type WorkItem,
+} from "@/lib/domain/types"
 import {
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
+  getVisibleWorkItems,
   getViewsForScope,
   getVisibleItemsForView,
 } from "@/lib/domain/selectors"
@@ -128,8 +135,8 @@ describe("view item levels", () => {
     const state = createEmptyState()
     const filteredItems = [createItem("root-todo", { status: "todo" })]
 
-    expect(
-      [...buildItemGroupsWithEmptyGroups(
+    expect([
+      ...buildItemGroupsWithEmptyGroups(
         state,
         filteredItems,
         createView({
@@ -139,8 +146,8 @@ describe("view item levels", () => {
             parentIds: [EMPTY_PARENT_FILTER_VALUE],
           },
         })
-      ).keys()]
-    ).toEqual(["todo"])
+      ).keys(),
+    ]).toEqual(["todo"])
   })
 
   it("does not force timeline views back to top-level items when a level is set", () => {
@@ -276,6 +283,95 @@ describe("view item levels", () => {
         [parent, scopedChild]
       ).map((item) => item.id)
     ).toEqual(["requirement-scoped"])
+  })
+
+  it("includes ancestor context for current-user work without pulling in unrelated items", () => {
+    const state = createEmptyState()
+    state.currentUserId = "user_1"
+    state.currentWorkspaceId = "workspace_1"
+    state.teams = [
+      {
+        id: "team_1",
+        workspaceId: "workspace_1",
+        slug: "platform",
+        name: "Platform",
+        icon: "rocket",
+        settings: {
+          joinCode: "JOIN1234",
+          summary: "",
+          guestProjectIds: [],
+          guestDocumentIds: [],
+          guestWorkItemIds: [],
+          experience: "software-development",
+          features: createDefaultTeamFeatureSettings("software-development"),
+          workflow: createDefaultTeamWorkflowSettings("software-development"),
+        },
+      },
+    ]
+    state.teamMemberships = [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "member",
+      },
+    ]
+    state.workItems = [
+      createItem("epic", { type: "epic" }),
+      createItem("feature", { type: "feature", parentId: "epic" }),
+      createItem("story", {
+        type: "story",
+        parentId: "feature",
+        assigneeId: "user_1",
+      }),
+      createItem("unrelated", {
+        type: "task",
+        assigneeId: "user_2",
+      }),
+    ]
+
+    expect(
+      getVisibleWorkItems(state, {
+        assignedToCurrentUserWithAncestors: true,
+      }).map((item) => item.id)
+    ).toEqual(["epic", "feature", "story"])
+  })
+
+  it("returns the lowest assigned descendants when compressing personal work hierarchies", () => {
+    const state = createEmptyState()
+    state.currentUserId = "user_1"
+    const epic = createItem("epic", { type: "epic" })
+    const feature = createItem("feature", {
+      type: "feature",
+      parentId: epic.id,
+      assigneeId: "user_1",
+    })
+    const requirement = createItem("requirement", {
+      type: "requirement",
+      parentId: feature.id,
+    })
+    const story = createItem("story", {
+      type: "story",
+      parentId: requirement.id,
+      assigneeId: "user_1",
+    })
+
+    state.workItems = [epic, feature, requirement, story]
+
+    expect(
+      getDirectChildWorkItemsForDisplay(
+        state,
+        epic,
+        "priority",
+        createView({
+          itemLevel: "epic",
+          showChildItems: true,
+        }),
+        state.workItems,
+        {
+          mode: "assigned-descendants",
+        }
+      ).map((item) => item.id)
+    ).toEqual(["story"])
   })
 
   it("includes workspace-scoped views when listing workspace views", () => {

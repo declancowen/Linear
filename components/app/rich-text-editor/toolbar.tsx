@@ -276,36 +276,6 @@ export function RichTextToolbar({
           </ToolbarButton>
         }
       />
-      {fullPage ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              disabled={!editable}
-              className={cn(
-                "flex size-7 items-center justify-center text-muted-foreground transition-colors",
-                editable ? "hover:text-foreground" : "cursor-default opacity-60"
-              )}
-              aria-label="Canvas width"
-              title="Canvas width"
-            >
-              <FrameCorners className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40 min-w-40">
-            <DropdownMenuRadioGroup
-              value={fullPageCanvasWidth}
-              onValueChange={(value) =>
-                setFullPageCanvasWidth(value as FullPageCanvasWidth)
-              }
-            >
-              <DropdownMenuRadioItem value="narrow">Narrow</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="medium">Normal</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
       {uploadsEnabled ? (
         <ToolbarButton
           active={false}
@@ -400,13 +370,49 @@ export function RichTextToolbar({
         </>
       ) : null}
       {uploadingAttachment ? (
-        <span className="ml-2 text-xs text-muted-foreground">Uploading…</span>
+        <span className="text-xs text-muted-foreground">Uploading…</span>
       ) : null}
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex items-center gap-2">
         {showStats ? (
-          <span className="pl-3 text-xs whitespace-nowrap text-muted-foreground">
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
             {statsWords} words · {statsCharacters} characters
           </span>
+        ) : null}
+        {fullPage ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={!editable}
+                className={cn(
+                  "flex size-7 items-center justify-center text-muted-foreground transition-colors",
+                  editable
+                    ? "hover:text-foreground"
+                    : "cursor-default opacity-60"
+                )}
+                aria-label="Canvas width"
+                title="Canvas width"
+              >
+                <FrameCorners className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40 min-w-40">
+              <DropdownMenuRadioGroup
+                value={fullPageCanvasWidth}
+                onValueChange={(value) =>
+                  setFullPageCanvasWidth(value as FullPageCanvasWidth)
+                }
+              >
+                <DropdownMenuRadioItem value="narrow">
+                  Narrow
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="medium">
+                  Normal
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
       </div>
     </div>

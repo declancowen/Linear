@@ -831,7 +831,7 @@ export async function createWorkItemHandler(
     workspaceId: team.workspaceId,
     teamId: args.teamId,
     title: `${args.title} description`,
-    content: `<p>Add a fuller description for ${args.title}.</p>`,
+    content: "<p></p>",
     linkedProjectIds: resolvedPrimaryProjectId
       ? [resolvedPrimaryProjectId]
       : [],

@@ -62,10 +62,18 @@ function getCanonicalTeamViewOrder(name: string) {
 }
 
 export function getDefaultRouteForViewContext(input: {
-  scopeType: "team" | "workspace"
+  scopeType: "personal" | "team" | "workspace"
   entityKind: EntityKind
   teamSlug?: string | null
 }) {
+  if (input.scopeType === "personal") {
+    if (input.entityKind === "items") {
+      return "/assigned"
+    }
+
+    return null
+  }
+
   if (input.scopeType === "team") {
     if (!input.teamSlug) {
       return null
@@ -94,11 +102,15 @@ export function getDefaultRouteForViewContext(input: {
 }
 
 export function isRouteAllowedForViewContext(input: {
-  scopeType: "team" | "workspace"
+  scopeType: "personal" | "team" | "workspace"
   entityKind: EntityKind
   route: string
   teamSlug?: string | null
 }) {
+  if (input.scopeType === "personal") {
+    return input.entityKind === "items" && input.route === "/assigned"
+  }
+
   if (input.scopeType === "team") {
     if (!input.teamSlug) {
       return false
@@ -133,7 +145,7 @@ export function createViewDefinition(input: {
   id: string
   name: string
   description: string
-  scopeType: "team" | "workspace"
+  scopeType: "personal" | "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
   containerType?: ViewContainerType | null
@@ -160,7 +172,7 @@ export function createViewDefinition(input: {
 
   const updatedAt = input.updatedAt ?? input.createdAt
   const baseItemLevel =
-    input.entityKind === "items" && input.scopeType === "team"
+    input.entityKind === "items" && input.experience
       ? getDefaultViewItemLevelForTeamExperience(input.experience)
       : null
   const itemLevel =
@@ -218,7 +230,8 @@ export function createViewDefinition(input: {
         }
       : {
           groups: [],
-          subgroups: input.entityKind === "items" ? ["cancelled", "duplicate"] : [],
+          subgroups:
+            input.entityKind === "items" ? ["cancelled", "duplicate"] : [],
         },
     isShared: input.isShared ?? true,
     route,
@@ -303,6 +316,84 @@ export function buildTeamWorkViews(input: {
   ].filter(Boolean) as ViewDefinition[]
 }
 
+export function buildAssignedWorkViews(input: {
+  userId: string
+  createdAt: string
+  updatedAt?: string
+  experience?: TeamExperienceType | null
+}): ViewDefinition[] {
+  const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
+  const primaryViewName = getCanonicalPrimaryViewName(input.experience)
+  const lowercaseSurfaceLabel = surfaceLabel.toLowerCase()
+
+  return [
+    createViewDefinition({
+      id: "view_assigned_all_items",
+      name: primaryViewName,
+      description: "Everything assigned to you grouped by status.",
+      scopeType: "personal",
+      scopeId: input.userId,
+      entityKind: "items",
+      route: "/assigned",
+      experience: input.experience,
+      isShared: false,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+    }),
+    createViewDefinition({
+      id: "view_assigned_active_items",
+      name: "Active",
+      description: `Current ${lowercaseSurfaceLabel} assigned to you.`,
+      scopeType: "personal",
+      scopeId: input.userId,
+      entityKind: "items",
+      route: "/assigned",
+      experience: input.experience,
+      isShared: false,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        layout: "board",
+        filters: {
+          ...createDefaultViewFilters(),
+          status: ["todo", "in-progress"],
+        },
+        displayProps: [
+          "id",
+          "status",
+          "assignee",
+          "priority",
+          "project",
+          "created",
+        ],
+      },
+    }),
+    createViewDefinition({
+      id: "view_assigned_backlog_items",
+      name: "Backlog",
+      description: `Upcoming ${lowercaseSurfaceLabel} assigned to you.`,
+      scopeType: "personal",
+      scopeId: input.userId,
+      entityKind: "items",
+      route: "/assigned",
+      experience: input.experience,
+      isShared: false,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        filters: {
+          ...createDefaultViewFilters(),
+          status: ["backlog"],
+        },
+        grouping: "priority",
+        ordering: "targetDate",
+        displayProps: ["id", "project", "priority", "assignee", "dueDate"],
+        hiddenState: { groups: [], subgroups: [] },
+      },
+    }),
+  ].filter(Boolean) as ViewDefinition[]
+}
+
 export function buildTeamProjectViews(input: {
   teamId: string
   teamSlug: string
@@ -361,7 +452,10 @@ export function sortViewsForDisplay(views: ViewDefinition[]) {
   })
 }
 
-function isCanonicalSystemViewId(id: string, entityKind: ViewDefinition["entityKind"]) {
+function isCanonicalSystemViewId(
+  id: string,
+  entityKind: ViewDefinition["entityKind"]
+) {
   if (entityKind === "projects") {
     return /^view_.+_all_projects$/.test(id)
   }

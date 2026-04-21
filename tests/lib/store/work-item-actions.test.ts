@@ -413,6 +413,11 @@ describe("work item actions", () => {
       startDate: "2026-05-01",
       targetDate: "2026-05-10",
     })
+    expect(state.documents[0]).toMatchObject({
+      kind: "item-description",
+      title: "Schedule work description",
+      content: "<p></p>",
+    })
     expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
       teamId: "team_1",
       type: "task",

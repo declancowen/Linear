@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
@@ -13,15 +13,14 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 vi.mock("@/lib/domain/selectors", () => ({
   canEditTeam: () => true,
   getVisibleItemsForView: (_data: unknown, items: unknown[]) => items,
-  getViewByRoute: (data: { views: Array<{ route: string }> }, routeKey: string) =>
-    data.views.find((view) => view.route === routeKey) ?? null,
+  getViewByRoute: (
+    data: { views: Array<{ route: string }> },
+    routeKey: string
+  ) => data.views.find((view) => view.route === routeKey) ?? null,
 }))
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>
       {children}
     </button>
@@ -54,11 +53,9 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   getAvailableGroupOptions: () => ["status"],
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
-  LevelChipPopover: ({
-    showLabel,
-  }: {
-    showLabel?: boolean
-  }) => <div>{showLabel === false ? "level:value-only" : "level:label"}</div>,
+  LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
+    <div>{showLabel === false ? "level:value-only" : "level:label"}</div>
+  ),
   PropertiesChipPopover: () => null,
   SortChipPopover: () => null,
   ViewConfigPopover: () => null,
@@ -75,12 +72,16 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
       <div>board-content</div>
     </div>
   ),
-  ListView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
-    <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
-  ),
-  TimelineView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
-    <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
-  ),
+  ListView: ({
+    view,
+  }: {
+    view: { grouping: string; subGrouping: string | null }
+  }) => <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>,
+  TimelineView: ({
+    view,
+  }: {
+    view: { grouping: string; subGrouping: string | null }
+  }) => <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>,
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
@@ -166,7 +167,10 @@ describe("WorkSurface", () => {
   })
 
   it("applies incompatible grouping fallbacks locally without persisting the saved view", () => {
-    const updateViewConfigSpy = vi.spyOn(useAppStore.getState(), "updateViewConfig")
+    const updateViewConfigSpy = vi.spyOn(
+      useAppStore.getState(),
+      "updateViewConfig"
+    )
 
     render(
       <WorkSurface
@@ -211,5 +215,52 @@ describe("WorkSurface", () => {
 
     expect(screen.getByText("board-content")).toBeInTheDocument()
     expect(screen.queryByText("No work")).not.toBeInTheDocument()
+  })
+
+  it("renders fallback views when no saved views exist", () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      views: [],
+    })
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_all_items",
+            name: "All work",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            grouping: "status",
+            subGrouping: null,
+          }),
+          createView({
+            id: "view_assigned_active_items",
+            name: "Active",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            layout: "board",
+            grouping: "status",
+            subGrouping: null,
+          }),
+        ]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "All work" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Active" })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Active" }))
+
+    expect(screen.getByText("board-content")).toBeInTheDocument()
   })
 })

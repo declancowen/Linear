@@ -40,13 +40,45 @@ export function getVisibleWorkItems(
     | { teamId: string }
     | { workspaceId: string }
     | { assignedToCurrentUser: true }
+    | { assignedToCurrentUserWithAncestors: true }
 ) {
-  if ("assignedToCurrentUser" in params) {
-    const teamIds = getAccessibleTeams(data).map((team) => team.id)
-    return data.workItems.filter(
+  if (
+    "assignedToCurrentUser" in params ||
+    "assignedToCurrentUserWithAncestors" in params
+  ) {
+    const teamIds = new Set(getAccessibleTeams(data).map((team) => team.id))
+    const assignedItems = data.workItems.filter(
       (item) =>
-        item.assigneeId === data.currentUserId && teamIds.includes(item.teamId)
+        item.assigneeId === data.currentUserId && teamIds.has(item.teamId)
     )
+
+    if ("assignedToCurrentUser" in params) {
+      return assignedItems
+    }
+
+    const itemsById = new Map(
+      data.workItems
+        .filter((item) => teamIds.has(item.teamId))
+        .map((item) => [item.id, item] as const)
+    )
+    const includedIds = new Set(assignedItems.map((item) => item.id))
+
+    assignedItems.forEach((item) => {
+      let parentId = item.parentId
+
+      while (parentId) {
+        const parent = itemsById.get(parentId)
+
+        if (!parent) {
+          break
+        }
+
+        includedIds.add(parent.id)
+        parentId = parent.parentId
+      }
+    })
+
+    return data.workItems.filter((item) => includedIds.has(item.id))
   }
 
   if ("teamId" in params) {
@@ -69,8 +101,77 @@ export function getDirectChildWorkItemsForDisplay(
   item: WorkItem,
   ordering: OrderingField,
   view?: ViewDefinition,
-  sourceItems?: WorkItem[]
+  sourceItems?: WorkItem[],
+  options?: {
+    mode?: "direct" | "assigned-descendants"
+  }
 ) {
+  const sourcePool = sourceItems ?? data.workItems
+  const mode = options?.mode ?? "direct"
+
+  if (mode === "assigned-descendants") {
+    const sourceItemsById = new Map(
+      sourcePool.map((candidate) => [candidate.id, candidate] as const)
+    )
+    const assignedDescendants = sourcePool.filter((candidate) => {
+      if (
+        candidate.id === item.id ||
+        candidate.assigneeId !== data.currentUserId
+      ) {
+        return false
+      }
+
+      if (
+        view &&
+        !itemMatchesView(data, candidate, view, {
+          ignoreItemLevel: true,
+        })
+      ) {
+        return false
+      }
+
+      let parentId = candidate.parentId
+
+      while (parentId) {
+        if (parentId === item.id) {
+          return true
+        }
+
+        parentId = sourceItemsById.get(parentId)?.parentId ?? null
+      }
+
+      return false
+    })
+
+    if (assignedDescendants.length === 0) {
+      return []
+    }
+
+    const assignedDescendantIds = new Set(
+      assignedDescendants.map((candidate) => candidate.id)
+    )
+    const ancestorIdsWithAssignedChildren = new Set<string>()
+
+    assignedDescendants.forEach((candidate) => {
+      let parentId = candidate.parentId
+
+      while (parentId && parentId !== item.id) {
+        if (assignedDescendantIds.has(parentId)) {
+          ancestorIdsWithAssignedChildren.add(parentId)
+        }
+
+        parentId = sourceItemsById.get(parentId)?.parentId ?? null
+      }
+    })
+
+    return sortItems(
+      assignedDescendants.filter(
+        (candidate) => !ancestorIdsWithAssignedChildren.has(candidate.id)
+      ),
+      ordering
+    )
+  }
+
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(item)
 
   if (allowedChildTypes.length !== 1) {
@@ -78,11 +179,12 @@ export function getDirectChildWorkItemsForDisplay(
   }
 
   return sortItems(
-    (sourceItems ?? data.workItems).filter(
+    sourcePool.filter(
       (candidate) =>
         candidate.parentId === item.id &&
         allowedChildTypes.includes(candidate.type) &&
-        (!view || itemMatchesView(data, candidate, view, { ignoreItemLevel: true }))
+        (!view ||
+          itemMatchesView(data, candidate, view, { ignoreItemLevel: true }))
     ),
     ordering
   )
@@ -105,7 +207,9 @@ export function getWorkItemChildProgress(data: AppData, itemId: string) {
     percent:
       includedChildren.length === 0
         ? 0
-        : Math.round((completedChildren.length / includedChildren.length) * 100),
+        : Math.round(
+            (completedChildren.length / includedChildren.length) * 100
+          ),
   }
 }
 
@@ -117,7 +221,11 @@ export function itemMatchesView(
     ignoreItemLevel?: boolean
   }
 ) {
-  if (!options?.ignoreItemLevel && view.itemLevel && item.type !== view.itemLevel) {
+  if (
+    !options?.ignoreItemLevel &&
+    view.itemLevel &&
+    item.type !== view.itemLevel
+  ) {
     return false
   }
 
@@ -222,7 +330,9 @@ export function getVisibleItemsForView(
   items: WorkItem[],
   view: ViewDefinition
 ) {
-  const filteredItems = items.filter((item) => itemMatchesView(data, item, view))
+  const filteredItems = items.filter((item) =>
+    itemMatchesView(data, item, view)
+  )
 
   if (view.entityKind === "items" && !view.itemLevel) {
     return filteredItems.filter((item) => item.parentId === null)
@@ -361,8 +471,7 @@ export function getAvailableGroupKeysForItems(
     data.projects.forEach((project) => {
       if (
         (project.scopeType === "team" && teamIds.has(project.scopeId)) ||
-        (project.scopeType === "workspace" &&
-          workspaceIds.has(project.scopeId))
+        (project.scopeType === "workspace" && workspaceIds.has(project.scopeId))
       ) {
         keys.add(project.name)
       }
@@ -570,7 +679,9 @@ export function formatDisplayValue(
 
   if (property === "progress") {
     const progress = getWorkItemChildProgress(data, item.id)
-    return progress.totalChildren > 0 ? `${progress.percent}%` : "No child items"
+    return progress.totalChildren > 0
+      ? `${progress.percent}%`
+      : "No child items"
   }
 
   if (property === "id") {

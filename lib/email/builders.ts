@@ -5,7 +5,7 @@ const EMAIL_FONT_STACK =
 const EMAIL_MONO_STACK =
   "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
-// Palette tuned to the app's indigo-leaning neutral system. Values kept as
+// Palette tuned to the app's neutral system. Values kept as
 // hex so email clients (notably Outlook) render them reliably.
 const EMAIL_COLORS = {
   text: "#0a0a0a",
@@ -18,10 +18,10 @@ const EMAIL_COLORS = {
   border: "#e4e4e7",
   borderSoft: "#eeeef0",
   buttonBorder: "#d4d4d8",
-  accentBg: "#eef2ff",
-  accentFg: "#4338ca",
-  accentBorder: "#e0e7ff",
-  accentRule: "#6366f1",
+  badgeBg: "#f4f4f5",
+  badgeFg: "#52525b",
+  badgeBorder: "#e4e4e7",
+  quoteRule: "#111113",
 } as const
 
 const EMAIL_SETTINGS_PATH = "/settings/profile"
@@ -200,7 +200,7 @@ function renderPreheader(text: string) {
 
 function renderBadge(input: { label: string }) {
   return [
-    `<span style="display: inline-block; padding: 4px 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 600; line-height: 1.4; color: ${EMAIL_COLORS.accentFg}; background-color: ${EMAIL_COLORS.accentBg}; border: 1px solid ${EMAIL_COLORS.accentBorder}; border-radius: 999px; letter-spacing: 0.01em;">`,
+    `<span style="display: inline-block; padding: 4px 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 600; line-height: 1.4; color: ${EMAIL_COLORS.badgeFg}; background-color: ${EMAIL_COLORS.badgeBg}; border: 1px solid ${EMAIL_COLORS.badgeBorder}; border-radius: 999px; letter-spacing: 0.01em;">`,
     escapeHtml(toBadgeLabel(input.label)),
     "</span>",
   ].join("")
@@ -324,7 +324,7 @@ function renderQuoteCard(input: { label: string; body: string }) {
   return [
     '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 20px;">',
     "<tr>",
-    `<td style="padding: 16px 18px; background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.borderSoft}; border-left: 3px solid ${EMAIL_COLORS.accentRule}; border-radius: 12px;">`,
+    `<td style="padding: 16px 18px; background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.borderSoft}; border-left: 3px solid ${EMAIL_COLORS.quoteRule}; border-radius: 12px;">`,
     `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.textSubtle};">${escapeHtml(input.label)}</div>`,
     `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.textStrong};">${toHtmlWithLineBreaks(input.body)}</div>`,
     "</td>",

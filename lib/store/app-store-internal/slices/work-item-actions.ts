@@ -460,7 +460,7 @@ export function createWorkItemActions({
               ?.workspaceId ?? "",
           teamId: parsed.data.teamId,
           title: `${parsed.data.title} description`,
-          content: `<p>Add a fuller description for ${parsed.data.title}.</p>`,
+          content: "<p></p>",
           linkedProjectIds: resolvedPrimaryProjectId
             ? [resolvedPrimaryProjectId]
             : [],
