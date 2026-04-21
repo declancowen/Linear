@@ -603,20 +603,23 @@ export function createCollaborationConversationActions({
         }
       }
 
-      set((state) => ({
-        chatMessages: state.chatMessages.map((message) =>
-          message.id === messageId
-            ? {
-                ...message,
-                reactions: toggleReactionUsers(
-                  message.reactions,
-                  nextEmoji,
-                  state.currentUserId
-                ),
-              }
-            : message
-        ),
-      }))
+      const toggleLocalReaction = () =>
+        set((state) => ({
+          chatMessages: state.chatMessages.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  reactions: toggleReactionUsers(
+                    message.reactions,
+                    nextEmoji,
+                    state.currentUserId
+                  ),
+                }
+              : message
+          ),
+        }))
+
+      toggleLocalReaction()
 
       const reactionTask = (async () => {
         const pendingMessageSync = pendingChatMessageSyncs.get(messageId)
@@ -625,6 +628,7 @@ export function createCollaborationConversationActions({
           try {
             await pendingMessageSync
           } catch {
+            toggleLocalReaction()
             return null
           }
         }
