@@ -449,14 +449,14 @@ export function SlashCommandMenu({
 
   return (
     <div
-      className="absolute z-10 w-72 max-w-[calc(100%-1rem)]"
+      className="absolute z-50 w-72 max-w-[calc(100%-1rem)]"
       style={{
         left: getMenuLeft(state, containerWidth, SLASH_MENU_WIDTH),
         top: state.top,
       }}
     >
       <Command
-        className="overflow-hidden rounded-lg border bg-popover shadow-md"
+        className="overflow-hidden rounded-lg border border-line bg-background shadow-xl"
         shouldFilter={false}
         value={commands[activeIndex]?.id}
       >
@@ -532,7 +532,7 @@ export function MentionMenu({
 
   return (
     <div
-      className="absolute z-10 w-64 max-w-[calc(100%-1rem)]"
+      className="absolute z-50 w-64 max-w-[calc(100%-1rem)]"
       style={{
         bottom: placement === "above" ? state.bottom : undefined,
         left: getMenuLeft(state, containerWidth, MENTION_MENU_WIDTH),
@@ -540,7 +540,7 @@ export function MentionMenu({
       }}
     >
       <Command
-        className="overflow-hidden rounded-lg border bg-popover shadow-md"
+        className="overflow-hidden rounded-lg border border-line bg-background shadow-xl"
         shouldFilter={false}
         value={candidates[activeIndex]?.id}
       >

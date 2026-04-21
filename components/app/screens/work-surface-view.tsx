@@ -15,7 +15,6 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core"
-import { format } from "date-fns"
 import {
   CaretDown,
   CaretRight,
@@ -33,10 +32,7 @@ import {
   getUser,
   getWorkItemChildProgress,
 } from "@/lib/domain/selectors"
-import {
-  formatCalendarDateLabel,
-  getCalendarDateDayOffset,
-} from "@/lib/date-input"
+import { getCalendarDateDayOffset } from "@/lib/date-input"
 import {
   priorityMeta,
   statusMeta,
@@ -64,6 +60,10 @@ import {
   getGroupValueAdornment,
   getGroupValueLabel,
 } from "./work-surface-view/shared"
+import {
+  formatWorkSurfaceDueDate,
+  formatWorkSurfaceTimestamp,
+} from "./date-presentation"
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
 
@@ -90,6 +90,11 @@ function useHoldToDragSensors() {
     })
   )
 }
+
+type DraggableBindings = Pick<
+  ReturnType<typeof useDraggable>,
+  "attributes" | "listeners"
+>
 
 function CollapseCaret({
   open,
@@ -224,14 +229,6 @@ function WorkItemProgressProperty({
       </span>
     </span>
   )
-}
-
-function formatMetaDate(dateValue: string | null | undefined) {
-  if (!dateValue) {
-    return null
-  }
-
-  return format(new Date(dateValue), "MMM d")
 }
 
 function WorkItemChildCount({
@@ -400,25 +397,21 @@ function renderWorkItemDisplayProperty({
           !isOverdue && isSoon && "text-[color:var(--priority-high)]"
         )}
       >
-        {isOverdue ? "Overdue" : dueDateLabel}
+        {dueDateLabel}
       </span>
     )
   }
 
   if (property === "created") {
-    const createdAt = formatMetaDate(item.createdAt)
+    const createdAt = formatWorkSurfaceTimestamp(item.createdAt, "Created")
 
-    return createdAt ? (
-      <span className={META_TEXT_CLASS}>Created {createdAt}</span>
-    ) : null
+    return createdAt ? <span className={META_TEXT_CLASS}>{createdAt}</span> : null
   }
 
   if (property === "updated") {
-    const updatedAt = formatMetaDate(item.updatedAt)
+    const updatedAt = formatWorkSurfaceTimestamp(item.updatedAt, "Updated")
 
-    return updatedAt ? (
-      <span className={META_TEXT_CLASS}>Updated {updatedAt}</span>
-    ) : null
+    return updatedAt ? <span className={META_TEXT_CLASS}>{updatedAt}</span> : null
   }
 
   if (property === "assignee") {
@@ -1072,7 +1065,7 @@ function ListRowBody({
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDateLabel =
     displayProps.includes("dueDate") && item.dueDate
-      ? formatCalendarDateLabel(item.dueDate, "")
+      ? formatWorkSurfaceDueDate(item.dueDate)
       : null
   const daysUntilDue = dueDateLabel
     ? getCalendarDateDayOffset(item.dueDate)
@@ -1356,17 +1349,15 @@ function DraggableWorkCard({
         item={item}
         displayProps={displayProps}
         details={details}
+        dragAttributes={attributes}
+        dragListeners={listeners}
         dragHandle={
-          <button
-            type="button"
-            aria-label={`Drag ${item.title}`}
-            className="inline-grid size-5 place-items-center rounded-sm text-fg-4 transition-colors hover:bg-surface-3 hover:text-foreground"
-            onClick={stopMenuEvent}
-            {...listeners}
-            {...attributes}
+          <span
+            aria-hidden
+            className="inline-grid size-5 place-items-center rounded-sm text-fg-4"
           >
             <DotsSixVertical className="size-3.5" />
-          </button>
+          </span>
         }
       />
     </div>
@@ -1378,18 +1369,22 @@ function BoardCardBody({
   item,
   displayProps,
   details,
+  dragAttributes,
+  dragListeners,
   dragHandle,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   details?: ReactNode
+  dragAttributes?: DraggableBindings["attributes"]
+  dragListeners?: DraggableBindings["listeners"]
   dragHandle?: ReactNode
 }) {
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDateLabel =
     displayProps.includes("dueDate") && item.dueDate
-      ? formatCalendarDateLabel(item.dueDate, "")
+      ? formatWorkSurfaceDueDate(item.dueDate)
       : null
   const daysUntilDue = dueDateLabel
     ? getCalendarDateDayOffset(item.dueDate)
@@ -1420,26 +1415,37 @@ function BoardCardBody({
     isOverdue,
     isSoon,
   })
+  const itemHref = `/items/${item.id}`
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div className="group/card flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
-        <div className="flex items-start gap-2">
+      <div
+        className="group/card relative flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm"
+      >
+        <Link
+          href={itemHref}
+          aria-label={`Open ${item.title}`}
+          className="absolute inset-0 rounded-[8px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]"
+          {...dragAttributes}
+          {...dragListeners}
+        />
+        <div className="relative z-10 flex items-start gap-2 pointer-events-none">
           <div className="min-w-0 flex-1">
             {idProperty ? <div className="mb-1">{idProperty}</div> : null}
-            <Link
-              className="min-w-0 focus-visible:outline-none"
-              href={`/items/${item.id}`}
-            >
+            <div className="min-w-0">
               <div className="flex min-w-0 items-start gap-1.5">
                 <div className="min-w-0 text-[13.5px] leading-[1.4] font-medium text-foreground">
                   {item.title}
                 </div>
                 <WorkItemChildCount count={subCount} className="pt-0.5" />
               </div>
-            </Link>
+            </div>
           </div>
-          <div className="opacity-0 transition-opacity group-hover/card:opacity-100">
+          <div
+            className="pointer-events-auto opacity-0 transition-opacity group-hover/card:opacity-100"
+            onPointerDown={stopDragPropagation}
+            onClick={stopMenuEvent}
+          >
             <div className="flex items-center gap-1">
               {dragHandle ?? null}
               <IssueActionMenu
@@ -1450,10 +1456,7 @@ function BoardCardBody({
             </div>
           </div>
         </div>
-        <Link
-          className="flex min-w-0 flex-col gap-2 focus-visible:outline-none"
-          href={`/items/${item.id}`}
-        >
+        <div className="relative z-10 flex min-w-0 flex-col gap-2 pointer-events-none">
           {visibleProperties.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
               {visibleProperties.map(({ key, node }) => (
@@ -1463,8 +1466,16 @@ function BoardCardBody({
               ))}
             </div>
           ) : null}
-        </Link>
-        {details}
+        </div>
+        {details ? (
+          <div
+            className="relative z-10 pointer-events-auto"
+            onPointerDown={stopDragPropagation}
+            onClick={stopMenuEvent}
+          >
+            {details}
+          </div>
+        ) : null}
       </div>
     </IssueContextMenu>
   )

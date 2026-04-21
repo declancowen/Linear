@@ -952,10 +952,24 @@ export async function listInvitesByNormalizedEmail(ctx: AppCtx, email: string) {
     .collect()
 }
 
-export async function getInviteByTokenDoc(ctx: AppCtx, token: string) {
+export async function listInvitesByBatchId(ctx: AppCtx, batchId: string) {
+  return ctx.db
+    .query("invites")
+    .withIndex("by_batch_id", (q) => q.eq("batchId", batchId))
+    .collect()
+}
+
+export async function listInvitesByToken(ctx: AppCtx, token: string) {
   return ctx.db
     .query("invites")
     .withIndex("by_token", (q) => q.eq("token", token))
+    .collect()
+}
+
+export async function getInviteDoc(ctx: AppCtx, inviteId: string) {
+  return ctx.db
+    .query("invites")
+    .withIndex("by_domain_id", (q) => q.eq("id", inviteId))
     .unique()
 }
 
@@ -963,32 +977,51 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
   const invites = (await listInvitesByNormalizedEmail(ctx, email)).filter(
     (invite) => !invite.acceptedAt && !invite.declinedAt
   )
+  const groupedInvites = new Map<string, (typeof invites)[number][]>()
+
+  for (const invite of invites) {
+    const groupKey = invite.batchId ?? invite.id
+    const current = groupedInvites.get(groupKey)
+
+    if (current) {
+      current.push(invite)
+    } else {
+      groupedInvites.set(groupKey, [invite])
+    }
+  }
 
   return Promise.all(
-    invites.map(async (invite) => {
-      const team = await getTeamDoc(ctx, invite.teamId)
-      const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
+    [...groupedInvites.values()].map(async (inviteGroup) => {
+      const [primaryInvite] = inviteGroup
+      let mergedRole = primaryInvite.role
+      const teamNames = new Set<string>()
+      const [teams, workspace] = await Promise.all([
+        Promise.all(inviteGroup.map((invite) => getTeamDoc(ctx, invite.teamId))),
+        getWorkspaceDoc(ctx, primaryInvite.workspaceId),
+      ])
+
+      for (const invite of inviteGroup) {
+        mergedRole = mergeMembershipRole(mergedRole, invite.role)
+      }
+
+      for (const team of teams) {
+        if (team) {
+          teamNames.add(team.name)
+        }
+      }
 
       return {
         invite: {
-          id: invite.id,
-          token: invite.token,
-          email: invite.email,
-          role: invite.role,
-          expiresAt: invite.expiresAt,
-          acceptedAt: invite.acceptedAt,
-          declinedAt: invite.declinedAt ?? null,
-          joinCode: invite.joinCode,
+          id: primaryInvite.id,
+          token: primaryInvite.token,
+          email: primaryInvite.email,
+          role: mergedRole,
+          expiresAt: primaryInvite.expiresAt,
+          acceptedAt: primaryInvite.acceptedAt,
+          declinedAt: primaryInvite.declinedAt ?? null,
+          joinCode: primaryInvite.joinCode,
         },
-        team: team
-          ? {
-              id: team.id,
-              slug: team.slug,
-              name: team.name,
-              summary: team.settings.summary,
-              joinCode: team.settings.joinCode,
-            }
-          : null,
+        teamNames: [...teamNames].sort((left, right) => left.localeCompare(right)),
         workspace: workspace
           ? {
               id: workspace.id,

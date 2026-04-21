@@ -172,4 +172,45 @@ describe("ChatThread", () => {
 
     expect(toggleChatMessageReactionMock).toHaveBeenCalledWith("message_1", "👍")
   })
+
+  it("renders the react trigger after active reaction pills", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          id: "message_1",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "<p>Hello</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [
+            {
+              emoji: "👍",
+              userIds: [formerUser.id],
+            },
+          ],
+          createdBy: formerUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+        },
+      ],
+    })
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+      />
+    )
+
+    const reactionButton = screen.getByText("👍").closest(
+      "button"
+    ) as HTMLButtonElement
+    const reactButton = screen.getByLabelText("React")
+    const actionsRow = reactionButton.parentElement
+
+    expect(actionsRow).toBeTruthy()
+    expect(actionsRow?.lastElementChild).toBe(reactButton)
+  })
 })

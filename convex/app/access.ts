@@ -1,11 +1,15 @@
 import {
   getDocumentDoc,
   getEffectiveRole,
+  getWorkspaceMembershipDoc,
   getWorkspaceEditRole,
   getWorkspaceRoleMapForUser,
   isWorkspaceOwner,
   type AppCtx,
 } from "./data"
+
+export const WORKSPACE_ADMIN_ACCESS_ERROR =
+  "Only workspace admins can perform this action"
 
 function isReadOnlyRole(role: Awaited<ReturnType<typeof getEffectiveRole>>) {
   return role === "viewer" || role === "guest" || !role
@@ -174,10 +178,13 @@ export async function requireWorkspaceAdminAccess(
     return
   }
 
-  const workspaceRoles =
-    (await getWorkspaceRoleMapForUser(ctx, userId))[workspaceId] ?? []
+  const workspaceMembership = await getWorkspaceMembershipDoc(
+    ctx,
+    workspaceId,
+    userId
+  )
 
-  if (!workspaceRoles.includes("admin")) {
-    throw new Error("Only workspace admins can perform this action")
+  if (workspaceMembership?.role !== "admin") {
+    throw new Error(WORKSPACE_ADMIN_ACCESS_ERROR)
   }
 }

@@ -110,6 +110,7 @@ export function createCollaborationChannelActions({
               conversationId: conversation.id,
               title: parsed.data.title,
               content: parsed.data.content.trim(),
+              mentionUserIds,
               reactions: [],
               createdBy: state.currentUserId,
               createdAt: now,

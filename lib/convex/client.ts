@@ -45,6 +45,7 @@ export {
   syncArchiveNotifications,
   syncClearWorkItemPresence,
   syncClearViewFilters,
+  syncCancelInvite,
   syncCreateAttachment,
   syncCreateDocument,
   syncCreateInvite,

@@ -20,9 +20,9 @@ import {
 import {
   bootstrapFirstAuthenticatedUser,
   getAppConfig,
-  getInviteByTokenDoc,
   getPendingInvitesForEmail,
   getAuthLifecycleError,
+  listInvitesByToken,
   listAttachmentsByTargets,
   getTeamBySlug,
   getTeamByJoinCode,
@@ -1143,14 +1143,31 @@ export async function getInviteByTokenHandler(
   args: GetInviteByTokenArgs
 ) {
   assertServerToken(args.serverToken)
-  const invite = await getInviteByTokenDoc(ctx, args.token)
+  const invites = await listInvitesByToken(ctx, args.token)
+  const invite =
+    invites.find((entry) => !entry.declinedAt && !entry.acceptedAt) ??
+    invites[0] ??
+    null
 
   if (!invite) {
     return null
   }
 
-  const team = await getTeamDoc(ctx, invite.teamId)
+  const scopedInvites = invite.batchId
+    ? invites.filter(
+        (entry) =>
+          entry.batchId === invite.batchId &&
+          entry.workspaceId === invite.workspaceId
+      )
+    : invites.filter((entry) => entry.id === invite.id)
+
+  const teams = await Promise.all(
+    scopedInvites.map((entry) => getTeamDoc(ctx, entry.teamId))
+  )
   const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
+  const teamNames = [...new Set(
+    teams.flatMap((team) => (team ? [team.name] : []))
+  )].sort((left, right) => left.localeCompare(right))
 
   return {
     invite: {
@@ -1163,14 +1180,7 @@ export async function getInviteByTokenHandler(
       acceptedAt: invite.acceptedAt,
       declinedAt: invite.declinedAt ?? null,
     },
-    team: team
-      ? {
-          id: team.id,
-          slug: team.slug,
-          name: team.name,
-          joinCode: team.settings.joinCode,
-        }
-      : null,
+    teamNames,
     workspace: workspace
       ? {
           id: workspace.id,

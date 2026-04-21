@@ -109,6 +109,7 @@ import {
 } from "./app/comment_handlers"
 import {
   acceptInviteHandler,
+  cancelInviteHandler,
   createInviteHandler,
   declineInviteHandler,
   joinTeamByCodeHandler,
@@ -1096,12 +1097,21 @@ export const createInvite = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
-    teamId: v.string(),
+    teamIds: v.array(v.string()),
     email: v.string(),
     role: roleValidator,
     origin: v.string(),
   },
   handler: createInviteHandler,
+})
+
+export const cancelInvite = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    inviteId: v.string(),
+  },
+  handler: cancelInviteHandler,
 })
 
 export const acceptInvite = mutation({
@@ -1317,6 +1327,7 @@ export const sendChatMessage = mutation({
     currentUserId: v.string(),
     conversationId: v.string(),
     content: v.string(),
+    messageId: v.optional(v.string()),
     origin: v.string(),
   },
   handler: sendChatMessageHandler,

@@ -3,6 +3,11 @@ import { addDays } from "date-fns"
 import type { MutationCtx } from "../_generated/server"
 
 import { buildTeamInviteEmailJobs } from "../../lib/email/builders"
+import {
+  requireTeamAdminAccess,
+  requireWorkspaceAdminAccess,
+  WORKSPACE_ADMIN_ACCESS_ERROR,
+} from "./access"
 import { createNotification } from "./collaboration_utils"
 import { insertAuditEvent } from "./audit"
 import {
@@ -15,8 +20,10 @@ import {
 } from "./core"
 import {
   getActiveInvitesForTeamAndEmail,
+  listInvitesByBatchId,
+  listInvitesByToken,
   getEffectiveRole,
-  getInviteByTokenDoc,
+  getInviteDoc,
   getTeamByJoinCode,
   getTeamDoc,
   getTeamBySlug,
@@ -39,7 +46,7 @@ type InviteRole = "admin" | "member" | "viewer" | "guest"
 type CreateInviteArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
-  teamId: string
+  teamIds: string[]
   email: string
   role: InviteRole
 }
@@ -49,9 +56,97 @@ type TokenActionArgs = ServerAccessArgs & {
   token: string
 }
 
+type CancelInviteArgs = ServerAccessArgs & {
+  currentUserId: string
+  inviteId: string
+}
+
 type JoinTeamByCodeArgs = ServerAccessArgs & {
   currentUserId: string
   code: string
+}
+
+function isPendingInvite(invite: {
+  acceptedAt?: string | null
+  declinedAt?: string | null
+}) {
+  return !invite.acceptedAt && !invite.declinedAt
+}
+
+async function createUniqueInviteBatchId(ctx: MutationCtx) {
+  while (true) {
+    const batchId = createId("invite_batch")
+
+    if ((await listInvitesByBatchId(ctx, batchId)).length === 0) {
+      return batchId
+    }
+  }
+}
+
+async function createUniqueInviteToken(ctx: MutationCtx) {
+  while (true) {
+    const token = createId("token")
+
+    if ((await listInvitesByToken(ctx, token)).length === 0) {
+      return token
+    }
+  }
+}
+
+function scopeTokenInvitesToRepresentative<
+  T extends {
+    id: string
+    batchId?: string | null
+    workspaceId: string
+  },
+>(invites: T[], representativeInvite: T) {
+  if (representativeInvite.batchId) {
+    return invites.filter(
+      (invite) =>
+        invite.batchId === representativeInvite.batchId &&
+        invite.workspaceId === representativeInvite.workspaceId
+    )
+  }
+
+  return invites.filter((invite) => invite.id === representativeInvite.id)
+}
+
+async function deleteInviteAndNotifications(
+  ctx: MutationCtx,
+  invite: Awaited<ReturnType<typeof getInviteDoc>>,
+  actorUserId: string
+) {
+  if (!invite) {
+    return
+  }
+
+  const inviteNotifications = await ctx.db
+    .query("notifications")
+    .withIndex("by_entity", (q) =>
+      q.eq("entityType", "invite").eq("entityId", invite.id)
+    )
+    .collect()
+
+  for (const notification of inviteNotifications) {
+    await ctx.db.delete(notification._id)
+  }
+
+  await ctx.db.delete(invite._id)
+
+  await insertAuditEvent(ctx, {
+    type: "invite.cancelled",
+    actorUserId,
+    subjectUserId: null,
+    workspaceId: invite.workspaceId,
+    teamId: invite.teamId,
+    entityId: invite.id,
+    summary: `Invite ${invite.id} was cancelled.`,
+    details: {
+      email: invite.email,
+      inviteRole: invite.role,
+      source: "convex",
+    },
+  })
 }
 
 export async function createInviteHandler(
@@ -59,67 +154,109 @@ export async function createInviteHandler(
   args: CreateInviteArgs
 ) {
   assertServerToken(args.serverToken)
-  const team = await getTeamDoc(ctx, args.teamId)
+  const teamIds = [
+    ...new Set(args.teamIds.map((teamId) => teamId.trim()).filter(Boolean)),
+  ]
 
-  if (!team) {
+  if (teamIds.length === 0) {
+    throw new Error("Invite batch must include at least one team")
+  }
+
+  const loadedTeams = await Promise.all(
+    teamIds.map((teamId) => getTeamDoc(ctx, teamId))
+  )
+  const [primaryTeam] = loadedTeams
+
+  if (!primaryTeam || loadedTeams.some((team) => !team)) {
     throw new Error("Team not found")
   }
 
-  const role = await getEffectiveRole(ctx, team.id, args.currentUserId)
+  const teams = loadedTeams.filter(
+    (
+      team
+    ): team is NonNullable<(typeof loadedTeams)[number]> => team !== null
+  )
 
-  if (role !== "admin" && role !== "member") {
-    throw new Error("Only admins and members can invite")
+  if (teams.some((team) => team.workspaceId !== primaryTeam.workspaceId)) {
+    throw new Error("Invites must target teams in the same workspace")
   }
 
-  const invite = {
-    id: createId("invite"),
-    workspaceId: team.workspaceId,
-    teamId: team.id,
-    email: args.email,
-    normalizedEmail: normalizeEmailAddress(args.email),
-    role: args.role,
-    token: createId("token"),
-    joinCode: team.settings.joinCode,
-    invitedBy: args.currentUserId,
-    expiresAt: addDays(new Date(), 7).toISOString(),
-    acceptedAt: null,
-    declinedAt: null,
+  for (const team of teams) {
+    const role = await getEffectiveRole(ctx, team.id, args.currentUserId)
+
+    if (role !== "admin" && role !== "member") {
+      throw new Error("Only admins and members can invite")
+    }
   }
 
-  await ctx.db.insert("invites", invite)
-
+  const batchId = await createUniqueInviteBatchId(ctx)
+  const batchToken = await createUniqueInviteToken(ctx)
+  const expiresAt = addDays(new Date(), 7).toISOString()
+  const normalizedEmail = normalizeEmailAddress(args.email)
   const invitedUser = await getUserByEmail(ctx, args.email)
+  const workspace = await getWorkspaceDoc(ctx, primaryTeam.workspaceId)
+  const createdInvites: Array<{
+    id: string
+    batchId: string
+    teamId: string
+    token: string
+  }> = []
 
-  if (invitedUser) {
-    await ctx.db.insert(
-      "notifications",
-      createNotification(
-        invitedUser.id,
-        args.currentUserId,
-        `You've been invited to join ${team.name} as ${args.role}`,
-        "invite",
-        invite.id,
-        "invite"
-      )
-    )
-  }
-
-  const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
-
-  await insertAuditEvent(ctx, {
-    type: "invite.created",
-    actorUserId: args.currentUserId,
-    subjectUserId: invitedUser?.id ?? null,
-    workspaceId: team.workspaceId,
-    teamId: team.id,
-    entityId: invite.id,
-    summary: `Invite ${invite.id} was created for ${args.email}.`,
-    details: {
+  for (const team of teams) {
+    const invite = {
+      id: createId("invite"),
+      batchId,
+      workspaceId: team.workspaceId,
+      teamId: team.id,
       email: args.email,
-      inviteRole: args.role,
-      source: "convex",
-    },
-  })
+      normalizedEmail,
+      role: args.role,
+      token: batchToken,
+      joinCode: team.settings.joinCode,
+      invitedBy: args.currentUserId,
+      expiresAt,
+      acceptedAt: null,
+      declinedAt: null,
+    }
+
+    await ctx.db.insert("invites", invite)
+
+    if (invitedUser) {
+      await ctx.db.insert(
+        "notifications",
+        createNotification(
+          invitedUser.id,
+          args.currentUserId,
+          `You've been invited to join ${team.name} as ${args.role}`,
+          "invite",
+          invite.id,
+          "invite"
+        )
+      )
+    }
+
+    await insertAuditEvent(ctx, {
+      type: "invite.created",
+      actorUserId: args.currentUserId,
+      subjectUserId: invitedUser?.id ?? null,
+      workspaceId: team.workspaceId,
+      teamId: team.id,
+      entityId: invite.id,
+      summary: `Invite ${invite.id} was created for ${args.email}.`,
+      details: {
+        email: args.email,
+        inviteRole: args.role,
+        source: "convex",
+      },
+    })
+
+    createdInvites.push({
+      id: invite.id,
+      batchId,
+      teamId: team.id,
+      token: batchToken,
+    })
+  }
 
   await queueEmailJobs(
     ctx,
@@ -129,19 +266,89 @@ export async function createInviteHandler(
         {
           email: args.email,
           workspaceName: workspace?.name ?? "Workspace",
-          teamName: team.name,
+          teamNames: teams.map((team) => team.name),
           role: args.role,
-          inviteToken: invite.token,
-          joinCode: invite.joinCode,
+          inviteToken: batchToken,
         },
       ],
     })
   )
 
   return {
-    invite,
-    teamName: team.name,
+    batchId,
+    token: batchToken,
+    inviteIds: createdInvites.map((invite) => invite.id),
+    invites: createdInvites,
     workspaceName: workspace?.name ?? "Workspace",
+  }
+}
+
+export async function cancelInviteHandler(
+  ctx: MutationCtx,
+  args: CancelInviteArgs
+) {
+  assertServerToken(args.serverToken)
+  const invite = await getInviteDoc(ctx, args.inviteId)
+
+  if (!invite) {
+    throw new Error("Invite not found")
+  }
+
+  if (invite.acceptedAt) {
+    throw new Error("Invite has already been accepted")
+  }
+
+  if (invite.declinedAt) {
+    throw new Error("Invite has been declined")
+  }
+
+  let canCancelViaWorkspace = true
+
+  try {
+    await requireWorkspaceAdminAccess(ctx, invite.workspaceId, args.currentUserId)
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      error.message !== WORKSPACE_ADMIN_ACCESS_ERROR
+    ) {
+      throw error
+    }
+
+    canCancelViaWorkspace = false
+  }
+
+  if (!canCancelViaWorkspace) {
+    await requireTeamAdminAccess(
+      ctx,
+      invite.teamId,
+      args.currentUserId,
+      "Only team admins can cancel invites"
+    )
+  }
+
+  const pendingInvites = canCancelViaWorkspace
+    ? (
+        invite.batchId ? await listInvitesByBatchId(ctx, invite.batchId) : [invite]
+      ).filter(
+        (entry) =>
+          entry.workspaceId === invite.workspaceId && isPendingInvite(entry)
+      )
+    : [invite]
+
+  for (const relatedInvite of pendingInvites) {
+    await deleteInviteAndNotifications(ctx, relatedInvite, args.currentUserId)
+  }
+
+  const [team, workspace] = await Promise.all([
+    getTeamDoc(ctx, invite.teamId),
+    getWorkspaceDoc(ctx, invite.workspaceId),
+  ])
+
+  return {
+    inviteId: invite.id,
+    cancelledInviteIds: pendingInvites.map((entry) => entry.id),
+    teamName: team?.name ?? null,
+    workspaceName: workspace?.name ?? null,
   }
 }
 
@@ -150,90 +357,119 @@ export async function acceptInviteHandler(
   args: TokenActionArgs
 ) {
   assertServerToken(args.serverToken)
-  const invite = await getInviteByTokenDoc(ctx, args.token)
+  const tokenInvites = await listInvitesByToken(ctx, args.token)
+  const firstPendingInvite = tokenInvites.find(isPendingInvite)
+  const firstAcceptedInvite = tokenInvites.find((invite) =>
+    Boolean(invite.acceptedAt)
+  )
+  const representativeInvite = firstPendingInvite ?? firstAcceptedInvite ?? null
 
-  if (!invite) {
+  if (!representativeInvite) {
     throw new Error("Invite not found")
   }
 
-  if (invite.declinedAt) {
+  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
+    tokenInvites,
+    representativeInvite
+  )
+  const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
+  const acceptedInvites = scopedTokenInvites.filter((invite) =>
+    Boolean(invite.acceptedAt)
+  )
+
+  if (
+    pendingInvites.length === 0 &&
+    scopedTokenInvites.every((invite) => invite.declinedAt)
+  ) {
     throw new Error("Invite has been declined")
   }
 
-  if (invite.acceptedAt) {
-    const team = await getTeamDoc(ctx, invite.teamId)
-    const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
+  if (pendingInvites.length === 0) {
+    const team =
+      acceptedInvites.length === 1
+        ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
+        : null
+    const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
     return {
       teamSlug: team?.slug ?? null,
-      workspaceId: invite.workspaceId,
+      workspaceId: representativeInvite.workspaceId,
       workspaceSlug: workspace?.slug ?? null,
       workosOrganizationId: workspace?.workosOrganizationId ?? null,
     }
   }
 
-  const existingMembership = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_team_and_user", (q) =>
-      q.eq("teamId", invite.teamId).eq("userId", args.currentUserId)
-    )
-    .unique()
-  const resolvedRole = mergeMembershipRole(
-    existingMembership?.role,
-    invite.role
-  )
+  let fallbackRole: InviteRole | null = null
 
-  if (existingMembership) {
-    if (existingMembership.role !== resolvedRole) {
-      await ctx.db.patch(existingMembership._id, {
+  for (const invite of pendingInvites) {
+    const existingMembership = await ctx.db
+      .query("teamMemberships")
+      .withIndex("by_team_and_user", (q) =>
+        q.eq("teamId", invite.teamId).eq("userId", args.currentUserId)
+      )
+      .unique()
+    const resolvedRole = mergeMembershipRole(
+      existingMembership?.role,
+      invite.role
+    )
+
+    if (existingMembership) {
+      if (existingMembership.role !== resolvedRole) {
+        await ctx.db.patch(existingMembership._id, {
+          role: resolvedRole,
+        })
+      }
+    } else {
+      await ctx.db.insert("teamMemberships", {
+        teamId: invite.teamId,
+        userId: args.currentUserId,
         role: resolvedRole,
       })
     }
-  } else {
-    await ctx.db.insert("teamMemberships", {
-      teamId: invite.teamId,
-      userId: args.currentUserId,
-      role: resolvedRole,
+
+    await syncTeamConversationMemberships(ctx, invite.teamId)
+
+    await ctx.db.patch(invite._id, {
+      acceptedAt: getNow(),
     })
+
+    await insertAuditEvent(ctx, {
+      type: "invite.accepted",
+      actorUserId: args.currentUserId,
+      subjectUserId: args.currentUserId,
+      workspaceId: invite.workspaceId,
+      teamId: invite.teamId,
+      entityId: invite.id,
+      summary: `Invite ${invite.id} was accepted.`,
+      details: {
+        inviteRole: invite.role,
+        source: "convex",
+      },
+    })
+
+    fallbackRole = mergeMembershipRole(fallbackRole, invite.role)
   }
 
   await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId: invite.workspaceId,
+    workspaceId: representativeInvite.workspaceId,
     userId: args.currentUserId,
-    fallbackRole: resolvedRole,
+    fallbackRole: fallbackRole ?? representativeInvite.role,
   })
 
-  await syncTeamConversationMemberships(ctx, invite.teamId)
-
-  await ctx.db.patch(invite._id, {
-    acceptedAt: getNow(),
-  })
-
-  const team = await getTeamDoc(ctx, invite.teamId)
-  const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
-  await setCurrentWorkspaceForUser(ctx, args.currentUserId, invite.workspaceId)
+  const team =
+    pendingInvites.length === 1
+      ? await getTeamDoc(ctx, pendingInvites[0].teamId)
+      : null
+  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
+  await setCurrentWorkspaceForUser(ctx, args.currentUserId, representativeInvite.workspaceId)
 
   await archiveInviteNotifications(ctx, {
     userId: args.currentUserId,
-    inviteIds: [invite.id],
-  })
-
-  await insertAuditEvent(ctx, {
-    type: "invite.accepted",
-    actorUserId: args.currentUserId,
-    subjectUserId: args.currentUserId,
-    workspaceId: invite.workspaceId,
-    teamId: invite.teamId,
-    entityId: invite.id,
-    summary: `Invite ${invite.id} was accepted.`,
-    details: {
-      inviteRole: invite.role,
-      source: "convex",
-    },
+    inviteIds: pendingInvites.map((invite) => invite.id),
   })
 
   return {
     teamSlug: team?.slug ?? null,
-    workspaceId: invite.workspaceId,
+    workspaceId: representativeInvite.workspaceId,
     workspaceSlug: workspace?.slug ?? null,
     workosOrganizationId: workspace?.workosOrganizationId ?? null,
   }
@@ -244,44 +480,54 @@ export async function declineInviteHandler(
   args: TokenActionArgs
 ) {
   assertServerToken(args.serverToken)
-  const invite = await getInviteByTokenDoc(ctx, args.token)
+  const tokenInvites = await listInvitesByToken(ctx, args.token)
+  const representativeInvite =
+    tokenInvites.find(isPendingInvite) ?? tokenInvites[0] ?? null
 
-  if (!invite) {
+  if (!representativeInvite) {
     throw new Error("Invite not found")
   }
 
-  if (invite.acceptedAt) {
+  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
+    tokenInvites,
+    representativeInvite
+  )
+  const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
+
+  if (scopedTokenInvites.some((invite) => invite.acceptedAt)) {
     throw new Error("Invite has already been accepted")
   }
 
-  if (!invite.declinedAt) {
+  const declinedAt = getNow()
+
+  for (const invite of pendingInvites) {
     await ctx.db.patch(invite._id, {
-      declinedAt: getNow(),
+      declinedAt,
+    })
+
+    await insertAuditEvent(ctx, {
+      type: "invite.declined",
+      actorUserId: args.currentUserId,
+      subjectUserId: args.currentUserId,
+      workspaceId: invite.workspaceId,
+      teamId: invite.teamId,
+      entityId: invite.id,
+      summary: `Invite ${invite.id} was declined.`,
+      details: {
+        inviteRole: invite.role,
+        source: "convex",
+      },
     })
   }
 
   await archiveInviteNotifications(ctx, {
     userId: args.currentUserId,
-    inviteIds: [invite.id],
-  })
-
-  await insertAuditEvent(ctx, {
-    type: "invite.declined",
-    actorUserId: args.currentUserId,
-    subjectUserId: args.currentUserId,
-    workspaceId: invite.workspaceId,
-    teamId: invite.teamId,
-    entityId: invite.id,
-    summary: `Invite ${invite.id} was declined.`,
-    details: {
-      inviteRole: invite.role,
-      source: "convex",
-    },
+    inviteIds: pendingInvites.map((invite) => invite.id),
   })
 
   return {
-    inviteId: invite.id,
-    declinedAt: invite.declinedAt ?? getNow(),
+    inviteId: pendingInvites[0]?.id ?? representativeInvite.id,
+    declinedAt,
   }
 }
 

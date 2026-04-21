@@ -66,11 +66,16 @@ export function InviteDialog({
   presetTeamIds: string[]
 }) {
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const currentUserId = useAppStore((state) => state.currentUserId)
   const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
   const inviteableTeams = useAppStore(
     useShallow((state) =>
       getAccessibleTeams(state).filter((team) => {
+        if (mode === "workspace" && team.workspaceId !== currentWorkspaceId) {
+          return false
+        }
+
         const teamRole = getTeamRole(state, team.id)
         return teamRole === "admin" || teamRole === "member"
       })

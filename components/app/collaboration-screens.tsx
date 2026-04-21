@@ -121,13 +121,13 @@ export function WorkspaceChannelsScreen() {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="shrink-0 border-b bg-background/95 backdrop-blur">
-              <div className="mx-auto max-w-3xl px-5 py-4">
+          <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="relative z-30 shrink-0 border-b bg-background/95 backdrop-blur">
+              <div className="mx-auto max-w-3xl overflow-visible px-5 py-4">
                 <NewPostComposer channelId={activeChannel.id} />
               </div>
             </div>
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
               <div className="mx-auto max-w-3xl px-5 py-5">
                 {posts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -398,15 +398,15 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {editable ? (
-              <div className="shrink-0 border-b bg-background/95 backdrop-blur">
-                <div className="mx-auto max-w-3xl px-5 py-4">
+              <div className="relative z-30 shrink-0 border-b bg-background/95 backdrop-blur">
+                <div className="mx-auto max-w-3xl overflow-visible px-5 py-4">
                   <NewPostComposer channelId={activeChannel.id} />
                 </div>
               </div>
             ) : null}
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
               <div className="mx-auto max-w-3xl px-5 py-5">
                 {posts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">

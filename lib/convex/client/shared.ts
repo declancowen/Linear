@@ -73,14 +73,41 @@ export async function runRouteMutation<T>(
     )
   }
 
-  const response = await fetch(input, init)
-  const payload = (await response.json().catch(() => null)) as unknown
+  let response: Response
+
+  try {
+    response = await fetch(input, init)
+  } catch (error) {
+    throw new RouteMutationError(
+      error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : "Network request failed",
+      0,
+      {
+        retryable: true,
+      }
+    )
+  }
+
+  const fallbackBody = response.clone()
+  const payload = (await response.json().catch(async () => {
+    const text = await fallbackBody.text().catch(() => "")
+    const message = text.trim()
+
+    if (message.length === 0) {
+      return null
+    }
+
+    return {
+      error: message.startsWith("<") ? response.statusText || "Request failed" : message,
+    }
+  })) as unknown
 
   if (!response.ok) {
     const parsedError = parseRouteErrorPayload(payload)
 
     throw new RouteMutationError(
-      parsedError?.message ?? "Request failed",
+      parsedError?.message ?? response.statusText ?? "Request failed",
       response.status,
       {
         code: parsedError?.code ?? null,

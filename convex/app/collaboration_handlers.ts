@@ -121,6 +121,7 @@ type SendChatMessageArgs = ServerAccessArgs & {
   origin: string
   conversationId: string
   content: string
+  messageId?: string
 }
 
 type ToggleChatMessageReactionArgs = ServerAccessArgs & {
@@ -714,13 +715,30 @@ export async function sendChatMessageHandler(
   ])
   const usersById = new Map(users.map((user) => [user.id, user]))
   const now = getNow()
-  const messageId = createId("chat_message")
+  const messageId = args.messageId?.trim() || createId("chat_message")
   const actor = usersById.get(args.currentUserId)
   const messageHtml = args.content.trim()
   const messageText = getPlainTextContent(messageHtml)
+  const existingMessage = args.messageId?.trim()
+    ? await getChatMessageDoc(ctx, messageId)
+    : null
 
   if (!messageText) {
     throw new Error("Message content must include at least 1 character")
+  }
+  if (existingMessage) {
+    if (
+      existingMessage.conversationId !== conversation.id ||
+      existingMessage.createdBy !== args.currentUserId ||
+      existingMessage.content !== messageHtml
+    ) {
+      throw new Error("Message id is already in use")
+    }
+
+    return {
+      messageId: existingMessage.id,
+      mentionEmails: [],
+    }
   }
   if (!audienceUserIds.some((userId) => userId !== args.currentUserId)) {
     throw new Error(
@@ -902,6 +920,7 @@ export async function createChannelPostHandler(
     conversationId: conversation.id,
     title: args.title.trim(),
     content: args.content.trim(),
+    mentionUserIds,
     reactions: [],
     createdBy: args.currentUserId,
     createdAt: now,

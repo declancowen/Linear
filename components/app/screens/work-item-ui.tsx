@@ -93,9 +93,10 @@ export function WorkItemAssigneeAvatar({
     return null
   }
 
+  const avatarSize = size === "xs" ? "sm" : size
   const sizeClassName =
     size === "xs"
-      ? "data-[size=xs]:size-3.5"
+      ? "data-[size=sm]:size-5"
       : size === "sm"
         ? "data-[size=sm]:size-5"
         : size === "lg"
@@ -109,7 +110,7 @@ export function WorkItemAssigneeAvatar({
       avatarUrl={user.avatarUrl}
       status={user.status}
       showStatus={false}
-      size={size}
+      size={avatarSize}
       className={cn(sizeClassName, className)}
     />
   )

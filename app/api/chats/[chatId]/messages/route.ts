@@ -19,6 +19,7 @@ import {
 
 const chatMessageBodySchema = z.object({
   content: chatMessageSchema.shape.content,
+  messageId: z.string().trim().min(1).optional(),
 })
 
 export async function POST(
@@ -61,6 +62,7 @@ export async function POST(
     const result = await sendChatMessageServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
+      messageId: parsedBody.messageId,
     })
 
     return jsonOk({

@@ -338,6 +338,7 @@ export type AppStore = AppData & {
   deleteChannelPost: (postId: string) => void
   toggleChannelPostReaction: (postId: string, emoji: string) => void
   createInvite: (input: CreateInviteInput) => void
+  cancelInvite: (inviteId: string) => Promise<boolean>
   joinTeamByCode: (code: string) => Promise<boolean>
   createProject: (input: CreateProjectInput) => void
   createView: (input: CreateViewInput) => string | null

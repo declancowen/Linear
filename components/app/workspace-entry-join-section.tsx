@@ -14,9 +14,7 @@ type WorkspaceEntryJoinSectionProps = {
       role: string
       token: string
     }
-    team: {
-      name: string
-    } | null
+    teamNames: string[]
     workspace: {
       logoUrl: string
       name: string
@@ -48,12 +46,12 @@ export function WorkspaceEntryJoinSection({
         {pendingInvites.length > 0 ? (
           <div className="space-y-2">
             {pendingInvites.map((entry) =>
-              entry.team && entry.workspace ? (
+              entry.workspace ? (
                 <AcceptInviteCard
                   key={entry.invite.id}
                   authenticated
                   token={entry.invite.token}
-                  teamName={entry.team.name}
+                  teamNames={entry.teamNames}
                   workspaceLogo={entry.workspace.logoUrl}
                   workspaceName={entry.workspace.name}
                   inviteEmail={entry.invite.email}

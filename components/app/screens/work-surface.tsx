@@ -222,7 +222,9 @@ export function WorkSurface({
             items={items}
             variant="chip"
           />
-          <LevelChipPopover view={compatibleActiveView} />
+          <LevelChipPopover
+            view={compatibleActiveView}
+          />
           <GroupChipPopover
             view={compatibleActiveView}
             groupOptions={groupOptions}

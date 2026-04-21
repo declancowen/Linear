@@ -10,6 +10,7 @@ const createAttachmentServerMock = vi.fn()
 const deleteAttachmentServerMock = vi.fn()
 const createLabelServerMock = vi.fn()
 const createInviteServerMock = vi.fn()
+const cancelInviteServerMock = vi.fn()
 const getInviteByTokenServerMock = vi.fn()
 const acceptInviteServerMock = vi.fn()
 const declineInviteServerMock = vi.fn()
@@ -35,6 +36,7 @@ vi.mock("@/lib/server/convex", () => ({
   deleteAttachmentServer: deleteAttachmentServerMock,
   createLabelServer: createLabelServerMock,
   createInviteServer: createInviteServerMock,
+  cancelInviteServer: cancelInviteServerMock,
   getInviteByTokenServer: getInviteByTokenServerMock,
   acceptInviteServer: acceptInviteServerMock,
   declineInviteServer: declineInviteServerMock,
@@ -71,6 +73,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     deleteAttachmentServerMock.mockReset()
     createLabelServerMock.mockReset()
     createInviteServerMock.mockReset()
+    cancelInviteServerMock.mockReset()
     getInviteByTokenServerMock.mockReset()
     acceptInviteServerMock.mockReset()
     declineInviteServerMock.mockReset()
@@ -216,12 +219,18 @@ describe("asset, notification, invite, and document route contracts", () => {
 
   it("maps invite failures to typed error responses", async () => {
     const inviteRoute = await import("@/app/api/invites/route")
+    const cancelRoute = await import("@/app/api/invites/[inviteId]/route")
     const acceptRoute = await import("@/app/api/invites/accept/route")
     const declineRoute = await import("@/app/api/invites/decline/route")
 
     createInviteServerMock.mockRejectedValue(
       new ApplicationError("Team not found", 404, {
         code: "TEAM_NOT_FOUND",
+      })
+    )
+    cancelInviteServerMock.mockRejectedValue(
+      new ApplicationError("Only team admins can cancel invites", 403, {
+        code: "INVITE_CANCEL_FORBIDDEN",
       })
     )
     getInviteByTokenServerMock.mockResolvedValue({
@@ -257,6 +266,18 @@ describe("asset, notification, invite, and document route contracts", () => {
     )
     expect(inviteResponse.status).toBe(404)
 
+    const cancelResponse = await cancelRoute.DELETE(
+      new Request("http://localhost/api/invites/invite_1", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          inviteId: "invite_1",
+        }),
+      }
+    )
+    expect(cancelResponse.status).toBe(403)
+
     const acceptResponse = await acceptRoute.POST(
       new Request("http://localhost/api/invites/accept", {
         method: "POST",
@@ -269,6 +290,11 @@ describe("asset, notification, invite, and document route contracts", () => {
       }) as never
     )
     expect(acceptResponse.status).toBe(409)
+    await expect(cancelResponse.json()).resolves.toEqual({
+      error: "Only team admins can cancel invites",
+      message: "Only team admins can cancel invites",
+      code: "INVITE_CANCEL_FORBIDDEN",
+    })
 
     const declineResponse = await declineRoute.POST(
       new Request("http://localhost/api/invites/decline", {
@@ -286,6 +312,180 @@ describe("asset, notification, invite, and document route contracts", () => {
       error: "Invite has already been accepted",
       message: "Invite has already been accepted",
       code: "INVITE_ALREADY_ACCEPTED",
+    })
+  })
+
+  it("preserves logical invite batch contracts across invite routes", async () => {
+    const inviteRoute = await import("@/app/api/invites/route")
+    const cancelRoute = await import("@/app/api/invites/[inviteId]/route")
+    const acceptRoute = await import("@/app/api/invites/accept/route")
+    const declineRoute = await import("@/app/api/invites/decline/route")
+
+    createInviteServerMock.mockResolvedValue({
+      inviteIds: ["invite_1", "invite_2"],
+      batchId: "invite_batch_1",
+      token: "token_1",
+      invites: [
+        {
+          id: "invite_1",
+          batchId: "invite_batch_1",
+          teamId: "team_1",
+          token: "token_1",
+        },
+        {
+          id: "invite_2",
+          batchId: "invite_batch_1",
+          teamId: "team_2",
+          token: "token_1",
+        },
+      ],
+    })
+    cancelInviteServerMock.mockResolvedValue({
+      inviteId: "invite_1",
+      cancelledInviteIds: ["invite_1", "invite_2"],
+      teamName: "Core",
+      workspaceName: "Recipe Room",
+    })
+    getInviteByTokenServerMock.mockResolvedValue({
+      invite: {
+        id: "invite_1",
+        token: "token_1",
+        email: "alex@example.com",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        acceptedAt: null,
+        declinedAt: null,
+      },
+      teamNames: ["Core", "Design"],
+      workspace: {
+        id: "workspace_1",
+        slug: "recipe-room",
+        name: "Recipe Room",
+        logoUrl: "",
+      },
+    })
+    acceptInviteServerMock.mockResolvedValue({
+      teamSlug: null,
+    })
+    declineInviteServerMock.mockResolvedValue({
+      inviteId: "invite_1",
+      declinedAt: "2026-04-21T12:00:00.000Z",
+    })
+
+    const inviteResponse = await inviteRoute.POST(
+      new Request("http://localhost/api/invites", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamIds: ["team_1", "team_2"],
+          email: "alex@example.com",
+          role: "member",
+        }),
+      }) as never
+    )
+
+    expect(inviteResponse.status).toBe(200)
+    await expect(inviteResponse.json()).resolves.toEqual({
+      ok: true,
+      inviteIds: ["invite_1", "invite_2"],
+      batchId: "invite_batch_1",
+      token: "token_1",
+      invites: [
+        {
+          id: "invite_1",
+          batchId: "invite_batch_1",
+          teamId: "team_1",
+          token: "token_1",
+        },
+        {
+          id: "invite_2",
+          batchId: "invite_batch_1",
+          teamId: "team_2",
+          token: "token_1",
+        },
+      ],
+    })
+    expect(createInviteServerMock).toHaveBeenCalledTimes(1)
+    expect(createInviteServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      teamIds: ["team_1", "team_2"],
+      email: "alex@example.com",
+      role: "member",
+    })
+
+    const cancelResponse = await cancelRoute.DELETE(
+      new Request("http://localhost/api/invites/invite_1", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          inviteId: "invite_1",
+        }),
+      }
+    )
+
+    expect(cancelResponse.status).toBe(200)
+    await expect(cancelResponse.json()).resolves.toEqual({
+      ok: true,
+      inviteId: "invite_1",
+      cancelledInviteIds: ["invite_1", "invite_2"],
+      teamName: "Core",
+      workspaceName: "Recipe Room",
+    })
+    expect(cancelInviteServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      inviteId: "invite_1",
+    })
+
+    const acceptResponse = await acceptRoute.POST(
+      new Request("http://localhost/api/invites/accept", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: "token_1",
+        }),
+      }) as never
+    )
+
+    expect(acceptResponse.status).toBe(200)
+    await expect(acceptResponse.json()).resolves.toEqual({
+      ok: true,
+      teamSlug: null,
+    })
+    expect(acceptInviteServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      token: "token_1",
+    })
+    expect(reconcileAuthenticatedAppContextMock).toHaveBeenCalledWith(
+      {
+        id: "workos_1",
+        email: "alex@example.com",
+      },
+      "org_1"
+    )
+
+    const declineResponse = await declineRoute.POST(
+      new Request("http://localhost/api/invites/decline", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: "token_1",
+        }),
+      }) as never
+    )
+
+    expect(declineResponse.status).toBe(200)
+    await expect(declineResponse.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(declineInviteServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      token: "token_1",
     })
   })
 

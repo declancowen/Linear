@@ -101,8 +101,8 @@ export function ForumPostCard({ postId }: { postId: string }) {
   return (
     <div
       id={post.id}
-      className="group/post relative grid gap-2.5 border-b border-line-soft px-[18px] py-2.5 transition-colors hover:bg-surface-2"
-      style={{ gridTemplateColumns: "36px 1fr" }}
+      className="group/post relative z-0 grid gap-2.5 border-b border-line-soft px-[18px] py-2.5 transition-colors hover:bg-surface-2"
+      style={{ gridTemplateColumns: "24px 1fr" }}
     >
       <div className="mt-[1px]">
         <UserAvatar
@@ -110,8 +110,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
           avatarImageUrl={author?.avatarImageUrl}
           avatarUrl={author?.avatarUrl}
           status={author?.status}
-          size="default"
-          className="size-9 text-[13px]"
+          size="sm"
         />
       </div>
       <div className="min-w-0">
@@ -441,12 +440,25 @@ export function ForumPostCard({ postId }: { postId: string }) {
 }
 
 export function NewPostComposer({ channelId }: { channelId: string }) {
-  const currentUserId = useAppStore((state) => state.currentUserId)
-  const conversations = useAppStore((state) => state.conversations)
-  const workspaces = useAppStore((state) => state.workspaces)
-  const teams = useAppStore((state) => state.teams)
-  const teamMemberships = useAppStore((state) => state.teamMemberships)
-  const users = useAppStore((state) => state.users)
+  const {
+    conversations,
+    currentUserId,
+    teams,
+    teamMemberships,
+    users,
+    workspaces,
+    workspaceMemberships,
+  } = useAppStore(
+    useShallow((state) => ({
+      conversations: state.conversations,
+      currentUserId: state.currentUserId,
+      teams: state.teams,
+      teamMemberships: state.teamMemberships,
+      users: state.users,
+      workspaces: state.workspaces,
+      workspaceMemberships: state.workspaceMemberships,
+    }))
+  )
   const conversation = useMemo(
     () => conversations.find((entry) => entry.id === channelId) ?? null,
     [channelId, conversations]
@@ -460,28 +472,51 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
       return []
     }
 
-    const workspace = workspaces.find(
-      (entry) => entry.id === conversation.scopeId
-    )
-    const teamIds = new Set(
-      teams
-        .filter((team) => team.workspaceId === conversation.scopeId)
-        .map((team) => team.id)
-    )
+    if (conversation.scopeType === "team") {
+      const memberIds = new Set(
+        teamMemberships
+          .filter((membership) => membership.teamId === conversation.scopeId)
+          .map((membership) => membership.userId)
+      )
+
+      return users.filter(
+        (user) => memberIds.has(user.id) && user.id !== currentUserId
+      )
+    }
+
+    const workspaceOwnerId =
+      workspaces.find((workspace) => workspace.id === conversation.scopeId)
+        ?.createdBy ?? null
+    const teamIds = teams
+      .filter((team) => team.workspaceId === conversation.scopeId)
+      .map((team) => team.id)
     const userIds = new Set(
-      teamMemberships
-        .filter((membership) => teamIds.has(membership.teamId))
-        .map((membership) => membership.userId)
+      [
+        ...workspaceMemberships
+          .filter((membership) => membership.workspaceId === conversation.scopeId)
+          .map((membership) => membership.userId),
+        ...teamMemberships
+          .filter((membership) => teamIds.includes(membership.teamId))
+          .map((membership) => membership.userId),
+      ]
     )
 
-    if (workspace?.createdBy) {
-      userIds.add(workspace.createdBy)
+    if (workspaceOwnerId) {
+      userIds.add(workspaceOwnerId)
     }
 
     return users.filter(
       (user) => userIds.has(user.id) && user.id !== currentUserId
     )
-  }, [conversation, currentUserId, teamMemberships, teams, users, workspaces])
+  }, [
+    conversation,
+    currentUserId,
+    teams,
+    teamMemberships,
+    users,
+    workspaces,
+    workspaceMemberships,
+  ])
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
@@ -508,7 +543,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-3 rounded-md border border-line bg-surface px-3.5 py-2.5 text-left transition-colors hover:border-fg-4 hover:bg-surface-2"
+        className="relative z-10 flex w-full items-center gap-3 rounded-md border border-line bg-surface px-3.5 py-2.5 text-left transition-colors hover:border-fg-4 hover:bg-surface-2"
       >
         <UserAvatar
           name={currentUser?.name}
@@ -525,7 +560,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
   }
 
   return (
-    <div className="rounded-md border border-line bg-surface px-3.5 pt-2.5 pb-2 transition-colors focus-within:border-fg-3">
+    <div className="relative z-10 isolate rounded-md border border-line bg-surface px-3.5 pt-2.5 pb-2 transition-colors focus-within:border-fg-3">
       <input
         value={title}
         onChange={(event) => setTitle(event.target.value)}

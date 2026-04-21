@@ -109,6 +109,7 @@ export default defineSchema({
     .index("by_notification", ["notificationId"]),
   invites: defineTable(inviteFields)
     .index("by_domain_id", ["id"])
+    .index("by_batch_id", ["batchId"])
     .index("by_token", ["token"])
     .index("by_team", ["teamId"])
     .index("by_normalized_email", ["normalizedEmail"])

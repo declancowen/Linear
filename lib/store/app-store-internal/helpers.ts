@@ -201,12 +201,16 @@ export function normalizeNotifications<T extends { archivedAt?: string | null }>
 }
 
 export function normalizeChannelPosts<
-  T extends { reactions?: { emoji: string; userIds: string[] }[] },
+  T extends {
+    mentionUserIds?: string[]
+    reactions?: { emoji: string; userIds: string[] }[]
+  },
 >(channelPosts: T[] | undefined) {
   const entries = channelPosts ?? []
 
   return entries.map((post) => ({
     ...post,
+    mentionUserIds: post.mentionUserIds ?? [],
     reactions: post.reactions ?? [],
   }))
 }

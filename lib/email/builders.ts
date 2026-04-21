@@ -1,19 +1,31 @@
 const APP_NAME = "Recipe Room"
+const APP_TAGLINE = "Plan work, ship work."
 const EMAIL_FONT_STACK =
-  "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
 const EMAIL_MONO_STACK =
   "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+
+// Palette tuned to the app's indigo-leaning neutral system. Values kept as
+// hex so email clients (notably Outlook) render them reliably.
 const EMAIL_COLORS = {
-  text: "#111111",
-  secondary: "#52525b",
-  muted: "#71717a",
-  bodyBackground: "#f5f5f5",
+  text: "#0a0a0a",
+  textStrong: "#111113",
+  textMuted: "#52525b",
+  textSubtle: "#71717a",
+  bodyBackground: "#f4f4f5",
   cardBackground: "#ffffff",
   detailBackground: "#fafafa",
   border: "#e4e4e7",
+  borderSoft: "#eeeef0",
   buttonBorder: "#d4d4d8",
+  accentBg: "#eef2ff",
+  accentFg: "#4338ca",
+  accentBorder: "#e0e7ff",
+  accentRule: "#6366f1",
 } as const
+
 const EMAIL_SETTINGS_PATH = "/settings/profile"
+const EMAIL_HELP_PATH = "/help"
 
 export type AssignmentEmail = {
   notificationId: string
@@ -44,10 +56,9 @@ export type MentionEmail = {
 export type TeamInviteEmail = {
   email: string
   workspaceName: string
-  teamName: string
+  teamNames: string[]
   role: string
   inviteToken: string
-  joinCode: string
 }
 
 export type AccessChangeEmail = {
@@ -118,6 +129,24 @@ function toTitleCase(input: string) {
     .join(" ")
 }
 
+// Normalize badge labels to sentence case so legacy ALL-CAPS eyebrow strings
+// (e.g. "WORKSPACE DELETED") render consistently with newer copy like
+// "New mention".
+function toBadgeLabel(input: string) {
+  const trimmed = input.trim()
+
+  if (!trimmed) {
+    return trimmed
+  }
+
+  if (trimmed === trimmed.toUpperCase()) {
+    const lower = trimmed.toLowerCase()
+    return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`
+  }
+
+  return trimmed
+}
+
 function buildAbsoluteUrl(origin: string, path: string) {
   return new URL(path, origin).toString()
 }
@@ -157,18 +186,45 @@ function getEntityLabel(email: MentionEmail) {
   return "chat"
 }
 
+function renderPreheader(text: string) {
+  // Hidden preview text surfaced by most inbox previews. The zero-width joiners
+  // prevent Gmail from pulling the first visible text into the preview pane.
+  const padding = "&#847; ".repeat(60)
+  return [
+    `<div style="display: none; overflow: hidden; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0; max-height: 0; max-width: 0; mso-hide: all; font-size: 1px; line-height: 1px;">`,
+    escapeHtml(text),
+    padding,
+    "</div>",
+  ].join("")
+}
+
+function renderBadge(input: { label: string }) {
+  return [
+    `<span style="display: inline-block; padding: 4px 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 600; line-height: 1.4; color: ${EMAIL_COLORS.accentFg}; background-color: ${EMAIL_COLORS.accentBg}; border: 1px solid ${EMAIL_COLORS.accentBorder}; border-radius: 999px; letter-spacing: 0.01em;">`,
+    escapeHtml(toBadgeLabel(input.label)),
+    "</span>",
+  ].join("")
+}
+
 function renderEmailButton(input: {
   href: string
   label: string
-  background: string
-  color: string
-  borderColor?: string
+  variant?: "primary" | "secondary"
+  showArrow?: boolean
 }) {
+  const isPrimary = (input.variant ?? "primary") === "primary"
+  const background = isPrimary ? EMAIL_COLORS.text : "#ffffff"
+  const color = isPrimary ? "#ffffff" : EMAIL_COLORS.text
+  const borderColor = isPrimary ? EMAIL_COLORS.text : EMAIL_COLORS.buttonBorder
+  const arrow = input.showArrow ?? isPrimary
+
   return [
     '<table role="presentation" border="0" cellpadding="0" cellspacing="0">',
     "<tr>",
-    `<td align="center" bgcolor="${input.background}" style="border: 1px solid ${input.borderColor ?? input.background}; border-radius: 12px;">`,
-    `<a href="${input.href}" style="display: inline-block; padding: 12px 18px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; font-weight: 600; line-height: 1; color: ${input.color}; text-decoration: none; border-radius: 12px;">${escapeHtml(input.label)}</a>`,
+    `<td align="center" bgcolor="${background}" style="border: 1px solid ${borderColor}; border-radius: 12px;">`,
+    `<a href="${input.href}" style="display: inline-block; padding: 13px 22px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; font-weight: 600; line-height: 1; color: ${color}; text-decoration: none; border-radius: 12px; letter-spacing: -0.005em;">`,
+    `${escapeHtml(input.label)}${arrow ? '<span style="display: inline-block; margin-left: 6px;" aria-hidden="true">&rarr;</span>' : ""}`,
+    "</a>",
     "</td>",
     "</tr>",
     "</table>",
@@ -181,30 +237,56 @@ function renderEmailLayout(input: {
   eyebrow: string
   content: string
   footerText?: string
+  preheader?: string
 }) {
-  const footerText = input.footerText ?? APP_NAME
+  const footerText = input.footerText ?? APP_TAGLINE
   const settingsUrl = buildAbsoluteUrl(input.origin, EMAIL_SETTINGS_PATH)
+  const helpUrl = buildAbsoluteUrl(input.origin, EMAIL_HELP_PATH)
+  const preheader = input.preheader ?? ""
 
   return [
     "<!doctype html>",
     '<html lang="en">',
-    `<body style="margin: 0; padding: 24px; background-color: ${EMAIL_COLORS.bodyBackground};">`,
+    "<head>",
+    '<meta charset="utf-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+    '<meta name="color-scheme" content="light" />',
+    '<meta name="supported-color-schemes" content="light" />',
+    `<title>${escapeHtml(APP_NAME)}</title>`,
+    "</head>",
+    `<body style="margin: 0; padding: 32px 16px; background-color: ${EMAIL_COLORS.bodyBackground}; font-family: ${EMAIL_FONT_STACK}; -webkit-font-smoothing: antialiased;">`,
+    preheader ? renderPreheader(preheader) : "",
     '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">',
     "<tr>",
     '<td align="center">',
-    `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: ${EMAIL_COLORS.cardBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 20px; overflow: hidden;">`,
+    // Card
+    `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: ${EMAIL_COLORS.cardBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 24px; overflow: hidden;">`,
+    // Brand header
     "<tr>",
-    '<td style="padding: 28px 28px 12px;">',
-    `<img src="${input.logoUrl}" alt="${APP_NAME}" width="32" height="32" style="display: block; width: 32px; height: 32px; border-radius: 8px;" />`,
-    `<div style="margin-top: 12px; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">${escapeHtml(input.eyebrow)}</div>`,
+    `<td style="padding: 24px 32px 20px; border-bottom: 1px solid ${EMAIL_COLORS.borderSoft};">`,
+    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">',
+    "<tr>",
+    `<td valign="middle" style="width: 32px;"><img src="${input.logoUrl}" alt="" width="32" height="32" style="display: block; width: 32px; height: 32px; border-radius: 8px;" /></td>`,
+    `<td valign="middle" style="padding-left: 12px; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: ${EMAIL_COLORS.textStrong};">${escapeHtml(APP_NAME)}</td>`,
+    "</tr>",
+    "</table>",
+    "</td>",
+    "</tr>",
+    // Badge + content
+    "<tr>",
+    '<td style="padding: 28px 32px 8px;">',
+    renderBadge({ label: input.eyebrow }),
     "</td>",
     "</tr>",
     "<tr>",
-    `<td style="padding: 0 28px;">${input.content}</td>`,
+    `<td style="padding: 8px 32px 28px;">${input.content}</td>`,
     "</tr>",
+    // Footer
     "<tr>",
-    `<td style="padding: 20px 28px 28px; border-top: 1px solid ${EMAIL_COLORS.border};">`,
-    `<p style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">${escapeHtml(footerText)} · <a href="${settingsUrl}" style="color: ${EMAIL_COLORS.text}; text-decoration: underline;">Email settings</a></p>`,
+    `<td style="padding: 20px 32px 28px; background-color: ${EMAIL_COLORS.detailBackground}; border-top: 1px solid ${EMAIL_COLORS.borderSoft};">`,
+    `<p style="margin: 0 0 6px; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; font-weight: 600; line-height: 1.4; color: ${EMAIL_COLORS.textStrong};">${escapeHtml(APP_NAME)}</p>`,
+    `<p style="margin: 0 0 12px; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.textSubtle};">${escapeHtml(footerText)}</p>`,
+    `<p style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; line-height: 1.5; color: ${EMAIL_COLORS.textSubtle};"><a href="${settingsUrl}" style="color: ${EMAIL_COLORS.textMuted}; text-decoration: underline;">Email preferences</a> &middot; <a href="${helpUrl}" style="color: ${EMAIL_COLORS.textMuted}; text-decoration: underline;">Help &amp; support</a></p>`,
     "</td>",
     "</tr>",
     "</table>",
@@ -224,35 +306,81 @@ function renderFallbackLinks(input: {
   intro?: string
 }) {
   return [
-    `<p style="margin: 16px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">${escapeHtml(
-      input.intro ??
-        "If the button above does not open, use this link directly:"
+    `<p style="margin: 20px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 12px; line-height: 1.5; color: ${EMAIL_COLORS.textSubtle};">${escapeHtml(
+      input.intro ?? "Trouble with the button? Use this link instead:"
     )}<br />`,
     input.links
       .map(
         (link) =>
-          `<a href="${link.href}" style="color: ${EMAIL_COLORS.text}; text-decoration: underline;">${escapeHtml(link.label)}</a>`
+          `<a href="${link.href}" style="color: ${EMAIL_COLORS.textMuted}; text-decoration: underline; word-break: break-all;">${escapeHtml(link.label)}</a>`
       )
       .join("<br />"),
     "</p>",
   ].join("")
 }
 
+// Quote-style card, used for rendering comment bodies in mention emails.
+function renderQuoteCard(input: { label: string; body: string }) {
+  return [
+    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 20px;">',
+    "<tr>",
+    `<td style="padding: 16px 18px; background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.borderSoft}; border-left: 3px solid ${EMAIL_COLORS.accentRule}; border-radius: 12px;">`,
+    `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.textSubtle};">${escapeHtml(input.label)}</div>`,
+    `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.textStrong};">${toHtmlWithLineBreaks(input.body)}</div>`,
+    "</td>",
+    "</tr>",
+    "</table>",
+  ].join("")
+}
+
+// Neutral detail card for structured metadata (work items, role info, etc.).
+function renderDetailCard(input: { rows: Array<{ label: string; value: string; valueIsHtml?: boolean }> }) {
+  return [
+    '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 20px;">',
+    "<tr>",
+    `<td style="padding: 18px 20px; background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.borderSoft}; border-radius: 14px;">`,
+    input.rows
+      .map((row, index) => {
+        const value = row.valueIsHtml ? row.value : escapeHtml(row.value)
+        return [
+          `<div style="${index === 0 ? "" : "margin-top: 14px;"}">`,
+          `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.textSubtle};">${escapeHtml(row.label)}</div>`,
+          `<div style="margin-top: 6px; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; font-weight: 500; line-height: 1.5; color: ${EMAIL_COLORS.textStrong};">${value}</div>`,
+          "</div>",
+        ].join("")
+      })
+      .join(""),
+    "</td>",
+    "</tr>",
+    "</table>",
+  ].join("")
+}
+
+function renderHeadline(text: string) {
+  return `<h1 style="margin: 16px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 26px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; color: ${EMAIL_COLORS.textStrong};">${escapeHtml(text)}</h1>`
+}
+
+function renderSubheading(html: string) {
+  return `<p style="margin: 10px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.textMuted};">${html}</p>`
+}
+
 function renderInviteEmailText(input: {
   workspaceName: string
-  teamName: string
+  teamNames: string[]
   role: string
   acceptUrl: string
-  joinCode: string
-  joinCodeUrl: string
 }) {
+  const teamLine =
+    input.teamNames.length === 1
+      ? `Team: ${input.teamNames[0]}`
+      : `Teams: ${input.teamNames.join(", ")}`
+
   return [
-    `You've been invited to join ${input.teamName} in ${input.workspaceName}.`,
+    `You've been invited to join ${input.workspaceName}.`,
+    teamLine,
     `Role: ${input.role}`,
     "This access is issued at the workspace team level.",
     `Accept the invite: ${input.acceptUrl}`,
-    `Join with team code: ${input.joinCode}`,
-    `Open code-based join: ${input.joinCodeUrl}`,
   ].join("\n")
 }
 
@@ -269,11 +397,12 @@ function renderAccessChangeEmail(input: {
       origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
       eyebrow: input.eyebrow,
+      preheader: input.headline,
       content: [
-        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(input.headline)}</h1>`,
-        `<p style="margin: 12px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">${toHtmlWithLineBreaks(input.body)}</p>`,
+        renderHeadline(input.headline),
+        `<p style="margin: 14px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.65; color: ${EMAIL_COLORS.textMuted};">${toHtmlWithLineBreaks(input.body)}</p>`,
       ].join(""),
-      footerText: `${APP_NAME} · Transactional access update`,
+      footerText: `${APP_NAME} sends this email whenever your workspace access changes.`,
     }),
   }
 }
@@ -281,54 +410,49 @@ function renderAccessChangeEmail(input: {
 function renderInviteEmailHtml(input: {
   origin: string
   workspaceName: string
-  teamName: string
+  teamNames: string[]
   role: string
   acceptUrl: string
-  joinCode: string
-  joinCodeUrl: string
   logoUrl: string
 }) {
+  const teamValue =
+    input.teamNames.length === 1
+      ? input.teamNames[0]
+      : input.teamNames.join(", ")
   const primaryButton = renderEmailButton({
     href: input.acceptUrl,
-    label: "Accept Invite",
-    background: EMAIL_COLORS.text,
-    color: "#ffffff",
-  })
-  const secondaryButton = renderEmailButton({
-    href: input.joinCodeUrl,
-    label: "Join With Team Code",
-    background: "#ffffff",
-    color: EMAIL_COLORS.text,
-    borderColor: EMAIL_COLORS.buttonBorder,
+    label: "Accept invite",
+    variant: "primary",
   })
 
   const content = [
-    `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">Join ${escapeHtml(input.teamName)} in ${escapeHtml(input.workspaceName)}</h1>`,
-    `<p style="margin: 12px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">You’ve been invited to access <strong style="color: ${EMAIL_COLORS.text};">${escapeHtml(input.workspaceName)}</strong> through the <strong style="color: ${EMAIL_COLORS.text};">${escapeHtml(input.teamName)}</strong> team.</p>`,
-    '<div style="margin-top: 24px;">',
-    `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
-    "<tr>",
-    '<td style="padding: 16px 18px;">',
-    `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Access Details</div>`,
-    `<p style="margin: 10px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">Role: <strong>${escapeHtml(toTitleCase(input.role))}</strong><br />This invite grants access at the workspace team level.</p>`,
-    `<div style="margin-top: 14px; font-family: ${EMAIL_MONO_STACK}; font-size: 22px; line-height: 1; font-weight: 700; letter-spacing: 0.24em; color: ${EMAIL_COLORS.text};">${escapeHtml(input.joinCode)}</div>`,
-    `<div style="margin-top: 8px; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.muted};">If the invite button doesn’t suit your flow, you can join with this team code instead.</div>`,
-    "</td>",
-    "</tr>",
-    "</table>",
-    "</div>",
-    `<div style="margin-top: 20px;">${primaryButton}</div>`,
-    `<div style="margin-top: 12px;">${secondaryButton}</div>`,
+    renderHeadline(`Join ${input.workspaceName}`),
+    renderSubheading(
+      `You&rsquo;ve been invited to <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.workspaceName)}</strong> with access to ${input.teamNames.length === 1 ? "the following team" : "the following teams"}.`
+    ),
+    renderDetailCard({
+      rows: [
+        {
+          label: input.teamNames.length === 1 ? "Team" : "Teams",
+          value: teamValue,
+        },
+        {
+          label: "Role",
+          value: toTitleCase(input.role),
+        },
+        {
+          label: "Access scope",
+          value: "Workspace team level",
+        },
+      ],
+    }),
+    `<div style="margin-top: 24px;">${primaryButton}</div>`,
     renderFallbackLinks({
-      intro: "If the buttons above do not open, use these links directly:",
+      intro: "Trouble with the button? Use this link instead:",
       links: [
         {
           href: input.acceptUrl,
           label: "Accept invite",
-        },
-        {
-          href: input.joinCodeUrl,
-          label: "Join with team code",
         },
       ],
     }),
@@ -337,7 +461,11 @@ function renderInviteEmailHtml(input: {
   return renderEmailLayout({
     origin: input.origin,
     logoUrl: input.logoUrl,
-    eyebrow: "WORKSPACE INVITE",
+    eyebrow: "Workspace invite",
+    preheader:
+      input.teamNames.length === 1
+        ? `Join ${input.teamNames[0]} in ${input.workspaceName}`
+        : `Join ${input.workspaceName}`,
     content,
   })
 }
@@ -352,6 +480,14 @@ function renderAssignmentEmail(input: {
 }): EmailMessage {
   const itemUrl = buildAbsoluteUrl(input.origin, `/items/${input.itemId}`)
   const teamLine = input.teamName?.trim() ? `Team: ${input.teamName}` : null
+
+  const detailRows: Array<{ label: string; value: string }> = [
+    { label: "Work item", value: input.itemTitle },
+  ]
+
+  if (input.teamName?.trim()) {
+    detailRows.push({ label: "Team", value: input.teamName })
+  }
 
   return {
     subject: input.teamName?.trim()
@@ -371,27 +507,20 @@ function renderAssignmentEmail(input: {
     html: renderEmailLayout({
       origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
-      eyebrow: "ASSIGNMENT",
+      eyebrow: "New assignment",
+      preheader: `${input.actorName} assigned you ${input.itemTitle}`,
       content: [
-        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(input.actorName)} assigned you a work item</h1>`,
-        '<div style="margin-top: 24px;">',
-        `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
-        "<tr>",
-        '<td style="padding: 16px 18px;">',
-        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">Work Item</div>`,
-        `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; font-weight: 600; color: ${EMAIL_COLORS.text};">${escapeHtml(input.itemTitle)}</div>`,
-        input.teamName?.trim()
-          ? `<div style="margin-top: 8px; font-family: ${EMAIL_FONT_STACK}; font-size: 13px; line-height: 1.5; color: ${EMAIL_COLORS.secondary};">Team: ${escapeHtml(input.teamName)}</div>`
-          : "",
-        "</td>",
-        "</tr>",
-        "</table>",
-        "</div>",
-        `<div style="margin-top: 20px;">${renderEmailButton({
+        renderHeadline(`${input.actorName} assigned you a work item`),
+        renderSubheading(
+          input.teamName?.trim()
+            ? `In <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.teamName)}</strong>. It&rsquo;s ready whenever you are.`
+            : "It&rsquo;s ready whenever you are."
+        ),
+        renderDetailCard({ rows: detailRows }),
+        `<div style="margin-top: 24px;">${renderEmailButton({
           href: itemUrl,
-          label: "Open Work Item",
-          background: EMAIL_COLORS.text,
-          color: "#ffffff",
+          label: "Open work item",
+          variant: "primary",
         })}</div>`,
         renderFallbackLinks({
           links: [
@@ -445,7 +574,11 @@ function renderMentionEmail(input: {
       detailText: input.detailText,
       mentionCount: input.mentionCount,
     })
-  const openLabel = `Open ${toTitleCase(entityLabel)}`
+  const openLabel = `Open ${entityLabel}`
+  const headline =
+    mentionCount > 1
+      ? `${input.actorName} mentioned you ${mentionCount} times`
+      : `${input.actorName} mentioned you`
 
   return {
     subject:
@@ -460,40 +593,29 @@ function renderMentionEmail(input: {
       `${detailLabel}:`,
       detailText,
       "",
-      `${openLabel}: ${entityUrl}`,
+      `${toTitleCase(openLabel)}: ${entityUrl}`,
     ].join("\n"),
     html: renderEmailLayout({
       origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
-      eyebrow: "MENTION",
+      eyebrow: "New mention",
+      preheader: mentionSummary,
       content: [
-        `<h1 style="margin: 0; font-family: ${EMAIL_FONT_STACK}; font-size: 22px; line-height: 1.2; font-weight: 700; color: ${EMAIL_COLORS.text};">${escapeHtml(
-          mentionCount > 1
-            ? `${input.actorName} mentioned you ${mentionCount} times`
-            : `${input.actorName} mentioned you`
-        )}</h1>`,
-        `<p style="margin: 8px 0 0; font-family: ${EMAIL_FONT_STACK}; font-size: 15px; line-height: 1.6; color: ${EMAIL_COLORS.secondary};">in ${escapeHtml(input.entityTitle)}</p>`,
-        '<div style="margin-top: 24px;">',
-        `<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: ${EMAIL_COLORS.detailBackground}; border: 1px solid ${EMAIL_COLORS.border}; border-radius: 16px;">`,
-        "<tr>",
-        '<td style="padding: 16px 18px;">',
-        `<div style="font-family: ${EMAIL_FONT_STACK}; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${EMAIL_COLORS.muted};">${escapeHtml(detailLabel)}</div>`,
-        `<div style="margin-top: 10px; font-family: ${EMAIL_FONT_STACK}; font-size: 14px; line-height: 1.6; color: #27272a;">${toHtmlWithLineBreaks(detailText)}</div>`,
-        "</td>",
-        "</tr>",
-        "</table>",
-        "</div>",
-        `<div style="margin-top: 20px;">${renderEmailButton({
+        renderHeadline(headline),
+        renderSubheading(
+          `in <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.entityTitle)}</strong>`
+        ),
+        renderQuoteCard({ label: detailLabel, body: detailText }),
+        `<div style="margin-top: 24px;">${renderEmailButton({
           href: entityUrl,
           label: openLabel,
-          background: EMAIL_COLORS.text,
-          color: "#ffffff",
+          variant: "primary",
         })}</div>`,
         renderFallbackLinks({
           links: [
             {
               href: entityUrl,
-              label: openLabel,
+              label: toTitleCase(openLabel),
             },
           ],
         }),
@@ -573,29 +695,24 @@ export function buildTeamInviteEmailJobs(input: {
       origin,
       `/join/${encodeURIComponent(invite.inviteToken)}`
     )
-    const joinCodeUrl = buildAbsoluteUrl(
-      origin,
-      `/onboarding?code=${encodeURIComponent(invite.joinCode)}`
-    )
     const logoUrl = buildAbsoluteUrl(origin, "/app-icon.png")
     const message = {
-      subject: `Join ${invite.teamName} in ${invite.workspaceName}`,
+      subject:
+        invite.teamNames.length === 1
+          ? `Join ${invite.teamNames[0]} in ${invite.workspaceName}`
+          : `Join ${invite.workspaceName}`,
       text: renderInviteEmailText({
         workspaceName: invite.workspaceName,
-        teamName: invite.teamName,
+        teamNames: invite.teamNames,
         role: invite.role,
         acceptUrl,
-        joinCode: invite.joinCode,
-        joinCodeUrl,
       }),
       html: renderInviteEmailHtml({
         origin,
         workspaceName: invite.workspaceName,
-        teamName: invite.teamName,
+        teamNames: invite.teamNames,
         role: invite.role,
         acceptUrl,
-        joinCode: invite.joinCode,
-        joinCodeUrl,
         logoUrl,
       }),
     }

@@ -40,26 +40,19 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    const createdInvites = await Promise.all(
-      parsed.teamIds.map((teamId) =>
-        createInviteServer({
-          currentUserId: appContext.ensuredUser.userId,
-          teamId,
-          email: parsed.email,
-          role: parsed.role,
-        })
-      )
-    )
-
-    if (createdInvites.some((entry) => !entry)) {
-      return jsonError("Failed to persist invite", 500)
-    }
+    const createdInvites = await createInviteServer({
+      currentUserId: appContext.ensuredUser.userId,
+      teamIds: parsed.teamIds,
+      email: parsed.email,
+      role: parsed.role,
+    })
 
     return jsonOk({
       ok: true,
-      inviteIds: createdInvites.flatMap((entry) =>
-        entry ? [entry.invite.id] : []
-      ),
+      inviteIds: createdInvites.inviteIds,
+      batchId: createdInvites.batchId,
+      token: createdInvites.token,
+      invites: createdInvites.invites,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

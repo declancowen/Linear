@@ -3,7 +3,7 @@
 import { addDays } from "date-fns"
 import { toast } from "sonner"
 
-import { syncCreateInvite } from "@/lib/convex/client"
+import { syncCancelInvite, syncCreateInvite } from "@/lib/convex/client"
 import { inviteSchema } from "@/lib/domain/types"
 
 import { createId } from "../helpers"
@@ -17,7 +17,10 @@ export function createCollaborationInviteActions({
   get,
   runtime,
   set,
-}: CollaborationSliceFactoryArgs): Pick<CollaborationSlice, "createInvite"> {
+}: CollaborationSliceFactoryArgs): Pick<
+  CollaborationSlice,
+  "createInvite" | "cancelInvite"
+> {
   return {
     createInvite(input) {
       const parsed = inviteSchema.safeParse(input)
@@ -25,6 +28,9 @@ export function createCollaborationInviteActions({
         toast.error("Invite is invalid")
         return
       }
+
+      const optimisticBatchId = createId("invite_batch")
+      const optimisticToken = createId("token")
 
       set((state) => {
         const teams = state.teams.filter((entry) =>
@@ -46,11 +52,12 @@ export function createCollaborationInviteActions({
 
         const invites = teams.map((team) => ({
           id: createId("invite"),
+          batchId: optimisticBatchId,
           workspaceId: team.workspaceId,
           teamId: team.id,
           email: parsed.data.email,
           role: parsed.data.role,
-          token: createId("token"),
+          token: optimisticToken,
           joinCode: team.settings.joinCode,
           invitedBy: state.currentUserId,
           expiresAt: addDays(new Date(), 7).toISOString(),
@@ -64,13 +71,40 @@ export function createCollaborationInviteActions({
         }
       })
 
+      const syncTask = syncCreateInvite(
+        get().currentUserId,
+        parsed.data.teamIds,
+        parsed.data.email,
+        parsed.data.role
+      ).then((result) => {
+        set((current) => ({
+          invites: current.invites.map((invite, index) => {
+            if (invite.batchId !== optimisticBatchId) {
+              return invite
+            }
+
+            const persistedInvite = result.invites.find(
+              (entry) => entry.teamId === invite.teamId
+            )
+
+            if (!persistedInvite) {
+              return invite
+            }
+
+            return {
+              ...invite,
+              id: persistedInvite.id,
+              batchId: persistedInvite.batchId,
+              token: persistedInvite.token,
+            }
+          }),
+        }))
+
+        return result
+      })
+
       runtime.syncInBackground(
-        syncCreateInvite(
-          get().currentUserId,
-          parsed.data.teamIds,
-          parsed.data.email,
-          parsed.data.role
-        ),
+        syncTask,
         "Failed to create invite"
       )
 
@@ -79,6 +113,52 @@ export function createCollaborationInviteActions({
           ? "Invite created"
           : `Invites created for ${parsed.data.teamIds.length} teams`
       )
+    },
+    async cancelInvite(inviteId) {
+      const state = get()
+      const invite = state.invites.find((entry) => entry.id === inviteId)
+
+      if (!invite) {
+        toast.error("Invite not found")
+        return false
+      }
+
+      const isWorkspaceOwner = state.workspaces.some(
+        (workspace) =>
+          workspace.id === invite.workspaceId &&
+          workspace.createdBy === state.currentUserId
+      )
+      const workspaceRole = state.workspaceMemberships.find(
+        (membership) =>
+          membership.workspaceId === invite.workspaceId &&
+          membership.userId === state.currentUserId
+      )?.role
+      const teamRole = effectiveRole(state, invite.teamId)
+
+      if (
+        !isWorkspaceOwner &&
+        workspaceRole !== "admin" &&
+        teamRole !== "admin"
+      ) {
+        toast.error("Only admins can cancel invites")
+        return false
+      }
+
+      try {
+        const cancelled = await syncCancelInvite(inviteId)
+
+        set((current) => ({
+          invites: current.invites.filter((entry) =>
+            !cancelled.cancelledInviteIds.includes(entry.id)
+          ),
+        }))
+
+        toast.success("Invite cancelled")
+        return true
+      } catch (error) {
+        await runtime.handleSyncFailure(error, "Failed to cancel invite")
+        return false
+      }
     },
   }
 }
