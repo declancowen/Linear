@@ -719,9 +719,26 @@ export async function sendChatMessageHandler(
   const actor = usersById.get(args.currentUserId)
   const messageHtml = args.content.trim()
   const messageText = getPlainTextContent(messageHtml)
+  const existingMessage = args.messageId?.trim()
+    ? await getChatMessageDoc(ctx, messageId)
+    : null
 
   if (!messageText) {
     throw new Error("Message content must include at least 1 character")
+  }
+  if (existingMessage) {
+    if (
+      existingMessage.conversationId !== conversation.id ||
+      existingMessage.createdBy !== args.currentUserId ||
+      existingMessage.content !== messageHtml
+    ) {
+      throw new Error("Message id is already in use")
+    }
+
+    return {
+      messageId: existingMessage.id,
+      mentionEmails: [],
+    }
   }
   if (!audienceUserIds.some((userId) => userId !== args.currentUserId)) {
     throw new Error(

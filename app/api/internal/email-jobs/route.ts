@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 
+import { timingSafeEqual } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { Resend } from "resend"
 
@@ -112,12 +113,31 @@ async function processEmailJobsBatch() {
   }
 }
 
+function hasValidCronAuthorization(
+  authorization: string | null,
+  cronSecret: string
+) {
+  if (!authorization) {
+    return false
+  }
+
+  const expectedAuthorization = `Bearer ${cronSecret}`
+  const providedBuffer = Buffer.from(authorization)
+  const expectedBuffer = Buffer.from(expectedAuthorization)
+
+  if (providedBuffer.length !== expectedBuffer.length) {
+    return false
+  }
+
+  return timingSafeEqual(providedBuffer, expectedBuffer)
+}
+
 export async function GET(request: NextRequest) {
   try {
     const authorization = request.headers.get("authorization")
     const cronSecret = getRequiredEnv("CRON_SECRET")
 
-    if (authorization !== `Bearer ${cronSecret}`) {
+    if (!hasValidCronAuthorization(authorization, cronSecret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

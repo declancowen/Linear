@@ -1153,8 +1153,16 @@ export async function getInviteByTokenHandler(
     return null
   }
 
+  const scopedInvites = invite.batchId
+    ? invites.filter(
+        (entry) =>
+          entry.batchId === invite.batchId &&
+          entry.workspaceId === invite.workspaceId
+      )
+    : invites.filter((entry) => entry.id === invite.id)
+
   const teams = await Promise.all(
-    invites.map((entry) => getTeamDoc(ctx, entry.teamId))
+    scopedInvites.map((entry) => getTeamDoc(ctx, entry.teamId))
   )
   const workspace = await getWorkspaceDoc(ctx, invite.workspaceId)
   const teamNames = [...new Set(

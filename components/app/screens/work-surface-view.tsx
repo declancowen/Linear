@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useState, type ReactNode } from "react"
 import { CSS } from "@dnd-kit/utilities"
 import {
@@ -1382,7 +1381,6 @@ function BoardCardBody({
   dragListeners?: DraggableBindings["listeners"]
   dragHandle?: ReactNode
 }) {
-  const router = useRouter()
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDateLabel =
     displayProps.includes("dueDate") && item.dueDate
@@ -1419,29 +1417,19 @@ function BoardCardBody({
   })
   const itemHref = `/items/${item.id}`
 
-  function openItem() {
-    router.push(itemHref)
-  }
-
   return (
     <IssueContextMenu data={data} item={item}>
       <div
-        className="group/card flex cursor-pointer flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm"
-        onClick={openItem}
-        onKeyDown={(event) => {
-          if (event.defaultPrevented) {
-            return
-          }
-
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault()
-            openItem()
-          }
-        }}
-        {...dragAttributes}
-        {...dragListeners}
+        className="group/card relative flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm"
       >
-        <div className="flex items-start gap-2">
+        <Link
+          href={itemHref}
+          aria-label={`Open ${item.title}`}
+          className="absolute inset-0 rounded-[8px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]"
+          {...dragAttributes}
+          {...dragListeners}
+        />
+        <div className="relative z-10 flex items-start gap-2 pointer-events-none">
           <div className="min-w-0 flex-1">
             {idProperty ? <div className="mb-1">{idProperty}</div> : null}
             <div className="min-w-0">
@@ -1454,7 +1442,7 @@ function BoardCardBody({
             </div>
           </div>
           <div
-            className="opacity-0 transition-opacity group-hover/card:opacity-100"
+            className="pointer-events-auto opacity-0 transition-opacity group-hover/card:opacity-100"
             onPointerDown={stopDragPropagation}
             onClick={stopMenuEvent}
           >
@@ -1468,7 +1456,7 @@ function BoardCardBody({
             </div>
           </div>
         </div>
-        <div className="flex min-w-0 flex-col gap-2">
+        <div className="relative z-10 flex min-w-0 flex-col gap-2 pointer-events-none">
           {visibleProperties.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
               {visibleProperties.map(({ key, node }) => (
@@ -1480,7 +1468,11 @@ function BoardCardBody({
           ) : null}
         </div>
         {details ? (
-          <div onPointerDown={stopDragPropagation} onClick={stopMenuEvent}>
+          <div
+            className="relative z-10 pointer-events-auto"
+            onPointerDown={stopDragPropagation}
+            onClick={stopMenuEvent}
+          >
             {details}
           </div>
         ) : null}

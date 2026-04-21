@@ -72,6 +72,44 @@ function isPendingInvite(invite: {
   return !invite.acceptedAt && !invite.declinedAt
 }
 
+async function createUniqueInviteBatchId(ctx: MutationCtx) {
+  while (true) {
+    const batchId = createId("invite_batch")
+
+    if ((await listInvitesByBatchId(ctx, batchId)).length === 0) {
+      return batchId
+    }
+  }
+}
+
+async function createUniqueInviteToken(ctx: MutationCtx) {
+  while (true) {
+    const token = createId("token")
+
+    if ((await listInvitesByToken(ctx, token)).length === 0) {
+      return token
+    }
+  }
+}
+
+function scopeTokenInvitesToRepresentative<
+  T extends {
+    id: string
+    batchId?: string | null
+    workspaceId: string
+  },
+>(invites: T[], representativeInvite: T) {
+  if (representativeInvite.batchId) {
+    return invites.filter(
+      (invite) =>
+        invite.batchId === representativeInvite.batchId &&
+        invite.workspaceId === representativeInvite.workspaceId
+    )
+  }
+
+  return invites.filter((invite) => invite.id === representativeInvite.id)
+}
+
 async function deleteInviteAndNotifications(
   ctx: MutationCtx,
   invite: Awaited<ReturnType<typeof getInviteDoc>>,
@@ -150,8 +188,8 @@ export async function createInviteHandler(
     }
   }
 
-  const batchId = createId("invite_batch")
-  const batchToken = createId("token")
+  const batchId = await createUniqueInviteBatchId(ctx)
+  const batchToken = await createUniqueInviteToken(ctx)
   const expiresAt = addDays(new Date(), 7).toISOString()
   const normalizedEmail = normalizeEmailAddress(args.email)
   const invitedUser = await getUserByEmail(ctx, args.email)
@@ -281,8 +319,11 @@ export async function cancelInviteHandler(
   }
 
   const pendingInvites = canCancelViaWorkspace
-    ? (invite.batchId ? await listInvitesByBatchId(ctx, invite.batchId) : [invite]).filter(
-        isPendingInvite
+    ? (
+        invite.batchId ? await listInvitesByBatchId(ctx, invite.batchId) : [invite]
+      ).filter(
+        (entry) =>
+          entry.workspaceId === invite.workspaceId && isPendingInvite(entry)
       )
     : [invite]
 
@@ -309,15 +350,29 @@ export async function acceptInviteHandler(
 ) {
   assertServerToken(args.serverToken)
   const tokenInvites = await listInvitesByToken(ctx, args.token)
-  const pendingInvites = tokenInvites.filter(isPendingInvite)
-  const acceptedInvites = tokenInvites.filter((invite) => Boolean(invite.acceptedAt))
-  const [representativeInvite] = pendingInvites.length > 0 ? pendingInvites : acceptedInvites
+  const firstPendingInvite = tokenInvites.find(isPendingInvite)
+  const firstAcceptedInvite = tokenInvites.find((invite) =>
+    Boolean(invite.acceptedAt)
+  )
+  const representativeInvite = firstPendingInvite ?? firstAcceptedInvite ?? null
 
   if (!representativeInvite) {
     throw new Error("Invite not found")
   }
 
-  if (pendingInvites.length === 0 && tokenInvites.every((invite) => invite.declinedAt)) {
+  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
+    tokenInvites,
+    representativeInvite
+  )
+  const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
+  const acceptedInvites = scopedTokenInvites.filter((invite) =>
+    Boolean(invite.acceptedAt)
+  )
+
+  if (
+    pendingInvites.length === 0 &&
+    scopedTokenInvites.every((invite) => invite.declinedAt)
+  ) {
     throw new Error("Invite has been declined")
   }
 
@@ -418,13 +473,20 @@ export async function declineInviteHandler(
 ) {
   assertServerToken(args.serverToken)
   const tokenInvites = await listInvitesByToken(ctx, args.token)
-  const pendingInvites = tokenInvites.filter(isPendingInvite)
+  const representativeInvite =
+    tokenInvites.find(isPendingInvite) ?? tokenInvites[0] ?? null
 
-  if (tokenInvites.length === 0) {
+  if (!representativeInvite) {
     throw new Error("Invite not found")
   }
 
-  if (tokenInvites.some((invite) => invite.acceptedAt)) {
+  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
+    tokenInvites,
+    representativeInvite
+  )
+  const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
+
+  if (scopedTokenInvites.some((invite) => invite.acceptedAt)) {
     throw new Error("Invite has already been accepted")
   }
 
@@ -456,11 +518,8 @@ export async function declineInviteHandler(
   })
 
   return {
-    inviteId: pendingInvites[0]?.id ?? tokenInvites[0]?.id ?? null,
-    declinedAt:
-      pendingInvites[0]?.declinedAt ??
-      tokenInvites[0]?.declinedAt ??
-      declinedAt,
+    inviteId: pendingInvites[0]?.id ?? representativeInvite.id,
+    declinedAt,
   }
 }
 

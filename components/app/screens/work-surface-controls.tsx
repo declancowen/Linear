@@ -2044,6 +2044,7 @@ function SortableDisplayPropertyRow({
   onToggle: () => void
 }) {
   const {
+    attributes,
     listeners,
     setNodeRef,
     transform,
@@ -2054,7 +2055,9 @@ function SortableDisplayPropertyRow({
   return (
     <div
       ref={setNodeRef}
+      {...attributes}
       {...listeners}
+      aria-label={`Reorder ${label}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,

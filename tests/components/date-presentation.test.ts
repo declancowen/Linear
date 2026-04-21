@@ -28,6 +28,9 @@ describe("screen date presentation helpers", () => {
     expect(
       formatWorkSurfaceTimestamp("2025-04-20T12:00:00.000Z", "Updated", now)
     ).toBe("Updated 20 April 2025")
+    expect(
+      formatWorkSurfaceTimestamp("2027-04-20T12:00:00.000Z", "Updated", now)
+    ).toBe("Updated 20 April 2027")
   })
 
   it("formats detail dates with the weekday, month name, and year", () => {

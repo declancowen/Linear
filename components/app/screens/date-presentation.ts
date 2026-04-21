@@ -7,7 +7,7 @@ function getDisplayPatternForDueDate(date: Date, now: Date) {
 }
 
 function getDisplayPatternForTimestamp(date: Date, now: Date) {
-  return date.getFullYear() < now.getFullYear() ? "d MMMM yyyy" : "d MMMM"
+  return date.getFullYear() === now.getFullYear() ? "d MMMM" : "d MMMM yyyy"
 }
 
 export function formatWorkSurfaceDueDate(
