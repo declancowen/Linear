@@ -872,6 +872,9 @@ function SavedViewRow({
 }) {
   const layoutMeta = viewDirectoryLayoutMeta[view.layout]
   const LayoutIcon = layoutMeta.icon
+  const updatedLabel = showUpdated
+    ? format(new Date(view.updatedAt), "MMM d")
+    : null
 
   return (
     <ViewContextMenu view={view}>
@@ -887,12 +890,28 @@ function SavedViewRow({
           <LayoutIcon className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate text-[13.5px] font-medium text-foreground group-hover:underline">
-              {view.name}
-            </span>
-            {showScope ? (
-              <span className="text-[11.5px] text-fg-3">{scopeLabel}</span>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="truncate text-[13.5px] font-medium text-foreground group-hover:underline">
+                  {view.name}
+                </span>
+                {showScope ? (
+                  <span className="text-[11.5px] text-fg-3">{scopeLabel}</span>
+                ) : null}
+              </div>
+            </div>
+            {showConfiguration || updatedLabel ? (
+              <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
+                {showConfiguration ? (
+                  <ViewConfigurationBadges view={view} />
+                ) : null}
+                {updatedLabel ? (
+                  <div className="shrink-0 self-start text-[12px] text-fg-3 tabular-nums">
+                    {updatedLabel}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
           {showDescription && view.description ? (
@@ -900,17 +919,7 @@ function SavedViewRow({
               {view.description}
             </p>
           ) : null}
-          {showConfiguration ? (
-            <div className="mt-2">
-              <ViewConfigurationBadges view={view} />
-            </div>
-          ) : null}
         </div>
-        {showUpdated ? (
-          <div className="shrink-0 text-[12px] text-fg-3 tabular-nums">
-            {format(new Date(view.updatedAt), "MMM d")}
-          </div>
-        ) : null}
       </Link>
     </ViewContextMenu>
   )
