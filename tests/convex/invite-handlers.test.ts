@@ -844,6 +844,163 @@ describe("invite handlers", () => {
     })
   })
 
+  it("retires stale invite batches when every declined team has been deleted", async () => {
+    const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
+    const ctx = createCtx({
+      invites: [
+        {
+          _id: "invite_1_doc",
+          id: "invite_1",
+          batchId: "invite_batch_1",
+          token: "token_1",
+          workspaceId: "workspace_1",
+          teamId: "team_missing",
+          role: "member",
+          acceptedAt: null,
+          declinedAt: null,
+        },
+      ],
+      notifications: [
+        {
+          _id: "notification_1_doc",
+          id: "notification_1",
+          entityType: "invite",
+          entityId: "invite_1",
+        },
+      ],
+    })
+
+    listInvitesByTokenMock.mockResolvedValue([
+      {
+        _id: "invite_1_doc",
+        id: "invite_1",
+        batchId: "invite_batch_1",
+        token: "token_1",
+        workspaceId: "workspace_1",
+        teamId: "team_missing",
+        role: "member",
+        acceptedAt: null,
+        declinedAt: null,
+      },
+    ])
+    getTeamDocMock.mockResolvedValue(null)
+
+    await expect(
+      declineInviteHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        token: "token_1",
+      })
+    ).rejects.toThrow("Invite not found")
+
+    expect(ctx.tables.invites).toHaveLength(0)
+    expect(ctx.tables.notifications).toHaveLength(0)
+    expect(archiveInviteNotificationsMock).not.toHaveBeenCalled()
+    expect(insertAuditEventMock).not.toHaveBeenCalled()
+  })
+
+  it("declines surviving teams and drops deleted teams from mixed invite batches", async () => {
+    const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
+    const ctx = createCtx({
+      invites: [
+        {
+          _id: "invite_1_doc",
+          id: "invite_1",
+          batchId: "invite_batch_1",
+          token: "token_1",
+          workspaceId: "workspace_1",
+          teamId: "team_missing",
+          role: "admin",
+          acceptedAt: null,
+          declinedAt: null,
+        },
+        {
+          _id: "invite_2_doc",
+          id: "invite_2",
+          batchId: "invite_batch_1",
+          token: "token_1",
+          workspaceId: "workspace_1",
+          teamId: "team_2",
+          role: "guest",
+          acceptedAt: null,
+          declinedAt: null,
+        },
+      ],
+      notifications: [
+        {
+          _id: "notification_1_doc",
+          id: "notification_1",
+          entityType: "invite",
+          entityId: "invite_1",
+        },
+        {
+          _id: "notification_2_doc",
+          id: "notification_2",
+          entityType: "invite",
+          entityId: "invite_2",
+        },
+      ],
+    })
+
+    listInvitesByTokenMock.mockResolvedValue([
+      {
+        _id: "invite_1_doc",
+        id: "invite_1",
+        batchId: "invite_batch_1",
+        token: "token_1",
+        workspaceId: "workspace_1",
+        teamId: "team_missing",
+        role: "admin",
+        acceptedAt: null,
+        declinedAt: null,
+      },
+      {
+        _id: "invite_2_doc",
+        id: "invite_2",
+        batchId: "invite_batch_1",
+        token: "token_1",
+        workspaceId: "workspace_1",
+        teamId: "team_2",
+        role: "guest",
+        acceptedAt: null,
+        declinedAt: null,
+      },
+    ])
+    getTeamDocMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "team_2",
+        slug: "design",
+      })
+
+    const result = await declineInviteHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      token: "token_1",
+    })
+
+    expect(result).toEqual({
+      inviteId: "invite_2",
+      declinedAt: "2026-04-21T12:00:00.000Z",
+    })
+    expect(ctx.tables.invites).toEqual([
+      expect.objectContaining({
+        id: "invite_2",
+        declinedAt: "2026-04-21T12:00:00.000Z",
+      }),
+    ])
+    expect(ctx.tables.notifications).toEqual([
+      expect.objectContaining({
+        id: "notification_2",
+        entityId: "invite_2",
+      }),
+    ])
+    expect(archiveInviteNotificationsMock).toHaveBeenCalledWith(ctx, {
+      userId: "user_1",
+      inviteIds: ["invite_2"],
+    })
+  })
+
   it("ignores colliding token invites outside the representative batch", async () => {
     const { acceptInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()

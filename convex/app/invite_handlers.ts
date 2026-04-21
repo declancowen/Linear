@@ -194,6 +194,38 @@ async function buildAcceptedInviteResult(
   }
 }
 
+async function partitionPendingInvitesByExistingTeams<
+  T extends {
+    teamId: string
+  },
+>(ctx: MutationCtx, pendingInvites: T[]) {
+  const pendingInviteTeams = await Promise.all(
+    pendingInvites.map((invite) => getTeamDoc(ctx, invite.teamId))
+  )
+  const activePendingInvites: T[] = []
+  const activePendingTeams: Array<NonNullable<(typeof pendingInviteTeams)[number]>> =
+    []
+  const stalePendingInvites: T[] = []
+
+  for (const [index, invite] of pendingInvites.entries()) {
+    const team = pendingInviteTeams[index]
+
+    if (team) {
+      activePendingInvites.push(invite)
+      activePendingTeams.push(team)
+      continue
+    }
+
+    stalePendingInvites.push(invite)
+  }
+
+  return {
+    activePendingInvites,
+    activePendingTeams,
+    stalePendingInvites,
+  }
+}
+
 export async function createInviteHandler(
   ctx: MutationCtx,
   args: CreateInviteArgs
@@ -433,15 +465,8 @@ export async function acceptInviteHandler(
     return buildAcceptedInviteResult(ctx, representativeInvite, acceptedInvites)
   }
 
-  const pendingInviteTeams = await Promise.all(
-    pendingInvites.map((invite) => getTeamDoc(ctx, invite.teamId))
-  )
-  const activePendingInvites = pendingInvites.filter(
-    (_invite, index) => pendingInviteTeams[index]
-  )
-  const stalePendingInvites = pendingInvites.filter(
-    (_invite, index) => !pendingInviteTeams[index]
-  )
+  const { activePendingInvites, activePendingTeams, stalePendingInvites } =
+    await partitionPendingInvitesByExistingTeams(ctx, pendingInvites)
 
   for (const invite of stalePendingInvites) {
     await deleteInviteArtifacts(ctx, invite)
@@ -516,10 +541,7 @@ export async function acceptInviteHandler(
     fallbackRole: fallbackRole ?? representativeInvite.role,
   })
 
-  const team =
-    activePendingInvites.length === 1
-      ? await getTeamDoc(ctx, activePendingInvites[0].teamId)
-      : null
+  const team = activePendingInvites.length === 1 ? activePendingTeams[0] : null
   const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
   await setCurrentWorkspaceForUser(
     ctx,
@@ -563,9 +585,20 @@ export async function declineInviteHandler(
     throw new Error("Invite has already been accepted")
   }
 
+  const { activePendingInvites, stalePendingInvites } =
+    await partitionPendingInvitesByExistingTeams(ctx, pendingInvites)
+
+  for (const invite of stalePendingInvites) {
+    await deleteInviteArtifacts(ctx, invite)
+  }
+
+  if (activePendingInvites.length === 0) {
+    throw new Error("Invite not found")
+  }
+
   const declinedAt = getNow()
 
-  for (const invite of pendingInvites) {
+  for (const invite of activePendingInvites) {
     await ctx.db.patch(invite._id, {
       declinedAt,
     })
@@ -587,11 +620,11 @@ export async function declineInviteHandler(
 
   await archiveInviteNotifications(ctx, {
     userId: args.currentUserId,
-    inviteIds: pendingInvites.map((invite) => invite.id),
+    inviteIds: activePendingInvites.map((invite) => invite.id),
   })
 
   return {
-    inviteId: pendingInvites[0]?.id ?? representativeInvite.id,
+    inviteId: activePendingInvites[0]?.id ?? representativeInvite.id,
     declinedAt,
   }
 }
