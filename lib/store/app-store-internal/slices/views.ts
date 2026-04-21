@@ -83,7 +83,10 @@ export function createViewSlice(
           return null
         }
 
-        if (parsed.data.entityKind === "items" && !teamHasFeature(team, "issues")) {
+        if (
+          parsed.data.entityKind === "items" &&
+          !teamHasFeature(team, "issues")
+        ) {
           toast.error("Work views are disabled for this team")
           return null
         }
@@ -96,7 +99,10 @@ export function createViewSlice(
           return null
         }
 
-        if (parsed.data.entityKind === "docs" && !teamHasFeature(team, "docs")) {
+        if (
+          parsed.data.entityKind === "docs" &&
+          !teamHasFeature(team, "docs")
+        ) {
           toast.error("Document views are disabled for this team")
           return null
         }
@@ -118,7 +124,8 @@ export function createViewSlice(
       }
 
       const viewId = parsed.data.id ?? createId("view")
-      const previousSelectedViewId = state.ui.selectedViewByRoute[parsed.data.route] ?? null
+      const previousSelectedViewId =
+        state.ui.selectedViewByRoute[parsed.data.route] ?? null
       const view = createViewDefinition({
         id: viewId,
         name: parsed.data.name,
@@ -130,7 +137,6 @@ export function createViewSlice(
         containerId: parsed.data.containerId,
         route: parsed.data.route,
         teamSlug: team?.slug,
-        experience: team?.settings.experience,
         createdAt: getNow(),
         overrides: {
           layout: parsed.data.layout,
@@ -218,7 +224,9 @@ export function createViewSlice(
       }
 
       if (trimmedName.length < viewNameMinLength) {
-        toast.error(`View name must be at least ${viewNameMinLength} characters`)
+        toast.error(
+          `View name must be at least ${viewNameMinLength} characters`
+        )
         return false
       }
 
@@ -257,7 +265,9 @@ export function createViewSlice(
         return true
       } catch (error) {
         console.error(error)
-        toast.error(error instanceof Error ? error.message : "Failed to rename view")
+        toast.error(
+          error instanceof Error ? error.message : "Failed to rename view"
+        )
         return false
       }
     },
@@ -292,7 +302,9 @@ export function createViewSlice(
         return true
       } catch (error) {
         console.error(error)
-        toast.error(error instanceof Error ? error.message : "Failed to delete view")
+        toast.error(
+          error instanceof Error ? error.message : "Failed to delete view"
+        )
         return false
       }
     },

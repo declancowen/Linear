@@ -1,27 +1,35 @@
-import { execFile as execFileCallback } from "node:child_process"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { promisify } from "node:util"
 
 import pngToIco from "png-to-ico"
 import sharp from "sharp"
 
-const execFile = promisify(execFileCallback)
-
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, "..")
-const sourceSvgPath = path.join(repoRoot, "app-icon.svg")
-const sourceIconSize = 256
-const maxRasterSize = 1024
-const svgDensity = (72 * maxRasterSize) / sourceIconSize
+const sourcePngPath = path.join(
+  repoRoot,
+  "dist",
+  "electron-stage",
+  "electron",
+  "app-icon.png"
+)
+const sourceIcnsPath = path.join(
+  repoRoot,
+  "dist",
+  "electron-stage",
+  "electron",
+  "app-icon.icns"
+)
 
 const svgTargets = [
+  path.join(repoRoot, "app-icon.svg"),
   path.join(repoRoot, "icon.svg"),
   path.join(repoRoot, "public", "app-icon.svg"),
   path.join(repoRoot, "public", "icon.svg"),
+  path.join(repoRoot, "public", "app-logo.svg"),
 ]
 
 const appIconTargets = [
@@ -50,10 +58,7 @@ async function ensureParent(pathname) {
 
 async function renderPng(inputBuffer, size, outputPath) {
   await ensureParent(outputPath)
-  await sharp(inputBuffer, { density: svgDensity })
-    .resize(size, size)
-    .png()
-    .toFile(outputPath)
+  await sharp(inputBuffer).resize(size, size).png().toFile(outputPath)
 }
 
 async function copyToTargets(sourcePath, targets) {
@@ -65,24 +70,41 @@ async function copyToTargets(sourcePath, targets) {
   )
 }
 
+async function writeSvgTargets(inputBuffer, targets) {
+  const embeddedPng = inputBuffer.toString("base64")
+  const svgMarkup = [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">',
+    `  <image width="512" height="512" href="data:image/png;base64,${embeddedPng}" />`,
+    "</svg>",
+    "",
+  ].join("\n")
+
+  await Promise.all(
+    targets.map(async (targetPath) => {
+      await ensureParent(targetPath)
+      await fs.writeFile(targetPath, svgMarkup)
+    })
+  )
+}
+
 async function main() {
   const tempDir = await fs.mkdtemp(
     path.join(os.tmpdir(), "recipe-room-icons-")
   )
 
   try {
-    const sourceSvgBuffer = await fs.readFile(sourceSvgPath)
-    const rasterSizes = [16, 32, 48, 64, 128, 180, 256, 512, 1024]
+    const sourcePngBuffer = await fs.readFile(sourcePngPath)
+    const rasterSizes = [16, 32, 48, 64, 128, 180, 256, 512]
     const rasterPaths = new Map()
 
     for (const size of rasterSizes) {
       const outputPath = path.join(tempDir, `${size}.png`)
-      await renderPng(sourceSvgBuffer, size, outputPath)
+      await renderPng(sourcePngBuffer, size, outputPath)
       rasterPaths.set(size, outputPath)
     }
 
-    await copyToTargets(sourceSvgPath, svgTargets)
-    await copyToTargets(rasterPaths.get(512), appIconTargets)
+    await writeSvgTargets(sourcePngBuffer, svgTargets)
+    await copyToTargets(sourcePngPath, appIconTargets)
     await copyToTargets(rasterPaths.get(180), appleIconTargets)
 
     const icoBuffer = await pngToIco([
@@ -98,40 +120,8 @@ async function main() {
     await copyToTargets(faviconPath, faviconTargets)
     await copyToTargets(faviconPath, appIconIcoTargets)
 
-    const iconsetDir = path.join(tempDir, "app-icon.iconset")
-    await fs.mkdir(iconsetDir, { recursive: true })
-
-    const iconsetMappings = [
-      ["icon_16x16.png", 16],
-      ["icon_16x16@2x.png", 32],
-      ["icon_32x32.png", 32],
-      ["icon_32x32@2x.png", 64],
-      ["icon_128x128.png", 128],
-      ["icon_128x128@2x.png", 256],
-      ["icon_256x256.png", 256],
-      ["icon_256x256@2x.png", 512],
-      ["icon_512x512.png", 512],
-      ["icon_512x512@2x.png", 1024],
-    ]
-
-    await Promise.all(
-      iconsetMappings.map(async ([filename, size]) => {
-        await fs.copyFile(
-          rasterPaths.get(size),
-          path.join(iconsetDir, filename)
-        )
-      })
-    )
-
     const icnsPath = path.join(repoRoot, "electron", "app-icon.icns")
-    await ensureParent(icnsPath)
-    await execFile("iconutil", [
-      "-c",
-      "icns",
-      iconsetDir,
-      "-o",
-      icnsPath,
-    ])
+    await copyToTargets(sourceIcnsPath, [icnsPath])
 
     console.log("Generated app icons")
   } finally {

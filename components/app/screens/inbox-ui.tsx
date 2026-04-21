@@ -78,31 +78,59 @@ function renderEntityIcon(
   }
 }
 
-function formatShortRelative(iso: string) {
+type BucketKey = "today" | "yesterday" | "earlier"
+
+type ShortRelativeTimestamp = {
+  label: string
+  usesAgoSuffix: boolean
+}
+
+function getShortRelativeTimestamp(iso: string): ShortRelativeTimestamp {
   const now = Date.now()
   const then = new Date(iso).getTime()
   const diff = Math.max(0, now - then)
-  const seconds = Math.round(diff / 1000)
+  const seconds = Math.floor(diff / 1000)
 
-  if (seconds < 45) return "now"
+  if (seconds < 45) {
+    return {
+      label: "now",
+      usesAgoSuffix: false,
+    }
+  }
 
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
+  const minutes = Math.max(1, Math.floor(diff / (60 * 1000)))
+  if (minutes < 60) {
+    return {
+      label: `${minutes}m`,
+      usesAgoSuffix: true,
+    }
+  }
 
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h`
+  const hours = Math.max(1, Math.floor(diff / (60 * 60 * 1000)))
+  if (hours < 24) {
+    return {
+      label: `${hours}h`,
+      usesAgoSuffix: true,
+    }
+  }
 
-  const days = Math.round(hours / 24)
-  if (days < 7) return `${days}d`
+  const days = Math.max(1, Math.floor(diff / (24 * 60 * 60 * 1000)))
+  if (days < 7) {
+    return {
+      label: `${days}d`,
+      usesAgoSuffix: true,
+    }
+  }
 
-  return format(new Date(iso), "MMM d")
+  return {
+    label: format(new Date(iso), "MMM d"),
+    usesAgoSuffix: false,
+  }
 }
 
 function formatFullTimestamp(iso: string) {
   return format(new Date(iso), "MMM d, yyyy 'at' h:mm a")
 }
-
-type BucketKey = "today" | "yesterday" | "earlier"
 
 const BUCKET_ORDER: BucketKey[] = ["today", "yesterday", "earlier"]
 const BUCKET_LABEL: Record<BucketKey, string> = {
@@ -183,6 +211,7 @@ function InboxRow({
   const { notification, actor } = entry
   const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
+  const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
 
   return (
     <div
@@ -243,15 +272,15 @@ function InboxRow({
       <div className="relative flex shrink-0 items-center pr-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="pr-1 text-[11px] tabular-nums text-muted-foreground transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
-              {formatShortRelative(notification.createdAt)}
+            <span className="pr-1 text-[11px] text-muted-foreground tabular-nums transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0">
+              {relativeCreatedAt.label}
             </span>
           </TooltipTrigger>
           <TooltipContent sideOffset={6}>
             {formatFullTimestamp(notification.createdAt)}
           </TooltipContent>
         </Tooltip>
-        <div className="absolute inset-y-0 right-2 flex items-center opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+        <div className="absolute inset-y-0 right-2 flex items-center opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -410,9 +439,7 @@ export function InboxListPane({
                     key={entry.notification.id}
                     entry={entry}
                     active={entry.notification.id === activeId}
-                    onSelect={() =>
-                      onSelectNotification(entry.notification.id)
-                    }
+                    onSelect={() => onSelectNotification(entry.notification.id)}
                     onToggleArchive={() => onToggleArchive(entry.notification)}
                   />
                 ))}
@@ -569,6 +596,7 @@ export function InboxDetailPane({
   const { notification, actor } = activeEntry
   const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
+  const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
   const primaryAction = getPrimaryActionDescriptor({
     notification,
     activeProjectHref,
@@ -594,7 +622,9 @@ export function InboxDetailPane({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="truncate tabular-nums">
-                {formatShortRelative(notification.createdAt)} ago
+                {relativeCreatedAt.usesAgoSuffix
+                  ? `${relativeCreatedAt.label} ago`
+                  : relativeCreatedAt.label}
               </span>
             </TooltipTrigger>
             <TooltipContent sideOffset={6}>

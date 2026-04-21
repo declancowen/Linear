@@ -170,8 +170,9 @@ export function CreateViewDialog({
     [data]
   )
   const availableEntityKinds = useMemo<SelectableEntityKind[]>(() => {
-    const canUseWorkspace =
-      currentWorkspace ? canEditWorkspace(data, currentWorkspace.id) : false
+    const canUseWorkspace = currentWorkspace
+      ? canEditWorkspace(data, currentWorkspace.id)
+      : false
 
     return (["items", "projects", "docs"] as const).filter((entityKind) => {
       if (canUseWorkspace) {
@@ -268,7 +269,9 @@ export function CreateViewDialog({
     setSelectedScopeKey(initialScopeKey)
     setProjectPickerOpen(false)
     setProjectQuery("")
-    setSelectedProjectId(dialog.lockProject ? (dialog.defaultProjectId ?? "") : "")
+    setSelectedProjectId(
+      dialog.lockProject ? (dialog.defaultProjectId ?? "") : ""
+    )
     setDraftConfig(createFreshDraftConfig(initialEntityKind))
   }, [
     dialog.defaultEntityKind,
@@ -291,11 +294,13 @@ export function CreateViewDialog({
     setSelectedEntityKind(initialEntityKind)
   }, [availableEntityKinds, initialEntityKind, open, selectedEntityKind])
 
-  const selectedScope = scopeOptions.find((option) => option.key === selectedScopeKey) ?? null
+  const selectedScope =
+    scopeOptions.find((option) => option.key === selectedScopeKey) ?? null
   const selectedTeam = useMemo(
     () =>
       selectedScope?.scopeType === "team"
-        ? (editableTeams.find((team) => team.id === selectedScope.scopeId) ?? null)
+        ? (editableTeams.find((team) => team.id === selectedScope.scopeId) ??
+          null)
         : null,
     [editableTeams, selectedScope]
   )
@@ -335,18 +340,20 @@ export function CreateViewDialog({
           const team = getProjectTeam(data, project)
           return Boolean(
             team &&
-              team.workspaceId === selectedScope.scopeId &&
-              editableTeamIds.has(team.id)
+            team.workspaceId === selectedScope.scopeId &&
+            editableTeamIds.has(team.id)
           )
         })
         .sort((left, right) => left.name.localeCompare(right.name))
     }
 
     return data.projects
-      .filter((project) =>
-        (project.scopeType === "team" && project.scopeId === selectedTeam.id) ||
-        (project.scopeType === "workspace" &&
-          project.scopeId === selectedTeam.workspaceId)
+      .filter(
+        (project) =>
+          (project.scopeType === "team" &&
+            project.scopeId === selectedTeam.id) ||
+          (project.scopeType === "workspace" &&
+            project.scopeId === selectedTeam.workspaceId)
       )
       .sort((left, right) => left.name.localeCompare(right.name))
   }, [
@@ -384,7 +391,7 @@ export function CreateViewDialog({
               scopeType: selectedScope.scopeType,
               scopeId: selectedScope.scopeId,
             }
-        : null,
+          : null,
     [dialog.lockScope, selectedProject, selectedScope]
   )
   const effectiveTeam = selectedProjectTeam ?? selectedTeam
@@ -507,11 +514,11 @@ export function CreateViewDialog({
       entityKind: selectedEntityKind,
       route: resolvedRoute,
       teamSlug: effectiveTeam?.slug,
-      experience: effectiveTeam?.settings.experience,
       createdAt: "__draft__",
       overrides: {
         ...draftConfig,
-        ...(draftConfig.itemLevel === undefined && defaultItemLevel !== undefined
+        ...(draftConfig.itemLevel === undefined &&
+        defaultItemLevel !== undefined
           ? { itemLevel: defaultItemLevel }
           : {}),
       },
@@ -538,9 +545,7 @@ export function CreateViewDialog({
         }
       : {}
   const canCreate =
-    name.trim().length >= 2 &&
-    Boolean(effectiveScope) &&
-    Boolean(resolvedRoute)
+    name.trim().length >= 2 && Boolean(effectiveScope) && Boolean(resolvedRoute)
   const showProjectPicker =
     !isProjectSpecificItemView && (selectedProject || projectOptions.length > 0)
 
@@ -644,7 +649,9 @@ export function CreateViewDialog({
       const nextProjectIds = current.filters.projectIds.filter((id) =>
         projectIds.has(id)
       )
-      const nextTeamIds = current.filters.teamIds.filter((id) => teamIds.has(id))
+      const nextTeamIds = current.filters.teamIds.filter((id) =>
+        teamIds.has(id)
+      )
 
       if (
         nextProjectIds.length === current.filters.projectIds.length &&
@@ -749,25 +756,24 @@ export function CreateViewDialog({
     setCreating(true)
 
     try {
-      const createConfig =
-        draftView
-          ? {
-              layout: draftView.layout,
-              grouping: draftView.grouping,
-              subGrouping: draftView.subGrouping,
-              ordering: draftView.ordering,
-              itemLevel: draftView.itemLevel ?? null,
-              showChildItems: Boolean(draftView.showChildItems),
-              filters: draftView.filters,
-              displayProps: [...draftView.displayProps],
-              hiddenState: {
-                groups: [...draftView.hiddenState.groups],
-                subgroups: [...draftView.hiddenState.subgroups],
-              },
-            }
-          : selectedEntityKind === dialog.defaultEntityKind
-            ? createFreshDraftConfig(selectedEntityKind)
-            : {}
+      const createConfig = draftView
+        ? {
+            layout: draftView.layout,
+            grouping: draftView.grouping,
+            subGrouping: draftView.subGrouping,
+            ordering: draftView.ordering,
+            itemLevel: draftView.itemLevel ?? null,
+            showChildItems: Boolean(draftView.showChildItems),
+            filters: draftView.filters,
+            displayProps: [...draftView.displayProps],
+            hiddenState: {
+              groups: [...draftView.hiddenState.groups],
+              subgroups: [...draftView.hiddenState.subgroups],
+            },
+          }
+        : selectedEntityKind === dialog.defaultEntityKind
+          ? createFreshDraftConfig(selectedEntityKind)
+          : {}
       const viewId = useAppStore.getState().createView({
         scopeType: effectiveScope.scopeType,
         scopeId: effectiveScope.scopeId,
@@ -791,114 +797,113 @@ export function CreateViewDialog({
     void handleCreate()
   })
 
-  const projectPicker =
-    showProjectPicker ? (
-      !dialog.lockProject ? (
-        <Popover
-          open={projectPickerOpen}
-          onOpenChange={(nextOpen) => {
-            setProjectPickerOpen(nextOpen)
-            if (!nextOpen) {
-              setProjectQuery("")
-            }
-          }}
-        >
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label="Project"
-              className={cn(
-                chipSelectTriggerClass,
-                !selectedProject && chipTriggerDashedClass
-              )}
-            >
-              <span className="flex min-w-0 items-center gap-1.5">
-                <FolderSimple className="size-[13px] shrink-0" />
-                <span
-                  className={cn(
-                    "truncate",
-                    selectedProject && "font-medium text-foreground"
-                  )}
-                >
-                  {selectedProject?.name ?? "Project"}
-                </span>
-              </span>
-              <CaretDown className="size-3 shrink-0 opacity-60" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+  const projectPicker = showProjectPicker ? (
+    !dialog.lockProject ? (
+      <Popover
+        open={projectPickerOpen}
+        onOpenChange={(nextOpen) => {
+          setProjectPickerOpen(nextOpen)
+          if (!nextOpen) {
+            setProjectQuery("")
+          }
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Project"
+            className={cn(
+              chipSelectTriggerClass,
+              !selectedProject && chipTriggerDashedClass
+            )}
           >
-            <PropertyPopoverSearch
-              icon={<MagnifyingGlass className="size-[14px]" />}
-              placeholder="Find project…"
-              value={projectQuery}
-              onChange={setProjectQuery}
-            />
-            <PropertyPopoverList>
-              {projectOptions.filter((project) =>
-                project.name
-                  .toLowerCase()
-                  .includes(projectQuery.trim().toLowerCase())
-              ).length > 0 ? (
-                <>
-                  <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
-                  {projectOptions
-                    .filter((project) =>
-                      project.name
-                        .toLowerCase()
-                        .includes(projectQuery.trim().toLowerCase())
-                    )
-                    .map((project) => {
-                      const selected = project.id === selectedProjectId
-                      return (
-                        <PropertyPopoverItem
-                          key={project.id}
-                          selected={selected}
-                          onClick={() => {
-                            setSelectedProjectId(project.id)
-                            setProjectPickerOpen(false)
-                            setProjectQuery("")
-                          }}
-                          trailing={
-                            selected ? (
-                              <Check className="size-[14px] text-foreground" />
-                            ) : null
-                          }
-                        >
-                          <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
-                          <span className="truncate">{project.name}</span>
-                        </PropertyPopoverItem>
-                      )
-                    })}
-                </>
-              ) : null}
-              <PropertyPopoverItem
-                selected={!selectedProject}
-                onClick={() => {
-                  setSelectedProjectId("")
-                  setProjectPickerOpen(false)
-                  setProjectQuery("")
-                }}
-                trailing={
-                  !selectedProject ? (
-                    <Check className="size-[14px] text-foreground" />
-                  ) : null
-                }
+            <span className="flex min-w-0 items-center gap-1.5">
+              <FolderSimple className="size-[13px] shrink-0" />
+              <span
+                className={cn(
+                  "truncate",
+                  selectedProject && "font-medium text-foreground"
+                )}
               >
-                <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
-                <span>Project</span>
-              </PropertyPopoverItem>
-            </PropertyPopoverList>
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
-          <span className="truncate">{selectedProject?.name ?? "Project"}</span>
-        </div>
-      )
-    ) : null
+                {selectedProject?.name ?? "Project"}
+              </span>
+            </span>
+            <CaretDown className="size-3 shrink-0 opacity-60" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+        >
+          <PropertyPopoverSearch
+            icon={<MagnifyingGlass className="size-[14px]" />}
+            placeholder="Find project…"
+            value={projectQuery}
+            onChange={setProjectQuery}
+          />
+          <PropertyPopoverList>
+            {projectOptions.filter((project) =>
+              project.name
+                .toLowerCase()
+                .includes(projectQuery.trim().toLowerCase())
+            ).length > 0 ? (
+              <>
+                <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
+                {projectOptions
+                  .filter((project) =>
+                    project.name
+                      .toLowerCase()
+                      .includes(projectQuery.trim().toLowerCase())
+                  )
+                  .map((project) => {
+                    const selected = project.id === selectedProjectId
+                    return (
+                      <PropertyPopoverItem
+                        key={project.id}
+                        selected={selected}
+                        onClick={() => {
+                          setSelectedProjectId(project.id)
+                          setProjectPickerOpen(false)
+                          setProjectQuery("")
+                        }}
+                        trailing={
+                          selected ? (
+                            <Check className="size-[14px] text-foreground" />
+                          ) : null
+                        }
+                      >
+                        <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+                        <span className="truncate">{project.name}</span>
+                      </PropertyPopoverItem>
+                    )
+                  })}
+              </>
+            ) : null}
+            <PropertyPopoverItem
+              selected={!selectedProject}
+              onClick={() => {
+                setSelectedProjectId("")
+                setProjectPickerOpen(false)
+                setProjectQuery("")
+              }}
+              trailing={
+                !selectedProject ? (
+                  <Check className="size-[14px] text-foreground" />
+                ) : null
+              }
+            >
+              <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+              <span>Project</span>
+            </PropertyPopoverItem>
+          </PropertyPopoverList>
+        </PopoverContent>
+      </Popover>
+    ) : (
+      <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
+        <span className="truncate">{selectedProject?.name ?? "Project"}</span>
+      </div>
+    )
+  ) : null
 
   return (
     <Dialog
@@ -1102,7 +1107,11 @@ export function CreateViewDialog({
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
               <ShortcutKeys
                 keys={["Esc"]}

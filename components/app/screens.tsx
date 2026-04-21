@@ -16,6 +16,7 @@ import {
 import {
   canEditTeam,
   canEditWorkspace,
+  getAccessibleTeams,
   getPrivateDocuments,
   getProjectHref,
   getProjectProgress,
@@ -49,6 +50,7 @@ import {
 import {
   buildAssignedWorkViews,
   createViewDefinition,
+  getSharedTeamExperience,
   isSystemView,
 } from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
@@ -1040,6 +1042,13 @@ export function AssignedScreen() {
     }))
   )
   const team = useAppStore((state) => getTeam(state, activeTeamId))
+  const assignedViewExperience = useAppStore((state) => {
+    return getSharedTeamExperience(
+      getAccessibleTeams(state).map(
+        (candidate) => candidate.settings.experience
+      )
+    )
+  })
   const views = useAppStore(
     useShallow((state) =>
       getViewsForScope(state, "personal", currentUserId, "items")
@@ -1066,9 +1075,9 @@ export function AssignedScreen() {
       userId: currentUserId,
       createdAt: timestamp,
       updatedAt: timestamp,
-      experience: team?.settings.experience,
+      experience: assignedViewExperience,
     })
-  }, [currentUserId, team?.settings.experience])
+  }, [assignedViewExperience, currentUserId])
 
   return (
     <WorkSurface
@@ -1079,6 +1088,7 @@ export function AssignedScreen() {
       items={items}
       filterItems={assignedItems}
       team={team}
+      groupingExperience={assignedViewExperience}
       emptyLabel="Nothing is assigned right now"
       childDisplayMode="assigned-descendants"
       allowCreateViews={false}

@@ -61,6 +61,20 @@ function getCanonicalTeamViewOrder(name: string) {
   return Number.MAX_SAFE_INTEGER
 }
 
+export function getSharedTeamExperience(
+  experiences: readonly (TeamExperienceType | null | undefined)[]
+) {
+  const [firstExperience] = experiences
+
+  if (!firstExperience) {
+    return null
+  }
+
+  return experiences.every((experience) => experience === firstExperience)
+    ? firstExperience
+    : null
+}
+
 export function getDefaultRouteForViewContext(input: {
   scopeType: "personal" | "team" | "workspace"
   entityKind: EntityKind
@@ -154,7 +168,7 @@ export function createViewDefinition(input: {
   updatedAt?: string
   route?: string | null
   teamSlug?: string | null
-  experience?: TeamExperienceType | null
+  defaultItemLevelExperience?: TeamExperienceType | null
   isShared?: boolean
   overrides?: ViewConfigOverrides
 }): ViewDefinition | null {
@@ -172,8 +186,10 @@ export function createViewDefinition(input: {
 
   const updatedAt = input.updatedAt ?? input.createdAt
   const baseItemLevel =
-    input.entityKind === "items" && input.experience
-      ? getDefaultViewItemLevelForTeamExperience(input.experience)
+    input.entityKind === "items" && input.defaultItemLevelExperience
+      ? getDefaultViewItemLevelForTeamExperience(
+          input.defaultItemLevelExperience
+        )
       : null
   const itemLevel =
     input.overrides?.itemLevel === undefined
@@ -260,7 +276,7 @@ export function buildTeamWorkViews(input: {
       scopeId: input.teamId,
       entityKind: "items",
       teamSlug: input.teamSlug,
-      experience: input.experience,
+      defaultItemLevelExperience: input.experience,
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
     }),
@@ -272,7 +288,7 @@ export function buildTeamWorkViews(input: {
       scopeId: input.teamId,
       entityKind: "items",
       teamSlug: input.teamSlug,
-      experience: input.experience,
+      defaultItemLevelExperience: input.experience,
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
       overrides: {
@@ -299,7 +315,7 @@ export function buildTeamWorkViews(input: {
       scopeId: input.teamId,
       entityKind: "items",
       teamSlug: input.teamSlug,
-      experience: input.experience,
+      defaultItemLevelExperience: input.experience,
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
       overrides: {
@@ -335,10 +351,13 @@ export function buildAssignedWorkViews(input: {
       scopeId: input.userId,
       entityKind: "items",
       route: "/assigned",
-      experience: input.experience,
+      defaultItemLevelExperience: input.experience,
       isShared: false,
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
+      overrides: {
+        showChildItems: true,
+      },
     }),
     createViewDefinition({
       id: "view_assigned_active_items",
@@ -348,11 +367,12 @@ export function buildAssignedWorkViews(input: {
       scopeId: input.userId,
       entityKind: "items",
       route: "/assigned",
-      experience: input.experience,
+      defaultItemLevelExperience: input.experience,
       isShared: false,
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
       overrides: {
+        showChildItems: true,
         layout: "board",
         filters: {
           ...createDefaultViewFilters(),
@@ -376,11 +396,12 @@ export function buildAssignedWorkViews(input: {
       scopeId: input.userId,
       entityKind: "items",
       route: "/assigned",
-      experience: input.experience,
+      defaultItemLevelExperience: input.experience,
       isShared: false,
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
       overrides: {
+        showChildItems: true,
         filters: {
           ...createDefaultViewFilters(),
           status: ["backlog"],

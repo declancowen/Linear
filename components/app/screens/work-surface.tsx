@@ -14,6 +14,7 @@ import { isSystemView } from "@/lib/domain/default-views"
 import {
   getDefaultTemplateTypeForTeamExperience,
   type Team,
+  type TeamExperienceType,
   type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
@@ -122,6 +123,7 @@ export function WorkSurface({
   items,
   filterItems,
   team,
+  groupingExperience,
   emptyLabel,
   childDisplayMode = "direct",
   allowCreateViews = true,
@@ -133,6 +135,7 @@ export function WorkSurface({
   items: WorkItem[]
   filterItems?: WorkItem[]
   team: Team | null
+  groupingExperience?: TeamExperienceType | null
   emptyLabel: string
   childDisplayMode?: WorkSurfaceChildDisplayMode
   allowCreateViews?: boolean
@@ -153,14 +156,18 @@ export function WorkSurface({
       localFallbackViews[0] ??
       null)
     : (getViewByRoute(data, routeKey) ?? views[0] ?? null)
+  const effectiveGroupingExperience =
+    groupingExperience === undefined
+      ? (team?.settings.experience ?? null)
+      : groupingExperience
   const groupOptions = useMemo(
     () =>
       getAvailableGroupOptions(
-        team
-          ? getDefaultTemplateTypeForTeamExperience(team.settings.experience)
+        effectiveGroupingExperience
+          ? getDefaultTemplateTypeForTeamExperience(effectiveGroupingExperience)
           : null
       ),
-    [team?.settings.experience]
+    [effectiveGroupingExperience]
   )
 
   useEffect(() => {

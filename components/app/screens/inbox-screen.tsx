@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -51,15 +52,16 @@ export function InboxScreen() {
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     )
   )
-  const usersById = useAppStore(
-    useShallow((state) => {
-      const map: Record<string, (typeof state.users)[number]> = {}
-      for (const user of state.users) {
-        map[user.id] = user
-      }
-      return map
-    })
-  )
+  const users = useAppStore(useShallow((state) => state.users))
+  const usersById = useMemo(() => {
+    const map: Record<string, (typeof users)[number]> = {}
+
+    for (const user of users) {
+      map[user.id] = user
+    }
+
+    return map
+  }, [users])
   const [inboxTab, setInboxTab] = useState<InboxTab>("inbox")
   const [acceptingInvite, setAcceptingInvite] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -98,7 +100,8 @@ export function InboxScreen() {
     })
   )
   const unreadCount = notifications.filter(
-    (notification) => notification.archivedAt == null && notification.readAt == null
+    (notification) =>
+      notification.archivedAt == null && notification.readAt == null
   ).length
   const archivedCount = notifications.filter(
     (notification) => notification.archivedAt != null
@@ -228,9 +231,7 @@ export function InboxScreen() {
     }
 
     const nextActiveNotification =
-      visibleNotifications.find(
-        (entry) => entry.id !== notification.id
-      ) ?? null
+      visibleNotifications.find((entry) => entry.id !== notification.id) ?? null
 
     useAppStore
       .getState()
@@ -355,7 +356,9 @@ export function InboxScreen() {
               archiveNotification(notification)
             }}
             onResizeStart={handleNotificationListResizeStart}
-            onResetWidth={() => setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)}
+            onResetWidth={() =>
+              setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)
+            }
           />
           <InboxDetailPane
             activeEntry={activeEntry}
