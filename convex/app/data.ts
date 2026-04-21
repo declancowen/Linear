@@ -993,7 +993,6 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
   const groupedPendingInvites = await Promise.all(
     [...groupedInvites.values()].map(async (inviteGroup) => {
       const [primaryInvite] = inviteGroup
-      let mergedRole = primaryInvite.role
       const teamNames = new Set<string>()
       const [teams, workspace] = await Promise.all([
         Promise.all(
@@ -1001,10 +1000,15 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
         ),
         getWorkspaceDoc(ctx, primaryInvite.workspaceId),
       ])
-
-      for (const invite of inviteGroup) {
-        mergedRole = mergeMembershipRole(mergedRole, invite.role)
-      }
+      const survivingInvites = inviteGroup.filter((_invite, index) =>
+        Boolean(teams[index])
+      )
+      const mergedRole =
+        survivingInvites.reduce<(typeof primaryInvite.role) | null>(
+          (currentRole, invite) =>
+            mergeMembershipRole(currentRole, invite.role),
+          null
+        ) ?? primaryInvite.role
 
       for (const team of teams) {
         if (team) {
