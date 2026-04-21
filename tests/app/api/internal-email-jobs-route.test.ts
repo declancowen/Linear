@@ -42,6 +42,13 @@ describe("GET /api/internal/email-jobs", () => {
   })
 
   it("claims queued jobs, sends them, and marks them as sent", async () => {
+    sendMock.mockResolvedValueOnce({
+      data: {
+        id: "provider_1",
+      },
+      error: null,
+      headers: null,
+    })
     mutationMock
       .mockResolvedValueOnce([
         {
@@ -95,7 +102,60 @@ describe("GET /api/internal/email-jobs", () => {
     })
   })
 
+  it("releases the claim when Resend returns an API error response", async () => {
+    sendMock.mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: "domain not verified",
+        statusCode: 403,
+        name: "invalid_from_address",
+      },
+      headers: null,
+    })
+    mutationMock
+      .mockResolvedValueOnce([
+        {
+          id: "email_job_1",
+          toEmail: "alex@example.com",
+          subject: "Mention",
+          text: "Hello",
+          html: "<p>Hello</p>",
+        },
+      ])
+      .mockResolvedValueOnce({ ok: true })
+
+    const { GET } = await import("@/app/api/internal/email-jobs/route")
+    const response = await GET(
+      new NextRequest("http://localhost/api/internal/email-jobs", {
+        headers: {
+          authorization: "Bearer cron_secret",
+        },
+      })
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      processedCount: 1,
+      sentCount: 0,
+      failedCount: 1,
+    })
+    expect(mutationMock).toHaveBeenCalledTimes(2)
+    expect(mutationMock.mock.calls[1]?.[1]).toMatchObject({
+      claimId: expect.any(String),
+      jobIds: ["email_job_1"],
+      errorMessage: "domain not verified",
+    })
+  })
+
   it("releases the claim when marking a delivered job as sent fails", async () => {
+    sendMock.mockResolvedValueOnce({
+      data: {
+        id: "provider_1",
+      },
+      error: null,
+      headers: null,
+    })
     mutationMock
       .mockResolvedValueOnce([
         {
@@ -136,7 +196,13 @@ describe("GET /api/internal/email-jobs", () => {
   it("continues the batch when claim release fails after a send error", async () => {
     sendMock
       .mockRejectedValueOnce(new Error("send failed"))
-      .mockResolvedValueOnce({ id: "provider_2" })
+      .mockResolvedValueOnce({
+        data: {
+          id: "provider_2",
+        },
+        error: null,
+        headers: null,
+      })
     mutationMock
       .mockResolvedValueOnce([
         {

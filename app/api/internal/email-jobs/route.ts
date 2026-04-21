@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto"
-
-import { timingSafeEqual } from "node:crypto"
+import { randomUUID, timingSafeEqual } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { Resend } from "resend"
 
@@ -91,8 +89,10 @@ async function processEmailJobsBatch() {
   let failedCount = 0
 
   for (const job of jobs) {
+    let sendResult
+
     try {
-      await resend.emails.send(
+      sendResult = await resend.emails.send(
         {
           from: resendFrom,
           to: job.toEmail,
@@ -110,6 +110,18 @@ async function processEmailJobsBatch() {
         claimId,
         jobId: job.id,
         errorMessage: toErrorMessage(error),
+        context: "send",
+      })
+      failedCount += 1
+      continue
+    }
+
+    if (sendResult.error) {
+      await releaseEmailJobClaimSafely({
+        client,
+        claimId,
+        jobId: job.id,
+        errorMessage: sendResult.error.message,
         context: "send",
       })
       failedCount += 1
