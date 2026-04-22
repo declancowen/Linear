@@ -1,10 +1,19 @@
 import {
   createDocumentDetailScopeKey,
   createDocumentIndexScopeKey,
+  createProjectDetailScopeKey,
+  createProjectIndexScopeKey,
+  createSearchSeedScopeKey,
   createScopedCollectionScopeId,
   createWorkIndexScopeKey,
   createWorkItemDetailScopeKey,
 } from "./scope-keys"
+
+type CollaborationProjectScopeInput = {
+  projectId: string
+  scopeType: "team" | "workspace"
+  scopeId: string
+}
 
 type CollaborationDocumentScopeInput = {
   documentId: string
@@ -12,6 +21,9 @@ type CollaborationDocumentScopeInput = {
   workspaceId?: string | null
   teamId?: string | null
   itemId?: string | null
+  searchWorkspaceId?: string | null
+  teamMemberIds?: string[] | null
+  projectScopes?: CollaborationProjectScopeInput[] | null
 }
 
 export function buildCollaborationDocumentScopeKeys(
@@ -22,6 +34,7 @@ export function buildCollaborationDocumentScopeKeys(
 ) {
   const includeCollectionScopes = options?.includeCollectionScopes ?? true
   const scopeKeys = new Set<string>()
+  const searchWorkspaceId = input.searchWorkspaceId ?? input.workspaceId
 
   scopeKeys.add(createDocumentDetailScopeKey(input.documentId))
 
@@ -36,6 +49,32 @@ export function buildCollaborationDocumentScopeKeys(
           createScopedCollectionScopeId("team", input.teamId)
         )
       )
+    }
+
+    if (includeCollectionScopes) {
+      for (const userId of input.teamMemberIds ?? []) {
+        scopeKeys.add(
+          createWorkIndexScopeKey(
+            createScopedCollectionScopeId("personal", userId)
+          )
+        )
+      }
+
+      for (const projectScope of input.projectScopes ?? []) {
+        scopeKeys.add(createProjectDetailScopeKey(projectScope.projectId))
+        scopeKeys.add(
+          createProjectIndexScopeKey(
+            createScopedCollectionScopeId(
+              projectScope.scopeType,
+              projectScope.scopeId
+            )
+          )
+        )
+      }
+    }
+
+    if (includeCollectionScopes && searchWorkspaceId) {
+      scopeKeys.add(createSearchSeedScopeKey(searchWorkspaceId))
     }
 
     return [...scopeKeys]
@@ -57,6 +96,10 @@ export function buildCollaborationDocumentScopeKeys(
         createScopedCollectionScopeId("workspace", input.workspaceId)
       )
     )
+  }
+
+  if (searchWorkspaceId) {
+    scopeKeys.add(createSearchSeedScopeKey(searchWorkspaceId))
   }
 
   return [...scopeKeys]

@@ -751,7 +751,7 @@ const collaboration = {
     }
 
     try {
-      const claims = getRoomSessionState(room.id).latestClaims
+      const claims = getRoomSessionState(room.id).latestEditorClaims
 
       if (!claims) {
         return

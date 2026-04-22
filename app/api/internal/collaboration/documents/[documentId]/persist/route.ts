@@ -176,6 +176,9 @@ export async function POST(
       workspaceId: collaborationDocument.workspaceId,
       teamId: collaborationDocument.teamId,
       itemId: collaborationDocument.itemId,
+      searchWorkspaceId: collaborationDocument.searchWorkspaceId,
+      teamMemberIds: collaborationDocument.teamMemberIds,
+      projectScopes: collaborationDocument.projectScopes,
     }, {
       includeCollectionScopes: parsed.flushReason !== "periodic",
     })

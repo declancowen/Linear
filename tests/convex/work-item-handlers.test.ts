@@ -178,6 +178,26 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
+  it("treats any provided expectedUpdatedAt value as a CAS guard", async () => {
+    const { updateWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      updateWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        itemId: "item_1",
+        patch: {
+          expectedUpdatedAt: "",
+        },
+      })
+    ).rejects.toThrow("Work item changed while you were editing")
+
+    expect(validateWorkItemParentMock).not.toHaveBeenCalled()
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
   it("shifts timeline dates in calendar-day space when moving a scheduled item", async () => {
     const { shiftTimelineItemHandler } = await import(
       "@/convex/app/work_item_handlers"

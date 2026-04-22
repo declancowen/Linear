@@ -174,7 +174,7 @@ export async function updateWorkItemHandler(
   )
 
   if (
-    args.patch.expectedUpdatedAt &&
+    args.patch.expectedUpdatedAt !== undefined &&
     existing.updatedAt !== args.patch.expectedUpdatedAt
   ) {
     throw new Error("Work item changed while you were editing")

@@ -398,6 +398,20 @@ describe("document collaboration route contracts", () => {
       canEdit: true,
       itemId: "item_1",
       itemUpdatedAt: "2026-04-22T00:00:00.000Z",
+      searchWorkspaceId: "workspace_1",
+      teamMemberIds: ["user_1", "user_2"],
+      projectScopes: [
+        {
+          projectId: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+        },
+        {
+          projectId: "project_2",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+        },
+      ],
     })
     persistCollaborationItemDescriptionServerMock.mockResolvedValue({
       ok: true,
@@ -439,6 +453,13 @@ describe("document collaboration route contracts", () => {
         "document-detail:doc_desc_1",
         "work-item-detail:item_1",
         "work-index:team_team_1",
+        "work-index:personal_user_1",
+        "work-index:personal_user_2",
+        "project-detail:project_1",
+        "project-index:team_team_1",
+        "project-detail:project_2",
+        "project-index:workspace_workspace_1",
+        "search-seed:workspace_1",
       ],
     })
     expect(response.status).toBe(200)
@@ -461,6 +482,20 @@ describe("document collaboration route contracts", () => {
       canEdit: true,
       itemId: "item_1",
       itemUpdatedAt: "2026-04-22T00:00:00.000Z",
+      searchWorkspaceId: "workspace_1",
+      teamMemberIds: ["user_1", "user_2"],
+      projectScopes: [
+        {
+          projectId: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+        },
+        {
+          projectId: "project_2",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+        },
+      ],
     })
     updateWorkItemServerMock.mockResolvedValue({
       ok: true,
@@ -504,6 +539,20 @@ describe("document collaboration route contracts", () => {
       },
     })
     expect(persistCollaborationItemDescriptionServerMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: [
+        "document-detail:doc_desc_1",
+        "work-item-detail:item_1",
+        "work-index:team_team_1",
+        "work-index:personal_user_1",
+        "work-index:personal_user_2",
+        "project-detail:project_1",
+        "project-index:team_team_1",
+        "project-detail:project_2",
+        "project-index:workspace_workspace_1",
+        "search-seed:workspace_1",
+      ],
+    })
     expect(response.status).toBe(200)
   })
 })
