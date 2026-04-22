@@ -55,14 +55,18 @@ export async function PATCH(
 
     const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
 
-    await updateTeamMemberRoleServer({
+    const result = await updateTeamMemberRoleServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
       userId,
       role: parsed.role,
     })
-    if (workspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
     }
 
     return jsonOk({
@@ -121,8 +125,12 @@ export async function DELETE(
       label: "Failed to deactivate WorkOS membership after team removal",
       memberships: result?.providerMemberships ?? [],
     })
-    if (workspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
     }
 
     return jsonOk({

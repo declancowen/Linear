@@ -411,6 +411,125 @@ describe("team and collaboration route contracts", () => {
     )
   })
 
+  it("invalidates the mutated team's workspace for settings and member mutations", async () => {
+    const settingsRoute = await import("@/app/api/teams/[teamId]/settings/route")
+    const membersRoute = await import(
+      "@/app/api/teams/[teamId]/members/[userId]/route"
+    )
+
+    updateTeamWorkflowSettingsServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_2",
+    })
+    updateTeamMemberRoleServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_2",
+      userId: "user_2",
+      role: "member",
+    })
+    removeTeamMemberServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_2",
+      userId: "user_2",
+      providerMemberships: [],
+    })
+
+    const settingsResponse = await settingsRoute.PATCH(
+      new Request("http://localhost/api/teams/team_1/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          statusOrder: [
+            "backlog",
+            "todo",
+            "in-progress",
+            "done",
+            "cancelled",
+            "duplicate",
+          ],
+          templateDefaults: {
+            "software-delivery": {
+              defaultPriority: "high",
+              targetWindowDays: 28,
+              defaultViewLayout: "board",
+              recommendedItemTypes: ["epic", "feature", "requirement", "story"],
+              summaryHint: "Delivery",
+            },
+            "bug-tracking": {
+              defaultPriority: "high",
+              targetWindowDays: 14,
+              defaultViewLayout: "board",
+              recommendedItemTypes: ["issue", "sub-issue", "task"],
+              summaryHint: "Bug tracking",
+            },
+            "project-management": {
+              defaultPriority: "medium",
+              targetWindowDays: 21,
+              defaultViewLayout: "timeline",
+              recommendedItemTypes: ["epic", "feature", "task"],
+              summaryHint: "Project management",
+            },
+          },
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+        }),
+      }
+    )
+
+    expect(settingsResponse.status).toBe(200)
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
+      1,
+      "workspace_2"
+    )
+
+    const patchMemberResponse = await membersRoute.PATCH(
+      new Request("http://localhost/api/teams/team_1/members/user_2", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          role: "member",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+          userId: "user_2",
+        }),
+      }
+    )
+
+    expect(patchMemberResponse.status).toBe(200)
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
+      2,
+      "workspace_2"
+    )
+
+    const deleteMemberResponse = await membersRoute.DELETE(
+      new Request("http://localhost/api/teams/team_1/members/user_2", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+          userId: "user_2",
+        }),
+      }
+    )
+
+    expect(deleteMemberResponse.status).toBe(200)
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
+      3,
+      "workspace_2"
+    )
+  })
+
   it("maps team workflow and member failures to typed error responses", async () => {
     const settingsRoute = await import("@/app/api/teams/[teamId]/settings/route")
     const membersRoute = await import(

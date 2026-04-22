@@ -47,13 +47,17 @@ export async function PATCH(
 
     const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
 
-    await updateTeamWorkflowSettingsServer({
+    const result = await updateTeamWorkflowSettingsServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
       workflow: parsed,
     })
-    if (workspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
     }
 
     return jsonOk({ ok: true })

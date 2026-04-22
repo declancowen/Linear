@@ -139,4 +139,90 @@ describe("useDocumentCollaboration", () => {
       })
     )
   })
+
+  it("clears stale collaboration state before re-enabling the same document", async () => {
+    const firstSession = createSession()
+
+    let resolveSecondOpen: ((value: {
+      bootstrap: {
+        roomId: string
+        documentId: string
+        token: string
+        serviceUrl: string
+        role: "editor"
+        sessionId: string
+      }
+      session: ReturnType<typeof createSession>
+    }) => void) | null = null
+
+    openDocumentCollaborationSessionMock
+      .mockResolvedValueOnce({
+        bootstrap: {
+          roomId: "doc:document_1",
+          documentId: "document_1",
+          token: "token-1",
+          serviceUrl: "https://collab.example.com",
+          role: "editor",
+          sessionId: "session_1",
+        },
+        session: firstSession,
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecondOpen = resolve
+          })
+      )
+
+    const { useDocumentCollaboration } = await import(
+      "@/hooks/use-document-collaboration"
+    )
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useDocumentCollaboration({
+          documentId: "document_1",
+          enabled,
+          currentUser: {
+            id: "user_1",
+            name: "Alex",
+            avatarUrl: "",
+            avatarImageUrl: "https://example.com/avatar.png",
+          },
+        }),
+      {
+        initialProps: {
+          enabled: true,
+        },
+      }
+    )
+
+    await waitFor(() => {
+      expect(result.current.mode).toBe("collaboration")
+      expect(result.current.collaboration).not.toBeNull()
+    })
+
+    rerender({
+      enabled: false,
+    })
+
+    await waitFor(() => {
+      expect(result.current.mode).toBe("legacy")
+      expect(result.current.collaboration).toBeNull()
+    })
+
+    rerender({
+      enabled: true,
+    })
+
+    await waitFor(() => {
+      expect(openDocumentCollaborationSessionMock).toHaveBeenCalledTimes(2)
+      expect(result.current.lifecycle).toBe("bootstrapping")
+      expect(result.current.collaboration).toBeNull()
+      expect(result.current.viewers).toEqual([])
+    })
+
+    expect(firstSession.disconnect).toHaveBeenCalled()
+    expect(resolveSecondOpen).not.toBeNull()
+  })
 })

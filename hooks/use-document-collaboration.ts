@@ -150,6 +150,14 @@ export function useDocumentCollaboration(input: {
       currentUserId &&
       currentUserName
   )
+  const activeSessionKey =
+    isEnabled && input.documentId && currentUserId
+      ? `${currentUserId}:${input.documentId}`
+      : null
+
+  useEffect(() => {
+    setState(EMPTY_COLLABORATION_STATE)
+  }, [activeSessionKey])
 
   const handleStatusChange = useEffectEvent(
     (nextState: CollaborationConnectionState) => {
