@@ -7,6 +7,7 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  fetchDocumentDetailReadModelMock,
   fetchSnapshotMock,
   flushDocumentSyncMock,
   routerPushMock,
@@ -15,6 +16,7 @@ const {
   syncUpdateDocumentMock,
   syncSendDocumentMentionNotificationsMock,
 } = vi.hoisted(() => ({
+  fetchDocumentDetailReadModelMock: vi.fn(),
   fetchSnapshotMock: vi.fn(),
   flushDocumentSyncMock: vi.fn(),
   routerPushMock: vi.fn(),
@@ -52,7 +54,13 @@ vi.mock("sonner", () => ({
   },
 }))
 
+vi.mock("@/lib/realtime/feature-flags", () => ({
+  isCollaborationEnabled: () => false,
+  isScopedSyncEnabled: () => true,
+}))
+
 vi.mock("@/lib/convex/client", () => ({
+  fetchDocumentDetailReadModel: fetchDocumentDetailReadModelMock,
   fetchSnapshot: fetchSnapshotMock,
   syncClearDocumentPresence: syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresence: syncHeartbeatDocumentPresenceMock,
@@ -250,6 +258,8 @@ describe("DocumentDetailScreen", () => {
   })
 
   beforeEach(() => {
+    fetchDocumentDetailReadModelMock.mockReset()
+    fetchDocumentDetailReadModelMock.mockResolvedValue({})
     fetchSnapshotMock.mockReset()
     flushDocumentSyncMock.mockReset()
     routerPushMock.mockReset()
@@ -330,7 +340,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 
@@ -353,7 +364,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 
@@ -366,9 +378,57 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
+  })
+
+  it("can transition from a missing document to a loaded document without hook-order errors", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {})
+
+    fetchDocumentDetailReadModelMock.mockResolvedValue({
+      documents: [
+        {
+          id: "doc_async",
+          kind: "workspace-document",
+          workspaceId: "workspace_1",
+          teamId: null,
+          title: "Async Doc",
+          content: "<p>Hello</p>",
+          linkedProjectIds: [],
+          linkedWorkItemIds: [],
+          createdBy: currentUser.id,
+          updatedBy: currentUser.id,
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+    })
+
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      documents: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_async" />)
+
+    expect(screen.getByText("Loading document...")).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Async Doc" })).toBeInTheDocument()
+    })
+
+    expect(
+      consoleErrorSpy.mock.calls.some(([message]) =>
+        typeof message === "string" &&
+        message.includes("change in the order of Hooks called by DocumentDetailScreen")
+      )
+    ).toBe(false)
+
+    consoleErrorSpy.mockRestore()
   })
 
   it("clears document presence when the page becomes hidden", async () => {
@@ -377,7 +437,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 
@@ -426,7 +487,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 

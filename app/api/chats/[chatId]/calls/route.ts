@@ -3,7 +3,11 @@ import { NextRequest } from "next/server"
 import {
   ApplicationError,
 } from "@/lib/server/application-errors"
-import { startChatCallServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  startChatCallServer,
+} from "@/lib/server/convex"
+import { resolveConversationReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -47,6 +51,12 @@ export async function POST(
       conversationId: chatId,
       roomKey: `chat-${chatId}`,
       roomDescription: `Persistent video room for chat ${chatId}`,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: await resolveConversationReadModelScopeKeysServer(
+        session,
+        chatId
+      ),
     })
     const joinHref = createCallJoinHref(result.call.id)
 

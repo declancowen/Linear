@@ -132,7 +132,8 @@ export function syncCreateWorkspace(input: {
 
 export async function syncHeartbeatDocumentPresence(
   documentId: string,
-  sessionId: string
+  sessionId: string,
+  activeBlockId?: string | null
 ) {
   const payload = await runRouteMutation<{
     viewers: DocumentPresenceViewer[]
@@ -144,6 +145,7 @@ export async function syncHeartbeatDocumentPresence(
     body: JSON.stringify({
       action: "heartbeat",
       sessionId,
+      activeBlockId: activeBlockId ?? null,
     }),
   })
 

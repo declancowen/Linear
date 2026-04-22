@@ -55,6 +55,7 @@ vi.mock("@phosphor-icons/react", () => {
 })
 
 import {
+  buildInboxNotificationSubtitle,
   InboxDetailPane,
   type InboxEntry,
 } from "@/components/app/screens/inbox-ui"
@@ -165,5 +166,33 @@ describe("InboxDetailPane", () => {
 
     expect(screen.getByText("59m ago")).toBeInTheDocument()
     expect(screen.queryByText("1h ago")).not.toBeInTheDocument()
+  })
+})
+
+describe("buildInboxNotificationSubtitle", () => {
+  it("omits the actor name from work item status updates", () => {
+    expect(
+      buildInboxNotificationSubtitle(
+        createNotification({
+          type: "status-change",
+          entityType: "workItem",
+          message: 'Declan Cowan moved "Ship inbox polish" to Done',
+        }),
+        "Declan Cowan"
+      )
+    ).toBe('Moved "Ship inbox polish" to Done')
+  })
+
+  it("removes duplicate actor framing from mention subtitles", () => {
+    expect(
+      buildInboxNotificationSubtitle(
+        createNotification({
+          type: "mention",
+          entityType: "channelPost",
+          message: "Declan Cowan mentioned you in Sprint planning",
+        }),
+        "Declan Cowan"
+      )
+    ).toBe("Mentioned in Sprint planning")
   })
 })

@@ -19,6 +19,15 @@ import {
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
+import {
+  fetchConversationListReadModel,
+  fetchConversationThreadReadModel,
+} from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import {
+  getConversationListScopeKeys,
+  getConversationThreadScopeKeys,
+} from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
@@ -189,6 +198,16 @@ export function WorkspaceChatsScreen() {
     selectedChatId && chats.some((chat) => chat.id === selectedChatId)
       ? selectedChatId
       : (chats[0]?.id ?? null)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
+    fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+  })
+  useScopedReadModelRefresh({
+    enabled: Boolean(activeChatId),
+    scopeKeys: activeChatId ? getConversationThreadScopeKeys(activeChatId) : [],
+    fetchLatest: () => fetchConversationThreadReadModel(activeChatId ?? ""),
+  })
   const activeChat =
     chats.find((chat) => chat.id === activeChatId) ?? chats[0] ?? null
   const members = useAppStore(

@@ -23,6 +23,10 @@ const toggleViewFilterValueServerMock = vi.fn()
 const clearViewFiltersServerMock = vi.fn()
 const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
+const bumpWorkItemReadModelScopesServerMock = vi.fn()
+const bumpProjectIndexReadModelScopesServerMock = vi.fn()
+const resolveProjectReadModelScopeKeysServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -48,6 +52,13 @@ vi.mock("@/lib/server/convex", () => ({
   toggleViewFilterValueServer: toggleViewFilterValueServerMock,
   clearViewFiltersServer: clearViewFiltersServerMock,
   enqueueEmailJobsServer: enqueueEmailJobsServerMock,
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
+}))
+
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpWorkItemReadModelScopesServer: bumpWorkItemReadModelScopesServerMock,
+  bumpProjectIndexReadModelScopesServer: bumpProjectIndexReadModelScopesServerMock,
+  resolveProjectReadModelScopeKeysServer: resolveProjectReadModelScopeKeysServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
@@ -83,6 +94,10 @@ describe("work route contracts", () => {
     clearViewFiltersServerMock.mockReset()
     enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockReset()
+    bumpWorkItemReadModelScopesServerMock.mockReset()
+    bumpProjectIndexReadModelScopesServerMock.mockReset()
+    resolveProjectReadModelScopeKeysServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -107,6 +122,12 @@ describe("work route contracts", () => {
     enqueueEmailJobsServerMock.mockResolvedValue({
       queued: 0,
     })
+    bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    bumpWorkItemReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpProjectIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    resolveProjectReadModelScopeKeysServerMock.mockResolvedValue([
+      "project-detail:project_1",
+    ])
   })
 
   it("maps work-item creation failures to typed error responses", async () => {
@@ -415,6 +436,7 @@ describe("work route contracts", () => {
       name: "Alex",
       avatarUrl: "",
       avatarImageUrl: null,
+      activeBlockId: null,
       sessionId: "session_123",
     })
     expect(heartbeatResponse.status).toBe(200)

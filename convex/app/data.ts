@@ -439,6 +439,25 @@ export async function getWorkItemDoc(ctx: AppCtx, id: string) {
     .unique()
 }
 
+export async function getWorkItemByDescriptionDocId(
+  ctx: AppCtx,
+  descriptionDocId: string
+) {
+  return ctx.db
+    .query("workItems")
+    .withIndex("by_description_doc", (q) =>
+      q.eq("descriptionDocId", descriptionDocId)
+    )
+    .unique()
+}
+
+export async function getReadModelVersionDoc(ctx: AppCtx, scopeKey: string) {
+  return ctx.db
+    .query("readModelVersions")
+    .withIndex("by_scope_key", (q) => q.eq("scopeKey", scopeKey))
+    .unique()
+}
+
 export async function listWorkItemsByTeam(ctx: AppCtx, teamId: string) {
   return ctx.db
     .query("workItems")

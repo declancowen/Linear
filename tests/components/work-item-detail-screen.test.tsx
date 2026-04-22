@@ -16,6 +16,7 @@ import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  fetchWorkItemDetailReadModelMock,
   routerReplaceMock,
   syncAddCommentMock,
   syncClearWorkItemPresenceMock,
@@ -24,6 +25,7 @@ const {
   syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
 } = vi.hoisted(() => ({
+  fetchWorkItemDetailReadModelMock: vi.fn(),
   routerReplaceMock: vi.fn(),
   syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
@@ -61,7 +63,13 @@ vi.mock("sonner", () => ({
   },
 }))
 
+vi.mock("@/lib/realtime/feature-flags", () => ({
+  isCollaborationEnabled: () => false,
+  isScopedSyncEnabled: () => true,
+}))
+
 vi.mock("@/lib/convex/client", () => ({
+  fetchWorkItemDetailReadModel: fetchWorkItemDetailReadModelMock,
   syncAddComment: syncAddCommentMock,
   syncClearWorkItemPresence: syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresence: syncHeartbeatWorkItemPresenceMock,
@@ -432,6 +440,8 @@ function seedState() {
 
 describe("work item detail screen", () => {
   beforeEach(() => {
+    fetchWorkItemDetailReadModelMock.mockReset()
+    fetchWorkItemDetailReadModelMock.mockResolvedValue({})
     syncClearWorkItemPresenceMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockReset()
     syncSendItemDescriptionMentionNotificationsMock.mockReset()

@@ -18,7 +18,9 @@ import {
   getProjectHref,
 } from "@/lib/domain/selectors"
 import { type Notification } from "@/lib/domain/types"
-import { syncAcceptInvite } from "@/lib/convex/client"
+import { fetchNotificationInboxReadModel, syncAcceptInvite } from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { getNotificationInboxScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ScreenHeader } from "@/components/app/screens/shared"
@@ -40,6 +42,12 @@ function clampInboxListWidth(value: number) {
 
 export function InboxScreen() {
   const router = useRouter()
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId ? getNotificationInboxScopeKeys(currentUserId) : [],
+    fetchLatest: () => fetchNotificationInboxReadModel(currentUserId ?? ""),
+  })
   const { activeInboxNotificationId } = useAppStore(
     useShallow((state) => ({
       activeInboxNotificationId: state.ui.activeInboxNotificationId,

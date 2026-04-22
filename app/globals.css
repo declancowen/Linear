@@ -403,6 +403,20 @@
     pointer-events: none;
   }
 
+  .tiptap .collaboration-carets__anchor,
+  .ProseMirror .collaboration-carets__anchor {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .tiptap .collaboration-carets__selection,
+  .ProseMirror .collaboration-carets__selection {
+    border-radius: 0.2rem;
+  }
+
   .app-emoji-picker .epr-cat-btn {
     opacity: 0.42 !important;
     filter: grayscale(1) brightness(1.16);

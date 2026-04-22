@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { profileSchema } from "@/lib/domain/types"
 import { updateCurrentUserProfileServer } from "@/lib/server/convex"
+import { bumpUserWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import {
@@ -50,6 +51,10 @@ export async function PATCH(request: NextRequest) {
       workosUserId: appContext.authenticatedUser.workosUserId,
       name: parsed.name,
     })
+    await bumpUserWorkspaceMembershipReadModelScopesServer(
+      session,
+      appContext.ensuredUser.userId
+    )
 
     return jsonOk({
       ok: true,

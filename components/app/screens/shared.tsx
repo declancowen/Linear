@@ -965,7 +965,13 @@ function extractTextContent(content: string) {
     .trim()
 }
 
-export function getDocumentPreview(document: Pick<Document, "content" | "title">) {
+export function getDocumentPreview(
+  document: Pick<Document, "content" | "title" | "previewText">
+) {
+  if (document.previewText && document.previewText.trim().length > 0) {
+    return document.previewText.trim()
+  }
+
   const rawPreview = extractTextContent(document.content)
   const preview = rawPreview.startsWith(document.title)
     ? rawPreview.slice(document.title.length).trim()

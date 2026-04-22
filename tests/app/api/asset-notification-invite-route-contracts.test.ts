@@ -23,6 +23,8 @@ const createDocumentServerMock = vi.fn()
 const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
+const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -63,6 +65,13 @@ vi.mock("@/lib/server/authenticated-app", () => ({
   reconcileAuthenticatedAppContext: reconcileAuthenticatedAppContextMock,
 }))
 
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpDocumentIndexReadModelScopesServer:
+    bumpDocumentIndexReadModelScopesServerMock,
+  bumpWorkspaceMembershipReadModelScopesServer:
+    bumpWorkspaceMembershipReadModelScopesServerMock,
+}))
+
 describe("asset, notification, invite, and document route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -86,6 +95,8 @@ describe("asset, notification, invite, and document route contracts", () => {
     enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
+    bumpDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -113,6 +124,8 @@ describe("asset, notification, invite, and document route contracts", () => {
       queued: 0,
     })
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
+    bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
 
   it("maps attachment and label failures to typed error responses", async () => {

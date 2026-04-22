@@ -52,6 +52,7 @@ import {
   listWorkspacesForSyncHandler,
   lookupTeamByJoinCodeHandler,
 } from "./app/auth_bootstrap"
+import { getCollaborationDocumentHandler } from "./app/collaboration_documents"
 import {
   archiveNotificationHandler,
   claimPendingNotificationDigestsHandler,
@@ -104,6 +105,10 @@ import {
   updateDocumentHandler,
   updateItemDescriptionHandler,
 } from "./app/document_handlers"
+import {
+  bumpScopedReadModelVersionsHandler,
+  getScopedReadModelVersionsHandler,
+} from "./app/scoped_sync"
 import {
   addCommentHandler,
   toggleCommentReactionHandler,
@@ -256,6 +261,14 @@ export const backfillWorkspaceMemberships = operationalMutation({
   handler: backfillWorkspaceMembershipsHandler,
 })
 
+export const bumpScopedReadModelVersions = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    scopeKeys: v.array(v.string()),
+  },
+  handler: bumpScopedReadModelVersionsHandler,
+})
+
 export const getSnapshot = query({
   args: {
     ...serverAccessArgs,
@@ -272,6 +285,23 @@ export const getSnapshotVersion = query({
     email: v.optional(v.string()),
   },
   handler: getSnapshotVersionHandler,
+})
+
+export const getScopedReadModelVersions = query({
+  args: {
+    ...serverAccessArgs,
+    scopeKeys: v.array(v.string()),
+  },
+  handler: getScopedReadModelVersionsHandler,
+})
+
+export const getCollaborationDocument = query({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+  },
+  handler: getCollaborationDocumentHandler,
 })
 
 export const getAuthContext = query({
@@ -907,6 +937,7 @@ export const updateDocumentContent = mutation({
     currentUserId: v.string(),
     documentId: v.string(),
     content: v.string(),
+    expectedUpdatedAt: v.optional(v.string()),
   },
   handler: updateDocumentContentHandler,
 })
@@ -918,6 +949,19 @@ export const updateDocument = mutation({
     documentId: v.string(),
     title: v.optional(v.string()),
     content: v.optional(v.string()),
+    expectedUpdatedAt: v.optional(v.string()),
+  },
+  handler: updateDocumentHandler,
+})
+
+export const persistCollaborationDocument = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    documentId: v.string(),
+    title: v.optional(v.string()),
+    content: v.optional(v.string()),
+    expectedUpdatedAt: v.optional(v.string()),
   },
   handler: updateDocumentHandler,
 })
@@ -964,6 +1008,7 @@ export const heartbeatDocumentPresence = convexMutation({
     name: v.string(),
     avatarUrl: v.string(),
     avatarImageUrl: v.optional(v.union(v.string(), v.null())),
+    activeBlockId: v.optional(v.union(v.string(), v.null())),
     sessionId: v.string(),
   },
   handler: heartbeatDocumentPresenceHandler,
@@ -990,6 +1035,7 @@ export const heartbeatWorkItemPresence = convexMutation({
     name: v.string(),
     avatarUrl: v.string(),
     avatarImageUrl: v.optional(v.union(v.string(), v.null())),
+    activeBlockId: v.optional(v.union(v.string(), v.null())),
     sessionId: v.string(),
   },
   handler: heartbeatWorkItemPresenceHandler,
@@ -1031,6 +1077,18 @@ export const updateItemDescription = mutation({
     currentUserId: v.string(),
     itemId: v.string(),
     content: v.string(),
+    expectedUpdatedAt: v.optional(v.string()),
+  },
+  handler: updateItemDescriptionHandler,
+})
+
+export const persistCollaborationItemDescription = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    itemId: v.string(),
+    content: v.string(),
+    expectedUpdatedAt: v.optional(v.string()),
   },
   handler: updateItemDescriptionHandler,
 })

@@ -1,5 +1,6 @@
 "use client"
 
+import type { Editor } from "@tiptap/react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -15,6 +16,7 @@ import { Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
+  fetchDocumentDetailReadModel,
   syncClearDocumentPresence,
   syncHeartbeatDocumentPresence,
   syncSendDocumentMentionNotifications,
@@ -34,6 +36,9 @@ import {
   getWorkspaceUsers,
 } from "@/lib/domain/selectors"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
+import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { Button } from "@/components/ui/button"
@@ -53,6 +58,7 @@ import { canEditDocumentInUi, getDocumentPresenceSessionId } from "./helpers"
 import { MissingState } from "./shared"
 
 const DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
+const DOCUMENT_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
 
 type DocumentMentionNotificationsResponse = {
   ok: boolean
@@ -78,15 +84,53 @@ function formatRecipientCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`
 }
 
+function updateCollaborativeDocumentTitle(editor: Editor, title: string) {
+  return editor
+    .chain()
+    .command(({ dispatch, state, tr }) => {
+      let handled = false
+
+      state.doc.descendants((node, pos) => {
+        if (handled) {
+          return false
+        }
+
+        if (node.type.name !== "heading") {
+          return true
+        }
+
+        handled = true
+        tr.insertText(title, pos + 1, pos + node.content.size + 1)
+        return false
+      })
+
+      if (!handled) {
+        return false
+      }
+
+      dispatch?.(tr)
+      return true
+    })
+    .run()
+}
+
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const router = useRouter()
-  const { currentWorkspaceId, currentUserId, document, team } = useAppStore(
+  const {
+    currentWorkspaceId,
+    currentUser,
+    currentUserId,
+    document,
+    team,
+  } = useAppStore(
     useShallow((state) => {
       const document =
         state.documents.find((entry) => entry.id === documentId) ?? null
 
       return {
         currentWorkspaceId: state.currentWorkspaceId,
+        currentUser:
+          state.users.find((entry) => entry.id === state.currentUserId) ?? null,
         currentUserId: state.currentUserId,
         document,
         team: document?.teamId ? getTeam(state, document.teamId) : null,
@@ -113,9 +157,13 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     words: 0,
     characters: 0,
   })
+  const [editorContent, setEditorContent] = useState(() => document?.content ?? "")
   const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
+  const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
+    null
+  )
   const [mentionQueue, dispatchMentionQueue] = useReducer(
     reduceDocumentMentionQueue,
     createDocumentMentionQueueState({})
@@ -128,6 +176,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const editorInstanceRef = useRef<Editor | null>(null)
+  const legacyActiveBlockIdRef = useRef<string | null>(null)
+  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
   const allowHistoryExitRef = useRef(false)
   const currentRouteHrefRef = useRef<string | null>(null)
   const currentRouteStateRef = useRef<unknown>(null)
@@ -136,8 +187,62 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const currentDocumentId = document?.id ?? null
   const resolvedDocumentKind = document?.kind ?? null
   const documentTitle = document?.title ?? ""
+  const {
+    collaboration,
+    flush: flushCollaboration,
+    lifecycle: collaborationLifecycle,
+    viewers: collaborationViewers,
+  } = useDocumentCollaboration({
+    documentId: currentDocumentId,
+    currentUser,
+    enabled: resolvedDocumentKind !== "item-description",
+  })
+  const {
+    hasLoadedOnce: hasLoadedDocumentReadModel,
+  } = useScopedReadModelRefresh({
+    enabled:
+      Boolean(documentId) &&
+      (collaborationLifecycle === "legacy" ||
+        collaborationLifecycle === "degraded"),
+    scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
+    fetchLatest: () => fetchDocumentDetailReadModel(documentId),
+  })
+  const isProtectingDocumentBody = Boolean(
+    currentDocumentId &&
+      (collaborationLifecycle === "bootstrapping" ||
+        collaborationLifecycle === "attached")
+  )
+  const isCollaborationAttached = collaborationLifecycle === "attached"
+  const isCollaborationBootstrapping =
+    collaborationLifecycle === "bootstrapping"
 
-  currentDocumentContentRef.current = document?.content ?? ""
+  currentDocumentContentRef.current = editorContent
+
+  useEffect(() => {
+    setEditorContent(document?.content ?? "")
+  }, [currentDocumentId])
+
+  useEffect(() => {
+    if (!currentDocumentId || isProtectingDocumentBody) {
+      return
+    }
+
+    setEditorContent(document?.content ?? "")
+  }, [currentDocumentId, document?.content, isProtectingDocumentBody])
+
+  useEffect(() => {
+    if (!currentDocumentId) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .setDocumentBodyProtection(currentDocumentId, isProtectingDocumentBody)
+
+    return () => {
+      useAppStore.getState().setDocumentBodyProtection(currentDocumentId, false)
+    }
+  }, [currentDocumentId, isProtectingDocumentBody])
 
   useEffect(() => {
     if (previousDocumentIdRef.current === currentDocumentId) {
@@ -145,6 +250,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     previousDocumentIdRef.current = currentDocumentId
+    setLegacyActiveBlockId(null)
+    legacyActiveBlockIdRef.current = null
     setIsEditingTitle(false)
     dispatchMentionQueue({
       type: "reset-document",
@@ -182,7 +289,31 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }, [isEditingTitle])
 
   useEffect(() => {
+    if (!currentDocumentId) {
+      return
+    }
+
+    if (
+      collaborationLifecycle === "legacy" ||
+      collaborationLifecycle === "degraded"
+    ) {
+      return
+    }
+
+    useAppStore.getState().cancelDocumentSync(currentDocumentId)
+  }, [collaborationLifecycle, currentDocumentId])
+
+  useEffect(() => {
     if (!currentDocumentId || resolvedDocumentKind === "item-description") {
+      sendLegacyPresenceRef.current = null
+      setDocumentPresenceViewers([])
+      return
+    }
+
+    if (
+      collaborationLifecycle === "attached"
+    ) {
+      sendLegacyPresenceRef.current = null
       setDocumentPresenceViewers([])
       return
     }
@@ -228,7 +359,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       try {
         const viewers = await syncHeartbeatDocumentPresence(
           activeDocumentId,
-          sessionId
+          sessionId,
+          legacyActiveBlockIdRef.current
         )
 
         if (
@@ -245,6 +377,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       } finally {
         scheduleHeartbeat(DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS)
       }
+    }
+
+    sendLegacyPresenceRef.current = () => {
+      void sendHeartbeat()
     }
 
     function resumePresence() {
@@ -313,11 +449,68 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         handleVisibilityChange
       )
       window.removeEventListener("pagehide", handlePageHide)
+      sendLegacyPresenceRef.current = null
       void syncClearDocumentPresence(activeDocumentId, sessionId, {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [currentDocumentId, resolvedDocumentKind, currentUserId])
+  }, [
+    collaborationLifecycle,
+    currentDocumentId,
+    currentUserId,
+    resolvedDocumentKind,
+  ])
+  const hasLiveCollaborationPresence =
+    collaborationLifecycle === "attached"
+  const activeDocumentViewers =
+    hasLiveCollaborationPresence
+      ? collaborationViewers
+      : currentUser
+        ? [
+            {
+              userId: currentUser.id,
+              name: currentUser.name,
+              avatarUrl: currentUser.avatarUrl,
+              avatarImageUrl: currentUser.avatarImageUrl ?? null,
+              activeBlockId: legacyActiveBlockId,
+              lastSeenAt: new Date().toISOString(),
+            },
+            ...documentPresenceViewers,
+          ]
+        : documentPresenceViewers
+  const otherDocumentViewers = activeDocumentViewers.filter(
+    (viewer) => viewer.userId !== currentUserId
+  )
+  const handleLegacyActiveBlockChange = useCallback(
+    (activeBlockId: string | null) => {
+      legacyActiveBlockIdRef.current = activeBlockId
+      setLegacyActiveBlockId(activeBlockId)
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (
+      hasLiveCollaborationPresence ||
+      !currentDocumentId ||
+      resolvedDocumentKind === "item-description"
+    ) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      sendLegacyPresenceRef.current?.()
+    }, DOCUMENT_PRESENCE_BLOCK_CHANGE_DELAY_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    hasLiveCollaborationPresence,
+    currentDocumentId,
+    legacyActiveBlockId,
+    resolvedDocumentKind,
+  ])
   const activePendingMentionEntries = useMemo(
     () => getPendingDocumentMentionEntries(mentionQueue),
     [mentionQueue]
@@ -474,17 +667,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
   }, [hasPendingMentionNotifications])
 
-  if (!document || document.kind === "item-description") {
-    if (deletingDocument) {
-      return null
-    }
-
-    return <MissingState title="Document not found" />
-  }
-
   const loadedDocument = document
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
-  const loadedDocumentId = loadedDocument.id
+  const loadedDocumentId = loadedDocument?.id ?? documentId
 
   function clearPendingMentionBatch() {
     dispatchMentionQueue({
@@ -525,7 +710,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     setSendingMentionNotifications(true)
 
     try {
-      await useAppStore.getState().flushDocumentSync(loadedDocumentId)
+      if (isCollaborationAttached) {
+        await flushCollaboration()
+      } else {
+        await useAppStore.getState().flushDocumentSync(loadedDocumentId)
+      }
 
       const result = (await syncSendDocumentMentionNotifications(
         loadedDocumentId,
@@ -559,9 +748,23 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     setIsEditingTitle(false)
     setDraftTitle(normalizedTitle)
 
-    if (normalizedTitle !== loadedDocument.title) {
-      useAppStore.getState().renameDocument(loadedDocumentId, normalizedTitle)
+    if (normalizedTitle === (loadedDocument?.title ?? "")) {
+      return
     }
+
+    if (isCollaborationAttached && editorInstanceRef.current) {
+      updateCollaborativeDocumentTitle(
+        editorInstanceRef.current,
+        normalizedTitle
+      )
+      return
+    }
+
+    if (isCollaborationBootstrapping) {
+      return
+    }
+
+    useAppStore.getState().renameDocument(loadedDocumentId, normalizedTitle)
   }
 
   async function handleDeleteDocument() {
@@ -593,6 +796,49 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     completePendingExit()
   }
 
+  const handleDocumentContentChange = useCallback(
+    (content: string) => {
+      currentDocumentContentRef.current = content
+      setEditorContent(content)
+
+      if (isCollaborationAttached) {
+        useAppStore
+          .getState()
+          .applyDocumentCollaborationContent(loadedDocumentId, content)
+        return
+      }
+
+      if (isCollaborationBootstrapping) {
+        return
+      }
+
+      useAppStore.getState().updateDocumentContent(loadedDocumentId, content)
+    },
+    [isCollaborationAttached, isCollaborationBootstrapping, loadedDocumentId]
+  )
+
+  const handleDocumentAttachmentUpload = useCallback(
+    (file: File) =>
+      useAppStore.getState().uploadAttachment("document", loadedDocumentId, file),
+    [loadedDocumentId]
+  )
+
+  if (!loadedDocument || loadedDocument.kind === "item-description") {
+    if (deletingDocument) {
+      return null
+    }
+
+    if (!hasLoadedDocumentReadModel) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Loading document...
+        </div>
+      )
+    }
+
+    return <MissingState title="Document not found" />
+  }
+
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -606,7 +852,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
               Docs
             </Link>
             <span className="text-muted-foreground/50">/</span>
-            {editable ? (
+            {editable && !isCollaborationBootstrapping ? (
               isEditingTitle ? (
                 <Input
                   ref={titleInputRef}
@@ -643,7 +889,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
               {documentStats.words} words · {documentStats.characters}{" "}
               characters
             </span>
-            <DocumentPresenceAvatarGroup viewers={documentPresenceViewers} />
+            <DocumentPresenceAvatarGroup
+              viewers={otherDocumentViewers}
+              compact
+              className="ml-1.5"
+            />
             {editable ? (
               <Button
                 size="sm"
@@ -660,23 +910,23 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <RichTextEditor
-            content={document.content}
-            editable={editable}
+            content={editorContent}
+            collaboration={collaboration ?? undefined}
+            currentPresenceUserId={currentUserId}
+            editable={editable && !isCollaborationBootstrapping}
+            editorInstanceRef={editorInstanceRef}
             fullPage
             showStats={false}
             placeholder="Start writing..."
             mentionCandidates={mentionCandidates}
             onMentionCountsChange={handleMentionCountsChange}
             onStatsChange={setDocumentStats}
-            onChange={(content) =>
-              useAppStore.getState().updateDocumentContent(document.id, content)
-            }
+            onChange={handleDocumentContentChange}
+            presenceViewers={otherDocumentViewers}
+            onActiveBlockChange={handleLegacyActiveBlockChange}
             onUploadAttachment={
               document.kind === "team-document"
-                ? (file) =>
-                    useAppStore
-                      .getState()
-                      .uploadAttachment("document", document.id, file)
+                ? handleDocumentAttachmentUpload
                 : undefined
             }
           />

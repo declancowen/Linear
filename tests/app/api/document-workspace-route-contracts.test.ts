@@ -22,6 +22,10 @@ const reconcileAuthenticatedAppContextMock = vi.fn()
 const reconcileProviderMembershipCleanupMock = vi.fn()
 const reconcileDeletedAccountProviderCleanupMock = vi.fn()
 const logProviderErrorMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
+const resolveDocumentReadModelScopeKeysServerMock = vi.fn()
+const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -46,6 +50,7 @@ vi.mock("@/lib/server/convex", () => ({
   cancelCurrentAccountDeletionServer: cancelCurrentAccountDeletionServerMock,
   enqueueEmailJobsServer: enqueueEmailJobsServerMock,
   enqueueMentionEmailJobsServer: enqueueMentionEmailJobsServerMock,
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
@@ -71,6 +76,15 @@ vi.mock("@/lib/server/provider-errors", () => ({
   logProviderError: logProviderErrorMock,
 }))
 
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  resolveDocumentReadModelScopeKeysServer:
+    resolveDocumentReadModelScopeKeysServerMock,
+  bumpDocumentIndexReadModelScopesServer:
+    bumpDocumentIndexReadModelScopesServerMock,
+  bumpWorkspaceMembershipReadModelScopesServer:
+    bumpWorkspaceMembershipReadModelScopesServerMock,
+}))
+
 describe("document and workspace route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -93,6 +107,10 @@ describe("document and workspace route contracts", () => {
     reconcileProviderMembershipCleanupMock.mockReset()
     reconcileDeletedAccountProviderCleanupMock.mockReset()
     logProviderErrorMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockReset()
+    resolveDocumentReadModelScopeKeysServerMock.mockReset()
+    bumpDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -121,6 +139,12 @@ describe("document and workspace route contracts", () => {
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
     reconcileProviderMembershipCleanupMock.mockResolvedValue(undefined)
     reconcileDeletedAccountProviderCleanupMock.mockResolvedValue(undefined)
+    bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    resolveDocumentReadModelScopeKeysServerMock.mockResolvedValue([
+      "document-detail:document_1",
+    ])
+    bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
 
   it("maps comment creation domain failures to typed error responses", async () => {

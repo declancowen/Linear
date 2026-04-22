@@ -34,6 +34,7 @@ import {
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
+import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-models"
 import {
   canAdminWorkspace,
   getAccessibleTeams,
@@ -58,6 +59,11 @@ import {
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
 import { blurActiveElement } from "@/lib/browser/focus"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import {
+  createShellContextScopeKey,
+  createWorkspaceMembershipScopeKey,
+} from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
@@ -250,6 +256,16 @@ export function AppShell({ children }: AppShellProps) {
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
   const activeCreateDialog = useAppStore((state) => state.ui.activeCreateDialog)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId) && Boolean(currentWorkspaceId),
+    scopeKeys: currentWorkspaceId
+      ? [
+          createShellContextScopeKey(),
+          createWorkspaceMembershipScopeKey(currentWorkspaceId),
+        ]
+      : [],
+    fetchLatest: async () => fetchWorkspaceMembershipReadModel(currentWorkspaceId),
+  })
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
   )

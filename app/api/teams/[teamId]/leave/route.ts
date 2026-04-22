@@ -4,6 +4,7 @@ import { ApplicationError } from "@/lib/server/application-errors"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { leaveTeamServer } from "@/lib/server/convex"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -34,6 +35,8 @@ export async function DELETE(
       return appContext
     }
 
+    const fallbackWorkspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+
     const result = await leaveTeamServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
@@ -45,6 +48,10 @@ export async function DELETE(
     })
 
     await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    const workspaceId = result?.workspaceId ?? fallbackWorkspaceId
+    if (workspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    }
 
     return jsonOk({
       ok: true,

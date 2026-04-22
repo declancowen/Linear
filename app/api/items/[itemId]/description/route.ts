@@ -18,6 +18,7 @@ import {
 
 const itemDescriptionSchema = z.object({
   content: z.string().trim().min(1),
+  expectedUpdatedAt: z.string().datetime().optional(),
 })
 
 export async function PATCH(
@@ -48,14 +49,20 @@ export async function PATCH(
       return appContext
     }
 
-    await updateItemDescriptionServer({
+    const result = await updateItemDescriptionServer({
       currentUserId: appContext.ensuredUser.userId,
       itemId,
       content: parsed.content,
+      expectedUpdatedAt: parsed.expectedUpdatedAt,
     })
+
+    if (!result || typeof result.updatedAt !== "string") {
+      throw new Error("Item description update did not return an updated timestamp")
+    }
 
     return jsonOk({
       ok: true,
+      updatedAt: result.updatedAt,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { projectSchema } from "@/lib/domain/types"
 import { createProjectServer } from "@/lib/server/convex"
+import { bumpProjectIndexReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
+    await bumpProjectIndexReadModelScopesServer(parsed.scopeType, parsed.scopeId)
 
     return jsonOk({
       ok: true,

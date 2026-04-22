@@ -164,6 +164,7 @@ last_updated: 2026-04-22
   - cursor/selection state
 - Keep durable document state and lifecycle in Convex.
 - Break the global snapshot into scoped read models plus scoped invalidation/refetch.
+- Define the target sync model for every current snapshot-backed product surface, not only the first migration wave.
 - Keep provider migration cost bounded by isolating PartyKit-specific code behind adapters.
 
 ## Non-Goals
@@ -225,6 +226,110 @@ last_updated: 2026-04-22
   - current workspace and navigation context
   - reconnect/full recovery flows
 
+### Full-Surface Read-Model Coverage
+- `ShellContextReadModel`
+  - scope: current user + current workspace shell
+  - powers: app bootstrap, shell chrome, current workspace selection, core navigation context
+  - transport: `HTTP` bootstrap plus scoped `SSE` invalidation for shell-level counters/metadata when needed
+- `WorkspaceMembershipReadModel`
+  - scope: current workspace memberships, teams, visible users, invites/admin context
+  - powers: workspace/team membership visibility, settings/member management, invite/admin surfaces
+  - covers snapshot domains: `workspaces`, `teams`, `workspaceMemberships`, `teamMemberships`, `users`, `invites`
+  - transport: scoped `SSE` invalidation + refetch
+- `WorkIndexReadModel`
+  - scope: assigned, team/workspace work surfaces, saved work views, boards/timelines/list surfaces
+  - powers: `/assigned`, work surfaces, saved work views, work-search seed data
+  - covers snapshot domains: `labels`, `workItems`, view-backed work summaries, work-surface filter metadata
+  - transport: scoped `SSE` invalidation + refetch
+- `WorkItemDetailReadModel`
+  - scope: one work item plus related metadata, comments, attachments, linked entities, non-editor description context
+  - powers: `/items/[itemId]`
+  - covers snapshot domains: `workItems`, `labels`, `documents` for linked docs and description references, `comments`, `attachments`, related `projects`, related `milestones`
+  - transport: scoped `SSE` invalidation + refetch for metadata/comments/attachments; `PartyKit + Yjs` only for active description editing
+- `DocumentIndexReadModel`
+  - scope: workspace/team/private document listings and related summary metadata
+  - powers: `/workspace/docs`, team docs lists, linked-document selectors
+  - covers snapshot domains: `documents` list summaries and linked-document selection state
+  - transport: scoped `SSE` invalidation + refetch
+- `DocumentDetailReadModel`
+  - scope: one standalone document and related non-editor metadata
+  - powers: `/docs/[documentId]`
+  - covers snapshot domains: `documents`, `comments`, `attachments`
+  - transport: scoped `SSE` invalidation + refetch for metadata/comments/attachments; `PartyKit + Yjs` only for active editor state
+- `ProjectIndexReadModel`
+  - scope: workspace/team project collections and project board/list summaries
+  - powers: `/workspace/projects`, team/project collections, project pickers
+  - covers snapshot domains: `projects`
+  - transport: scoped `SSE` invalidation + refetch
+- `ProjectDetailReadModel`
+  - scope: one project plus milestones, updates, related work summaries, scoped views
+  - powers: `/projects/[projectId]`
+  - covers snapshot domains: `projects`, `milestones`, `projectUpdates`, related `workItems`, related `views`
+  - transport: scoped `SSE` invalidation + refetch
+- `ViewCatalogReadModel`
+  - scope: saved views for work/docs/projects by workspace/team/container
+  - powers: `/workspace/views`, view selectors, create/update/delete view flows
+  - covers snapshot domains: `views`
+  - transport: scoped `SSE` invalidation + refetch
+- `NotificationInboxReadModel`
+  - scope: current user notifications and archive state
+  - powers: `/inbox`
+  - covers snapshot domains: `notifications`
+  - transport: scoped `SSE` invalidation + refetch
+- `ConversationListReadModel`
+  - scope: direct/group conversations visible to the user
+  - powers: `/chats` list and chat navigation
+  - covers snapshot domains: `conversations`
+  - transport: scoped `SSE` invalidation + refetch
+- `ConversationThreadReadModel`
+  - scope: one direct/group chat thread
+  - powers: active chat thread screen
+  - covers snapshot domains: `conversations`, `calls`, `chatMessages`
+  - transport: scoped `SSE` invalidation + refetch initially; append-delta optimization remains optional follow-on work
+- `ChannelFeedReadModel`
+  - scope: workspace/team channels, posts, comments, and active channel thread
+  - powers: `/workspace/channels`, `/workspace/channel`, team channel equivalents
+  - covers snapshot domains: `conversations` for channel containers, `channelPosts`, `channelPostComments`
+  - transport: scoped `SSE` invalidation + refetch initially; append-delta optimization remains optional follow-on work
+- `SearchSeedReadModel`
+  - scope: lightweight entity/navigation/search seed data needed for app search and create flows
+  - powers: `/workspace/search`, command/search launchers, create-action seeders
+  - covers snapshot domains: search/navigation projections derived from `teams`, `projects`, `documents`, `workItems`, `views`, `conversations`, and notification/navigation metadata
+  - transport: `HTTP` query plus scoped `SSE` invalidation where the client caches search seed state
+
+### Snapshot Field Coverage Check
+- The current snapshot state shape in `selectAppDataSnapshot(...)` is covered as follows:
+  - `currentUserId`, `currentWorkspaceId`, `ui` -> `ShellContextReadModel`
+  - `workspaces`, `teams`, `workspaceMemberships`, `teamMemberships`, `users`, `invites` -> `WorkspaceMembershipReadModel`
+  - `labels` -> `WorkIndexReadModel` and `WorkItemDetailReadModel`
+  - `projects` -> `ProjectIndexReadModel`, `ProjectDetailReadModel`, and linked references from work/document detail models
+  - `milestones` -> `ProjectDetailReadModel` and `WorkItemDetailReadModel`
+  - `workItems` -> `WorkIndexReadModel`, `WorkItemDetailReadModel`, `ProjectDetailReadModel`, and `SearchSeedReadModel`
+  - `documents` -> `DocumentIndexReadModel`, `DocumentDetailReadModel`, `WorkItemDetailReadModel`, and collaborative editor bootstrap
+  - `views` -> `ViewCatalogReadModel`, plus linked references from work/project surfaces
+  - `comments`, `attachments` -> `DocumentDetailReadModel` and `WorkItemDetailReadModel`
+  - `notifications` -> `NotificationInboxReadModel`
+  - `projectUpdates` -> `ProjectDetailReadModel`
+  - `conversations` -> `ConversationListReadModel`, `ConversationThreadReadModel`, and `ChannelFeedReadModel`
+  - `calls` -> `ConversationThreadReadModel`
+  - `chatMessages` -> `ConversationThreadReadModel`
+  - `channelPosts`, `channelPostComments` -> `ChannelFeedReadModel`
+- No current snapshot-backed domain is intended to remain owned solely by the legacy global snapshot in the target state.
+
+### Full-Surface Rollout Scope
+- This spec now covers the target implementation path for all current snapshot-backed product surfaces:
+  - shell/bootstrap
+  - memberships/invites/admin/settings
+  - work indexes and work item detail
+  - documents
+  - projects
+  - views
+  - notifications inbox
+  - chat conversation lists and threads
+  - channel feeds and post threads
+  - search seed/navigation surfaces
+- Auth-only pages, onboarding flows, and routes that do not currently depend on the app snapshot are outside this migration scope.
+
 ### End-to-End Flow
 1. The app bootstraps a bounded shell context over `HTTP`; no collaborative transport is required for shell load.
 2. A document detail or work item detail screen loads its scoped Convex-backed read model over normal application paths.
@@ -245,6 +350,7 @@ last_updated: 2026-04-22
 - Migrate `DocumentDetailScreen` and work item description editing in `WorkItemDetailScreen` to shared collaborative-document hooks.
 - Replace editor-specific heartbeat presence on migrated surfaces with Yjs awareness-driven presence.
 - Refactor the global provider/store path so migrated surfaces subscribe to scoped models instead of depending on `replaceDomainData(snapshot)`.
+- Preserve existing editor product capabilities on migrated surfaces, including formatting controls, slash commands, mentions, attachment/image insertion flows, and current title synchronization semantics.
 
 #### API or Application Layer
 - Add app routes for:
@@ -290,6 +396,7 @@ last_updated: 2026-04-22
 - Keep `SSE` payloads to scope/version envelopes, not full models.
 - Keep collaborative persistence batched and amortized; do not write on every keystroke.
 - Keep a recovery path: if the room is cold or lost, rehydrate from Convex and continue.
+- The end state is that no hot product surface depends on whole-app `replaceDomainData(snapshot)` as its primary freshness mechanism.
 
 #### Observability and Operations
 - Add metrics/logs for:
@@ -529,6 +636,22 @@ last_updated: 2026-04-22
   - architecture docs
   - rollout communication
   - follow-on specs
+
+### DES-008: Collaboration mode must preserve current editor product capabilities on migrated surfaces
+- Context:
+  - The current `RichTextEditor` and document/work item screens already support formatting, mentions, slash commands, title synchronization, and attachment/image insertion flows.
+- Decision:
+  - The first collaboration rollout preserves those existing product capabilities on migrated surfaces rather than shipping a reduced “collab-only” editor.
+- Rationale:
+  - Realtime collaboration is an architecture upgrade, not permission to regress core editing behavior.
+- Tradeoffs:
+  - More extension glue and test coverage are needed in the collaboration path.
+- Affected surfaces:
+  - `RichTextEditor`
+  - document detail
+  - work item detail
+  - attachment/image flows
+  - mention and title behavior
 
 ## Risk Register
 - Risk:

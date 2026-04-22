@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { inviteSchema } from "@/lib/domain/types"
 import { createInviteServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -40,12 +41,17 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
+    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+
     const createdInvites = await createInviteServer({
       currentUserId: appContext.ensuredUser.userId,
       teamIds: parsed.teamIds,
       email: parsed.email,
       role: parsed.role,
     })
+    if (workspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    }
 
     return jsonOk({
       ok: true,

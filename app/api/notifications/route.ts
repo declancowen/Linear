@@ -6,6 +6,7 @@ import {
   archiveNotificationServer,
   unarchiveNotificationServer,
 } from "@/lib/server/convex"
+import { bumpNotificationInboxReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -70,6 +71,7 @@ export async function PATCH(request: NextRequest) {
         notificationId,
       })
     }
+    await bumpNotificationInboxReadModelScopesServer([currentUserId])
 
     return jsonOk({ ok: true })
   } catch (error) {

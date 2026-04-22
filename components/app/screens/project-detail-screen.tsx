@@ -26,6 +26,9 @@ import {
 } from "@/lib/domain/types"
 import { createViewDefinition } from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
+import { fetchProjectDetailReadModel } from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { createProjectDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
@@ -62,6 +65,11 @@ import { cn } from "@/lib/utils"
 
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
+  useScopedReadModelRefresh({
+    enabled: true,
+    scopeKeys: [createProjectDetailScopeKey(projectId)],
+    fetchLatest: () => fetchProjectDetailReadModel(projectId),
+  })
   const searchParams = useSearchParams()
   const projectModel = getProjectDetailModel(data, projectId)
   const projectRoute = projectModel?.detailHref ?? null

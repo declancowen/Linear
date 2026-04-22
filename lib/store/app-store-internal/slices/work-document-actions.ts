@@ -14,13 +14,15 @@ import {
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
 import { documentSchema } from "@/lib/domain/types"
+import {
+  extractDocumentTitleFromContent,
+  replaceDocumentHeading,
+} from "@/lib/content/document-title"
 
 import {
   createId,
-  extractDocumentTitleFromContent,
   getAttachmentTeamId,
   getNow,
-  replaceDocumentHeading,
 } from "../helpers"
 import {
   canEditWorkspaceDocuments,
@@ -37,18 +39,66 @@ export function createWorkDocumentActions({
 }: WorkSliceFactoryArgs): Pick<
   WorkSlice,
   | "updateDocumentContent"
+  | "cancelDocumentSync"
+  | "applyDocumentCollaborationContent"
   | "flushDocumentSync"
   | "renameDocument"
   | "deleteDocument"
   | "updateItemDescription"
+  | "cancelItemDescriptionSync"
+  | "applyItemDescriptionCollaborationContent"
   | "saveWorkItemMainSection"
   | "uploadAttachment"
   | "deleteAttachment"
   | "createDocument"
 > {
+  function markDocumentPersisted(
+    documentId: string,
+    updatedAt: string,
+    currentUserId: string
+  ) {
+    set((state) => ({
+      documents: state.documents.map((document) =>
+        document.id === documentId
+          ? {
+              ...document,
+              updatedAt,
+              updatedBy: currentUserId,
+            }
+          : document
+      ),
+    }))
+  }
+
+  function markItemDescriptionPersisted(
+    itemId: string,
+    documentId: string,
+    updatedAt: string,
+    currentUserId: string
+  ) {
+    set((state) => ({
+      documents: state.documents.map((document) =>
+        document.id === documentId
+          ? {
+              ...document,
+              updatedAt,
+              updatedBy: currentUserId,
+            }
+          : document
+      ),
+      workItems: state.workItems.map((entry) =>
+        entry.id === itemId
+          ? {
+              ...entry,
+              updatedAt,
+            }
+          : entry
+      ),
+    }))
+  }
+
   return {
     updateDocumentContent(documentId, content) {
-      const updatedAt = getNow()
       const nextTitle = extractDocumentTitleFromContent(content)
 
       set((state) => ({
@@ -58,17 +108,23 @@ export function createWorkDocumentActions({
                 ...document,
                 content,
                 title: nextTitle ?? document.title,
-                updatedAt,
-                updatedBy: state.currentUserId,
               }
             : document
         ),
       }))
 
+      if (get().protectedDocumentIds.includes(documentId)) {
+        return
+      }
+
       runtime.queueRichTextSync(
         `document:${documentId}`,
         () => {
           const state = get()
+          if (state.protectedDocumentIds.includes(documentId)) {
+            return null
+          }
+
           const document = state.documents.find(
             (entry) => entry.id === documentId
           )
@@ -80,16 +136,40 @@ export function createWorkDocumentActions({
           return syncUpdateDocument(documentId, {
             title: document.title,
             content: document.content,
+            expectedUpdatedAt: document.updatedAt,
+          }).then((result) => {
+            markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
           })
         },
-        "Failed to update document"
+        "Failed to update document",
+        {
+          refreshStrategy: "none",
+        }
       )
+    },
+    cancelDocumentSync(documentId) {
+      runtime.cancelRichTextSync(`document:${documentId}`)
+    },
+    applyDocumentCollaborationContent(documentId, content) {
+      runtime.cancelRichTextSync(`document:${documentId}`)
+      const nextTitle = extractDocumentTitleFromContent(content)
+
+      set((state) => ({
+        documents: state.documents.map((document) =>
+          document.id === documentId
+            ? {
+                ...document,
+                content,
+                title: nextTitle ?? document.title,
+              }
+            : document
+        ),
+      }))
     },
     async flushDocumentSync(documentId) {
       await runtime.flushRichTextSync(`document:${documentId}`)
     },
     renameDocument(documentId, title) {
-      const updatedAt = getNow()
       const normalizedTitle = title.trim() || "Untitled document"
 
       set((state) => ({
@@ -102,17 +182,23 @@ export function createWorkDocumentActions({
                   document.content,
                   normalizedTitle
                 ),
-                updatedAt,
-                updatedBy: state.currentUserId,
               }
             : document
         ),
       }))
 
+      if (get().protectedDocumentIds.includes(documentId)) {
+        return
+      }
+
       runtime.queueRichTextSync(
         `document:${documentId}`,
         () => {
           const state = get()
+          if (state.protectedDocumentIds.includes(documentId)) {
+            return null
+          }
+
           const document = state.documents.find(
             (entry) => entry.id === documentId
           )
@@ -124,9 +210,15 @@ export function createWorkDocumentActions({
           return syncUpdateDocument(documentId, {
             title: document.title,
             content: document.content,
+            expectedUpdatedAt: document.updatedAt,
+          }).then((result) => {
+            markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
           })
         },
-        "Failed to update document"
+        "Failed to update document",
+        {
+          refreshStrategy: "none",
+        }
       )
     },
     async deleteDocument(documentId) {
@@ -190,8 +282,6 @@ export function createWorkDocumentActions({
       }
     },
     updateItemDescription(itemId, content) {
-      const updatedAt = getNow()
-
       set((state) => {
         const item = state.workItems.find((entry) => entry.id === itemId)
         if (!item) {
@@ -205,16 +295,21 @@ export function createWorkDocumentActions({
               ? {
                   ...document,
                   content,
-                  updatedAt,
-                  updatedBy: state.currentUserId,
                 }
               : document
           ),
-          workItems: state.workItems.map((entry) =>
-            entry.id === itemId ? { ...entry, updatedAt } : entry
-          ),
         }
       })
+
+      const currentItem = get().workItems.find((entry) => entry.id === itemId)
+      const descriptionDocumentId = currentItem?.descriptionDocId ?? null
+
+      if (
+        descriptionDocumentId &&
+        get().protectedDocumentIds.includes(descriptionDocumentId)
+      ) {
+        return
+      }
 
       runtime.queueRichTextSync(
         `item-description:${itemId}`,
@@ -223,6 +318,13 @@ export function createWorkDocumentActions({
           const item = state.workItems.find((entry) => entry.id === itemId)
 
           if (!item) {
+            return null
+          }
+
+          if (
+            item.descriptionDocId &&
+            state.protectedDocumentIds.includes(item.descriptionDocId)
+          ) {
             return null
           }
 
@@ -237,11 +339,48 @@ export function createWorkDocumentActions({
           return syncUpdateItemDescription(
             state.currentUserId,
             itemId,
-            descriptionDocument.content
-          )
+            descriptionDocument.content,
+            descriptionDocument.updatedAt
+          ).then((result) => {
+            markItemDescriptionPersisted(
+              itemId,
+              descriptionDocument.id,
+              result.updatedAt,
+              state.currentUserId
+            )
+          })
         },
-        "Failed to update description"
+        "Failed to update description",
+        {
+          refreshStrategy: "none",
+        }
       )
+    },
+    cancelItemDescriptionSync(itemId) {
+      runtime.cancelRichTextSync(`item-description:${itemId}`)
+    },
+    applyItemDescriptionCollaborationContent(itemId, content) {
+      runtime.cancelRichTextSync(`item-description:${itemId}`)
+
+      set((state) => {
+        const item = state.workItems.find((entry) => entry.id === itemId)
+
+        if (!item) {
+          return state
+        }
+
+        return {
+          ...state,
+          documents: state.documents.map((document) =>
+            document.id === item.descriptionDocId
+              ? {
+                  ...document,
+                  content,
+                }
+              : document
+          ),
+        }
+      })
     },
     async saveWorkItemMainSection(input) {
       const state = get()

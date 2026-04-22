@@ -2,6 +2,7 @@ import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app
 import { ApplicationError } from "@/lib/server/application-errors"
 import { leaveWorkspaceServer } from "@/lib/server/convex"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -45,6 +46,7 @@ export async function DELETE() {
     })
 
     await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
 
     return jsonOk({
       ok: true,

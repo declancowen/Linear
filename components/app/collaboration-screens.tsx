@@ -23,6 +23,17 @@ import {
   getWorkspaceChannels,
   teamHasFeature,
 } from "@/lib/domain/selectors"
+import {
+  fetchChannelFeedReadModel,
+  fetchConversationListReadModel,
+  fetchConversationThreadReadModel,
+} from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import {
+  getChannelFeedScopeKeys,
+  getConversationListScopeKeys,
+  getConversationThreadScopeKeys,
+} from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import {
   ForumPostCard,
@@ -52,6 +63,7 @@ import {
 /* ------------------------------------------------------------------ */
 
 export function WorkspaceChannelsScreen() {
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const workspace = useAppStore((state) => getCurrentWorkspace(state))
   const channels = useAppStore(
     useShallow((state) =>
@@ -75,6 +87,16 @@ export function WorkspaceChannelsScreen() {
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
+    fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+  })
+  useScopedReadModelRefresh({
+    enabled: Boolean(activeChannel?.id),
+    scopeKeys: activeChannel ? getChannelFeedScopeKeys(activeChannel.id) : [],
+    fetchLatest: () => fetchChannelFeedReadModel(activeChannel?.id ?? ""),
+  })
   const workspaceDescription =
     workspace?.settings.description ||
     "Forum-style updates, questions, and threaded decisions for the entire workspace."
@@ -184,6 +206,7 @@ export function WorkspaceChannelsScreen() {
 /* ------------------------------------------------------------------ */
 
 export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
   const editable = useAppStore((state) =>
     team ? canEditTeam(state, team.id) : false
@@ -198,6 +221,16 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
+    fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+  })
+  useScopedReadModelRefresh({
+    enabled: Boolean(conversation?.id),
+    scopeKeys: conversation ? getConversationThreadScopeKeys(conversation.id) : [],
+    fetchLatest: () => fetchConversationThreadReadModel(conversation?.id ?? ""),
+  })
   const teamDescription =
     team?.settings.summary ||
     `One live conversation for everyone working in ${team?.name ?? "this team"}.`
@@ -312,6 +345,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
 /* ------------------------------------------------------------------ */
 
 export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
   const channels = useAppStore(
     useShallow((state) => (team ? getTeamChannels(state, team.id) : []))
@@ -336,6 +370,16 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
+    fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+  })
+  useScopedReadModelRefresh({
+    enabled: Boolean(activeChannel?.id),
+    scopeKeys: activeChannel ? getChannelFeedScopeKeys(activeChannel.id) : [],
+    fetchLatest: () => fetchChannelFeedReadModel(activeChannel?.id ?? ""),
+  })
   const teamDescription =
     team?.settings.summary ||
     `Forum-style updates, questions, and threaded decisions for ${team?.name ?? "this team"}.`

@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { documentSchema } from "@/lib/domain/types"
 import { createDocumentServer } from "@/lib/server/convex"
+import { bumpDocumentIndexReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -44,6 +45,14 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
+    const documentScopeType =
+      parsed.kind === "team-document" ? "team" : "workspace"
+    const documentScopeId =
+      parsed.kind === "team-document" ? parsed.teamId : parsed.workspaceId
+    await bumpDocumentIndexReadModelScopesServer(
+      documentScopeType,
+      documentScopeId
+    )
 
     return jsonOk({
       ok: true,

@@ -1,7 +1,12 @@
 import type { AppSnapshot } from "@/lib/domain/types"
 
 type SnapshotDiagnosticsState = {
+  collaborationFailureCount: number
+  collaborationJoinCount: number
+  fallbackCount: number
   reconnectCount: number
+  scopedReconnectCount: number
+  scopedRefreshCount: number
 }
 
 declare global {
@@ -18,6 +23,11 @@ function getState() {
   if (!window.__linearSnapshotDiagnostics) {
     window.__linearSnapshotDiagnostics = {
       reconnectCount: 0,
+      scopedReconnectCount: 0,
+      scopedRefreshCount: 0,
+      fallbackCount: 0,
+      collaborationJoinCount: 0,
+      collaborationFailureCount: 0,
     }
   }
 
@@ -73,5 +83,97 @@ export function reportSnapshotStreamReconnectDiagnostic(delayMs: number) {
   console.debug("[snapshot] reconnect scheduled", {
     delayMs,
     reconnectCount: state.reconnectCount,
+  })
+}
+
+export function reportBootstrapModeDiagnostic(mode: string) {
+  if (!isEnabled()) {
+    return
+  }
+
+  console.debug("[realtime] bootstrap mode", {
+    mode,
+  })
+}
+
+export function reportRealtimeFallbackDiagnostic(input: {
+  reason: string
+  target: string
+}) {
+  if (!isEnabled()) {
+    return
+  }
+
+  const state = getState()
+  state.fallbackCount += 1
+
+  console.warn("[realtime] fallback activated", {
+    reason: input.reason,
+    target: input.target,
+    fallbackCount: state.fallbackCount,
+  })
+}
+
+export function reportScopedReadModelDiagnostic(input: {
+  durationMs: number
+  scopeKeys: string[]
+  status: "success" | "failure"
+  errorMessage?: string
+}) {
+  if (!isEnabled()) {
+    return
+  }
+
+  const state = getState()
+  state.scopedRefreshCount += 1
+
+  console.debug("[scoped-sync] read model refresh", {
+    durationMs: roundDuration(input.durationMs),
+    scopeKeys: input.scopeKeys,
+    status: input.status,
+    errorMessage: input.errorMessage,
+    refreshCount: state.scopedRefreshCount,
+  })
+}
+
+export function reportScopedStreamReconnectDiagnostic(scopeKeys: string[]) {
+  if (!isEnabled()) {
+    return
+  }
+
+  const state = getState()
+  state.scopedReconnectCount += 1
+
+  console.debug("[scoped-sync] reconnect scheduled", {
+    reconnectCount: state.scopedReconnectCount,
+    scopeKeys,
+  })
+}
+
+export function reportCollaborationSessionDiagnostic(input: {
+  documentId: string
+  durationMs: number
+  status: "success" | "failure"
+  errorMessage?: string
+}) {
+  if (!isEnabled()) {
+    return
+  }
+
+  const state = getState()
+
+  if (input.status === "success") {
+    state.collaborationJoinCount += 1
+  } else {
+    state.collaborationFailureCount += 1
+  }
+
+  console.debug("[collaboration] session open", {
+    documentId: input.documentId,
+    durationMs: roundDuration(input.durationMs),
+    status: input.status,
+    errorMessage: input.errorMessage,
+    joinCount: state.collaborationJoinCount,
+    failureCount: state.collaborationFailureCount,
   })
 }

@@ -97,6 +97,7 @@ type WorkItemPresenceArgs = ServerAccessArgs & {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   sessionId: string
 }
 
@@ -474,6 +475,7 @@ export async function heartbeatWorkItemPresenceHandler(
 
   if (existingPresence) {
     await ctx.db.patch(existingPresence._id, {
+      activeBlockId: args.activeBlockId ?? null,
       avatarUrl: args.avatarUrl,
       avatarImageUrl: args.avatarImageUrl ?? null,
       documentId: item.descriptionDocId,
@@ -496,6 +498,7 @@ export async function heartbeatWorkItemPresenceHandler(
     }
   } else {
     await ctx.db.insert("documentPresence", {
+      activeBlockId: args.activeBlockId ?? null,
       avatarUrl: args.avatarUrl,
       avatarImageUrl: args.avatarImageUrl ?? null,
       documentId: item.descriptionDocId,

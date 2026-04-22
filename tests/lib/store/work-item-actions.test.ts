@@ -181,6 +181,52 @@ describe("work item actions", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("passes expectedUpdatedAt through sync without storing it on the item", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.updateWorkItem("parent", {
+      title: "Renamed",
+      expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
+    })
+
+    expect(state.workItems.find((item) => item.id === "parent")).toMatchObject({
+      id: "parent",
+      title: "Renamed",
+    })
+    expect(
+      state.workItems.find((item) => item.id === "parent")
+    ).not.toHaveProperty("expectedUpdatedAt")
+    expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "parent", {
+      title: "Renamed",
+      expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
   it("shifts scheduled dates in calendar-day space for timeline moves", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"

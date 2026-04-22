@@ -159,7 +159,7 @@ Negative Cases
 1. WHEN PartyKit storage is cleared, THEN this SHALL NOT delete or corrupt canonical document data.
 2. WHEN a persistence path tries to bypass existing document-safe boundaries, THEN that path SHALL be considered invalid for rollout.
 
-### REQ-FUNC-004: Scoped invalidation replaces monolithic snapshot synchronization for migrated surfaces
+### REQ-FUNC-004: Scoped invalidation replaces monolithic snapshot synchronization across snapshot-backed app surfaces
 Source Design Decisions:
 - DES-001
 - DES-005
@@ -171,7 +171,7 @@ Rationale:
 - The current global snapshot model is too coarse and directly conflicts with the repo’s target-state architecture.
 
 Requirement:
-- THE system SHALL replace global full-snapshot synchronization with scoped invalidation and scoped refetch for migrated capability surfaces, while preserving bounded HTTP bootstrap and full resync as a recovery path.
+- THE system SHALL replace global full-snapshot synchronization with scoped invalidation and scoped refetch across the current snapshot-backed app surfaces, while preserving bounded HTTP bootstrap and full resync as a recovery path.
 
 Verification Method:
 - Integration and end-to-end verification
@@ -180,8 +180,8 @@ Risk if Unmet:
 - The app keeps paying the cost of whole-store replacement and may simply reimplement the same problem on a new transport.
 
 Acceptance Criteria
-1. WHEN a migrated document surface changes, THEN only the affected document read model SHALL require refetch rather than a full app snapshot replacement.
-2. WHEN a migrated work item surface changes, THEN only the affected work item read model SHALL require refetch rather than a full app snapshot replacement.
+1. WHEN a document, work item, project, notification, conversation, channel, view, settings/admin, or search-seed surface changes, THEN only the affected scoped read model SHALL require refetch rather than a full app snapshot replacement.
+2. WHEN shell-level bootstrap data is required, THEN the shell SHALL still load through a bounded HTTP bootstrap path rather than a whole-app data graph replacement.
 3. WHEN the client reconnects or detects drift, THEN it SHALL still have an HTTP-based full recovery path.
 
 Negative Cases
@@ -216,6 +216,66 @@ Acceptance Criteria
 Negative Cases
 1. WHEN the global snapshot path still exists during migration, THEN new collaborative/editor paths SHALL NOT rely on it as their primary realtime mechanism.
 2. WHEN a screen migrates, THEN it SHALL NOT continue depending on incidental global `replaceDomainData(snapshot)` semantics for that surface’s core freshness behavior.
+
+### REQ-FUNC-007: Every current snapshot-backed surface maps to an explicit target read model and transport
+Source Design Decisions:
+- DES-001
+- DES-005
+- DES-007
+
+Priority: High
+
+Rationale:
+- If the spec leaves some surfaces unassigned, the repo can drift back into partial migration with a hidden global snapshot dependency.
+
+Requirement:
+- THE system SHALL assign every current snapshot-backed product surface to an explicit target read model and a target transport pattern of `HTTP bootstrap`, `SSE invalidation + refetch`, or `PartyKit + Yjs` where collaboration genuinely requires it.
+
+Verification Method:
+- Design, integration, and compatibility verification
+
+Risk if Unmet:
+- Some surfaces remain implicitly coupled to the monolithic snapshot, making the migration incomplete and confusing.
+
+Acceptance Criteria
+1. WHEN reviewing the migration plan, THEN shell/bootstrap, memberships/admin, work, work item detail, documents, projects, views, notifications, chats, channels, and search seed surfaces SHALL each have an explicit target model and transport.
+2. WHEN a surface remains on `SSE + refetch`, THEN the spec SHALL state that it is intentionally not using PartyKit/WebSockets for that surface.
+3. WHEN a surface uses `PartyKit + Yjs`, THEN the spec SHALL state why bidirectional session behavior is required for that surface.
+4. WHEN comparing the target plan to the current `selectAppDataSnapshot(...)` state shape, THEN every current snapshot-backed domain SHALL map to at least one explicit target read model rather than remaining an implicit residual bucket.
+
+Negative Cases
+1. WHEN a product surface is currently snapshot-backed, THEN it SHALL NOT be left as an implicit “later” migration bucket without a target-state assignment.
+2. WHEN a transport is chosen for a surface, THEN it SHALL NOT be justified only by convenience if the product behavior does not require it.
+3. WHEN a concrete snapshot-backed domain such as labels, milestones, comments, attachments, project updates, calls, or channel/thread data is only implied by a broader surface name, THEN the design SHALL still make its ownership explicit.
+
+### REQ-FUNC-006: Migrated collaborative editor surfaces preserve existing editing capabilities
+Source Design Decisions:
+- DES-004
+- DES-008
+
+Priority: High
+
+Rationale:
+- A collaboration rollout that regresses current editing behavior would create a product regression even if the realtime architecture is sound.
+
+Requirement:
+- THE system SHALL preserve the existing user-visible editing capabilities on migrated document and work item description surfaces, including formatting controls, mention insertion/counting behavior, slash-command behavior where currently enabled, attachment/image insertion flows, and current title synchronization semantics.
+
+Verification Method:
+- Component, integration, and end-to-end verification
+
+Risk if Unmet:
+- Users lose existing editing functionality on the very surfaces being upgraded, creating adoption and support problems.
+
+Acceptance Criteria
+1. WHEN a standalone document surface migrates to collaboration mode, THEN the migrated editor SHALL preserve the existing formatting and title-edit behavior expected on that surface.
+2. WHEN mentions are inserted or removed in collaboration mode, THEN mention counting and mention-notification preparation behavior SHALL remain compatible with the current product flow.
+3. WHEN a migrated surface currently supports attachment or image insertion, THEN that insertion flow SHALL continue to function in collaboration mode.
+4. WHEN slash commands are enabled on a migrated surface today, THEN they SHALL remain available after migration unless explicitly removed by a separate product decision.
+
+Negative Cases
+1. WHEN collaboration mode is enabled, THEN the surface SHALL NOT silently drop existing editor capabilities just because the transport changed.
+2. WHEN a capability cannot yet be preserved safely, THEN the surface SHALL NOT be considered rollout-ready until the gap is resolved or explicitly descoped by a separate design decision.
 
 ### REQ-SEC-001: Collaboration authorization is app-issued and least-privilege
 Source Design Decisions:
@@ -363,10 +423,11 @@ Negative Cases
 1. WHEN a migration phase is active, THEN the team SHALL NOT rely solely on ad hoc manual browser testing as the only release signal.
 
 ## Traceability Matrix
-- DES-001 -> REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-004, REQ-FUNC-005, REQ-NFR-001, REQ-NFR-002
+- DES-001 -> REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-004, REQ-FUNC-005, REQ-FUNC-007, REQ-NFR-001, REQ-NFR-002
 - DES-002 -> REQ-FUNC-001, REQ-FUNC-003, REQ-DATA-001, REQ-SEC-001, REQ-NFR-001, REQ-OPS-001
 - DES-003 -> REQ-FUNC-003, REQ-DATA-001, REQ-SEC-002
-- DES-004 -> REQ-FUNC-001, REQ-FUNC-002
-- DES-005 -> REQ-FUNC-004, REQ-FUNC-005, REQ-NFR-001, REQ-NFR-002, REQ-OPS-001
+- DES-004 -> REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-006
+- DES-005 -> REQ-FUNC-004, REQ-FUNC-005, REQ-FUNC-007, REQ-NFR-001, REQ-NFR-002, REQ-OPS-001
 - DES-006 -> REQ-FUNC-001, REQ-SEC-001, REQ-SEC-002
-- DES-007 -> REQ-FUNC-004, REQ-FUNC-005, REQ-OPS-001
+- DES-007 -> REQ-FUNC-004, REQ-FUNC-005, REQ-FUNC-007, REQ-OPS-001
+- DES-008 -> REQ-FUNC-006

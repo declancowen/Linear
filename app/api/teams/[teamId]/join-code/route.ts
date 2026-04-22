@@ -6,6 +6,7 @@ import {
 } from "@/lib/server/application-errors"
 import { regenerateTeamJoinCodeServer } from "@/lib/server/convex"
 import { withGeneratedJoinCode } from "@/lib/server/join-codes"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -45,6 +46,8 @@ export async function POST(
       return appContext
     }
 
+    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+
     const result = await withGeneratedJoinCode((joinCode) =>
       regenerateTeamJoinCodeServer({
         currentUserId: appContext.ensuredUser.userId,
@@ -52,6 +55,9 @@ export async function POST(
         joinCode,
       })
     )
+    if (workspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    }
 
     return jsonOk({
       ok: true,

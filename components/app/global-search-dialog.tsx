@@ -19,6 +19,9 @@ import {
   queryWorkspaceSearchIndex,
 } from "@/lib/domain/selectors"
 import type { GlobalCreateAction } from "@/lib/domain/search-create-actions"
+import { fetchSearchSeedReadModel } from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { getSearchSeedScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
@@ -111,6 +114,15 @@ export function GlobalSearchDialog({
   fullSearchShortcutKeys: string[]
 }) {
   const router = useRouter()
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  useScopedReadModelRefresh({
+    enabled: open && Boolean(currentWorkspaceId),
+    scopeKeys:
+      open && currentWorkspaceId
+        ? getSearchSeedScopeKeys(currentWorkspaceId)
+        : [],
+    fetchLatest: () => fetchSearchSeedReadModel(currentWorkspaceId),
+  })
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState("")
   const searchQuery = useDeferredValue(query)

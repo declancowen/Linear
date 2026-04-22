@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist_Mono, Noto_Sans } from "next/font/google"
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components"
 
@@ -26,6 +26,14 @@ export const metadata: Metadata = {
   },
 }
 
+export const viewport: Viewport = {
+  colorScheme: "light dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fdfdfd" },
+    { media: "(prefers-color-scheme: dark)", color: "#161616" },
+  ],
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -41,7 +49,7 @@ export default function RootLayout({
         "font-sans",
         notoSans.variable
       )}
-      >
+    >
       <body>
         <AuthKitProvider>
           <ThemeProvider>

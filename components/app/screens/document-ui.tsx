@@ -27,6 +27,7 @@ import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { canEditDocumentInUi, getUserInitials } from "./helpers"
 
 const MAX_VISIBLE_DOCUMENT_VIEWERS = 3
+const COMPACT_DOCUMENT_PRESENCE_COUNT_CLASS_NAME = "size-[18px] text-[8px]"
 
 function DocumentActionMenuContent({
   document,
@@ -119,20 +120,46 @@ export function DocumentAuthorAvatar({
   avatarUrl,
   name,
   className,
+  size = "sm",
   title,
 }: {
   avatarImageUrl?: string | null
   avatarUrl?: string | null
   name: string
   className?: string
+  size?: "xs" | "compact" | "sm"
   title?: string
 }) {
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
+  const compactStyle =
+    size === "compact"
+      ? {
+          width: "18px",
+          height: "18px",
+          minWidth: "18px",
+          minHeight: "18px",
+          maxWidth: "18px",
+          maxHeight: "18px",
+          flexBasis: "18px",
+        }
+      : undefined
 
   return (
-    <Avatar size="sm" className={cn("size-5", className)} title={title}>
+    <Avatar
+      size={size === "compact" ? "default" : size}
+      style={compactStyle}
+      className={cn(
+        size === "sm"
+          ? "size-5"
+          : size === "compact"
+            ? "size-[18px]"
+            : undefined,
+        className
+      )}
+      title={title}
+    >
       {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
-      <AvatarFallback className="text-[9px]">
+      <AvatarFallback className={size === "compact" ? "text-[8px]" : undefined}>
         {getUserInitials(name)}
       </AvatarFallback>
     </Avatar>
@@ -141,8 +168,12 @@ export function DocumentAuthorAvatar({
 
 export function DocumentPresenceAvatarGroup({
   viewers,
+  compact = false,
+  className,
 }: {
   viewers: DocumentPresenceViewer[]
+  compact?: boolean
+  className?: string
 }) {
   if (viewers.length === 0) {
     return null
@@ -154,7 +185,7 @@ export function DocumentPresenceAvatarGroup({
 
   return (
     <div
-      className="flex items-center"
+      className={cn("flex items-center", className)}
       aria-label={`Also viewing: ${viewerNames}`}
       title={`Also viewing: ${viewerNames}`}
     >
@@ -165,11 +196,18 @@ export function DocumentPresenceAvatarGroup({
             avatarImageUrl={viewer.avatarImageUrl}
             avatarUrl={viewer.avatarUrl}
             name={viewer.name}
+            size={compact ? "compact" : "sm"}
             title={viewer.name}
           />
         ))}
         {hiddenViewerCount > 0 ? (
-          <AvatarGroupCount className="size-5 text-[9px]">
+          <AvatarGroupCount
+            className={
+              compact
+                ? COMPACT_DOCUMENT_PRESENCE_COUNT_CLASS_NAME
+                : "size-5 text-[9px]"
+            }
+          >
             +{hiddenViewerCount}
           </AvatarGroupCount>
         ) : null}

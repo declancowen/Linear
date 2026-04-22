@@ -494,6 +494,7 @@ export async function heartbeatWorkItemPresenceServer(input: {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   sessionId: string
 }): Promise<DocumentPresenceViewer[]> {
   try {

@@ -11,6 +11,8 @@ const syncCreateAttachmentMock = vi.fn()
 const syncCreateDocumentMock = vi.fn()
 const syncDeleteAttachmentMock = vi.fn()
 const syncGenerateAttachmentUploadUrlMock = vi.fn()
+const syncUpdateDocumentMock = vi.fn()
+const syncUpdateItemDescriptionMock = vi.fn()
 const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
 const toastSuccessMock = vi.fn()
@@ -28,9 +30,9 @@ vi.mock("@/lib/convex/client", () => ({
   syncDeleteAttachment: syncDeleteAttachmentMock,
   syncDeleteDocument: vi.fn(),
   syncGenerateAttachmentUploadUrl: syncGenerateAttachmentUploadUrlMock,
-  syncUpdateDocument: vi.fn(),
+  syncUpdateDocument: syncUpdateDocumentMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
-  syncUpdateItemDescription: vi.fn(),
+  syncUpdateItemDescription: syncUpdateItemDescriptionMock,
 }))
 
 function createState() {
@@ -38,6 +40,7 @@ function createState() {
     ...createEmptyState(),
     currentUserId: "user_1",
     currentWorkspaceId: "workspace_1",
+    protectedDocumentIds: [],
     teams: [
       {
         id: "team_1",
@@ -120,6 +123,8 @@ describe("work document actions", () => {
     syncCreateDocumentMock.mockReset()
     syncDeleteAttachmentMock.mockReset()
     syncGenerateAttachmentUploadUrlMock.mockReset()
+    syncUpdateDocumentMock.mockReset()
+    syncUpdateItemDescriptionMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
     toastErrorMock.mockReset()
     toastSuccessMock.mockReset()
@@ -467,5 +472,223 @@ describe("work document actions", () => {
       expect.any(RouteMutationError),
       "This work item changed while you were editing. Review the latest version and try again."
     )
+  })
+
+  it("sends the last known server version for document body syncs", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncUpdateDocumentMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:05:00.000Z",
+    })
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.updateDocumentContent(
+      "document_1",
+      "<h1>Launch plan</h1><p>Updated details</p>"
+    )
+
+    expect(state.documents.find((document) => document.id === "document_1"))
+      .toMatchObject({
+        title: "Launch plan",
+        content: "<h1>Launch plan</h1><p>Updated details</p>",
+        updatedAt: "2026-04-17T10:00:00.000Z",
+        updatedBy: "user_1",
+      })
+
+    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
+      | (() => Promise<void>)
+      | undefined
+
+    expect(queuedTask).toBeTypeOf("function")
+
+    await queuedTask?.()
+
+    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
+      title: "Launch plan",
+      content: "<h1>Launch plan</h1><p>Updated details</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(state.documents.find((document) => document.id === "document_1"))
+      .toMatchObject({
+        updatedAt: "2026-04-17T10:05:00.000Z",
+        updatedBy: "user_1",
+      })
+  })
+
+  it("sends the last known server version for item-description syncs", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncUpdateItemDescriptionMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:06:00.000Z",
+    })
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.updateItemDescription("item_1", "<p>Updated item description</p>")
+
+    expect(state.documents.find((document) => document.id === "document_1"))
+      .toMatchObject({
+        content: "<p>Updated item description</p>",
+        updatedAt: "2026-04-17T10:00:00.000Z",
+        updatedBy: "user_1",
+      })
+    expect(state.workItems.find((item) => item.id === "item_1")).toMatchObject({
+      updatedAt: "2026-04-17T10:00:00.000Z",
+    })
+
+    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
+      | (() => Promise<void>)
+      | undefined
+
+    expect(queuedTask).toBeTypeOf("function")
+
+    await queuedTask?.()
+
+    expect(syncUpdateItemDescriptionMock).toHaveBeenCalledWith(
+      "user_1",
+      "item_1",
+      "<p>Updated item description</p>",
+      "2026-04-17T10:00:00.000Z"
+    )
+    expect(state.documents.find((document) => document.id === "document_1"))
+      .toMatchObject({
+        updatedAt: "2026-04-17T10:06:00.000Z",
+        updatedBy: "user_1",
+      })
+    expect(state.workItems.find((item) => item.id === "item_1")).toMatchObject({
+      updatedAt: "2026-04-17T10:06:00.000Z",
+    })
+  })
+
+  it("skips a queued document sync once collaboration protects the document", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.updateDocumentContent(
+      "document_1",
+      "<h1>Spec</h1><p>Queued before collaboration</p>"
+    )
+
+    state = {
+      ...state,
+      protectedDocumentIds: ["document_1"] as typeof state.protectedDocumentIds,
+    }
+
+    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
+      | (() => Promise<void>)
+      | undefined
+
+    await queuedTask?.()
+
+    expect(syncUpdateDocumentMock).not.toHaveBeenCalled()
+  })
+
+  it("skips a queued item-description sync once collaboration protects the description document", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.updateItemDescription("item_1", "<p>Queued before collaboration</p>")
+
+    state = {
+      ...state,
+      protectedDocumentIds: ["document_1"] as typeof state.protectedDocumentIds,
+    }
+
+    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
+      | (() => Promise<void>)
+      | undefined
+
+    await queuedTask?.()
+
+    expect(syncUpdateItemDescriptionMock).not.toHaveBeenCalled()
   })
 })

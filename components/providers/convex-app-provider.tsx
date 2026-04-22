@@ -3,54 +3,80 @@
 import { useEffect, useEffectEvent, useState } from "react"
 import { useTheme } from "next-themes"
 
+import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
+import {
+  reportBootstrapModeDiagnostic,
+  reportRealtimeFallbackDiagnostic,
+  reportScopedReadModelDiagnostic,
+  reportSnapshotApplyDiagnostic,
+  reportSnapshotFetchDiagnostic,
+  reportSnapshotStreamReconnectDiagnostic,
+} from "@/lib/browser/snapshot-diagnostics"
 import { resolveSnapshotThemePreference } from "@/lib/browser/theme-preference-sync"
 import {
   fetchSnapshotState,
   fetchSnapshotVersion,
   RouteMutationError,
 } from "@/lib/convex/client"
-import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
-import {
-  reportSnapshotApplyDiagnostic,
-  reportSnapshotFetchDiagnostic,
-  reportSnapshotStreamReconnectDiagnostic,
-} from "@/lib/browser/snapshot-diagnostics"
+import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-models"
 import type { AppSnapshot } from "@/lib/domain/types"
+import { shouldUseLegacySnapshotSync } from "@/lib/realtime/feature-flags"
+import {
+  createShellContextScopeKey,
+  createWorkspaceMembershipScopeKey,
+} from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
 type ConvexAppProviderProps = {
   children: React.ReactNode
   authenticatedUser?: AuthenticatedAppUser | null
+  initialWorkspaceId: string
 }
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_DELAY_MS = 15000
-const INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS = 2000
-const INITIAL_SNAPSHOT_RETRY_MAX_DELAY_MS = 15000
+const INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS = 2000
+const INITIAL_BOOTSTRAP_RETRY_MAX_DELAY_MS = 15000
+const LEGACY_SNAPSHOT_SYNC_ENABLED = shouldUseLegacySnapshotSync()
 
 function ConvexStateSync({
   children,
   authenticatedUser,
+  initialWorkspaceId,
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
+  const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const { setTheme } = useTheme()
   const [ready, setReady] = useState(false)
-  const applySnapshot = useEffectEvent((snapshot: AppSnapshot) => {
-    replaceDomainData(snapshot)
-    const currentUser = (snapshot.users ?? []).find(
-      (user) => user.id === snapshot.currentUserId
-    )
+  const bootstrapWorkspaceId = currentWorkspaceId || initialWorkspaceId
+  const applyThemeFromSnapshotData = useEffectEvent(
+    (data: Partial<AppSnapshot>) => {
+      const currentUserId = data.currentUserId ?? null
+      const currentUser =
+        currentUserId && data.users
+          ? data.users.find((user) => user.id === currentUserId) ?? null
+          : null
 
-    if (currentUser?.preferences.theme) {
-      const nextThemePreference = resolveSnapshotThemePreference(
-        currentUser.preferences.theme
-      )
+      if (currentUser?.preferences.theme) {
+        const nextThemePreference = resolveSnapshotThemePreference(
+          currentUser.preferences.theme
+        )
 
-      if (nextThemePreference) {
-        setTheme(nextThemePreference)
+        if (nextThemePreference) {
+          setTheme(nextThemePreference)
+        }
       }
     }
+  )
+  const applySnapshotData = useEffectEvent((data: AppSnapshot) => {
+    replaceDomainData(data)
+    applyThemeFromSnapshotData(data)
+  })
+  const applyReadModelData = useEffectEvent((data: Partial<AppSnapshot>) => {
+    mergeReadModelData(data)
+    applyThemeFromSnapshotData(data)
   })
   const redirectToLogin = useEffectEvent(() => {
     const nextPath = normalizeAuthNextPath(
@@ -72,10 +98,19 @@ function ConvexStateSync({
     let stream: EventSource | null = null
     let streamReconnectDelay = STREAM_RECONNECT_BASE_DELAY_MS
     let streamReconnectTimeoutId: number | null = null
-    let initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
-    let initialSnapshotRetryTimeoutId: number | null = null
+    let bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
+    let bootstrapRetryTimeoutId: number | null = null
     let appliedSnapshotVersion: number | null = null
-    let hasLoadedInitialSnapshot = false
+    let hasLoadedInitialState = false
+    let syncMode: "scoped" | "legacy" = LEGACY_SNAPSHOT_SYNC_ENABLED
+      ? "legacy"
+      : "scoped"
+
+    reportBootstrapModeDiagnostic(
+      syncMode === "legacy"
+        ? "legacy-snapshot-stream"
+        : "scoped-membership-bootstrap"
+    )
 
     function clearStreamReconnectTimeout() {
       if (streamReconnectTimeoutId !== null) {
@@ -84,10 +119,10 @@ function ConvexStateSync({
       }
     }
 
-    function clearInitialSnapshotRetryTimeout() {
-      if (initialSnapshotRetryTimeoutId !== null) {
-        window.clearTimeout(initialSnapshotRetryTimeoutId)
-        initialSnapshotRetryTimeoutId = null
+    function clearBootstrapRetryTimeout() {
+      if (bootstrapRetryTimeoutId !== null) {
+        window.clearTimeout(bootstrapRetryTimeoutId)
+        bootstrapRetryTimeoutId = null
       }
     }
 
@@ -100,30 +135,105 @@ function ConvexStateSync({
       }
     }
 
-    function scheduleInitialSnapshotRetry() {
-      clearInitialSnapshotRetryTimeout()
+    function scheduleBootstrapRetry() {
+      clearBootstrapRetryTimeout()
 
       if (
         cancelled ||
-        hasLoadedInitialSnapshot ||
+        hasLoadedInitialState ||
         document.visibilityState !== "visible"
       ) {
         return
       }
 
-      initialSnapshotRetryTimeoutId = window.setTimeout(() => {
-        if (!cancelled && !hasLoadedInitialSnapshot) {
-          void syncSnapshot()
+      bootstrapRetryTimeoutId = window.setTimeout(() => {
+        if (!cancelled && !hasLoadedInitialState) {
+          void syncState()
         }
-      }, initialSnapshotRetryDelay)
+      }, bootstrapRetryDelay)
 
-      initialSnapshotRetryDelay = Math.min(
-        initialSnapshotRetryDelay * 2,
-        INITIAL_SNAPSHOT_RETRY_MAX_DELAY_MS
+      bootstrapRetryDelay = Math.min(
+        bootstrapRetryDelay * 2,
+        INITIAL_BOOTSTRAP_RETRY_MAX_DELAY_MS
       )
     }
 
-    async function syncSnapshot() {
+    async function syncSnapshotState() {
+      const fetchStartedAt = window.performance.now()
+      const snapshotState = await fetchSnapshotState()
+      const fetchDurationMs = window.performance.now() - fetchStartedAt
+
+      if (cancelled) {
+        return true
+      }
+
+      reportSnapshotFetchDiagnostic({
+        durationMs: fetchDurationMs,
+        version: snapshotState.version,
+        snapshot: snapshotState.snapshot,
+      })
+
+      const applyStartedAt = window.performance.now()
+      applySnapshotData(snapshotState.snapshot)
+      reportSnapshotApplyDiagnostic({
+        durationMs: window.performance.now() - applyStartedAt,
+        version: snapshotState.version,
+      })
+      appliedSnapshotVersion = snapshotState.version
+      hasLoadedInitialState = true
+      bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
+      clearBootstrapRetryTimeout()
+      setReady(true)
+      return true
+    }
+
+    async function syncScopedBootstrap() {
+      if (!bootstrapWorkspaceId) {
+        setReady(true)
+        return true
+      }
+
+      const scopeKeys = [
+        createShellContextScopeKey(),
+        createWorkspaceMembershipScopeKey(bootstrapWorkspaceId),
+      ]
+      const startedAt = window.performance.now()
+
+      try {
+        const patch = await fetchWorkspaceMembershipReadModel(
+          bootstrapWorkspaceId
+        )
+
+        if (cancelled) {
+          return true
+        }
+
+        reportScopedReadModelDiagnostic({
+          durationMs: window.performance.now() - startedAt,
+          scopeKeys,
+          status: "success",
+        })
+        applyReadModelData(patch.data)
+        hasLoadedInitialState = true
+        bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
+        clearBootstrapRetryTimeout()
+        setReady(true)
+        return true
+      } catch (error) {
+        reportScopedReadModelDiagnostic({
+          durationMs: window.performance.now() - startedAt,
+          scopeKeys,
+          status: "failure",
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : "Failed to refresh scoped bootstrap read model",
+        })
+        throw error
+      }
+    }
+
+    async function syncState() {
       if (cancelled) {
         return
       }
@@ -136,31 +246,11 @@ function ConvexStateSync({
       syncInFlight = true
 
       try {
-        const fetchStartedAt = window.performance.now()
-        const snapshotState = await fetchSnapshotState()
-        const fetchDurationMs = window.performance.now() - fetchStartedAt
-
-        if (cancelled) {
-          return
+        if (syncMode === "scoped") {
+          await syncScopedBootstrap()
+        } else {
+          await syncSnapshotState()
         }
-
-        reportSnapshotFetchDiagnostic({
-          durationMs: fetchDurationMs,
-          version: snapshotState.version,
-          snapshot: snapshotState.snapshot,
-        })
-
-        const applyStartedAt = window.performance.now()
-        applySnapshot(snapshotState.snapshot)
-        reportSnapshotApplyDiagnostic({
-          durationMs: window.performance.now() - applyStartedAt,
-          version: snapshotState.version,
-        })
-        appliedSnapshotVersion = snapshotState.version
-        hasLoadedInitialSnapshot = true
-        initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
-        clearInitialSnapshotRetryTimeout()
-        setReady(true)
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true
@@ -169,14 +259,43 @@ function ConvexStateSync({
           return
         }
 
-        console.error("Failed to refresh app snapshot", error)
-        scheduleInitialSnapshotRetry()
+        if (syncMode === "scoped") {
+          reportRealtimeFallbackDiagnostic({
+            reason: "scoped-bootstrap-refresh-failed",
+            target: "legacy-snapshot-sync",
+          })
+          syncMode = "legacy"
+          reportBootstrapModeDiagnostic("legacy-snapshot-fallback")
+
+          try {
+            await syncSnapshotState()
+          } catch (fallbackError) {
+            if (
+              fallbackError instanceof RouteMutationError &&
+              fallbackError.status === 401
+            ) {
+              cancelled = true
+              closeStream()
+              redirectToLogin()
+              return
+            }
+
+            console.error(
+              "Failed to refresh scoped bootstrap read model and legacy snapshot fallback",
+              fallbackError
+            )
+            scheduleBootstrapRetry()
+          }
+        } else {
+          console.error("Failed to refresh app snapshot", error)
+          scheduleBootstrapRetry()
+        }
       } finally {
         syncInFlight = false
 
         if (syncQueued && !cancelled) {
           syncQueued = false
-          void syncSnapshot()
+          void syncState()
         }
       }
     }
@@ -196,12 +315,20 @@ function ConvexStateSync({
     function scheduleStreamReconnect() {
       clearStreamReconnectTimeout()
 
-      if (cancelled || document.visibilityState !== "visible") {
+      if (
+        cancelled ||
+        syncMode !== "legacy" ||
+        document.visibilityState !== "visible"
+      ) {
         return
       }
 
       streamReconnectTimeoutId = window.setTimeout(() => {
-        if (!cancelled && document.visibilityState === "visible") {
+        if (
+          !cancelled &&
+          syncMode === "legacy" &&
+          document.visibilityState === "visible"
+        ) {
           openStream()
         }
       }, streamReconnectDelay)
@@ -221,13 +348,17 @@ function ConvexStateSync({
         return
       }
 
-      void syncSnapshot()
+      void syncState()
     }
 
     function openStream() {
       closeStream()
 
-      if (cancelled || document.visibilityState !== "visible") {
+      if (
+        cancelled ||
+        syncMode !== "legacy" ||
+        document.visibilityState !== "visible"
+      ) {
         return
       }
 
@@ -267,28 +398,35 @@ function ConvexStateSync({
       }
     }
 
-    void syncSnapshot().then(() => {
-      if (!cancelled) {
+    void syncState().then(() => {
+      if (!cancelled && syncMode === "legacy") {
         openStream()
       }
     })
 
     const handleFocus = () => {
-      void syncSnapshot()
+      void syncState()
     }
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void syncSnapshot()
-        openStream()
+        void syncState()
+
+        if (syncMode === "legacy") {
+          openStream()
+        }
+
         return
       }
 
-      clearInitialSnapshotRetryTimeout()
+      clearBootstrapRetryTimeout()
       closeStream()
     }
     const handleOnline = () => {
-      void syncSnapshot()
-      openStream()
+      void syncState()
+
+      if (syncMode === "legacy") {
+        openStream()
+      }
     }
 
     window.addEventListener("focus", handleFocus)
@@ -297,13 +435,13 @@ function ConvexStateSync({
 
     return () => {
       cancelled = true
-      clearInitialSnapshotRetryTimeout()
+      clearBootstrapRetryTimeout()
       closeStream()
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [authenticatedUser?.email])
+  }, [authenticatedUser?.email, bootstrapWorkspaceId])
 
   if (!ready) {
     return (
@@ -319,9 +457,13 @@ function ConvexStateSync({
 export function ConvexAppProvider({
   children,
   authenticatedUser,
+  initialWorkspaceId,
 }: ConvexAppProviderProps) {
   return (
-    <ConvexStateSync authenticatedUser={authenticatedUser}>
+    <ConvexStateSync
+      authenticatedUser={authenticatedUser}
+      initialWorkspaceId={initialWorkspaceId}
+    >
       {children}
     </ConvexStateSync>
   )

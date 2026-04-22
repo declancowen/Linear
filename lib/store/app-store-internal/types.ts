@@ -26,9 +26,11 @@ import type {
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
+import type { ScopedReadModelReplaceInstruction } from "@/lib/scoped-sync/read-models"
 
 export type WorkItemPatch = {
   title?: string
+  expectedUpdatedAt?: string
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
@@ -220,7 +222,15 @@ export type AddChannelPostCommentInput = {
 }
 
 export type AppStore = AppData & {
+  protectedDocumentIds: string[]
   replaceDomainData: (data: AppSnapshot) => void
+  mergeReadModelData: (
+    data: Partial<AppSnapshot>,
+    options?: {
+      replace?: ScopedReadModelReplaceInstruction[]
+    }
+  ) => void
+  setDocumentBodyProtection: (documentId: string, protectedState: boolean) => void
   setActiveTeam: (teamId: string) => void
   openCreateDialog: (dialog: CreateDialogState) => void
   closeCreateDialog: () => void
@@ -309,10 +319,20 @@ export type AppStore = AppData & {
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
+  cancelDocumentSync: (documentId: string) => void
+  applyDocumentCollaborationContent: (
+    documentId: string,
+    content: string
+  ) => void
   flushDocumentSync: (documentId: string) => Promise<void>
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>
   updateItemDescription: (itemId: string, content: string) => void
+  cancelItemDescriptionSync: (itemId: string) => void
+  applyItemDescriptionCollaborationContent: (
+    itemId: string,
+    content: string
+  ) => void
   saveWorkItemMainSection: (input: {
     itemId: string
     title: string
