@@ -286,6 +286,17 @@ function getDisplayedChildCountLabel(
   return `${childItems.length} ${label.toLowerCase()}`
 }
 
+function getDisplayedChildCountOverride(
+  childItems: WorkItem[],
+  childDisplayMode: ChildDisplayMode
+) {
+  if (childDisplayMode === "assigned-descendants") {
+    return childItems.length
+  }
+
+  return childItems.length > 0 ? childItems.length : undefined
+}
+
 function renderWorkItemDisplayProperty({
   data,
   item,
@@ -654,11 +665,10 @@ export function BoardView({
                                   item={item}
                                   data={data}
                                   displayProps={view.displayProps}
-                                  childCountOverride={
-                                    childItems.length > 0
-                                      ? childItems.length
-                                      : undefined
-                                  }
+                                  childCountOverride={getDisplayedChildCountOverride(
+                                    childItems,
+                                    childDisplayMode
+                                  )}
                                   details={
                                     showChildItems ? (
                                       <WorkItemChildDisclosure
@@ -910,9 +920,10 @@ export function ListView({
                                   displayProps={view.displayProps}
                                   depth={0}
                                   hasChildren={hasChildren}
-                                  childCountOverride={
-                                    hasChildren ? children.length : undefined
-                                  }
+                                  childCountOverride={getDisplayedChildCountOverride(
+                                    children,
+                                    childDisplayMode
+                                  )}
                                   expanded={isExpanded}
                                   onToggleExpanded={() =>
                                     toggleExpandedItem(item.id)
@@ -926,9 +937,10 @@ export function ListView({
                                   displayProps={view.displayProps}
                                   depth={0}
                                   hasChildren={hasChildren}
-                                  childCountOverride={
-                                    hasChildren ? children.length : undefined
-                                  }
+                                  childCountOverride={getDisplayedChildCountOverride(
+                                    children,
+                                    childDisplayMode
+                                  )}
                                   expanded={isExpanded}
                                   onToggleExpanded={() =>
                                     toggleExpandedItem(item.id)

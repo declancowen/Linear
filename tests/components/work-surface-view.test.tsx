@@ -299,6 +299,44 @@ function createAssignedHierarchyData(): AppData {
   }
 }
 
+function createAssignedHierarchyWithoutVisibleDescendantsData(): AppData {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    teams: [createTeam()],
+    workItems: [
+      {
+        ...createWorkItem(),
+        id: "epic-parent-empty",
+        key: "EPIC",
+        type: "epic",
+        title: "Epic parent empty",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "feature-parent-empty",
+        key: "FEATURE",
+        type: "feature",
+        title: "Feature parent empty",
+        status: "todo",
+        parentId: "epic-parent-empty",
+      },
+      {
+        ...createWorkItem(),
+        id: "story-child-empty",
+        key: "STORY",
+        type: "story",
+        title: "Story child empty",
+        status: "in-progress",
+        assigneeId: "user_2",
+        parentId: "feature-parent-empty",
+      },
+    ],
+  }
+}
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -511,5 +549,44 @@ describe("ListView", () => {
     fireEvent.click(childDisclosure)
 
     expect(screen.getByText("Story child")).toBeInTheDocument()
+  })
+
+  it("does not show fallback child counts when assigned-descendant containers have no visible descendants", () => {
+    const data = createAssignedHierarchyWithoutVisibleDescendantsData()
+    const items = data.workItems.filter((item) => item.id === "epic-parent-empty")
+
+    const { rerender } = render(
+      <ListView
+        data={data}
+        items={items}
+        scopedItems={data.workItems}
+        view={createView("list", [], {
+          itemLevel: "epic",
+          showChildItems: true,
+        })}
+        editable={false}
+        childDisplayMode="assigned-descendants"
+      />
+    )
+
+    expect(screen.queryByLabelText("Expand sub-issues")).not.toBeInTheDocument()
+    expect(screen.getAllByText("1")).toHaveLength(1)
+
+    rerender(
+      <BoardView
+        data={data}
+        items={items}
+        scopedItems={data.workItems}
+        view={createView("board", [], {
+          itemLevel: "epic",
+          showChildItems: true,
+        })}
+        editable={false}
+        childDisplayMode="assigned-descendants"
+      />
+    )
+
+    expect(screen.queryByLabelText("1 story")).not.toBeInTheDocument()
+    expect(screen.getAllByText("1")).toHaveLength(1)
   })
 })
