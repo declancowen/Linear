@@ -51,6 +51,7 @@ import {
 import { cn } from "@/lib/utils"
 
 type WorkSurfaceChildDisplayMode = "direct" | "assigned-descendants"
+const EMPTY_FALLBACK_VIEWS: ViewDefinition[] = []
 
 function cloneFallbackView(view: ViewDefinition): ViewDefinition {
   return {
@@ -119,7 +120,7 @@ export function WorkSurface({
   title,
   routeKey,
   views,
-  fallbackViews = [],
+  fallbackViews = EMPTY_FALLBACK_VIEWS,
   items,
   filterItems,
   team,

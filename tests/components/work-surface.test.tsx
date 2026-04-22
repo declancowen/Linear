@@ -229,6 +229,22 @@ describe("WorkSurface", () => {
     expect(screen.queryByText("No work")).not.toBeInTheDocument()
   })
 
+  it("renders team work without fallback views", () => {
+    render(
+      <WorkSurface
+        title="Work"
+        routeKey="/team/platform/work"
+        views={useAppStore.getState().views}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="No work"
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "All work" })).toBeInTheDocument()
+    expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
+  })
+
   it("renders fallback views when no saved views exist", () => {
     useAppStore.setState({
       ...useAppStore.getState(),
