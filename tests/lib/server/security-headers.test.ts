@@ -6,6 +6,8 @@ import {
 } from "@/lib/server/security-headers"
 
 describe("content security policy helpers", () => {
+  const originalPartykitUrl = process.env.NEXT_PUBLIC_PARTYKIT_URL
+
   it("builds a nonce-based production CSP without inline scripts", () => {
     const policy = buildContentSecurityPolicy({
       isProduction: true,
@@ -23,6 +25,7 @@ describe("content security policy helpers", () => {
   })
 
   it("allows unsafe-eval only in development", () => {
+    process.env.NEXT_PUBLIC_PARTYKIT_URL = "http://127.0.0.1:1999"
     const policy = buildContentSecurityPolicy({
       isProduction: false,
       nonce: "test-nonce",
@@ -30,6 +33,13 @@ describe("content security policy helpers", () => {
 
     expect(policy).toContain("'unsafe-eval'")
     expect(policy).not.toContain("upgrade-insecure-requests")
+    expect(policy).toContain("connect-src 'self' https: wss: http://127.0.0.1:1999 ws://127.0.0.1:1999")
+
+    if (originalPartykitUrl) {
+      process.env.NEXT_PUBLIC_PARTYKIT_URL = originalPartykitUrl
+    } else {
+      delete process.env.NEXT_PUBLIC_PARTYKIT_URL
+    }
   })
 
   it("generates browser-valid nonce values", () => {

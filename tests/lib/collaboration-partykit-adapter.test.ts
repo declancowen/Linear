@@ -269,6 +269,32 @@ describe("PartyKit collaboration adapter", () => {
     expect(yState.latestDoc?.fragmentHtml ?? "").toBe("")
   })
 
+  it("allows loopback ws/http transport from a localhost secure context", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        hostname: "localhost",
+      },
+      isSecureContext: true,
+    })
+
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const adapter = createPartyKitCollaborationAdapter()
+
+    expect(() =>
+      adapter.openDocumentSession({
+        roomId: "doc:doc_1",
+        documentId: "doc_1",
+        token: "token_1",
+        serviceUrl: "http://127.0.0.1:1999",
+        role: "editor",
+      })
+    ).not.toThrow()
+  })
+
   it("emits current awareness state immediately when subscribing", async () => {
     const { createPartyKitCollaborationAdapter } = await import(
       "@/lib/collaboration/adapters/partykit"
@@ -315,6 +341,8 @@ describe("PartyKit collaboration adapter", () => {
         activeBlockId: null,
         cursor: null,
         selection: null,
+        cursorSide: null,
+        cursorRect: null,
       },
       remote: [
         {
@@ -327,8 +355,75 @@ describe("PartyKit collaboration adapter", () => {
           activeBlockId: null,
           cursor: null,
           selection: null,
+          cursorSide: null,
+          cursorRect: null,
         },
       ],
+    })
+  })
+
+  it("preserves cursor geometry fields when updating local awareness", async () => {
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+
+    session.updateLocalAwareness({
+      userId: "user_local",
+      sessionId: "session_local",
+      name: "Local User",
+      avatarUrl: null,
+      color: "#123456",
+      typing: true,
+      activeBlockId: "paragraph:1",
+      cursor: {
+        anchor: 3,
+        head: 5,
+      },
+      selection: {
+        anchor: 3,
+        head: 5,
+      },
+      cursorSide: "before",
+      cursorRect: {
+        left: 111,
+        top: 222,
+        height: 18,
+      },
+    })
+
+    expect(providerState.latest?.awareness.getLocalState()).toEqual({
+      user: {
+        userId: "user_local",
+        sessionId: "session_local",
+        name: "Local User",
+        avatarUrl: null,
+        color: "#123456",
+        typing: true,
+        activeBlockId: "paragraph:1",
+        cursor: {
+          anchor: 3,
+          head: 5,
+        },
+        selection: {
+          anchor: 3,
+          head: 5,
+        },
+        cursorSide: "before",
+        cursorRect: {
+          left: 111,
+          top: 222,
+          height: 18,
+        },
+      },
     })
   })
 

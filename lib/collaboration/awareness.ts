@@ -3,6 +3,14 @@ export type CollaborationRange = {
   head: number
 }
 
+export type CollaborationCaretSide = "before" | "after"
+
+export type CollaborationCaretRect = {
+  left: number
+  top: number
+  height: number
+}
+
 export type CollaborationAwarenessInput = {
   userId: string
   sessionId: string
@@ -13,6 +21,8 @@ export type CollaborationAwarenessInput = {
   activeBlockId?: string | null
   cursor?: CollaborationRange | null
   selection?: CollaborationRange | null
+  cursorSide?: CollaborationCaretSide | null
+  cursorRect?: CollaborationCaretRect | null
 }
 
 export type CollaborationAwarenessState = {
@@ -25,6 +35,8 @@ export type CollaborationAwarenessState = {
   activeBlockId: string | null
   cursor: CollaborationRange | null
   selection: CollaborationRange | null
+  cursorSide: CollaborationCaretSide | null
+  cursorRect: CollaborationCaretRect | null
 }
 
 function requireNonEmpty(value: string, label: string) {
@@ -65,6 +77,37 @@ function normalizeRange(
   }
 }
 
+function normalizeCursorSide(
+  cursorSide: CollaborationCaretSide | null | undefined
+) {
+  return cursorSide === "before" || cursorSide === "after"
+    ? cursorSide
+    : null
+}
+
+function normalizeCursorRect(
+  cursorRect: CollaborationCaretRect | null | undefined
+): CollaborationCaretRect | null {
+  if (!cursorRect) {
+    return null
+  }
+
+  if (
+    !Number.isFinite(cursorRect.left) ||
+    !Number.isFinite(cursorRect.top) ||
+    !Number.isFinite(cursorRect.height) ||
+    cursorRect.height <= 0
+  ) {
+    return null
+  }
+
+  return {
+    left: Math.round(cursorRect.left),
+    top: Math.round(cursorRect.top),
+    height: Math.max(1, Math.round(cursorRect.height)),
+  }
+}
+
 export function createCollaborationAwarenessState(
   input: CollaborationAwarenessInput
 ): CollaborationAwarenessState {
@@ -78,6 +121,8 @@ export function createCollaborationAwarenessState(
     activeBlockId: normalizeOptionalString(input.activeBlockId),
     cursor: normalizeRange(input.cursor),
     selection: normalizeRange(input.selection),
+    cursorSide: normalizeCursorSide(input.cursorSide),
+    cursorRect: normalizeCursorRect(input.cursorRect),
   }
 }
 

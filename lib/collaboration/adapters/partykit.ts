@@ -44,6 +44,9 @@ function normalizeProviderAwarenessState(
   const sessionId =
     typeof userValue.sessionId === "string" ? userValue.sessionId : null
   const name = typeof userValue.name === "string" ? userValue.name : null
+  const cursorRectValue = isRecord(userValue.cursorRect)
+    ? userValue.cursorRect
+    : null
 
   if (!userId || !sessionId || !name) {
     return null
@@ -60,6 +63,21 @@ function normalizeProviderAwarenessState(
     activeBlockId:
       typeof userValue.activeBlockId === "string"
         ? userValue.activeBlockId
+        : null,
+    cursorSide:
+      userValue.cursorSide === "before" || userValue.cursorSide === "after"
+        ? userValue.cursorSide
+        : null,
+    cursorRect:
+      cursorRectValue &&
+      typeof cursorRectValue.left === "number" &&
+      typeof cursorRectValue.top === "number" &&
+      typeof cursorRectValue.height === "number"
+        ? {
+            left: cursorRectValue.left,
+            top: cursorRectValue.top,
+            height: cursorRectValue.height,
+          }
         : null,
   })
 }
@@ -88,14 +106,31 @@ function parseServiceUrl(baseUrl: string) {
   } as const
 }
 
+function isLoopbackHostname(hostname: string) {
+  const normalized =
+    hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname
+
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  )
+}
+
 function assertSecureBrowserTransport(baseUrl: string) {
   if (typeof window === "undefined") {
     return
   }
 
   const serviceUrl = new URL(baseUrl)
+  const allowsLocalInsecureTransport =
+    isLoopbackHostname(window.location.hostname) &&
+    isLoopbackHostname(serviceUrl.hostname)
   const requiresSecureTransport =
-    window.location.protocol === "https:" || window.isSecureContext
+    window.location.protocol === "https:" ||
+    (window.isSecureContext && !allowsLocalInsecureTransport)
 
   if (requiresSecureTransport && serviceUrl.protocol !== "https:") {
     throw new Error(
@@ -405,6 +440,10 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
               color: nextState.color,
               typing: nextState.typing,
               activeBlockId: nextState.activeBlockId,
+              cursor: nextState.cursor,
+              selection: nextState.selection,
+              cursorSide: nextState.cursorSide,
+              cursorRect: nextState.cursorRect,
             },
           })
           awareness.emit(createAwarenessChange(provider))

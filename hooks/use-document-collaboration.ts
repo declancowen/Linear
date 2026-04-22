@@ -210,6 +210,7 @@ export function useDocumentCollaboration(input: {
             PartyKitDocumentCollaborationBinding
           > | null = null
           let localUser: CollaborationAwarenessState | null = null
+          let collaborationState: DocumentCollaborationState | null = null
 
           try {
             const opened = await openDocumentCollaborationSession({
@@ -240,6 +241,10 @@ export function useDocumentCollaboration(input: {
               color: getCollaborationUserColor(localCurrentUserId),
             })
             const activeLocalUser = localUser
+            collaborationState = {
+              binding: activeOpenedSession.binding,
+              localUser: activeLocalUser,
+            }
 
             attemptDisposeStatus = activeOpenedSession.onStatusChange(({ state }) => {
               handleStatusChange(state)
@@ -261,11 +266,7 @@ export function useDocumentCollaboration(input: {
                       error: null,
                       role: activeBootstrap.role,
                       collaboration:
-                        current.collaboration ??
-                        {
-                          binding: activeOpenedSession.binding,
-                          localUser: activeLocalUser,
-                        },
+                        current.collaboration ?? collaborationState,
                     }
                   : current
               )
@@ -307,6 +308,8 @@ export function useDocumentCollaboration(input: {
                   ? "connected"
                   : "connecting",
               session: activeOpenedSession,
+              collaboration:
+                current.collaboration ?? collaborationState,
             }))
             reportCollaborationSessionDiagnostic({
               documentId: localDocumentId,
@@ -336,6 +339,8 @@ export function useDocumentCollaboration(input: {
                         activeOpenedSession.binding.provider.wsconnected
                           ? "connected"
                           : "connecting",
+                      collaboration:
+                        current.collaboration ?? collaborationState,
                     }
                   : current
               )

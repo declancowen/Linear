@@ -28,6 +28,7 @@ import * as Y from "yjs"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import {
   createCollaborationAwarenessState,
+  type CollaborationCaretSide,
   type CollaborationAwarenessState,
 } from "@/lib/collaboration/awareness"
 import { COLLABORATION_XML_FRAGMENT } from "@/lib/collaboration/constants"
@@ -443,6 +444,14 @@ type CollaborationAwarenessUser = {
   sessionId: string
   name: string
   color: string
+  cursorSide: CollaborationCaretSide | null
+  cursorRect:
+    | {
+        left: number
+        top: number
+        height: number
+      }
+    | null
 }
 
 function getCollaborationAwarenessUser(
@@ -458,6 +467,9 @@ function getCollaborationAwarenessUser(
   const sessionId =
     typeof userValue.sessionId === "string" ? userValue.sessionId.trim() : ""
   const name = typeof userValue.name === "string" ? userValue.name.trim() : ""
+  const cursorRectValue = isRecord(userValue.cursorRect)
+    ? userValue.cursorRect
+    : null
 
   if (!userId || !sessionId || !name) {
     return null
@@ -471,6 +483,21 @@ function getCollaborationAwarenessUser(
       typeof userValue.color === "string" && userValue.color.trim().length > 0
         ? userValue.color
         : getCollaborationUserColor(userId),
+    cursorSide:
+      userValue.cursorSide === "before" || userValue.cursorSide === "after"
+        ? userValue.cursorSide
+        : null,
+    cursorRect:
+      cursorRectValue &&
+      typeof cursorRectValue.left === "number" &&
+      typeof cursorRectValue.top === "number" &&
+      typeof cursorRectValue.height === "number"
+        ? {
+            left: cursorRectValue.left,
+            top: cursorRectValue.top,
+            height: cursorRectValue.height,
+          }
+        : null,
   }
 }
 
@@ -500,61 +527,395 @@ type YSyncEditorState = {
   prevSnapshot?: unknown
 }
 
-function escapeAttributeValue(value: string) {
-  if (typeof globalThis.CSS?.escape === "function") {
-    return globalThis.CSS.escape(value)
+function getFirstTextNode(node: Node | null): Text | null {
+  if (!node) {
+    return null
   }
 
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node as Text
+  }
+
+  const documentRoot = node.ownerDocument
+
+  if (!documentRoot) {
+    return null
+  }
+
+  const walker = documentRoot.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+
+  return walker.nextNode() as Text | null
 }
 
-function findCollaborationCaretAnchor(
-  container: HTMLDivElement,
-  user: CollaborationAwarenessUser
-) {
-  const sessionSelector = `[data-collaboration-session-id="${escapeAttributeValue(user.sessionId)}"]`
-  const userSelector = `[data-collaboration-user-id="${escapeAttributeValue(user.userId)}"]`
+function getLastTextNode(node: Node | null): Text | null {
+  if (!node) {
+    return null
+  }
 
-  return container.querySelector<HTMLElement>(
-    `.collaboration-carets__anchor${sessionSelector}${userSelector}`
-  )
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node as Text
+  }
+
+  const documentRoot = node.ownerDocument
+
+  if (!documentRoot) {
+    return null
+  }
+
+  const walker = documentRoot.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+  let lastTextNode: Text | null = null
+  let currentNode = walker.nextNode()
+
+  while (currentNode) {
+    lastTextNode = currentNode as Text
+    currentNode = walker.nextNode()
+  }
+
+  return lastTextNode
 }
 
-function resolveCollaborationCaretCoordinates(
-  currentEditor: Editor,
-  position: number
-) {
-  const after = currentEditor.view.coordsAtPos(position, 1)
+function getCaretCoordinatesFromTextNode(input: {
+  textNode: Text
+  offset: number
+}) {
+  const textLength = input.textNode.data.length
+  const safeOffset = Math.min(Math.max(input.offset, 0), textLength)
+  const documentRoot = input.textNode.ownerDocument
 
-  if (position <= 0) {
-    return {
-      left: after.left,
-      top: after.top,
-      bottom: after.bottom,
+  if (!documentRoot) {
+    return null
+  }
+
+  const range = documentRoot.createRange()
+
+  if (safeOffset > 0) {
+    range.setStart(input.textNode, safeOffset - 1)
+    range.setEnd(input.textNode, safeOffset)
+
+    const rect = Array.from(range.getClientRects()).at(-1)
+
+    if (rect) {
+      return {
+        left: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      }
     }
+  }
+
+  if (safeOffset < textLength) {
+    range.setStart(input.textNode, safeOffset)
+    range.setEnd(input.textNode, safeOffset + 1)
+
+    const rect = range.getClientRects()[0]
+
+    if (rect) {
+      return {
+        left: rect.left,
+        top: rect.top,
+        bottom: rect.bottom,
+      }
+    }
+  }
+
+  return null
+}
+
+function getLocalCaretSide(currentEditor: Editor): CollaborationCaretSide | null {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  let editorDom: HTMLElement
+  let ownerDocument: Document
+
+  try {
+    editorDom = currentEditor.view.dom as HTMLElement
+    ownerDocument = editorDom.ownerDocument
+  } catch {
+    return null
+  }
+
+  const selection = ownerDocument.getSelection()
+
+  if (
+    !selection ||
+    !selection.focusNode ||
+    !editorDom.contains(selection.focusNode)
+  ) {
+    return null
   }
 
   try {
-    const before = currentEditor.view.coordsAtPos(position, -1)
-    const wrappedToNextVisualLine =
-      after.top > before.top || after.left < before.left
+    const range = ownerDocument.createRange()
+    range.setStart(selection.focusNode, selection.focusOffset)
+    range.setEnd(selection.focusNode, selection.focusOffset)
 
-    if (wrappedToNextVisualLine) {
-      return {
-        left: Math.max(before.left, before.right),
-        top: before.top,
-        bottom: before.bottom,
+    const caretRect =
+      range.getClientRects()[0] ?? range.getBoundingClientRect() ?? null
+
+    if (!caretRect) {
+      return null
+    }
+
+    const { head } = currentEditor.state.selection
+    const after = currentEditor.view.coordsAtPos(head, 1)
+    let before: ReturnType<typeof currentEditor.view.coordsAtPos> | null = null
+
+    if (head > 0) {
+      before = currentEditor.view.coordsAtPos(head, -1)
+    }
+
+    const distanceToAfter =
+      Math.abs(caretRect.left - after.left) + Math.abs(caretRect.top - after.top)
+    const distanceToBefore =
+      before === null
+        ? Number.POSITIVE_INFINITY
+        : Math.abs(caretRect.left - before.right) +
+          Math.abs(caretRect.top - before.top)
+
+    return distanceToBefore <= distanceToAfter ? "before" : "after"
+  } catch {
+    return null
+  }
+}
+
+function getLocalCaretRect(
+  currentEditor: Editor,
+  container: HTMLDivElement | null
+) {
+  if (!container) {
+    return null
+  }
+
+  let editorDom: HTMLElement
+  let ownerDocument: Document
+
+  try {
+    editorDom = currentEditor.view.dom as HTMLElement
+    ownerDocument = editorDom.ownerDocument
+  } catch {
+    return null
+  }
+
+  const containerRect = container.getBoundingClientRect()
+  const selection = ownerDocument.getSelection()
+
+  if (
+    !selection ||
+    !selection.focusNode ||
+    !editorDom.contains(selection.focusNode)
+  ) {
+    return null
+  }
+
+  try {
+    let coordinates: { left: number; top: number; bottom: number } | null = null
+    const focusNode = selection.focusNode
+    const focusOffset = selection.focusOffset
+
+    if (focusNode.nodeType === Node.TEXT_NODE) {
+      const textNode = focusNode as Text
+
+      if (focusOffset > 0) {
+        coordinates = getCaretCoordinatesFromTextNode({
+          textNode,
+          offset: focusOffset,
+        })
+      }
+
+      if (!coordinates && focusOffset < textNode.data.length) {
+        coordinates = getCaretCoordinatesFromTextNode({
+          textNode,
+          offset: focusOffset,
+        })
+      }
+    } else if (focusNode instanceof HTMLElement) {
+      const beforeTextNode =
+        focusOffset > 0
+          ? getLastTextNode(focusNode.childNodes[focusOffset - 1] ?? null)
+          : null
+
+      if (beforeTextNode) {
+        coordinates = getCaretCoordinatesFromTextNode({
+          textNode: beforeTextNode,
+          offset: beforeTextNode.data.length,
+        })
+      }
+
+      if (!coordinates) {
+        const afterTextNode = getFirstTextNode(
+          focusNode.childNodes[focusOffset] ?? null
+        )
+
+        if (afterTextNode) {
+          coordinates = getCaretCoordinatesFromTextNode({
+            textNode: afterTextNode,
+            offset: 0,
+          })
+        }
+      }
+    }
+
+    if (!coordinates) {
+      const range = ownerDocument.createRange()
+      range.setStart(focusNode, focusOffset)
+      range.setEnd(focusNode, focusOffset)
+      const caretRect =
+        range.getClientRects()[0] ?? range.getBoundingClientRect() ?? null
+
+      if (!caretRect) {
+        return null
+      }
+
+      coordinates = {
+        left: caretRect.left,
+        top: caretRect.top,
+        bottom: caretRect.bottom,
+      }
+    }
+
+    return {
+      left: Math.round(
+        coordinates.left - containerRect.left + container.scrollLeft
+      ),
+      top: Math.round(
+        coordinates.top - containerRect.top + container.scrollTop
+      ),
+      height: Math.max(1, Math.round(coordinates.bottom - coordinates.top)),
+    }
+  } catch {
+    return null
+  }
+}
+
+function getCaretCoordinatesBeforePosition(
+  currentEditor: Editor,
+  position: number
+) {
+  try {
+    const domPosition = currentEditor.view.domAtPos(position)
+    const baseNode = domPosition.node
+
+    if (baseNode.nodeType === Node.TEXT_NODE) {
+      const textNode = baseNode as Text
+
+      if (domPosition.offset > 0) {
+        const textCoordinates = getCaretCoordinatesFromTextNode({
+          textNode,
+          offset: domPosition.offset,
+        })
+
+        if (textCoordinates) {
+          return textCoordinates
+        }
+      }
+    }
+
+    if (baseNode instanceof HTMLElement) {
+      const beforeTextNode =
+        domPosition.offset > 0
+          ? getLastTextNode(baseNode.childNodes[domPosition.offset - 1] ?? null)
+          : null
+
+      if (beforeTextNode) {
+        const textCoordinates = getCaretCoordinatesFromTextNode({
+          textNode: beforeTextNode,
+          offset: beforeTextNode.data.length,
+        })
+
+        if (textCoordinates) {
+          return textCoordinates
+        }
       }
     }
   } catch {
-    // Ignore unsupported side lookups and fall back to the default caret rect.
+    // Fall through to ProseMirror coordinates.
   }
+
+  const before = currentEditor.view.coordsAtPos(position, -1)
+
+  return {
+    left: Math.max(before.left, before.right),
+    top: before.top,
+    bottom: before.bottom,
+  }
+}
+
+function getCaretCoordinatesAfterPosition(
+  currentEditor: Editor,
+  position: number
+) {
+  try {
+    const domPosition = currentEditor.view.domAtPos(position)
+    const baseNode = domPosition.node
+
+    if (baseNode.nodeType === Node.TEXT_NODE) {
+      const textNode = baseNode as Text
+
+      if (domPosition.offset < textNode.data.length) {
+        const textCoordinates = getCaretCoordinatesFromTextNode({
+          textNode,
+          offset: domPosition.offset,
+        })
+
+        if (textCoordinates) {
+          return textCoordinates
+        }
+      }
+    }
+
+    if (baseNode instanceof HTMLElement) {
+      const afterTextNode = getFirstTextNode(
+        baseNode.childNodes[domPosition.offset] ?? null
+      )
+
+      if (afterTextNode) {
+        const textCoordinates = getCaretCoordinatesFromTextNode({
+          textNode: afterTextNode,
+          offset: 0,
+        })
+
+        if (textCoordinates) {
+          return textCoordinates
+        }
+      }
+    }
+  } catch {
+    // Fall through to ProseMirror coordinates.
+  }
+
+  const after = currentEditor.view.coordsAtPos(position, 1)
 
   return {
     left: after.left,
     top: after.top,
     bottom: after.bottom,
   }
+}
+
+function resolveCollaborationCaretCoordinates(
+  currentEditor: Editor,
+  position: number,
+  preferredSide: CollaborationCaretSide | null
+) {
+  try {
+    if (preferredSide === "before" && position > 0) {
+      return getCaretCoordinatesBeforePosition(currentEditor, position)
+    }
+
+    if (preferredSide === "after") {
+      return getCaretCoordinatesAfterPosition(currentEditor, position)
+    }
+
+    if (position > 0) {
+      return getCaretCoordinatesBeforePosition(currentEditor, position)
+    }
+  } catch {
+    // Ignore unsupported side lookups and fall through.
+  }
+
+  return getCaretCoordinatesAfterPosition(currentEditor, position)
 }
 
 function collectCollaborationCursorMarkers(input: {
@@ -642,40 +1003,31 @@ function collectCollaborationCursorMarkers(input: {
       head = Math.min(head, maxDocumentPosition)
 
       try {
-        const fallbackCoordinates = resolveCollaborationCaretCoordinates(
+        const coordinates = resolveCollaborationCaretCoordinates(
           input.currentEditor,
-          head
+          head,
+          user.cursorSide
         )
-        const anchor = findCollaborationCaretAnchor(container, user)
-        const anchorRect = anchor?.getBoundingClientRect() ?? null
-        const coordinates =
-          anchorRect &&
-          Number.isFinite(anchorRect.left) &&
-          Number.isFinite(anchorRect.top)
-            ? {
-                left: anchorRect.left,
-                top: anchorRect.top,
-                bottom:
-                  anchorRect.bottom > anchorRect.top
-                    ? anchorRect.bottom
-                    : fallbackCoordinates.bottom,
-              }
-            : fallbackCoordinates
+        const coordinatesOverride = user.cursorRect
+        const height =
+          coordinatesOverride?.height ??
+          Math.max(18, Math.round(coordinates.bottom - coordinates.top))
 
         markers.push({
           key: `${clientId}:${user.sessionId}`,
           name: user.name,
           color: user.color,
-          left: Math.round(
-            coordinates.left - containerRect.left + container.scrollLeft
-          ),
-          top: Math.round(
-            coordinates.top - containerRect.top + container.scrollTop
-          ),
-          height: Math.max(
-            18,
-            Math.round(coordinates.bottom - coordinates.top)
-          ),
+          left:
+            coordinatesOverride?.left ??
+            Math.round(
+              coordinates.left - containerRect.left + container.scrollLeft
+            ),
+          top:
+            coordinatesOverride?.top ??
+            Math.round(
+              coordinates.top - containerRect.top + container.scrollTop
+            ),
+          height,
         })
       } catch {
         return
@@ -1236,6 +1588,7 @@ export function RichTextEditor({
     onCreate({ editor: currentEditor }) {
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
+      const cursorSide = getLocalCaretSide(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1243,6 +1596,7 @@ export function RichTextEditor({
           activeBlockId,
           cursor: selection,
           selection,
+          cursorSide,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1268,11 +1622,13 @@ export function RichTextEditor({
       if (collaboration && !isExternalCollaborationChange) {
         const activeBlockId = getActiveBlockId(currentEditor)
         const selection = getSelectionRange(currentEditor)
+        const cursorSide = getLocalCaretSide(currentEditor)
         updateEditorCollaborationUser(currentEditor, collaboration, {
           typing: true,
           activeBlockId,
           cursor: selection,
           selection,
+          cursorSide,
         })
         reportActiveBlockId(activeBlockId)
         scheduleTypingIdleReset(currentEditor)
@@ -1284,12 +1640,14 @@ export function RichTextEditor({
       syncCommandMenus(currentEditor)
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
+      const cursorSide = getLocalCaretSide(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
           activeBlockId,
           cursor: selection,
           selection,
+          cursorSide,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1297,11 +1655,13 @@ export function RichTextEditor({
     onFocus({ editor: currentEditor }) {
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
+      const cursorSide = getLocalCaretSide(currentEditor)
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
           activeBlockId,
           cursor: selection,
           selection,
+          cursorSide,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1310,6 +1670,7 @@ export function RichTextEditor({
       clearTypingTimeout()
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
+      const cursorSide = getLocalCaretSide(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1317,6 +1678,7 @@ export function RichTextEditor({
           activeBlockId,
           cursor: selection,
           selection,
+          cursorSide,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1386,14 +1748,64 @@ export function RichTextEditor({
 
     const activeBlockId = getActiveBlockId(editor)
     const selection = getSelectionRange(editor)
+    const cursorSide = getLocalCaretSide(editor)
     updateEditorCollaborationUser(editor, collaboration, {
       typing: false,
       activeBlockId,
       cursor: selection,
       selection,
+      cursorSide,
     })
     reportActiveBlockId(activeBlockId)
   }, [collaboration, editor, reportActiveBlockId])
+
+  useEffect(() => {
+    if (!editor || !collaboration) {
+      return
+    }
+
+    let frameId: number | null = null
+    const queueAwarenessRectUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        const selection = getSelectionRange(editor)
+        const cursorSide = getLocalCaretSide(editor)
+        const cursorRect = getLocalCaretRect(editor, containerRef.current)
+        updateEditorCollaborationUser(editor, collaboration, {
+          cursor: selection,
+          selection,
+          cursorSide,
+          cursorRect,
+        })
+      })
+    }
+
+    const container = containerRef.current
+    queueAwarenessRectUpdate()
+    editor.on("update", queueAwarenessRectUpdate)
+    editor.on("selectionUpdate", queueAwarenessRectUpdate)
+    editor.on("focus", queueAwarenessRectUpdate)
+    container?.addEventListener("scroll", queueAwarenessRectUpdate, {
+      passive: true,
+    })
+    window.addEventListener("resize", queueAwarenessRectUpdate)
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+
+      editor.off("update", queueAwarenessRectUpdate)
+      editor.off("selectionUpdate", queueAwarenessRectUpdate)
+      editor.off("focus", queueAwarenessRectUpdate)
+      container?.removeEventListener("scroll", queueAwarenessRectUpdate)
+      window.removeEventListener("resize", queueAwarenessRectUpdate)
+    }
+  }, [collaboration, editor, containerWidth, fullPageCanvasWidth])
 
   useEffect(() => {
     if (!editor) {
