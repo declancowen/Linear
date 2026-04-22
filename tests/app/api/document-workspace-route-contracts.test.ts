@@ -24,6 +24,7 @@ const reconcileDeletedAccountProviderCleanupMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
 const resolveDocumentReadModelScopeKeysServerMock = vi.fn()
+const resolveWorkItemReadModelScopeKeysServerMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
@@ -83,6 +84,8 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     bumpDocumentIndexReadModelScopesServerMock,
   bumpWorkspaceMembershipReadModelScopesServer:
     bumpWorkspaceMembershipReadModelScopesServerMock,
+  resolveWorkItemReadModelScopeKeysServer:
+    resolveWorkItemReadModelScopeKeysServerMock,
 }))
 
 describe("document and workspace route contracts", () => {
@@ -109,6 +112,7 @@ describe("document and workspace route contracts", () => {
     logProviderErrorMock.mockReset()
     bumpScopedReadModelVersionsServerMock.mockReset()
     resolveDocumentReadModelScopeKeysServerMock.mockReset()
+    resolveWorkItemReadModelScopeKeysServerMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
@@ -142,6 +146,10 @@ describe("document and workspace route contracts", () => {
     bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
     resolveDocumentReadModelScopeKeysServerMock.mockResolvedValue([
       "document-detail:document_1",
+    ])
+    resolveWorkItemReadModelScopeKeysServerMock.mockResolvedValue([
+      "work-item-detail:item_1",
+      "work-index:team_team_1",
     ])
     bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
@@ -322,6 +330,48 @@ describe("document and workspace route contracts", () => {
       error: "Work item not found",
       message: "Work item not found",
       code: "WORK_ITEM_NOT_FOUND",
+    })
+  })
+
+  it("bumps scoped read model versions after item-description updates", async () => {
+    const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
+
+    updateItemDescriptionServerMock.mockResolvedValue({
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/items/item_1/description", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: "<p>Updated description</p>",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    expect(resolveWorkItemReadModelScopeKeysServerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({
+          id: "workos_1",
+        }),
+      }),
+      "item_1"
+    )
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["work-item-detail:item_1", "work-index:team_team_1"],
+    })
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      updatedAt: "2026-04-22T00:00:00.000Z",
     })
   })
 

@@ -777,7 +777,6 @@ const collaboration = {
   },
   async onRequest(req: PartyRequest, room: Room) {
     const claims = await verifyRequestClaims(room, req)
-    setRoomSessionClaims(room.id, claims)
     const url = new URL(req.url)
 
     if (
@@ -786,6 +785,14 @@ const collaboration = {
     ) {
       return new Response("Not found", { status: 404 })
     }
+
+    if (claims.role !== "editor") {
+      return new Response("Collaboration flush requires editor access", {
+        status: 403,
+      })
+    }
+
+    setRoomSessionClaims(room.id, claims)
 
     try {
       const flushRequest = await parseFlushRequest(req)

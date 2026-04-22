@@ -163,4 +163,58 @@ describe("PartyKit collaboration server", () => {
       })
     )
   })
+
+  it("rejects viewer-role manual flush requests before persisting", async () => {
+    const yDoc = createDoc({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+        },
+      ],
+    })
+    unstableGetYDocMock.mockResolvedValue(yDoc)
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const token = createSignedCollaborationToken({
+      kind: "doc",
+      sub: "user_2",
+      roomId: "doc:doc_desc_1",
+      documentId: "doc_desc_1",
+      role: "viewer",
+      sessionId: "session_2",
+      workspaceId: "workspace_1",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_desc_1?action=flush",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            stateVector: encodeDocumentStateVector(yDoc),
+          }),
+        }
+      ) as never,
+      {
+        id: "doc:doc_desc_1",
+        env: process.env,
+      } as never
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.text()).resolves.toBe(
+      "Collaboration flush requires editor access"
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

@@ -416,6 +416,7 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
           provider.off("connection-error", handleProviderError)
           provider.disconnect()
           provider.destroy()
+          doc.destroy()
           status.emit({
             state: "disconnected",
             reason,

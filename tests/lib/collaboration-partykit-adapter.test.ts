@@ -13,6 +13,7 @@ const yState = vi.hoisted(() => ({
 class MockDoc {
   fragmentLength: number
   fragmentHtml: string
+  destroyed = false
 
   constructor(fragmentLength = 0, fragmentHtml = "") {
     this.fragmentLength = fragmentLength
@@ -27,7 +28,9 @@ class MockDoc {
     }
   }
 
-  destroy() {}
+  destroy() {
+    this.destroyed = true
+  }
 }
 
 class MockAwareness {
@@ -545,5 +548,26 @@ describe("PartyKit collaboration adapter", () => {
         }),
       })
     )
+  })
+
+  it("destroys the Y.Doc when the session disconnects", async () => {
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+
+    expect(yState.latestDoc?.destroyed).toBe(false)
+
+    session.disconnect("test")
+
+    expect(yState.latestDoc?.destroyed).toBe(true)
   })
 })
