@@ -4,6 +4,7 @@ import { getScopedReadModelVersionsServer } from "@/lib/server/convex"
 import { logProviderError } from "@/lib/server/provider-errors"
 import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
 import { isRouteResponse, jsonError } from "@/lib/server/route-response"
+import { authorizeScopedReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 
 const STREAM_POLL_INTERVAL_MS = 1000
 const STREAM_HEARTBEAT_INTERVAL_MS = 15000
@@ -40,6 +41,26 @@ export async function GET(request: Request) {
     return jsonError("At least one scopeKey is required", 400, {
       code: "ROUTE_INVALID_QUERY",
     })
+  }
+
+  try {
+    await authorizeScopedReadModelScopeKeysServer(session, scopeKeys)
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "You do not have access to one or more scope keys"
+    const isInvalidScopeKey = message.startsWith("Invalid scoped read model key:")
+
+    return jsonError(
+      message,
+      isInvalidScopeKey ? 400 : 403,
+      {
+        code: isInvalidScopeKey
+          ? "ROUTE_INVALID_QUERY"
+          : "ROUTE_FORBIDDEN_SCOPE_KEY",
+      }
+    )
   }
 
   const encoder = new TextEncoder()

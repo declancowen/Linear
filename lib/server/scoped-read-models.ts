@@ -24,12 +24,148 @@ import {
   getWorkspaceMembershipScopeKeys,
   getSearchSeedScopeKeys,
 } from "@/lib/scoped-sync/read-models"
+import {
+  parseReadModelScopeKey,
+  READ_MODEL_SCOPE_KINDS,
+} from "@/lib/scoped-sync/scope-keys"
 
 async function loadSnapshotForSession(session: AuthenticatedSession) {
   return (await getSnapshotServer({
     workosUserId: session.user.id,
     email: session.user.email ?? undefined,
   })) as AppSnapshot
+}
+
+function parseScopedCollectionScopeId(value: string) {
+  if (value.startsWith("workspace_")) {
+    return {
+      scopeType: "workspace" as const,
+      scopeId: value.slice("workspace_".length),
+    }
+  }
+
+  if (value.startsWith("team_")) {
+    return {
+      scopeType: "team" as const,
+      scopeId: value.slice("team_".length),
+    }
+  }
+
+  if (value.startsWith("personal_")) {
+    return {
+      scopeType: "personal" as const,
+      scopeId: value.slice("personal_".length),
+    }
+  }
+
+  return null
+}
+
+function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
+  const descriptor = parseReadModelScopeKey(scopeKey)
+
+  if (!descriptor) {
+    throw new Error(`Invalid scoped read model key: ${scopeKey}`)
+  }
+
+  const workspaceIds = new Set(snapshot.workspaces.map((workspace) => workspace.id))
+  const teamIds = new Set(snapshot.teams.map((team) => team.id))
+  const documentIds = new Set(snapshot.documents.map((document) => document.id))
+  const workItemIds = new Set(snapshot.workItems.map((item) => item.id))
+  const projectIds = new Set(snapshot.projects.map((project) => project.id))
+  const conversationIds = new Set(
+    snapshot.conversations.map((conversation) => conversation.id)
+  )
+
+  switch (descriptor.kind) {
+    case READ_MODEL_SCOPE_KINDS.shellContext:
+      return true
+
+    case READ_MODEL_SCOPE_KINDS.workspaceMembership:
+    case READ_MODEL_SCOPE_KINDS.searchSeed:
+      return descriptor.parts.length === 1 && workspaceIds.has(descriptor.parts[0])
+
+    case READ_MODEL_SCOPE_KINDS.notificationInbox:
+    case READ_MODEL_SCOPE_KINDS.conversationList:
+      return (
+        descriptor.parts.length === 1 &&
+        descriptor.parts[0] === snapshot.currentUserId
+      )
+
+    case READ_MODEL_SCOPE_KINDS.documentDetail:
+      return descriptor.parts.length === 1 && documentIds.has(descriptor.parts[0])
+
+    case READ_MODEL_SCOPE_KINDS.workItemDetail:
+      return descriptor.parts.length === 1 && workItemIds.has(descriptor.parts[0])
+
+    case READ_MODEL_SCOPE_KINDS.projectDetail:
+      return descriptor.parts.length === 1 && projectIds.has(descriptor.parts[0])
+
+    case READ_MODEL_SCOPE_KINDS.conversationThread:
+    case READ_MODEL_SCOPE_KINDS.channelFeed:
+      return (
+        descriptor.parts.length === 1 &&
+        conversationIds.has(descriptor.parts[0])
+      )
+
+    case READ_MODEL_SCOPE_KINDS.documentIndex:
+    case READ_MODEL_SCOPE_KINDS.projectIndex:
+    case READ_MODEL_SCOPE_KINDS.viewCatalog: {
+      if (descriptor.parts.length !== 1) {
+        return false
+      }
+
+      const collectionScope = parseScopedCollectionScopeId(descriptor.parts[0])
+
+      if (!collectionScope) {
+        return false
+      }
+
+      return collectionScope.scopeType === "workspace"
+        ? workspaceIds.has(collectionScope.scopeId)
+        : collectionScope.scopeType === "team"
+          ? teamIds.has(collectionScope.scopeId)
+          : false
+    }
+
+    case READ_MODEL_SCOPE_KINDS.workIndex: {
+      if (descriptor.parts.length !== 1) {
+        return false
+      }
+
+      const collectionScope = parseScopedCollectionScopeId(descriptor.parts[0])
+
+      if (!collectionScope) {
+        return false
+      }
+
+      if (collectionScope.scopeType === "workspace") {
+        return workspaceIds.has(collectionScope.scopeId)
+      }
+
+      if (collectionScope.scopeType === "team") {
+        return teamIds.has(collectionScope.scopeId)
+      }
+
+      return collectionScope.scopeId === snapshot.currentUserId
+    }
+
+    default:
+      return false
+  }
+}
+
+export async function authorizeScopedReadModelScopeKeysServer(
+  session: AuthenticatedSession,
+  scopeKeys: string[]
+) {
+  const snapshot = await loadSnapshotForSession(session)
+
+  for (const scopeKey of scopeKeys) {
+    if (!isAuthorizedReadModelScope(snapshot, scopeKey)) {
+      throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+    }
+  }
 }
 
 export async function bumpDocumentReadModelScopesServer(documentId: string) {

@@ -132,9 +132,18 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     runGenerationRef.current += 1
     setHasLoadedOnce(false)
     void refresh()
+    let hasSeenReady = false
 
     const closeStream = openScopedInvalidationStream({
       scopeKeys,
+      onReady() {
+        if (hasSeenReady) {
+          void refresh()
+          return
+        }
+
+        hasSeenReady = true
+      },
       onInvalidate() {
         void refresh()
       },

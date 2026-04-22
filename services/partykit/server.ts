@@ -693,6 +693,13 @@ const collaboration = {
     }
   },
   async onClose(_connection: Connection, room: Room) {
+    const yDoc = await unstable_getYDoc(room, createYPartyKitOptions(room))
+    const isLastConnection = getCollaborationConnectionCount(yDoc) === 0
+
+    if (!isLastConnection) {
+      return
+    }
+
     try {
       const claims = getRoomSessionState(room.id).latestClaims
 
@@ -704,9 +711,6 @@ const collaboration = {
         return
       }
 
-      const storage = new YPartyKitStorage(room.storage)
-      const yDoc = await storage.getYDoc(room.id)
-
       await persistCanonicalDocument(room, yDoc, "leave")
       await clearPersistedRoomState(room)
     } catch (error) {
@@ -716,6 +720,9 @@ const collaboration = {
         userId: getRoomSessionState(room.id).latestEditorClaims?.sub ?? null,
         error,
       })
+    } finally {
+      roomBootstrapCache.delete(room.id)
+      roomSessionState.delete(room.id)
     }
   },
   async onRequest(req: PartyRequest, room: Room) {
