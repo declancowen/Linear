@@ -812,7 +812,7 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it("shows the reduced sidebar header and simplified child rows", () => {
+  it("shows editable sidebar property controls and simplified child rows", () => {
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -874,9 +874,15 @@ describe("work item detail screen", () => {
     expect(
       screen.queryByRole("button", { name: "Close sidebar" })
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Status" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Priority" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Assignee" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Status" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Priority" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Assignee" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Due" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Manage labels" })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
     expect(screen.getAllByText("PLA-3").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Child item").length).toBeGreaterThan(0)
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()

@@ -1589,6 +1589,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     isMainEditing && mainDraftTitle.trim().length > 0
       ? mainDraftTitle
       : currentItem.title
+  const sidebarDescription = isMainEditing
+    ? mainDraftDescription
+    : descriptionContent
+  const sidebarHasDescription = !isDescriptionPlaceholder(sidebarDescription)
   const activeMainPendingMentionRetryEntries =
     filterPendingDocumentMentionsByContent(
       mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
@@ -2262,6 +2266,213 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               <h2 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
                 {sidebarTitle}
               </h2>
+
+              {sidebarHasDescription ? (
+                <RichTextContent
+                  content={sidebarDescription}
+                  className="text-[13.5px] leading-[1.6] text-fg-2 [&_li]:mb-1 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mb-2.5 [&_ul]:ml-[18px] [&_ul]:list-disc"
+                />
+              ) : (
+                <p className="text-[13.5px] leading-[1.6] text-fg-4">
+                  No description yet.
+                </p>
+              )}
+
+              <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
+                <DetailSidebarSelectRow
+                  label="Status"
+                  icon={<StatusIcon status={currentItem.status} />}
+                  value={currentItem.status}
+                  disabled={!sidebarEditable}
+                  options={statusOptions}
+                  renderValue={(value, optionLabel) => (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="inline-grid size-3.5 shrink-0 place-items-center">
+                        <StatusIcon status={value} />
+                      </span>
+                      <span className="truncate">{optionLabel}</span>
+                    </div>
+                  )}
+                  renderOption={(value, optionLabel) => (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-grid size-3.5 shrink-0 place-items-center">
+                        <StatusIcon status={value} />
+                      </span>
+                      <span>{optionLabel}</span>
+                    </div>
+                  )}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
+                      status: value as WorkItem["status"],
+                    })
+                  }
+                />
+                <DetailSidebarSelectRow
+                  label="Priority"
+                  icon={<Flag className="size-[13px]" />}
+                  value={currentItem.priority}
+                  disabled={!sidebarEditable}
+                  options={Object.entries(priorityMeta).map(
+                    ([value, meta]) => ({
+                      value,
+                      label: meta.label,
+                    })
+                  )}
+                  renderValue={(value, optionLabel) => (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <PriorityIcon priority={value as Priority} />
+                      <span className="truncate">{optionLabel}</span>
+                    </div>
+                  )}
+                  renderOption={(value, optionLabel) => (
+                    <div className="flex items-center gap-2">
+                      <PriorityIcon priority={value as Priority} />
+                      <span>{optionLabel}</span>
+                    </div>
+                  )}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
+                      priority: value as Priority,
+                    })
+                  }
+                />
+                <DetailSidebarSelectRow
+                  label="Assignee"
+                  icon={<Plus className="size-[13px]" />}
+                  value={currentItem.assigneeId ?? "unassigned"}
+                  disabled={!sidebarEditable}
+                  options={[
+                    { value: "unassigned", label: "Assign" },
+                    ...teamMembers.map((user) => ({
+                      value: user.id,
+                      label: user.name,
+                    })),
+                  ]}
+                  renderValue={(value, optionLabel) => {
+                    if (value === "unassigned") {
+                      return <span className="truncate">{optionLabel}</span>
+                    }
+
+                    const selectedUser =
+                      teamMembers.find((user) => user.id === value) ?? null
+
+                    return selectedUser ? (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <WorkItemAssigneeAvatar
+                          user={selectedUser}
+                          className="data-[size=sm]:size-4"
+                        />
+                        <span className="truncate">{selectedUser.name}</span>
+                      </div>
+                    ) : (
+                      <span className="truncate">{optionLabel}</span>
+                    )
+                  }}
+                  renderOption={(value, optionLabel) => {
+                    if (value === "unassigned") {
+                      return <span>{optionLabel}</span>
+                    }
+
+                    const optionUser =
+                      teamMembers.find((user) => user.id === value) ?? null
+
+                    return optionUser ? (
+                      <div className="flex items-center gap-2">
+                        <WorkItemAssigneeAvatar
+                          user={optionUser}
+                          className="data-[size=sm]:size-4"
+                        />
+                        <span>{optionUser.name}</span>
+                      </div>
+                    ) : (
+                      <span>{optionLabel}</span>
+                    )
+                  }}
+                  onValueChange={(value) =>
+                    useAppStore.getState().updateWorkItem(currentItem.id, {
+                      assigneeId: value === "unassigned" ? null : value,
+                    })
+                  }
+                />
+                <DetailSidebarDateRow
+                  label="Start"
+                  icon={<Clock className="size-[13px]" />}
+                  value={currentItem.startDate}
+                  disabled={!sidebarEditable}
+                  onValueChange={handleStartDateChange}
+                />
+                <DetailSidebarDateRow
+                  label="Due"
+                  icon={<CalendarBlank className="size-[13px]" />}
+                  value={displayedEndDate}
+                  disabled={!sidebarEditable}
+                  onValueChange={handleEndDateChange}
+                />
+                <DetailSidebarLabelsRow
+                  item={currentItem}
+                  workspaceId={team?.workspaceId}
+                  labels={availableLabels}
+                  editable={sidebarEditable}
+                />
+                <DetailSidebarSelectRow
+                  label="Project"
+                  icon={<FolderSimple className="size-[13px]" />}
+                  value={currentItem.primaryProjectId ?? "none"}
+                  disabled={!sidebarEditable}
+                  options={[
+                    { value: "none", label: "No project" },
+                    ...teamProjects.map((project) => ({
+                      value: project.id,
+                      label: project.name,
+                    })),
+                  ]}
+                  renderValue={(value, optionLabel) =>
+                    value === "none" ? (
+                      <span className="truncate text-fg-4">{optionLabel}</span>
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="inline-block size-1.5 rounded-full bg-fg-3" />
+                        <span className="truncate">{optionLabel}</span>
+                      </div>
+                    )
+                  }
+                  onValueChange={handleProjectChange}
+                />
+                {selectedMilestone ? (
+                  <DetailSidebarStaticRow
+                    label="Milestone"
+                    icon={<Flag className="size-[13px]" />}
+                  >
+                    <span className="truncate">{selectedMilestone.name}</span>
+                    {selectedMilestone.targetDate ? (
+                      <span className="text-fg-4">
+                        · {format(new Date(selectedMilestone.targetDate), "MMM d")}
+                      </span>
+                    ) : null}
+                  </DetailSidebarStaticRow>
+                ) : null}
+                {currentItem.parentId || parentOptions.length > 1 ? (
+                  <DetailSidebarSelectRow
+                    label="Parent"
+                    icon={<FolderSimple className="size-[13px]" />}
+                    value={currentItem.parentId ?? "none"}
+                    disabled={!sidebarEditable}
+                    options={parentOptions}
+                    renderValue={(value, optionLabel) =>
+                      value === "none" ? (
+                        <span className="truncate text-fg-4">{optionLabel}</span>
+                      ) : (
+                        <span className="truncate">{optionLabel}</span>
+                      )
+                    }
+                    onValueChange={(value) =>
+                      useAppStore.getState().updateWorkItem(currentItem.id, {
+                        parentId: value === "none" ? null : value,
+                      })
+                    }
+                  />
+                ) : null}
+              </dl>
 
               <DetailSidebarSection
                 title="Subtasks"
