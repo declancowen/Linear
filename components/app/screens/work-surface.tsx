@@ -142,6 +142,7 @@ export function WorkSurface({
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const searchParams = useSearchParams()
+  const requestedViewId = searchParams.get("view")
   const editable = team ? canEditTeam(data, team.id) : false
   const createTeamId = team?.id ?? data.ui.activeTeamId
   const [localFallbackViews, setLocalFallbackViews] = useState(() =>
@@ -193,14 +194,12 @@ export function WorkSurface({
   }, [activeView, routeKey, usingFallbackViews, views])
 
   useEffect(() => {
-    const requestedViewId = searchParams.get("view")
-
     if (!requestedViewId) {
       return
     }
 
     if (usingFallbackViews) {
-      if (localFallbackViews.some((view) => view.id === requestedViewId)) {
+      if (fallbackViews.some((view) => view.id === requestedViewId)) {
         setLocalFallbackViewId(requestedViewId)
       }
       return
@@ -211,7 +210,7 @@ export function WorkSurface({
     }
 
     useAppStore.getState().setSelectedView(routeKey, requestedViewId)
-  }, [localFallbackViews, routeKey, searchParams, usingFallbackViews, views])
+  }, [fallbackViews, requestedViewId, routeKey, usingFallbackViews, views])
 
   const compatibleActiveView = useMemo(
     () => getCompatibleActiveView(activeView, groupOptions),

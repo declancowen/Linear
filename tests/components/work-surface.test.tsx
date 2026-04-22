@@ -1,14 +1,18 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 
-const { filterPopoverMock, getVisibleItemsForViewMock } = vi.hoisted(() => ({
+const { filterPopoverMock, getVisibleItemsForViewMock, searchParamsState } =
+  vi.hoisted(() => ({
   filterPopoverMock: vi.fn(() => null),
   getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
+  searchParamsState: {
+    value: "",
+  },
 }))
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(searchParamsState.value),
 }))
 
 vi.mock("@/lib/browser/dialog-transitions", () => ({
@@ -168,6 +172,7 @@ describe("WorkSurface", () => {
 
   afterEach(() => {
     useAppStore.setState(createEmptyState())
+    searchParamsState.value = ""
     filterPopoverMock.mockClear()
     getVisibleItemsForViewMock.mockClear()
     vi.clearAllMocks()
@@ -324,5 +329,63 @@ describe("WorkSurface", () => {
       }),
       undefined
     )
+  })
+
+  it("does not snap fallback tab selection back to the URL view after local edits", () => {
+    searchParamsState.value = "view=view_assigned_active_items"
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_all_items",
+            name: "All work",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            grouping: "status",
+            subGrouping: null,
+          }),
+          createView({
+            id: "view_assigned_active_items",
+            name: "Active",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            layout: "board",
+            grouping: "status",
+            subGrouping: null,
+          }),
+        ]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(screen.getByText("board-content")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "All work" }))
+
+    expect(screen.queryByText("board-content")).not.toBeInTheDocument()
+
+    const filterPopoverCalls = filterPopoverMock.mock.calls as unknown[][]
+    const filterPopoverProps = filterPopoverCalls.at(-1)?.[0] as
+      | {
+          onToggleFilterValue?: (key: string, value: string) => void
+        }
+      | undefined
+
+    expect(filterPopoverProps?.onToggleFilterValue).toBeTruthy()
+
+    act(() => {
+      filterPopoverProps?.onToggleFilterValue?.("status", "todo")
+    })
+
+    expect(screen.queryByText("board-content")).not.toBeInTheDocument()
   })
 })
