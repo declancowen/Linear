@@ -56,7 +56,7 @@ last_updated: 2026-04-22
   - [ ] 2.1 Add PartyKit service code to the repo with Yjs-backed room lifecycle
     - Depends on: 1.1
     - Likely areas: `partykit/**` or `services/realtime/**`, `package.json`, shared `lib/collaboration/**`
-    - Validation: service-level integration tests for join, awareness, rehydrate, flush scheduling, and tombstone handling
+    - Validation: service-level integration tests for join, awareness, rehydrate, flush scheduling, and tombstone handling, plus performance verification against warm-join and cold-rehydrate targets
     - Exit criteria: one repository-owned PartyKit service can host `doc:<documentId>` rooms for collaborative rich-text sessions
     - Rollback impact: low; service can remain undeployed or unused while legacy paths continue
     - Blocking unknowns: none
@@ -82,25 +82,25 @@ last_updated: 2026-04-22
   - [ ] 3.2 Migrate standalone document editing to collaborative sessions
     - Depends on: 3.1
     - Likely areas: `components/app/screens/document-detail-screen.tsx`, `lib/store/app-store-internal/slices/work-document-actions.ts`, `lib/convex/client/core.ts`, `tests/components/document-detail-screen.test.tsx`
-    - Validation: multi-user integration coverage, screen tests for presence/leave/tombstone behavior, mention-send flush verification
+    - Validation: multi-user integration coverage, screen tests for presence/leave/tombstone behavior, mention-send flush verification, and canonical-content compatibility checks against existing document consumers
     - Exit criteria: document detail uses collaboration mode for editing and awareness while preserving delete, title update, and mention behaviors
     - Rollback impact: moderate; revert the screen to queued PATCH writes and legacy presence if needed
     - Blocking unknowns: none
-    - _Requirements: REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-003, REQ-FUNC-005, REQ-NFR-001_
+    - _Requirements: REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-003, REQ-DATA-001, REQ-FUNC-005, REQ-NFR-001_
   - [ ] 3.3 Migrate work item description editing to the same collaboration capability
     - Depends on: 3.1
     - Likely areas: `components/app/screens/work-item-detail-screen.tsx`, `lib/store/app-store-internal/slices/work-document-actions.ts`, `tests/components/work-item-detail-screen.test.tsx`
-    - Validation: multi-user integration coverage and regression tests for edit-only presence removal, draft save behavior, and mention retry flows
+    - Validation: multi-user integration coverage and regression tests for edit-only presence removal, draft save behavior, mention retry flows, and canonical-content compatibility checks for work-item-backed document content
     - Exit criteria: work item description editing uses the same collaborative-document path as standalone documents
     - Rollback impact: moderate; revert the work item description surface to current local edit flow if needed
     - Blocking unknowns: none
-    - _Requirements: REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-003, REQ-FUNC-005, REQ-NFR-001_
+    - _Requirements: REQ-FUNC-001, REQ-FUNC-002, REQ-FUNC-003, REQ-DATA-001, REQ-FUNC-005, REQ-NFR-001_
 
 - [ ] 4. Scoped synchronization and snapshot breakup
   - [ ] 4.1 Add scoped invalidation `SSE` endpoint and client subscription layer
     - Depends on: 1.2
     - Likely areas: `app/api/snapshot/events/route.ts`, new `app/api/events/scoped/route.ts`, `lib/convex/client/core.ts`, `components/providers/convex-app-provider.tsx`, `lib/browser/snapshot-diagnostics.ts`
-    - Validation: route contract tests, client subscription tests, reconnect/recovery tests
+    - Validation: route contract tests, client subscription tests, reconnect/recovery tests, and scoped invalidation lag measurement against target
     - Exit criteria: the client can subscribe to scoped invalidation envelopes without depending on one global version event
     - Rollback impact: low; legacy `/api/snapshot/events` path can remain active
     - Blocking unknowns: none
@@ -126,8 +126,8 @@ last_updated: 2026-04-22
   - [ ] 5.1 Add collaboration and scoped-sync telemetry, diagnostics, and release guidance
     - Depends on: 2.1, 2.2, 4.1
     - Likely areas: `lib/browser/snapshot-diagnostics.ts`, provider logs/metrics, `docs/architecture/**`, release/runbook docs
-    - Validation: operational verification of join/flush/invalidation metrics and documented abort thresholds
-    - Exit criteria: rollout owners can observe collaboration joins, rehydrates, flush failures, invalidation lag, and fallback/rollback status
+    - Validation: operational verification of join/flush/invalidation metrics, documented abort thresholds, and explicit measurement hooks for the p95 join/rehydrate and invalidation-lag targets
+    - Exit criteria: rollout owners can observe collaboration joins, rehydrates, flush failures, invalidation lag, fallback/rollback status, and the numeric NFR targets defined in the design
     - Rollback impact: low; telemetry is additive and supports rollback decisions
     - Blocking unknowns: none
     - _Requirements: REQ-OPS-001, REQ-NFR-001, REQ-NFR-002_
