@@ -121,6 +121,43 @@ describe("work item handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
+  it("creates work items with empty description documents", async () => {
+    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([]),
+      })),
+    })
+
+    await createWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      teamId: "team_1",
+      type: "sub-task",
+      title: "Test",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+    })
+
+    expect(ctx.db.insert).toHaveBeenNthCalledWith(1, "documents", {
+      id: "item_1",
+      kind: "item-description",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      title: "Test description",
+      content: "<p></p>",
+      linkedProjectIds: [],
+      linkedWorkItemIds: [],
+      createdBy: "user_1",
+      updatedBy: "user_1",
+      createdAt: "2026-04-20T22:20:00.000Z",
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+  })
+
   it("rejects invalid schedule strings on update before patching", async () => {
     const { updateWorkItemHandler } = await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()

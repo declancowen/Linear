@@ -39,10 +39,7 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 }))
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>
       {children}
     </button>
@@ -70,11 +67,9 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: () => null,
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
-  LevelChipPopover: ({
-    showLabel,
-  }: {
-    showLabel?: boolean
-  }) => <div>{showLabel === false ? "level:value-only" : "level:label"}</div>,
+  LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
+    <div>{showLabel === false ? "level:value-only" : "level:label"}</div>
+  ),
   PropertiesChipPopover: () => null,
   SortChipPopover: () => null,
   getAvailableGroupOptions: () => [],
@@ -83,10 +78,7 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   }: {
     onUpdateView?: (patch: { layout?: "list" | "board" | "timeline" }) => void
   }) => (
-    <button
-      type="button"
-      onClick={() => onUpdateView?.({ layout: "list" })}
-    >
+    <button type="button" onClick={() => onUpdateView?.({ layout: "list" })}>
       Switch layout
     </button>
   ),
@@ -317,7 +309,7 @@ describe("ProjectDetailScreen", () => {
       containerId: "project_1",
       route: "/team/platform/projects/project_1",
       teamSlug: "platform",
-      experience: "software-development",
+      defaultItemLevelExperience: "software-development",
       createdAt: "2026-04-18T10:00:00.000Z",
       updatedAt: "2026-04-18T10:00:00.000Z",
       overrides: {

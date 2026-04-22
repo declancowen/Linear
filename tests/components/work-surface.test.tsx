@@ -1,9 +1,18 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
+
+const { filterPopoverMock, getVisibleItemsForViewMock, searchParamsState } =
+  vi.hoisted(() => ({
+  filterPopoverMock: vi.fn(() => null),
+  getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
+  searchParamsState: {
+    value: "",
+  },
+}))
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(searchParamsState.value),
 }))
 
 vi.mock("@/lib/browser/dialog-transitions", () => ({
@@ -12,16 +21,15 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 
 vi.mock("@/lib/domain/selectors", () => ({
   canEditTeam: () => true,
-  getVisibleItemsForView: (_data: unknown, items: unknown[]) => items,
-  getViewByRoute: (data: { views: Array<{ route: string }> }, routeKey: string) =>
-    data.views.find((view) => view.route === routeKey) ?? null,
+  getVisibleItemsForView: getVisibleItemsForViewMock,
+  getViewByRoute: (
+    data: { views: Array<{ route: string }> },
+    routeKey: string
+  ) => data.views.find((view) => view.route === routeKey) ?? null,
 }))
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>
       {children}
     </button>
@@ -50,15 +58,13 @@ vi.mock("@/components/app/screens/entity-context-menus", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
-  FilterPopover: () => null,
+  FilterPopover: filterPopoverMock,
   getAvailableGroupOptions: () => ["status"],
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
-  LevelChipPopover: ({
-    showLabel,
-  }: {
-    showLabel?: boolean
-  }) => <div>{showLabel === false ? "level:value-only" : "level:label"}</div>,
+  LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
+    <div>{showLabel === false ? "level:value-only" : "level:label"}</div>
+  ),
   PropertiesChipPopover: () => null,
   SortChipPopover: () => null,
   ViewConfigPopover: () => null,
@@ -75,12 +81,16 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
       <div>board-content</div>
     </div>
   ),
-  ListView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
-    <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
-  ),
-  TimelineView: ({ view }: { view: { grouping: string; subGrouping: string | null } }) => (
-    <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>
-  ),
+  ListView: ({
+    view,
+  }: {
+    view: { grouping: string; subGrouping: string | null }
+  }) => <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>,
+  TimelineView: ({
+    view,
+  }: {
+    view: { grouping: string; subGrouping: string | null }
+  }) => <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>,
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
@@ -162,11 +172,17 @@ describe("WorkSurface", () => {
 
   afterEach(() => {
     useAppStore.setState(createEmptyState())
+    searchParamsState.value = ""
+    filterPopoverMock.mockClear()
+    getVisibleItemsForViewMock.mockClear()
     vi.clearAllMocks()
   })
 
   it("applies incompatible grouping fallbacks locally without persisting the saved view", () => {
-    const updateViewConfigSpy = vi.spyOn(useAppStore.getState(), "updateViewConfig")
+    const updateViewConfigSpy = vi.spyOn(
+      useAppStore.getState(),
+      "updateViewConfig"
+    )
 
     render(
       <WorkSurface
@@ -211,5 +227,165 @@ describe("WorkSurface", () => {
 
     expect(screen.getByText("board-content")).toBeInTheDocument()
     expect(screen.queryByText("No work")).not.toBeInTheDocument()
+  })
+
+  it("renders fallback views when no saved views exist", () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      views: [],
+    })
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_all_items",
+            name: "All work",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            grouping: "status",
+            subGrouping: null,
+          }),
+          createView({
+            id: "view_assigned_active_items",
+            name: "Active",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            layout: "board",
+            grouping: "status",
+            subGrouping: null,
+          }),
+        ]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "All work" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Active" })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Active" }))
+
+    expect(screen.getByText("board-content")).toBeInTheDocument()
+  })
+
+  it("matches assigned descendant filters against the assigned rows", () => {
+    const assignedItem = {
+      id: "story_1",
+      parentId: "epic_1",
+    }
+    const displayItem = {
+      id: "epic_1",
+      parentId: null,
+    }
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_all_items",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            showChildItems: true,
+          }),
+        ]}
+        items={[displayItem] as never[]}
+        filterItems={[assignedItem] as never[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        childDisplayMode="assigned-descendants"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(getVisibleItemsForViewMock).toHaveBeenCalledWith(
+      expect.anything(),
+      [displayItem],
+      expect.objectContaining({
+        id: "view_assigned_all_items",
+      }),
+      {
+        matchItems: [assignedItem],
+        childDisplayMode: "assigned-descendants",
+      }
+    )
+    expect(filterPopoverMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [displayItem],
+        view: expect.objectContaining({
+          id: "view_assigned_all_items",
+        }),
+      }),
+      undefined
+    )
+  })
+
+  it("does not snap fallback tab selection back to the URL view after local edits", () => {
+    searchParamsState.value = "view=view_assigned_active_items"
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_all_items",
+            name: "All work",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            grouping: "status",
+            subGrouping: null,
+          }),
+          createView({
+            id: "view_assigned_active_items",
+            name: "Active",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            layout: "board",
+            grouping: "status",
+            subGrouping: null,
+          }),
+        ]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(screen.getByText("board-content")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "All work" }))
+
+    expect(screen.queryByText("board-content")).not.toBeInTheDocument()
+
+    const filterPopoverCalls = filterPopoverMock.mock.calls as unknown[][]
+    const filterPopoverProps = filterPopoverCalls.at(-1)?.[0] as
+      | {
+          onToggleFilterValue?: (key: string, value: string) => void
+        }
+      | undefined
+
+    expect(filterPopoverProps?.onToggleFilterValue).toBeTruthy()
+
+    act(() => {
+      filterPopoverProps?.onToggleFilterValue?.("status", "todo")
+    })
+
+    expect(screen.queryByText("board-content")).not.toBeInTheDocument()
   })
 })

@@ -16,6 +16,7 @@ import {
 import {
   canEditTeam,
   canEditWorkspace,
+  getAccessibleTeams,
   getPrivateDocuments,
   getProjectHref,
   getProjectProgress,
@@ -46,7 +47,12 @@ import {
   type Team,
   type ViewDefinition,
 } from "@/lib/domain/types"
-import { createViewDefinition, isSystemView } from "@/lib/domain/default-views"
+import {
+  buildAssignedWorkViews,
+  createViewDefinition,
+  getSharedTeamExperience,
+  isSystemView,
+} from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
@@ -1036,25 +1042,56 @@ export function AssignedScreen() {
     }))
   )
   const team = useAppStore((state) => getTeam(state, activeTeamId))
+  const assignedViewExperience = useAppStore((state) => {
+    return getSharedTeamExperience(
+      getAccessibleTeams(state).map(
+        (candidate) => candidate.settings.experience
+      )
+    )
+  })
   const views = useAppStore(
     useShallow((state) =>
       getViewsForScope(state, "personal", currentUserId, "items")
     )
   )
-  const items = useAppStore(
+  const assignedItems = useAppStore(
     useShallow((state) =>
       getVisibleWorkItems(state, { assignedToCurrentUser: true })
     )
   )
+  const items = useAppStore(
+    useShallow((state) =>
+      getVisibleWorkItems(state, { assignedToCurrentUserWithAncestors: true })
+    )
+  )
+  const fallbackViews = useMemo(() => {
+    if (!currentUserId) {
+      return []
+    }
+
+    const timestamp = new Date().toISOString()
+
+    return buildAssignedWorkViews({
+      userId: currentUserId,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      experience: assignedViewExperience,
+    })
+  }, [assignedViewExperience, currentUserId])
 
   return (
     <WorkSurface
       title="My items"
       routeKey="/assigned"
       views={views}
+      fallbackViews={fallbackViews}
       items={items}
+      filterItems={assignedItems}
       team={team}
+      groupingExperience={assignedViewExperience}
       emptyLabel="Nothing is assigned right now"
+      childDisplayMode="assigned-descendants"
+      allowCreateViews={false}
     />
   )
 }
@@ -1349,7 +1386,9 @@ export function ProjectsScreen({
             onToggleFilterValue={
               hasSavedProjectView ? undefined : toggleProjectFilterValue
             }
-            onClearFilters={hasSavedProjectView ? undefined : clearProjectFilters}
+            onClearFilters={
+              hasSavedProjectView ? undefined : clearProjectFilters
+            }
           />
           <GroupChipPopover
             view={effectiveProjectView}
@@ -1369,9 +1408,7 @@ export function ProjectsScreen({
               hasSavedProjectView ? undefined : toggleProjectDisplayProperty
             }
             onReorderDisplayProperties={
-              hasSavedProjectView
-                ? undefined
-                : reorderProjectDisplayProperties
+              hasSavedProjectView ? undefined : reorderProjectDisplayProperties
             }
             onClearDisplayProperties={
               hasSavedProjectView ? undefined : clearProjectDisplayProperties

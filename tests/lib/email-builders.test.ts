@@ -31,5 +31,7 @@ describe("email builders", () => {
     )
     expect(job.html).toContain("Sam mentioned you 3 times")
     expect(job.html).toContain("Summary")
+    expect(job.html).toContain("color: #52525b; background-color: #f4f4f5;")
+    expect(job.html).toContain("border-left: 3px solid #111113;")
   })
 })

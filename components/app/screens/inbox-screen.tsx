@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -24,6 +25,7 @@ import { ScreenHeader } from "@/components/app/screens/shared"
 import {
   InboxDetailPane,
   InboxListPane,
+  type InboxEntry,
   type InboxTab,
 } from "@/components/app/screens/inbox-ui"
 
@@ -50,6 +52,16 @@ export function InboxScreen() {
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     )
   )
+  const users = useAppStore(useShallow((state) => state.users))
+  const usersById = useMemo(() => {
+    const map: Record<string, (typeof users)[number]> = {}
+
+    for (const user of users) {
+      map[user.id] = user
+    }
+
+    return map
+  }, [users])
   const [inboxTab, setInboxTab] = useState<InboxTab>("inbox")
   const [acceptingInvite, setAcceptingInvite] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -81,6 +93,19 @@ export function InboxScreen() {
       ? notification.archivedAt == null
       : notification.archivedAt != null
   )
+  const visibleEntries: InboxEntry[] = visibleNotifications.map(
+    (notification) => ({
+      notification,
+      actor: usersById[notification.actorId] ?? null,
+    })
+  )
+  const unreadCount = notifications.filter(
+    (notification) =>
+      notification.archivedAt == null && notification.readAt == null
+  ).length
+  const archivedCount = notifications.filter(
+    (notification) => notification.archivedAt != null
+  ).length
   const selectedNotification =
     visibleNotifications.find(
       (notification) => notification.id === activeInboxNotificationId
@@ -89,6 +114,12 @@ export function InboxScreen() {
     selectedNotification ??
     (activeInboxNotificationId ? (visibleNotifications[0] ?? null) : null)
   const activeId = activeNotification?.id ?? null
+  const activeEntry: InboxEntry | null = activeNotification
+    ? {
+        notification: activeNotification,
+        actor: usersById[activeNotification.actorId] ?? null,
+      }
+    : null
   const {
     activeChannelPostHref,
     activeChatHref,
@@ -126,14 +157,6 @@ export function InboxScreen() {
       !activeInvite.declinedAt &&
       new Date(activeInvite.expiresAt).getTime() >= Date.now()
     : false
-  const shouldShowPrimaryAction =
-    activeNotification?.entityType === "workItem" ||
-    activeNotification?.entityType === "document" ||
-    activeNotification?.entityType === "project" ||
-    (activeNotification?.entityType === "channelPost" &&
-      activeChannelPostHref != null) ||
-    (activeNotification?.entityType === "chat" && activeChatHref != null) ||
-    hasPendingActiveInvite
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -208,9 +231,7 @@ export function InboxScreen() {
     }
 
     const nextActiveNotification =
-      visibleNotifications.find(
-        (entry) => entry.id !== notification.id
-      ) ?? null
+      visibleNotifications.find((entry) => entry.id !== notification.id) ?? null
 
     useAppStore
       .getState()
@@ -317,7 +338,9 @@ export function InboxScreen() {
             resizing={notificationListResizing}
             inboxTab={inboxTab}
             activeId={activeId}
-            visibleNotifications={visibleNotifications}
+            entries={visibleEntries}
+            unreadCount={unreadCount}
+            archivedCount={archivedCount}
             onTabChange={setInboxTab}
             onMoveAll={moveAllVisibleNotifications}
             onSelectNotification={(notificationId) => {
@@ -333,12 +356,13 @@ export function InboxScreen() {
               archiveNotification(notification)
             }}
             onResizeStart={handleNotificationListResizeStart}
-            onResetWidth={() => setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)}
+            onResetWidth={() =>
+              setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)
+            }
           />
           <InboxDetailPane
-            activeNotification={activeNotification}
+            activeEntry={activeEntry}
             visibleNotificationCount={visibleNotifications.length}
-            shouldShowPrimaryAction={shouldShowPrimaryAction}
             activeProjectHref={activeProjectHref}
             activeChannelPostHref={activeChannelPostHref}
             activeChatHref={activeChatHref}
@@ -352,6 +376,9 @@ export function InboxScreen() {
               }
 
               archiveNotification(notification)
+            }}
+            onToggleRead={(notification) => {
+              useAppStore.getState().toggleNotificationRead(notification.id)
             }}
             onDelete={() => setDeleteDialogOpen(true)}
           />

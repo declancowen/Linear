@@ -36,7 +36,10 @@ vi.mock("@/components/ui/scroll-area", () => ({
 vi.mock("@/components/app/screens/work-item-menus", () => ({
   IssueActionMenu: () => null,
   IssueContextMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
-  stopMenuEvent: (event: { preventDefault?: () => void; stopPropagation?: () => void }) => {
+  stopMenuEvent: (event: {
+    preventDefault?: () => void
+    stopPropagation?: () => void
+  }) => {
     event.preventDefault?.()
     event.stopPropagation?.()
   },
@@ -88,7 +91,8 @@ function createTeam(): Team {
 
 function createView(
   layout: ViewDefinition["layout"] = "list",
-  displayProps: DisplayProperty[] = []
+  displayProps: DisplayProperty[] = [],
+  overrides?: Partial<ViewDefinition>
 ): ViewDefinition {
   return {
     id: "view_1",
@@ -113,6 +117,7 @@ function createView(
     route: "/team/platform/work",
     createdAt: "2026-04-20T12:00:00.000Z",
     updatedAt: "2026-04-20T12:00:00.000Z",
+    ...overrides,
   }
 }
 
@@ -247,6 +252,91 @@ function createProgressData(): AppData {
   }
 }
 
+function createAssignedHierarchyData(): AppData {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    teams: [createTeam()],
+    workItems: [
+      {
+        ...createWorkItem(),
+        id: "epic-parent",
+        key: "TES-20",
+        type: "epic",
+        title: "Epic parent",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "feature-parent",
+        key: "TES-21",
+        type: "feature",
+        title: "Feature parent",
+        status: "todo",
+        parentId: "epic-parent",
+      },
+      {
+        ...createWorkItem(),
+        id: "requirement-middle",
+        key: "TES-22",
+        type: "requirement",
+        title: "Requirement middle",
+        status: "todo",
+        parentId: "feature-parent",
+      },
+      {
+        ...createWorkItem(),
+        id: "story-child",
+        key: "TES-23",
+        type: "story",
+        title: "Story child",
+        status: "in-progress",
+        assigneeId: "user_1",
+        parentId: "requirement-middle",
+      },
+    ],
+  }
+}
+
+function createAssignedHierarchyWithoutVisibleDescendantsData(): AppData {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    teams: [createTeam()],
+    workItems: [
+      {
+        ...createWorkItem(),
+        id: "epic-parent-empty",
+        key: "EPIC",
+        type: "epic",
+        title: "Epic parent empty",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "feature-parent-empty",
+        key: "FEATURE",
+        type: "feature",
+        title: "Feature parent empty",
+        status: "todo",
+        parentId: "epic-parent-empty",
+      },
+      {
+        ...createWorkItem(),
+        id: "story-child-empty",
+        key: "STORY",
+        type: "story",
+        title: "Story child empty",
+        status: "in-progress",
+        assigneeId: "user_2",
+        parentId: "feature-parent-empty",
+      },
+    ],
+  }
+}
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -303,7 +393,9 @@ describe("ListView", () => {
 
   it("renders child rollup progress on board cards only when the progress property is enabled", () => {
     const data = createProgressData()
-    const topLevelItems = data.workItems.filter((item) => item.parentId === null)
+    const topLevelItems = data.workItems.filter(
+      (item) => item.parentId === null
+    )
 
     const { rerender } = render(
       <BoardView
@@ -325,7 +417,9 @@ describe("ListView", () => {
       />
     )
 
-    expect(screen.queryByLabelText("Child progress 50%")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("Child progress 50%")
+    ).not.toBeInTheDocument()
   })
 
   it("renders list-row properties in the same order as visible properties", () => {
@@ -345,10 +439,12 @@ describe("ListView", () => {
     const dueDate = screen.getByText("Due 25 April")
 
     expect(
-      assignee.compareDocumentPosition(roadmap) & Node.DOCUMENT_POSITION_FOLLOWING
+      assignee.compareDocumentPosition(roadmap) &
+        Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
-      roadmap.compareDocumentPosition(dueDate) & Node.DOCUMENT_POSITION_FOLLOWING
+      roadmap.compareDocumentPosition(dueDate) &
+        Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
   })
 
@@ -369,10 +465,12 @@ describe("ListView", () => {
     const assignee = screen.getByText("Assignee")
 
     expect(
-      roadmap.compareDocumentPosition(dueDate) & Node.DOCUMENT_POSITION_FOLLOWING
+      roadmap.compareDocumentPosition(dueDate) &
+        Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
-      dueDate.compareDocumentPosition(assignee) & Node.DOCUMENT_POSITION_FOLLOWING
+      dueDate.compareDocumentPosition(assignee) &
+        Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
   })
 
@@ -403,5 +501,92 @@ describe("ListView", () => {
       "aria-roledescription",
       "draggable"
     )
+  })
+
+  it("renders the lowest assigned descendant under the selected parent level in list mode", () => {
+    const data = createAssignedHierarchyData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems.filter((item) => item.id === "epic-parent")}
+        scopedItems={data.workItems}
+        view={createView("list", [], {
+          itemLevel: "epic",
+          showChildItems: true,
+        })}
+        editable={false}
+        childDisplayMode="assigned-descendants"
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText("Expand sub-issues"))
+
+    expect(screen.getByText("Story child")).toBeInTheDocument()
+    expect(screen.queryByText("Feature parent")).not.toBeInTheDocument()
+  })
+
+  it("labels compressed board children using the visible assigned descendant type", () => {
+    const data = createAssignedHierarchyData()
+
+    render(
+      <BoardView
+        data={data}
+        items={data.workItems.filter((item) => item.id === "epic-parent")}
+        scopedItems={data.workItems}
+        view={createView("board", [], {
+          itemLevel: "epic",
+          showChildItems: true,
+        })}
+        editable={false}
+        childDisplayMode="assigned-descendants"
+      />
+    )
+
+    const childDisclosure = screen.getByRole("button", { name: "1 story" })
+    expect(childDisclosure).toBeInTheDocument()
+
+    fireEvent.click(childDisclosure)
+
+    expect(screen.getByText("Story child")).toBeInTheDocument()
+  })
+
+  it("does not show fallback child counts when assigned-descendant containers have no visible descendants", () => {
+    const data = createAssignedHierarchyWithoutVisibleDescendantsData()
+    const items = data.workItems.filter((item) => item.id === "epic-parent-empty")
+
+    const { rerender } = render(
+      <ListView
+        data={data}
+        items={items}
+        scopedItems={data.workItems}
+        view={createView("list", [], {
+          itemLevel: "epic",
+          showChildItems: true,
+        })}
+        editable={false}
+        childDisplayMode="assigned-descendants"
+      />
+    )
+
+    expect(screen.queryByLabelText("Expand sub-issues")).not.toBeInTheDocument()
+    expect(screen.getAllByText("1")).toHaveLength(1)
+
+    rerender(
+      <BoardView
+        data={data}
+        items={items}
+        scopedItems={data.workItems}
+        view={createView("board", [], {
+          itemLevel: "epic",
+          showChildItems: true,
+        })}
+        editable={false}
+        childDisplayMode="assigned-descendants"
+      />
+    )
+
+    expect(screen.queryByLabelText("1 story")).not.toBeInTheDocument()
+    expect(screen.getAllByText("1")).toHaveLength(1)
   })
 })

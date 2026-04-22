@@ -34,9 +34,10 @@ import {
 } from "@/lib/domain/selectors"
 import { getCalendarDateDayOffset } from "@/lib/date-input"
 import {
+  getDisplayLabelForWorkItemType,
+  getDisplayPluralLabelForWorkItemType,
   priorityMeta,
   statusMeta,
-  getChildWorkItemCopy,
   type AppData,
   type DisplayProperty,
   type ViewDefinition,
@@ -95,6 +96,8 @@ type DraggableBindings = Pick<
   ReturnType<typeof useDraggable>,
   "attributes" | "listeners"
 >
+
+type ChildDisplayMode = "direct" | "assigned-descendants"
 
 function CollapseCaret({
   open,
@@ -224,7 +227,7 @@ function WorkItemProgressProperty({
           style={{ width: `${progress.percent}%` }}
         />
       </span>
-      <span className="w-9 text-right text-[11.5px] tabular-nums text-fg-3">
+      <span className="w-9 text-right text-[11.5px] text-fg-3 tabular-nums">
         {progress.percent}%
       </span>
     </span>
@@ -253,6 +256,45 @@ function WorkItemChildCount({
       {count}
     </span>
   )
+}
+
+function getDisplayedChildCountLabel(
+  data: AppData,
+  parentItem: WorkItem,
+  childItems: WorkItem[]
+) {
+  if (childItems.length === 0) {
+    return null
+  }
+
+  const team = getTeam(data, parentItem.teamId)
+  const childTypes = [...new Set(childItems.map((child) => child.type))]
+
+  if (childTypes.length !== 1) {
+    return `${childItems.length} ${childItems.length === 1 ? "item" : "items"}`
+  }
+
+  const [childType] = childTypes
+  const label =
+    childItems.length === 1
+      ? getDisplayLabelForWorkItemType(childType, team?.settings.experience)
+      : getDisplayPluralLabelForWorkItemType(
+          childType,
+          team?.settings.experience
+        )
+
+  return `${childItems.length} ${label.toLowerCase()}`
+}
+
+function getDisplayedChildCountOverride(
+  childItems: WorkItem[],
+  childDisplayMode: ChildDisplayMode
+) {
+  if (childDisplayMode === "assigned-descendants") {
+    return childItems.length
+  }
+
+  return childItems.length > 0 ? childItems.length : undefined
 }
 
 function renderWorkItemDisplayProperty({
@@ -322,10 +364,7 @@ function renderWorkItemDisplayProperty({
 
   if (property === "progress") {
     return (
-      <WorkItemProgressProperty
-        progress={childProgress}
-        variant={variant}
-      />
+      <WorkItemProgressProperty progress={childProgress} variant={variant} />
     )
   }
 
@@ -405,13 +444,17 @@ function renderWorkItemDisplayProperty({
   if (property === "created") {
     const createdAt = formatWorkSurfaceTimestamp(item.createdAt, "Created")
 
-    return createdAt ? <span className={META_TEXT_CLASS}>{createdAt}</span> : null
+    return createdAt ? (
+      <span className={META_TEXT_CLASS}>{createdAt}</span>
+    ) : null
   }
 
   if (property === "updated") {
     const updatedAt = formatWorkSurfaceTimestamp(item.updatedAt, "Updated")
 
-    return updatedAt ? <span className={META_TEXT_CLASS}>{updatedAt}</span> : null
+    return updatedAt ? (
+      <span className={META_TEXT_CLASS}>{updatedAt}</span>
+    ) : null
   }
 
   if (property === "assignee") {
@@ -476,12 +519,14 @@ export function BoardView({
   scopedItems,
   view,
   editable,
+  childDisplayMode = "direct",
 }: {
   data: AppData
   items: WorkItem[]
   scopedItems?: WorkItem[]
   view: ViewDefinition
   editable: boolean
+  childDisplayMode?: ChildDisplayMode
 }) {
   const groups = [
     ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
@@ -600,29 +645,46 @@ export function BoardView({
                               subItems,
                               items,
                               showChildItems
-                            ).map((item) => (
-                              <DraggableWorkCard
-                                key={item.id}
-                                item={item}
-                                data={data}
-                                displayProps={view.displayProps}
-                                details={
-                                  showChildItems ? (
-                                    <WorkItemChildDisclosure
-                                      data={data}
-                                      item={item}
-                                      scopedItems={scopedItems}
-                                      view={view}
-                                      ordering={view.ordering}
-                                      expanded={expandedItemIds.has(item.id)}
-                                      onToggle={() =>
-                                        toggleExpandedItem(item.id)
-                                      }
-                                    />
-                                  ) : null
-                                }
-                              />
-                            ))}
+                            ).map((item) => {
+                              const childItems = showChildItems
+                                ? getDirectChildWorkItemsForDisplay(
+                                    data,
+                                    item,
+                                    view.ordering,
+                                    view,
+                                    scopedItems,
+                                    {
+                                      mode: childDisplayMode,
+                                    }
+                                  )
+                                : []
+
+                              return (
+                                <DraggableWorkCard
+                                  key={item.id}
+                                  item={item}
+                                  data={data}
+                                  displayProps={view.displayProps}
+                                  childCountOverride={getDisplayedChildCountOverride(
+                                    childItems,
+                                    childDisplayMode
+                                  )}
+                                  details={
+                                    showChildItems ? (
+                                      <WorkItemChildDisclosure
+                                        data={data}
+                                        item={item}
+                                        childItems={childItems}
+                                        expanded={expandedItemIds.has(item.id)}
+                                        onToggle={() =>
+                                          toggleExpandedItem(item.id)
+                                        }
+                                      />
+                                    ) : null
+                                  }
+                                />
+                              )
+                            })}
                           </BoardDropLane>
                         </div>
                       )
@@ -691,12 +753,14 @@ export function ListView({
   scopedItems,
   view,
   editable,
+  childDisplayMode = "direct",
 }: {
   data: AppData
   items: WorkItem[]
   scopedItems?: WorkItem[]
   view: ViewDefinition
   editable: boolean
+  childDisplayMode?: ChildDisplayMode
 }) {
   const groups = [
     ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
@@ -840,7 +904,10 @@ export function ListView({
                                     item,
                                     view.ordering,
                                     view,
-                                    scopedItems
+                                    scopedItems,
+                                    {
+                                      mode: childDisplayMode,
+                                    }
                                   )
                                 : []
                               const hasChildren = children.length > 0
@@ -853,6 +920,10 @@ export function ListView({
                                   displayProps={view.displayProps}
                                   depth={0}
                                   hasChildren={hasChildren}
+                                  childCountOverride={getDisplayedChildCountOverride(
+                                    children,
+                                    childDisplayMode
+                                  )}
                                   expanded={isExpanded}
                                   onToggleExpanded={() =>
                                     toggleExpandedItem(item.id)
@@ -866,6 +937,10 @@ export function ListView({
                                   displayProps={view.displayProps}
                                   depth={0}
                                   hasChildren={hasChildren}
+                                  childCountOverride={getDisplayedChildCountOverride(
+                                    children,
+                                    childDisplayMode
+                                  )}
                                   expanded={isExpanded}
                                   onToggleExpanded={() =>
                                     toggleExpandedItem(item.id)
@@ -999,7 +1074,11 @@ function ListGroupHeader({
         <div
           className={cn(
             "flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-[min(var(--radius-md),12px)] border border-line bg-surface px-3.5 shadow-[0_1px_0_0_oklch(0.18_0_0/0.03)] transition-colors",
-            isOver ? "border-fg-4 bg-surface-2" : isExpandable ? "group-hover/grp:bg-surface-3" : null
+            isOver
+              ? "border-fg-4 bg-surface-2"
+              : isExpandable
+                ? "group-hover/grp:bg-surface-3"
+                : null
           )}
         >
           <GroupPill
@@ -1007,7 +1086,7 @@ function ListGroupHeader({
             accentVar={accentVar}
             adornment={groupAdornment}
           />
-          <span className="text-[12px] tabular-nums text-fg-3">
+          <span className="text-[12px] text-fg-3 tabular-nums">
             {groupCount}
           </span>
         </div>
@@ -1046,6 +1125,7 @@ function ListRowBody({
   item,
   displayProps,
   depth,
+  childCountOverride,
   interactive = true,
   hasChildren = false,
   expanded = false,
@@ -1056,6 +1136,7 @@ function ListRowBody({
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
+  childCountOverride?: number
   interactive?: boolean
   hasChildren?: boolean
   expanded?: boolean
@@ -1073,7 +1154,7 @@ function ListRowBody({
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
   const childProgress = getChildProgressRollup(data, item)
-  const subCount = childProgress?.totalChildren ?? 0
+  const subCount = childCountOverride ?? childProgress?.totalChildren ?? 0
   const idProperty = renderWorkItemDisplayProperty({
     data,
     item,
@@ -1100,10 +1181,12 @@ function ListRowBody({
 
   const content = (
     <>
-      <div className="min-w-0 flex flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
         {idProperty}
-        <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
-          <div className="truncate text-[13px] text-foreground">{item.title}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <div className="truncate text-[13px] text-foreground">
+            {item.title}
+          </div>
           <WorkItemChildCount count={subCount} />
         </div>
         {visibleProperties.length > 0 ? (
@@ -1183,6 +1266,7 @@ function ListRow({
   item,
   displayProps,
   depth,
+  childCountOverride,
   hasChildren,
   expanded,
   onToggleExpanded,
@@ -1191,6 +1275,7 @@ function ListRow({
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
+  childCountOverride?: number
   hasChildren?: boolean
   expanded?: boolean
   onToggleExpanded?: () => void
@@ -1201,6 +1286,7 @@ function ListRow({
       item={item}
       displayProps={displayProps}
       depth={depth}
+      childCountOverride={childCountOverride}
       hasChildren={hasChildren}
       expanded={expanded}
       onToggleExpanded={onToggleExpanded}
@@ -1213,6 +1299,7 @@ function DraggableListRow({
   item,
   displayProps,
   depth,
+  childCountOverride,
   hasChildren,
   expanded,
   onToggleExpanded,
@@ -1221,6 +1308,7 @@ function DraggableListRow({
   item: WorkItem
   displayProps: DisplayProperty[]
   depth: number
+  childCountOverride?: number
   hasChildren?: boolean
   expanded?: boolean
   onToggleExpanded?: () => void
@@ -1241,13 +1329,14 @@ function DraggableListRow({
         item={item}
         displayProps={displayProps}
         depth={depth}
+        childCountOverride={childCountOverride}
         hasChildren={hasChildren}
         expanded={expanded}
         onToggleExpanded={onToggleExpanded}
         dragHandle={
           <button
             type="button"
-            className="cursor-grab rounded-md p-0.5 text-fg-4 opacity-0 transition-all hover:bg-surface-3 hover:text-foreground group-hover/row:opacity-100 active:cursor-grabbing"
+            className="cursor-grab rounded-md p-0.5 text-fg-4 opacity-0 transition-all group-hover/row:opacity-100 hover:bg-surface-3 hover:text-foreground active:cursor-grabbing"
             aria-label={`Drag ${item.title}`}
             onClick={stopMenuEvent}
             {...listeners}
@@ -1289,7 +1378,7 @@ function BoardGroupHeader({
           style={{ background: accentVar ?? "var(--text-3)" }}
         />
         <span>{groupLabel}</span>
-        <span className="text-[11.5px] font-normal tabular-nums text-fg-3">
+        <span className="text-[11.5px] font-normal text-fg-3 tabular-nums">
           {groupCount}
         </span>
       </div>
@@ -1326,11 +1415,13 @@ function DraggableWorkCard({
   data,
   item,
   displayProps,
+  childCountOverride,
   details,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
+  childCountOverride?: number
   details?: ReactNode
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -1348,6 +1439,7 @@ function DraggableWorkCard({
         data={data}
         item={item}
         displayProps={displayProps}
+        childCountOverride={childCountOverride}
         details={details}
         dragAttributes={attributes}
         dragListeners={listeners}
@@ -1368,6 +1460,7 @@ function BoardCardBody({
   data,
   item,
   displayProps,
+  childCountOverride,
   details,
   dragAttributes,
   dragListeners,
@@ -1376,6 +1469,7 @@ function BoardCardBody({
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
+  childCountOverride?: number
   details?: ReactNode
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
@@ -1392,7 +1486,7 @@ function BoardCardBody({
   const isOverdue = daysUntilDue !== null && daysUntilDue < 0
   const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
   const childProgress = getChildProgressRollup(data, item)
-  const subCount = childProgress?.totalChildren ?? 0
+  const subCount = childCountOverride ?? childProgress?.totalChildren ?? 0
   const idProperty = renderWorkItemDisplayProperty({
     data,
     item,
@@ -1419,17 +1513,15 @@ function BoardCardBody({
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div
-        className="group/card relative flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm"
-      >
+      <div className="group/card relative flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
         <Link
           href={itemHref}
           aria-label={`Open ${item.title}`}
-          className="absolute inset-0 rounded-[8px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]"
+          className="absolute inset-0 rounded-[8px] focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
           {...dragAttributes}
           {...dragListeners}
         />
-        <div className="relative z-10 flex items-start gap-2 pointer-events-none">
+        <div className="pointer-events-none relative z-10 flex items-start gap-2">
           <div className="min-w-0 flex-1">
             {idProperty ? <div className="mb-1">{idProperty}</div> : null}
             <div className="min-w-0">
@@ -1456,7 +1548,7 @@ function BoardCardBody({
             </div>
           </div>
         </div>
-        <div className="relative z-10 flex min-w-0 flex-col gap-2 pointer-events-none">
+        <div className="pointer-events-none relative z-10 flex min-w-0 flex-col gap-2">
           {visibleProperties.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
               {visibleProperties.map(({ key, node }) => (
@@ -1469,7 +1561,7 @@ function BoardCardBody({
         </div>
         {details ? (
           <div
-            className="relative z-10 pointer-events-auto"
+            className="pointer-events-auto relative z-10"
             onPointerDown={stopDragPropagation}
             onClick={stopMenuEvent}
           >
@@ -1484,39 +1576,25 @@ function BoardCardBody({
 function WorkItemChildDisclosure({
   data,
   item,
-  scopedItems,
-  view,
-  ordering,
+  childItems,
   expanded,
   onToggle,
 }: {
   data: AppData
   item: WorkItem
-  scopedItems?: WorkItem[]
-  view: ViewDefinition
-  ordering: ViewDefinition["ordering"]
+  childItems: WorkItem[]
   expanded: boolean
   onToggle: () => void
 }) {
-  const team = getTeam(data, item.teamId)
-  const childCopy = getChildWorkItemCopy(item.type, team?.settings.experience)
-  const childItems = getDirectChildWorkItemsForDisplay(
-    data,
-    item,
-    ordering,
-    view,
-    scopedItems
-  )
-
-  if (!childCopy.childType || childItems.length === 0) {
+  if (childItems.length === 0) {
     return null
   }
 
-  const childCountLabel = `${childItems.length} ${
-    childItems.length === 1
-      ? childCopy.childLabel.toLowerCase()
-      : childCopy.childPluralLabel.toLowerCase()
-  }`
+  const childCountLabel = getDisplayedChildCountLabel(data, item, childItems)
+
+  if (!childCountLabel) {
+    return null
+  }
 
   return (
     <div className="mt-1 rounded-md bg-surface-2 p-2">

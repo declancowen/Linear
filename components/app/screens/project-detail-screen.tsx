@@ -100,10 +100,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
         }
       )
     )
-  }, [
-    projectModel?.project,
-    projectModel?.team,
-  ])
+  }, [projectModel?.project, projectModel?.team])
   const initialProjectPresentation = useMemo(
     () =>
       defaultProjectPresentation ??
@@ -131,8 +128,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const [projectItemsDisplayProps, setProjectItemsDisplayProps] = useState<
     DisplayProperty[]
   >(() => [...initialProjectPresentation.displayProps])
-  const [activeBuiltinProjectViewId, setActiveBuiltinProjectViewId] =
-    useState<string | null>(null)
+  const [activeBuiltinProjectViewId, setActiveBuiltinProjectViewId] = useState<
+    string | null
+  >(null)
 
   useEffect(() => {
     if (!defaultProjectPresentation) {
@@ -155,8 +153,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     })
   }, [defaultProjectPresentation, projectId, projectModel?.project.id])
 
-  const selectedProjectView =
-    projectRoute ? getViewByRoute(data, projectRoute) : null
+  const selectedProjectView = projectRoute
+    ? getViewByRoute(data, projectRoute)
+    : null
   const activeSavedProjectView = savedProjectItemViews.some(
     (view) => view.id === selectedProjectView?.id
   )
@@ -194,12 +193,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     return <MissingState title="Project not found" />
   }
 
-  const {
-    project,
-    team,
-    items,
-    detailHref,
-  } = projectModel
+  const { project, team, items, detailHref } = projectModel
   const editable =
     project.scopeType === "team"
       ? Boolean(team && canEditTeam(data, team.id))
@@ -216,15 +210,15 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     defaultProjectPresentation ?? initialProjectPresentation
   const baselineProjectItemsLevel =
     baselineProjectPresentation.itemLevel === undefined
-      ? (team
-          ? getDefaultViewItemLevelForTeamExperience(team.settings.experience)
-          : getDefaultViewItemLevelForProjectTemplate(project.templateType))
+      ? team
+        ? getDefaultViewItemLevelForTeamExperience(team.settings.experience)
+        : getDefaultViewItemLevelForProjectTemplate(project.templateType)
       : baselineProjectPresentation.itemLevel
   const effectiveProjectItemsLevel =
     projectItemsLevel === undefined
-      ? (team
-          ? getDefaultViewItemLevelForTeamExperience(team.settings.experience)
-          : getDefaultViewItemLevelForProjectTemplate(project.templateType))
+      ? team
+        ? getDefaultViewItemLevelForTeamExperience(team.settings.experience)
+        : getDefaultViewItemLevelForProjectTemplate(project.templateType)
       : projectItemsLevel
 
   const projectItemsView: ViewDefinition = {
@@ -258,7 +252,6 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       entityKind: "items",
       route: detailHref,
       teamSlug: team?.slug,
-      experience: team?.settings.experience,
       isShared: false,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
@@ -302,7 +295,6 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       entityKind: "items",
       route: detailHref,
       teamSlug: team?.slug,
-      experience: team?.settings.experience,
       isShared: false,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
@@ -333,7 +325,6 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       entityKind: "items",
       route: detailHref,
       teamSlug: team?.slug,
-      experience: team?.settings.experience,
       isShared: false,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
@@ -487,7 +478,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 
                     if (isSavedView) {
                       setActiveBuiltinProjectViewId(null)
-                      useAppStore.getState().setSelectedView(projectRoute, view.id)
+                      useAppStore
+                        .getState()
+                        .setSelectedView(projectRoute, view.id)
                       return
                     }
 
@@ -539,10 +532,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
               activeSavedProjectView ? undefined : updateProjectItemsView
             }
           />
-          <div
-            aria-hidden
-            className="mx-1.5 h-[18px] w-px bg-line"
-          />
+          <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
           <FilterPopover
             view={activeProjectItemsView}
             items={items}

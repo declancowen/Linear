@@ -289,7 +289,7 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
     containerId: args.containerId,
     route: args.route,
     teamSlug,
-    experience,
+    defaultItemLevelExperience: experience,
     createdAt: getNow(),
     overrides: {
       layout: args.layout,

@@ -133,7 +133,10 @@ describe("project views", () => {
         createProjectView({
           filters: {
             ...createProjectView().filters,
-            status: ["in-progress", "completed"] as ViewDefinition["filters"]["status"],
+            status: [
+              "in-progress",
+              "completed",
+            ] as ViewDefinition["filters"]["status"],
           },
         })
       ).map((project) => project.id)
@@ -287,7 +290,7 @@ describe("project views", () => {
       entityKind: "items",
       route: "/team/platform/projects/project_1",
       teamSlug: "platform",
-      experience: "software-development",
+      defaultItemLevelExperience: "software-development",
       isShared: false,
       createdAt: "2026-04-18T09:00:00.000Z",
     })
@@ -305,9 +308,8 @@ describe("project views", () => {
   })
 
   it("keeps the team-default item level when project presentation omits it", () => {
-    const presentation = createDefaultProjectPresentationConfig(
-      "software-delivery"
-    )
+    const presentation =
+      createDefaultProjectPresentationConfig("software-delivery")
     const effectiveItemLevel =
       presentation.itemLevel === undefined
         ? getDefaultViewItemLevelForTeamExperience("software-development")
@@ -321,7 +323,7 @@ describe("project views", () => {
       entityKind: "items",
       route: "/team/platform/projects/project_1",
       teamSlug: "platform",
-      experience: "software-development",
+      defaultItemLevelExperience: "software-development",
       isShared: false,
       createdAt: "2026-04-18T09:00:00.000Z",
       overrides: {
@@ -347,7 +349,8 @@ describe("project views", () => {
   })
 
   it("falls back to the project template level for workspace-scoped project detail views", () => {
-    const presentation = createDefaultProjectPresentationConfig("project-management")
+    const presentation =
+      createDefaultProjectPresentationConfig("project-management")
     const effectiveItemLevel =
       presentation.itemLevel === undefined
         ? getDefaultViewItemLevelForProjectTemplate("project-management")

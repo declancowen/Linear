@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import { Plus } from "@phosphor-icons/react"
@@ -14,6 +14,7 @@ import { isSystemView } from "@/lib/domain/default-views"
 import {
   getDefaultTemplateTypeForTeamExperience,
   type Team,
+  type TeamExperienceType,
   type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
@@ -27,7 +28,11 @@ import {
 } from "@/components/ui/template-primitives"
 import { HeaderTitle } from "@/components/app/screens/shared"
 import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
-import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
+import {
+  cloneViewFilters,
+  selectAppDataSnapshot,
+  type ViewFilterKey,
+} from "@/components/app/screens/helpers"
 import {
   FilterPopover,
   getAvailableGroupOptions,
@@ -36,6 +41,7 @@ import {
   LevelChipPopover,
   PropertiesChipPopover,
   SortChipPopover,
+  type ViewConfigPatch,
 } from "@/components/app/screens/work-surface-controls"
 import {
   BoardView,
@@ -43,6 +49,39 @@ import {
   TimelineView,
 } from "@/components/app/screens/work-surface-view"
 import { cn } from "@/lib/utils"
+
+type WorkSurfaceChildDisplayMode = "direct" | "assigned-descendants"
+
+function cloneFallbackView(view: ViewDefinition): ViewDefinition {
+  return {
+    ...view,
+    filters: cloneViewFilters(view.filters),
+    displayProps: [...view.displayProps],
+    hiddenState: {
+      groups: [...view.hiddenState.groups],
+      subgroups: [...view.hiddenState.subgroups],
+    },
+  }
+}
+
+function applyLocalViewPatch(
+  view: ViewDefinition,
+  patch: ViewConfigPatch
+): ViewDefinition {
+  const { showCompleted, ...viewPatch } = patch
+
+  return {
+    ...view,
+    ...viewPatch,
+    filters:
+      showCompleted === undefined
+        ? view.filters
+        : {
+            ...view.filters,
+            showCompleted,
+          },
+  }
+}
 
 function getCompatibleActiveView(
   view: ViewDefinition | null,
@@ -80,59 +119,254 @@ export function WorkSurface({
   title,
   routeKey,
   views,
+  fallbackViews = [],
   items,
+  filterItems,
   team,
+  groupingExperience,
   emptyLabel,
+  childDisplayMode = "direct",
+  allowCreateViews = true,
 }: {
   title: string
   routeKey: string
   views: ViewDefinition[]
+  fallbackViews?: ViewDefinition[]
   items: WorkItem[]
+  filterItems?: WorkItem[]
   team: Team | null
+  groupingExperience?: TeamExperienceType | null
   emptyLabel: string
+  childDisplayMode?: WorkSurfaceChildDisplayMode
+  allowCreateViews?: boolean
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const searchParams = useSearchParams()
-  const activeView = getViewByRoute(data, routeKey) ?? views[0] ?? null
+  const requestedViewId = searchParams.get("view")
   const editable = team ? canEditTeam(data, team.id) : false
   const createTeamId = team?.id ?? data.ui.activeTeamId
+  const [localFallbackViews, setLocalFallbackViews] = useState(() =>
+    fallbackViews.map(cloneFallbackView)
+  )
+  const [localFallbackViewId, setLocalFallbackViewId] = useState<string | null>(
+    null
+  )
+  const usingFallbackViews = views.length === 0 && localFallbackViews.length > 0
+  const activeView = usingFallbackViews
+    ? (localFallbackViews.find((view) => view.id === localFallbackViewId) ??
+      localFallbackViews[0] ??
+      null)
+    : (getViewByRoute(data, routeKey) ?? views[0] ?? null)
+  const effectiveGroupingExperience =
+    groupingExperience === undefined
+      ? (team?.settings.experience ?? null)
+      : groupingExperience
   const groupOptions = useMemo(
     () =>
       getAvailableGroupOptions(
-        team
-          ? getDefaultTemplateTypeForTeamExperience(team.settings.experience)
+        effectiveGroupingExperience
+          ? getDefaultTemplateTypeForTeamExperience(effectiveGroupingExperience)
           : null
       ),
-    [team?.settings.experience]
+    [effectiveGroupingExperience]
   )
 
   useEffect(() => {
+    setLocalFallbackViews(fallbackViews.map(cloneFallbackView))
+  }, [fallbackViews])
+
+  useEffect(() => {
+    if (!usingFallbackViews || localFallbackViewId || !localFallbackViews[0]) {
+      return
+    }
+
+    setLocalFallbackViewId(localFallbackViews[0].id)
+  }, [localFallbackViewId, localFallbackViews, usingFallbackViews])
+
+  useEffect(() => {
+    if (usingFallbackViews) {
+      return
+    }
+
     if (!activeView && views[0]) {
       useAppStore.getState().setSelectedView(routeKey, views[0].id)
     }
-  }, [activeView, routeKey, views])
+  }, [activeView, routeKey, usingFallbackViews, views])
 
   useEffect(() => {
-    const requestedViewId = searchParams.get("view")
+    if (!requestedViewId) {
+      return
+    }
 
-    if (
-      !requestedViewId ||
-      !views.some((view) => view.id === requestedViewId)
-    ) {
+    if (usingFallbackViews) {
+      if (fallbackViews.some((view) => view.id === requestedViewId)) {
+        setLocalFallbackViewId(requestedViewId)
+      }
+      return
+    }
+
+    if (!views.some((view) => view.id === requestedViewId)) {
       return
     }
 
     useAppStore.getState().setSelectedView(routeKey, requestedViewId)
-  }, [routeKey, searchParams, views])
+  }, [fallbackViews, requestedViewId, routeKey, usingFallbackViews, views])
 
   const compatibleActiveView = useMemo(
     () => getCompatibleActiveView(activeView, groupOptions),
     [activeView, groupOptions]
   )
+  const displayedViews = usingFallbackViews ? localFallbackViews : views
+  const filterScopeItems = filterItems ?? items
+  const shouldMatchAssignedItems =
+    childDisplayMode === "assigned-descendants" && Boolean(filterItems)
+  const filterPopoverItems =
+    shouldMatchAssignedItems && compatibleActiveView?.showChildItems
+      ? items
+      : filterScopeItems
 
   const visibleItems = compatibleActiveView
-    ? getVisibleItemsForView(data, items, compatibleActiveView)
-    : items
+    ? getVisibleItemsForView(data, items, compatibleActiveView, {
+        ...(shouldMatchAssignedItems
+          ? {
+              matchItems: filterScopeItems,
+              ...(compatibleActiveView.showChildItems
+                ? { childDisplayMode }
+                : {}),
+            }
+          : {}),
+      })
+    : filterScopeItems
+
+  function updateLocalActiveView(patch: ViewConfigPatch) {
+    if (!usingFallbackViews || !activeView) {
+      return
+    }
+
+    setLocalFallbackViews((current) =>
+      current.map((view) =>
+        view.id === activeView.id ? applyLocalViewPatch(view, patch) : view
+      )
+    )
+  }
+
+  function toggleLocalActiveViewFilterValue(key: ViewFilterKey, value: string) {
+    if (!usingFallbackViews || !activeView) {
+      return
+    }
+
+    setLocalFallbackViews((current) =>
+      current.map((view) => {
+        if (view.id !== activeView.id) {
+          return view
+        }
+
+        const existing = (view.filters[key] ?? []) as string[]
+        const next = existing.includes(value)
+          ? existing.filter((entry) => entry !== value)
+          : [...existing, value]
+
+        return {
+          ...view,
+          filters: {
+            ...view.filters,
+            [key]: next,
+          },
+        }
+      })
+    )
+  }
+
+  function clearLocalActiveViewFilters() {
+    if (!usingFallbackViews || !activeView) {
+      return
+    }
+
+    setLocalFallbackViews((current) =>
+      current.map((view) =>
+        view.id === activeView.id
+          ? {
+              ...view,
+              filters: {
+                ...view.filters,
+                status: [],
+                priority: [],
+                assigneeIds: [],
+                creatorIds: [],
+                leadIds: [],
+                health: [],
+                milestoneIds: [],
+                relationTypes: [],
+                projectIds: [],
+                parentIds: [],
+                itemTypes: [],
+                labelIds: [],
+                teamIds: [],
+              },
+            }
+          : view
+      )
+    )
+  }
+
+  function toggleLocalActiveDisplayProperty(
+    property: ViewDefinition["displayProps"][number]
+  ) {
+    if (!usingFallbackViews || !activeView) {
+      return
+    }
+
+    setLocalFallbackViews((current) =>
+      current.map((view) => {
+        if (view.id !== activeView.id) {
+          return view
+        }
+
+        return {
+          ...view,
+          displayProps: view.displayProps.includes(property)
+            ? view.displayProps.filter((entry) => entry !== property)
+            : [...view.displayProps, property],
+        }
+      })
+    )
+  }
+
+  function reorderLocalActiveDisplayProperties(
+    displayProps: ViewDefinition["displayProps"]
+  ) {
+    if (!usingFallbackViews || !activeView) {
+      return
+    }
+
+    setLocalFallbackViews((current) =>
+      current.map((view) =>
+        view.id === activeView.id
+          ? {
+              ...view,
+              displayProps: [...displayProps],
+            }
+          : view
+      )
+    )
+  }
+
+  function clearLocalActiveDisplayProperties() {
+    if (!usingFallbackViews || !activeView) {
+      return
+    }
+
+    setLocalFallbackViews((current) =>
+      current.map((view) =>
+        view.id === activeView.id
+          ? {
+              ...view,
+              displayProps: [],
+            }
+          : view
+      )
+    )
+  }
 
   function handleCreateWorkItem() {
     if (!createTeamId) {
@@ -149,10 +383,10 @@ export function WorkSurface({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <Topbar>
         <HeaderTitle title={title} />
-        {views.length > 0 && activeView ? (
+        {displayedViews.length > 0 && activeView ? (
           <div className="ml-2 flex items-center gap-0.5">
-            {views.map((view) =>
-              isSystemView(view) ? (
+            {displayedViews.map((view) =>
+              usingFallbackViews || isSystemView(view) ? (
                 <button
                   key={view.id}
                   className={cn(
@@ -161,9 +395,14 @@ export function WorkSurface({
                       ? "bg-surface-3 font-medium text-foreground"
                       : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
                   )}
-                  onClick={() =>
+                  onClick={() => {
+                    if (usingFallbackViews) {
+                      setLocalFallbackViewId(view.id)
+                      return
+                    }
+
                     useAppStore.getState().setSelectedView(routeKey, view.id)
-                  }
+                  }}
                 >
                   {view.name}
                 </button>
@@ -176,16 +415,17 @@ export function WorkSurface({
                         ? "bg-surface-3 font-medium text-foreground"
                         : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
                     )}
-                    onClick={() =>
+                    onClick={() => {
+                      setLocalFallbackViewId(null)
                       useAppStore.getState().setSelectedView(routeKey, view.id)
-                    }
+                    }}
                   >
                     {view.name}
                   </button>
                 </ViewContextMenu>
               )
             )}
-            {editable && team ? (
+            {!usingFallbackViews && allowCreateViews && editable && team ? (
               <IconButton
                 className="size-6"
                 onClick={() =>
@@ -215,22 +455,57 @@ export function WorkSurface({
               : "border-b-0"
           }
         >
-          <LayoutTabs view={compatibleActiveView} />
+          <LayoutTabs
+            view={compatibleActiveView}
+            onUpdateView={
+              usingFallbackViews ? updateLocalActiveView : undefined
+            }
+          />
           <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
           <FilterPopover
             view={compatibleActiveView}
-            items={items}
+            items={filterPopoverItems}
             variant="chip"
+            onToggleFilterValue={
+              usingFallbackViews ? toggleLocalActiveViewFilterValue : undefined
+            }
+            onClearFilters={
+              usingFallbackViews ? clearLocalActiveViewFilters : undefined
+            }
           />
           <LevelChipPopover
             view={compatibleActiveView}
+            onUpdateView={
+              usingFallbackViews ? updateLocalActiveView : undefined
+            }
           />
           <GroupChipPopover
             view={compatibleActiveView}
             groupOptions={groupOptions}
+            onUpdateView={
+              usingFallbackViews ? updateLocalActiveView : undefined
+            }
           />
-          <SortChipPopover view={compatibleActiveView} />
-          <PropertiesChipPopover view={compatibleActiveView} />
+          <SortChipPopover
+            view={compatibleActiveView}
+            onUpdateView={
+              usingFallbackViews ? updateLocalActiveView : undefined
+            }
+          />
+          <PropertiesChipPopover
+            view={compatibleActiveView}
+            onToggleDisplayProperty={
+              usingFallbackViews ? toggleLocalActiveDisplayProperty : undefined
+            }
+            onReorderDisplayProperties={
+              usingFallbackViews
+                ? reorderLocalActiveDisplayProperties
+                : undefined
+            }
+            onClearDisplayProperties={
+              usingFallbackViews ? clearLocalActiveDisplayProperties : undefined
+            }
+          />
           <div className="ml-auto flex items-center gap-1.5">
             <Button
               size="sm"
@@ -255,6 +530,7 @@ export function WorkSurface({
                 scopedItems={items}
                 view={compatibleActiveView}
                 editable={editable}
+                childDisplayMode={childDisplayMode}
               />
             ) : null}
             {compatibleActiveView.layout === "list" ? (
@@ -264,6 +540,7 @@ export function WorkSurface({
                 scopedItems={items}
                 view={compatibleActiveView}
                 editable={editable}
+                childDisplayMode={childDisplayMode}
               />
             ) : null}
             {compatibleActiveView.layout === "timeline" ? (
