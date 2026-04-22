@@ -221,6 +221,10 @@ export function WorkSurface({
   const filterScopeItems = filterItems ?? items
   const shouldMatchAssignedItems =
     childDisplayMode === "assigned-descendants" && Boolean(filterItems)
+  const filterPopoverItems =
+    shouldMatchAssignedItems && compatibleActiveView?.showChildItems
+      ? items
+      : filterScopeItems
 
   const visibleItems = compatibleActiveView
     ? getVisibleItemsForView(data, items, compatibleActiveView, {
@@ -461,7 +465,7 @@ export function WorkSurface({
           <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
           <FilterPopover
             view={compatibleActiveView}
-            items={filterScopeItems}
+            items={filterPopoverItems}
             variant="chip"
             onToggleFilterValue={
               usingFallbackViews ? toggleLocalActiveViewFilterValue : undefined

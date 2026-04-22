@@ -2,7 +2,8 @@ import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
-const { getVisibleItemsForViewMock } = vi.hoisted(() => ({
+const { filterPopoverMock, getVisibleItemsForViewMock } = vi.hoisted(() => ({
+  filterPopoverMock: vi.fn(() => null),
   getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
 }))
 
@@ -53,7 +54,7 @@ vi.mock("@/components/app/screens/entity-context-menus", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
-  FilterPopover: () => null,
+  FilterPopover: filterPopoverMock,
   getAvailableGroupOptions: () => ["status"],
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
@@ -167,6 +168,7 @@ describe("WorkSurface", () => {
 
   afterEach(() => {
     useAppStore.setState(createEmptyState())
+    filterPopoverMock.mockClear()
     getVisibleItemsForViewMock.mockClear()
     vi.clearAllMocks()
   })
@@ -312,6 +314,15 @@ describe("WorkSurface", () => {
         matchItems: [assignedItem],
         childDisplayMode: "assigned-descendants",
       }
+    )
+    expect(filterPopoverMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [displayItem],
+        view: expect.objectContaining({
+          id: "view_assigned_all_items",
+        }),
+      }),
+      undefined
     )
   })
 })
