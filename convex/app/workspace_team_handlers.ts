@@ -1289,6 +1289,7 @@ export async function updateTeamDetailsHandler(
 
   return {
     teamId: team.id,
+    workspaceId: team.workspaceId,
     joinCode: normalizedJoinCode,
     experience: args.experience,
     features: normalizedFeatures,

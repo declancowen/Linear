@@ -22,6 +22,7 @@ const reconcileAuthenticatedAppContextMock = vi.fn()
 const reconcileProviderMembershipCleanupMock = vi.fn()
 const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
+const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -66,6 +67,11 @@ vi.mock("@/lib/server/provider-errors", () => ({
   logProviderError: logProviderErrorMock,
 }))
 
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpWorkspaceMembershipReadModelScopesServer:
+    bumpWorkspaceMembershipReadModelScopesServerMock,
+}))
+
 describe("team and collaboration route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -87,6 +93,7 @@ describe("team and collaboration route contracts", () => {
     reconcileProviderMembershipCleanupMock.mockReset()
     enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -114,6 +121,7 @@ describe("team and collaboration route contracts", () => {
     enqueueEmailJobsServerMock.mockResolvedValue({
       queued: 0,
     })
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
 
   it("maps team creation failures to typed error responses", async () => {
@@ -336,6 +344,71 @@ describe("team and collaboration route contracts", () => {
       message: "Only team admins can delete the team",
       code: "TEAM_ADMIN_REQUIRED",
     })
+  })
+
+  it("invalidates the mutated team's workspace membership scope", async () => {
+    const route = await import("@/app/api/teams/[teamId]/details/route")
+
+    updateTeamDetailsServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_2",
+    })
+    deleteTeamServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_2",
+      deletedUserIds: [],
+    })
+
+    const patchResponse = await route.PATCH(
+      new Request("http://localhost/api/teams/team_1/details", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Launch",
+          icon: "robot",
+          summary: "Launch summary",
+          experience: "software-development",
+          features: {
+            issues: true,
+            projects: true,
+            views: true,
+            docs: true,
+            chat: true,
+            channels: true,
+          },
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+        }),
+      }
+    )
+
+    expect(patchResponse.status).toBe(200)
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
+      1,
+      "workspace_2"
+    )
+
+    const deleteResponse = await route.DELETE(
+      new Request("http://localhost/api/teams/team_1/details", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+        }),
+      }
+    )
+
+    expect(deleteResponse.status).toBe(200)
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
+      2,
+      "workspace_2"
+    )
   })
 
   it("maps team workflow and member failures to typed error responses", async () => {

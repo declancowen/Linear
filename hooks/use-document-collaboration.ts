@@ -131,6 +131,14 @@ export function useDocumentCollaboration(input: {
   const currentUserAvatarImageUrl =
     input.currentUser?.avatarImageUrl ?? null
   const currentUserAvatarUrl = input.currentUser?.avatarUrl ?? null
+  const currentUserResolvedAvatarUrl = useMemo(
+    () =>
+      resolveImageAssetSource(
+        currentUserAvatarImageUrl,
+        currentUserAvatarUrl
+      ),
+    [currentUserAvatarImageUrl, currentUserAvatarUrl]
+  )
   const collaborationEnabled = isCollaborationEnabled()
   const [state, setState] = useState<ActiveDocumentCollaborationState>(
     EMPTY_COLLABORATION_STATE
@@ -234,10 +242,7 @@ export function useDocumentCollaboration(input: {
               userId: localCurrentUserId,
               sessionId: activeBootstrap.sessionId,
               name: localCurrentUserName,
-              avatarUrl: resolveImageAssetSource(
-                currentUserAvatarImageUrl,
-                currentUserAvatarUrl
-              ),
+              avatarUrl: currentUserResolvedAvatarUrl,
               color: getCollaborationUserColor(localCurrentUserId),
             })
             const activeLocalUser = localUser
@@ -440,10 +445,7 @@ export function useDocumentCollaboration(input: {
   }, [
     adapter,
     input.documentId,
-    currentUserAvatarImageUrl,
-    currentUserAvatarUrl,
     currentUserId,
-    currentUserName,
     isEnabled,
   ])
 
@@ -469,6 +471,53 @@ export function useDocumentCollaboration(input: {
           : "bootstrapping"
   const isAwaitingCollaboration = lifecycle === "bootstrapping"
   const mode = lifecycle === "attached" ? "collaboration" : "legacy"
+
+  useEffect(() => {
+    if (
+      !isActiveDocument ||
+      !state.session ||
+      !state.collaboration ||
+      !currentUserId ||
+      !currentUserName
+    ) {
+      return
+    }
+
+    const currentLocalUser = state.collaboration.localUser
+    const nextLocalUser = createCollaborationAwarenessState({
+      ...currentLocalUser,
+      userId: currentUserId,
+      name: currentUserName,
+      avatarUrl: currentUserResolvedAvatarUrl,
+    })
+
+    if (
+      currentLocalUser.name === nextLocalUser.name &&
+      currentLocalUser.avatarUrl === nextLocalUser.avatarUrl
+    ) {
+      return
+    }
+
+    state.session.updateLocalAwareness(nextLocalUser)
+    setState((current) =>
+      current.session === state.session && current.collaboration
+        ? {
+            ...current,
+            collaboration: {
+              ...current.collaboration,
+              localUser: nextLocalUser,
+            },
+          }
+        : current
+    )
+  }, [
+    currentUserId,
+    currentUserName,
+    currentUserResolvedAvatarUrl,
+    isActiveDocument,
+    state.collaboration,
+    state.session,
+  ])
 
   useEffect(() => {
     if (collaborationEnabled || !input.enabled || !input.documentId) {

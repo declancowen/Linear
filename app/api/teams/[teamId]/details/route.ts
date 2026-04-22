@@ -47,13 +47,17 @@ export async function PATCH(
 
     const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
 
-    await updateTeamDetailsServer({
+    const result = await updateTeamDetailsServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
       ...parsed,
     })
-    if (workspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
     }
 
     return jsonOk({
@@ -100,8 +104,12 @@ export async function DELETE(
       currentUserId: appContext.ensuredUser.userId,
       teamId,
     })
-    if (workspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
     }
 
     return jsonOk({

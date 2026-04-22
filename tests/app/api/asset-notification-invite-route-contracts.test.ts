@@ -24,6 +24,7 @@ const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpSearchSeedReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -68,6 +69,8 @@ vi.mock("@/lib/server/authenticated-app", () => ({
 vi.mock("@/lib/server/scoped-read-models", () => ({
   bumpDocumentIndexReadModelScopesServer:
     bumpDocumentIndexReadModelScopesServerMock,
+  bumpSearchSeedReadModelScopesServer:
+    bumpSearchSeedReadModelScopesServerMock,
   bumpWorkspaceMembershipReadModelScopesServer:
     bumpWorkspaceMembershipReadModelScopesServerMock,
 }))
@@ -96,6 +99,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     logProviderErrorMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpSearchSeedReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
@@ -125,6 +129,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     })
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
     bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
 
@@ -609,6 +614,7 @@ describe("asset, notification, invite, and document route contracts", () => {
 
     createDocumentServerMock.mockResolvedValue({
       documentId: "document_new",
+      workspaceId: "workspace_1",
     })
 
     const response = await POST(
@@ -638,5 +644,56 @@ describe("asset, notification, invite, and document route contracts", () => {
       workspaceId: "workspace_1",
       title: "Launch doc",
     })
+    expect(bumpDocumentIndexReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace",
+      "workspace_1"
+    )
+    expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
+  })
+
+  it("uses the created team document workspace for search invalidation", async () => {
+    const { POST } = await import("@/app/api/documents/route")
+
+    createDocumentServerMock.mockResolvedValue({
+      documentId: "document_new",
+      workspaceId: "workspace_2",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "document_new",
+          kind: "team-document",
+          teamId: "team_2",
+          title: "Launch doc",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      documentId: "document_new",
+    })
+    expect(createDocumentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      id: "document_new",
+      kind: "team-document",
+      teamId: "team_2",
+      title: "Launch doc",
+    })
+    expect(bumpDocumentIndexReadModelScopesServerMock).toHaveBeenCalledWith(
+      "team",
+      "team_2"
+    )
+    expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_2"
+    )
   })
 })

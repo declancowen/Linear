@@ -1096,5 +1096,6 @@ export async function createDocumentHandler(
 
   return {
     documentId,
+    workspaceId,
   }
 }

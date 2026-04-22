@@ -3,7 +3,10 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { projectSchema } from "@/lib/domain/types"
 import { createProjectServer } from "@/lib/server/convex"
-import { bumpProjectIndexReadModelScopesServer } from "@/lib/server/scoped-read-models"
+import {
+  bumpProjectIndexReadModelScopesServer,
+  bumpSearchSeedReadModelScopesServer,
+} from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -41,11 +44,14 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    await createProjectServer({
+    const result = await createProjectServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
     await bumpProjectIndexReadModelScopesServer(parsed.scopeType, parsed.scopeId)
+    if (result?.workspaceId) {
+      await bumpSearchSeedReadModelScopesServer(result.workspaceId)
+    }
 
     return jsonOk({
       ok: true,
