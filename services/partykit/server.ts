@@ -776,7 +776,6 @@ const collaboration = {
     }
   },
   async onRequest(req: PartyRequest, room: Room) {
-    const claims = await verifyRequestClaims(room, req)
     const url = new URL(req.url)
 
     if (
@@ -784,6 +783,19 @@ const collaboration = {
       url.searchParams.get("action") !== COLLABORATION_FLUSH_PATH.replace("/", "")
     ) {
       return new Response("Not found", { status: 404 })
+    }
+
+    let claims: CollaborationSessionTokenClaims
+
+    try {
+      claims = await verifyRequestClaims(room, req)
+    } catch (error) {
+      return new Response(
+        error instanceof Error ? error.message : "Unauthorized",
+        {
+          status: 401,
+        }
+      )
     }
 
     if (claims.role !== "editor") {

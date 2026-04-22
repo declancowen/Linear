@@ -217,4 +217,37 @@ describe("PartyKit collaboration server", () => {
     )
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it("returns 401 for invalid collaboration flush tokens", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_desc_1?action=flush",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer invalid-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            stateVector: "AQID",
+          }),
+        }
+      ) as never,
+      {
+        id: "doc:doc_desc_1",
+        env: process.env,
+      } as never
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.text()).resolves.toBe(
+      "Invalid collaboration token"
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
