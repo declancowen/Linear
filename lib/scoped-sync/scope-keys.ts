@@ -110,6 +110,13 @@ export function createWorkspaceMembershipScopeKey(workspaceId: string) {
   )
 }
 
+export function createScopedCollectionScopeId(
+  scopeType: "team" | "workspace" | "personal",
+  scopeId: string
+) {
+  return `${scopeType}_${scopeId}`
+}
+
 export function createWorkIndexScopeKey(scopeId: string) {
   return createReadModelScopeKey(READ_MODEL_SCOPE_KINDS.workIndex, scopeId)
 }

@@ -1,6 +1,7 @@
 import {
   createDocumentDetailScopeKey,
   createDocumentIndexScopeKey,
+  createScopedCollectionScopeId,
   createWorkIndexScopeKey,
   createWorkItemDetailScopeKey,
 } from "./scope-keys"
@@ -30,7 +31,11 @@ export function buildCollaborationDocumentScopeKeys(
     }
 
     if (includeCollectionScopes && input.teamId) {
-      scopeKeys.add(createWorkIndexScopeKey(input.teamId))
+      scopeKeys.add(
+        createWorkIndexScopeKey(
+          createScopedCollectionScopeId("team", input.teamId)
+        )
+      )
     }
 
     return [...scopeKeys]
@@ -41,9 +46,17 @@ export function buildCollaborationDocumentScopeKeys(
   }
 
   if (input.teamId) {
-    scopeKeys.add(createDocumentIndexScopeKey(input.teamId))
+    scopeKeys.add(
+      createDocumentIndexScopeKey(
+        createScopedCollectionScopeId("team", input.teamId)
+      )
+    )
   } else if (input.workspaceId) {
-    scopeKeys.add(createDocumentIndexScopeKey(input.workspaceId))
+    scopeKeys.add(
+      createDocumentIndexScopeKey(
+        createScopedCollectionScopeId("workspace", input.workspaceId)
+      )
+    )
   }
 
   return [...scopeKeys]

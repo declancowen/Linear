@@ -435,7 +435,11 @@ describe("document collaboration route contracts", () => {
       expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
     })
     expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
-      scopeKeys: ["document-detail:doc_desc_1", "work-item-detail:item_1", "work-index:team_1"],
+      scopeKeys: [
+        "document-detail:doc_desc_1",
+        "work-item-detail:item_1",
+        "work-index:team_team_1",
+      ],
     })
     expect(response.status).toBe(200)
   })

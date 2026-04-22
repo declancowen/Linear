@@ -82,6 +82,12 @@ const EMPTY_DOCUMENT_JSON: JSONContent = {
 const COLLABORATION_FLUSH_FENCE_TIMEOUT_MS = 5_000
 const COLLABORATION_FLUSH_FENCE_POLL_MS = 25
 
+type CollaborationFlushRequest = {
+  expectedStateVector: Map<number, number> | null
+  workItemExpectedUpdatedAt?: string
+  workItemTitle?: string
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -362,11 +368,15 @@ async function waitForRoomStateVector(
   throw new Error("Timed out waiting for collaboration room to receive local updates")
 }
 
-async function parseFlushRequestStateVector(request: PartyRequest) {
+async function parseFlushRequest(
+  request: PartyRequest
+): Promise<CollaborationFlushRequest> {
   const rawBody = await request.text()
 
   if (!rawBody.trim()) {
-    return null
+    return {
+      expectedStateVector: null,
+    }
   }
 
   const parsed = JSON.parse(rawBody) as unknown
@@ -375,7 +385,33 @@ async function parseFlushRequestStateVector(request: PartyRequest) {
     throw new Error("Invalid collaboration flush request")
   }
 
-  return decodeDocumentStateVector(parsed.stateVector)
+  if (
+    typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
+    typeof parsed.workItemExpectedUpdatedAt !== "string"
+  ) {
+    throw new Error("Invalid collaboration flush request")
+  }
+
+  if (
+    typeof parsed.workItemTitle !== "undefined" &&
+    typeof parsed.workItemTitle !== "string"
+  ) {
+    throw new Error("Invalid collaboration flush request")
+  }
+
+  return {
+    expectedStateVector: decodeDocumentStateVector(parsed.stateVector),
+    ...(typeof parsed.workItemExpectedUpdatedAt === "string"
+      ? {
+          workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
+        }
+      : {}),
+    ...(typeof parsed.workItemTitle === "string"
+      ? {
+          workItemTitle: parsed.workItemTitle,
+        }
+      : {}),
+  }
 }
 
 async function signPayload(payload: string, secret: string) {
@@ -524,7 +560,11 @@ async function loadCanonicalDocument(
 async function persistCanonicalDocument(
   room: Room,
   doc: Doc,
-  flushReason: "periodic" | "leave" | "manual" = "periodic"
+  flushReason: "periodic" | "leave" | "manual" = "periodic",
+  options?: {
+    workItemExpectedUpdatedAt?: string
+    workItemTitle?: string
+  }
 ) {
   const claims = requireRoomEditorClaims(room)
   const contentJson = normalizeDocumentJson(
@@ -543,6 +583,16 @@ async function persistCanonicalDocument(
         currentUserId: claims.sub,
         contentJson,
         flushReason,
+        ...(options?.workItemExpectedUpdatedAt
+          ? {
+              workItemExpectedUpdatedAt: options.workItemExpectedUpdatedAt,
+            }
+          : {}),
+        ...(options?.workItemTitle
+          ? {
+              workItemTitle: options.workItemTitle,
+            }
+          : {}),
       }),
     }
   )
@@ -738,14 +788,17 @@ const collaboration = {
     }
 
     try {
-      const expectedStateVector = await parseFlushRequestStateVector(req)
+      const flushRequest = await parseFlushRequest(req)
       const { yDoc } = await ensureCanonicalDocumentSeeded(room, claims)
 
-      if (expectedStateVector) {
-        await waitForRoomStateVector(yDoc, expectedStateVector)
+      if (flushRequest.expectedStateVector) {
+        await waitForRoomStateVector(yDoc, flushRequest.expectedStateVector)
       }
 
-      await persistCanonicalDocument(room, yDoc, "manual")
+      await persistCanonicalDocument(room, yDoc, "manual", {
+        workItemExpectedUpdatedAt: flushRequest.workItemExpectedUpdatedAt,
+        workItemTitle: flushRequest.workItemTitle,
+      })
 
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,

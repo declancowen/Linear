@@ -28,6 +28,7 @@ import {
   createNotificationInboxScopeKey,
   createProjectDetailScopeKey,
   createProjectIndexScopeKey,
+  createScopedCollectionScopeId,
   createSearchSeedScopeKey,
   createShellContextScopeKey,
   createViewCatalogScopeKey,
@@ -171,13 +172,6 @@ function selectDocumentComments(snapshot: AppSnapshot, documentId: string) {
   return snapshot.comments.filter(
     (comment) => comment.targetType === "document" && comment.targetId === documentId
   )
-}
-
-function createScopedCollectionScopeId(
-  scopeType: "team" | "workspace" | "personal",
-  scopeId: string
-) {
-  return `${scopeType}_${scopeId}`
 }
 
 function selectTopLevelViews(snapshot: AppSnapshot, entityKind: ViewDefinition["entityKind"]) {
