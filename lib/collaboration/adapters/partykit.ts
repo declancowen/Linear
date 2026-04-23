@@ -466,6 +466,11 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
               },
               body: JSON.stringify({
                 stateVector,
+                ...(input?.documentTitle
+                  ? {
+                      documentTitle: input.documentTitle,
+                    }
+                  : {}),
                 ...(input?.workItemExpectedUpdatedAt
                   ? {
                       workItemExpectedUpdatedAt:

@@ -534,6 +534,7 @@ describe("PartyKit collaboration adapter", () => {
     })
 
     await session.flush({
+      documentTitle: "Updated document title",
       workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
       workItemTitle: "Updated title",
     })
@@ -543,6 +544,7 @@ describe("PartyKit collaboration adapter", () => {
       expect.objectContaining({
         body: JSON.stringify({
           stateVector: "AQID",
+          documentTitle: "Updated document title",
           workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
           workItemTitle: "Updated title",
         }),

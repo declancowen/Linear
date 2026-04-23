@@ -12,6 +12,7 @@ export type WorkSlice = Pick<
   | "updateDocumentContent"
   | "cancelDocumentSync"
   | "applyDocumentCollaborationContent"
+  | "applyDocumentCollaborationTitle"
   | "flushDocumentSync"
   | "renameDocument"
   | "deleteDocument"

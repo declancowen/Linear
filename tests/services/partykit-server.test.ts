@@ -175,6 +175,99 @@ describe("PartyKit collaboration server", () => {
     )
   })
 
+  it("forwards explicit document title metadata during manual collaboration flush", async () => {
+    const contentJson: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Body without title heading",
+            },
+          ],
+        },
+      ],
+    }
+    const yDoc = createDoc(contentJson)
+    unstableGetYDocMock.mockResolvedValue(yDoc)
+    getCollaborationDocumentFromConvexMock.mockResolvedValue({
+      documentId: "doc_team_1",
+      kind: "team-document",
+      title: "Original title",
+      content: "<p>Body without title heading</p>",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+      searchWorkspaceId: "workspace_1",
+      teamMemberIds: ["user_1"],
+      projectScopes: [],
+    })
+    persistCollaborationDocumentToConvexMock.mockResolvedValue({
+      updatedAt: "2026-04-23T00:00:00.000Z",
+    })
+    bumpScopedReadModelsFromConvexMock.mockResolvedValue({
+      versions: [],
+    })
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const token = createSignedCollaborationToken({
+      kind: "doc",
+      sub: "user_1",
+      roomId: "doc:doc_team_1",
+      documentId: "doc_team_1",
+      role: "editor",
+      sessionId: "session_1",
+      workspaceId: "workspace_1",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_team_1?action=flush",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            stateVector: encodeDocumentStateVector(yDoc),
+            documentTitle: "Retitled manually",
+          }),
+        }
+      ) as never,
+      {
+        id: "doc:doc_team_1",
+        env: {
+          COLLABORATION_TOKEN_SECRET: process.env.COLLABORATION_TOKEN_SECRET,
+          CONVEX_URL: "https://convex-dev.example",
+          CONVEX_SERVER_TOKEN: "server-token",
+        },
+      } as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(persistCollaborationDocumentToConvexMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CONVEX_URL: "https://convex-dev.example",
+      }),
+      {
+        currentUserId: "user_1",
+        documentId: "doc_team_1",
+        title: "Retitled manually",
+        content: "<p>Body without title heading</p>",
+        expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
+      }
+    )
+  })
+
   it("handles collaboration flush preflight requests", async () => {
     const { collaboration } = await import("@/services/partykit/server")
 

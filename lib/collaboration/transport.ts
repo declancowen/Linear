@@ -45,6 +45,7 @@ export type CollaborationAwarenessChange<TAwarenessState> = {
 }
 
 export type CollaborationFlushInput = {
+  documentTitle?: string
   workItemExpectedUpdatedAt?: string
   workItemTitle?: string
 }

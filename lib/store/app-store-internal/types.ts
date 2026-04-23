@@ -324,6 +324,10 @@ export type AppStore = AppData & {
     documentId: string,
     content: string
   ) => void
+  applyDocumentCollaborationTitle: (
+    documentId: string,
+    title: string
+  ) => void
   flushDocumentSync: (documentId: string) => Promise<void>
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>

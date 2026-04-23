@@ -7,10 +7,12 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  applyDocumentCollaborationTitleMock,
   collaborationEditorRunMock,
   fetchDocumentDetailReadModelMock,
   fetchSnapshotMock,
   flushDocumentSyncMock,
+  flushCollaborationMock,
   renameDocumentMock,
   routerPushMock,
   syncClearDocumentPresenceMock,
@@ -19,10 +21,12 @@ const {
   syncSendDocumentMentionNotificationsMock,
   useDocumentCollaborationMock,
 } = vi.hoisted(() => ({
+  applyDocumentCollaborationTitleMock: vi.fn(),
   collaborationEditorRunMock: vi.fn(),
   fetchDocumentDetailReadModelMock: vi.fn(),
   fetchSnapshotMock: vi.fn(),
   flushDocumentSyncMock: vi.fn(),
+  flushCollaborationMock: vi.fn(),
   renameDocumentMock: vi.fn(),
   routerPushMock: vi.fn(),
   syncClearDocumentPresenceMock: vi.fn(),
@@ -290,7 +294,10 @@ describe("DocumentDetailScreen", () => {
     fetchDocumentDetailReadModelMock.mockResolvedValue({})
     fetchSnapshotMock.mockReset()
     flushDocumentSyncMock.mockReset()
+    flushCollaborationMock.mockReset()
+    flushCollaborationMock.mockResolvedValue(undefined)
     renameDocumentMock.mockReset()
+    applyDocumentCollaborationTitleMock.mockReset()
     routerPushMock.mockReset()
     syncClearDocumentPresenceMock.mockReset()
     syncHeartbeatDocumentPresenceMock.mockReset()
@@ -309,7 +316,7 @@ describe("DocumentDetailScreen", () => {
     useDocumentCollaborationMock.mockReset()
     useDocumentCollaborationMock.mockReturnValue({
       collaboration: null,
-      flush: vi.fn(),
+      flush: flushCollaborationMock,
       lifecycle: "legacy",
       viewers: [],
     })
@@ -317,6 +324,7 @@ describe("DocumentDetailScreen", () => {
 
     useAppStore.setState({
       ...createEmptyState(),
+      applyDocumentCollaborationTitle: applyDocumentCollaborationTitleMock,
       flushDocumentSync: flushDocumentSyncMock,
       renameDocument: renameDocumentMock,
       currentUserId: currentUser.id,
@@ -371,11 +379,11 @@ describe("DocumentDetailScreen", () => {
     })
   })
 
-  it("falls back to renameDocument when collaborative title updates cannot update a heading", async () => {
+  it("falls back to collaboration title persistence when collaborative title updates cannot update an h1 heading", async () => {
     collaborationEditorRunMock.mockReturnValue(false)
     useDocumentCollaborationMock.mockReturnValue({
       collaboration: {} as never,
-      flush: vi.fn(),
+      flush: flushCollaborationMock,
       lifecycle: "attached",
       viewers: [],
     })
@@ -394,10 +402,14 @@ describe("DocumentDetailScreen", () => {
     })
     fireEvent.blur(input)
 
-    expect(renameDocumentMock).toHaveBeenCalledWith(
+    expect(applyDocumentCollaborationTitleMock).toHaveBeenCalledWith(
       "doc_1",
       "Renamed without heading"
     )
+    expect(flushCollaborationMock).toHaveBeenCalledWith({
+      documentTitle: "Renamed without heading",
+    })
+    expect(renameDocumentMock).not.toHaveBeenCalled()
   })
 
   it("starts and clears document presence for editable documents", async () => {

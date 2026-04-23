@@ -41,6 +41,7 @@ export function createWorkDocumentActions({
   | "updateDocumentContent"
   | "cancelDocumentSync"
   | "applyDocumentCollaborationContent"
+  | "applyDocumentCollaborationTitle"
   | "flushDocumentSync"
   | "renameDocument"
   | "deleteDocument"
@@ -161,6 +162,21 @@ export function createWorkDocumentActions({
                 ...document,
                 content,
                 title: nextTitle ?? document.title,
+              }
+            : document
+        ),
+      }))
+    },
+    applyDocumentCollaborationTitle(documentId, title) {
+      const normalizedTitle = title.trim() || "Untitled document"
+
+      runtime.cancelRichTextSync(`document:${documentId}`)
+      set((state) => ({
+        documents: state.documents.map((document) =>
+          document.id === documentId
+            ? {
+                ...document,
+                title: normalizedTitle,
               }
             : document
         ),

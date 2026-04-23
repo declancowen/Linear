@@ -96,7 +96,7 @@ function updateCollaborativeDocumentTitle(editor: Editor, title: string) {
           return false
         }
 
-        if (node.type.name !== "heading") {
+        if (node.type.name !== "heading" || node.attrs.level !== 1) {
           return true
         }
 
@@ -773,6 +773,18 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       if (updatedTitleInEditor) {
         return
       }
+
+      useAppStore
+        .getState()
+        .applyDocumentCollaborationTitle(loadedDocumentId, normalizedTitle)
+      void flushCollaboration({
+        documentTitle: normalizedTitle,
+      }).catch((error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update document"
+        )
+      })
+      return
     }
 
     if (isCollaborationBootstrapping) {

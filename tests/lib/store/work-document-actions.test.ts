@@ -650,6 +650,49 @@ describe("work document actions", () => {
     expect(syncUpdateDocumentMock).not.toHaveBeenCalled()
   })
 
+  it("applies collaboration title metadata locally without queueing a legacy sync", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const cancelRichTextSyncMock = vi.fn()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        cancelRichTextSync: cancelRichTextSyncMock,
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.applyDocumentCollaborationTitle(
+      "document_1",
+      "Metadata-only collaborative rename"
+    )
+
+    expect(cancelRichTextSyncMock).toHaveBeenCalledWith("document:document_1")
+    expect(queueRichTextSyncMock).not.toHaveBeenCalled()
+    expect(syncUpdateDocumentMock).not.toHaveBeenCalled()
+    expect(state.documents.find((document) => document.id === "document_1"))
+      .toMatchObject({
+        title: "Metadata-only collaborative rename",
+        content: "<h1>Spec</h1>",
+      })
+  })
+
   it("skips a queued item-description sync once collaboration protects the description document", async () => {
     const { createWorkDocumentActions } =
       await import("@/lib/store/app-store-internal/slices/work-document-actions")

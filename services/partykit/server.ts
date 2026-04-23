@@ -76,6 +76,7 @@ const COLLABORATION_FLUSH_FENCE_POLL_MS = 25
 
 type CollaborationFlushRequest = {
   expectedStateVector: Map<number, number> | null
+  documentTitle?: string
   workItemExpectedUpdatedAt?: string
   workItemTitle?: string
 }
@@ -440,6 +441,13 @@ async function parseFlushRequest(
   }
 
   if (
+    typeof parsed.documentTitle !== "undefined" &&
+    typeof parsed.documentTitle !== "string"
+  ) {
+    throw new Error("Invalid collaboration flush request")
+  }
+
+  if (
     typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
     typeof parsed.workItemExpectedUpdatedAt !== "string"
   ) {
@@ -455,6 +463,11 @@ async function parseFlushRequest(
 
   return {
     expectedStateVector: decodeDocumentStateVector(parsed.stateVector),
+    ...(typeof parsed.documentTitle === "string"
+      ? {
+          documentTitle: parsed.documentTitle,
+        }
+      : {}),
     ...(typeof parsed.workItemExpectedUpdatedAt === "string"
       ? {
           workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
@@ -606,6 +619,7 @@ async function persistCanonicalDocument(
   doc: Doc,
   flushReason: "periodic" | "leave" | "manual" = "periodic",
   options?: {
+    documentTitle?: string
     workItemExpectedUpdatedAt?: string
     workItemTitle?: string
   }
@@ -666,12 +680,15 @@ async function persistCanonicalDocument(
       )
     }
   } else {
+    const persistedTitle =
+      options?.documentTitle ?? derivedTitle ?? collaborationDocument.title
+
     await persistCollaborationDocumentToConvex(
       room.env as Record<string, unknown>,
       {
         currentUserId: claims.sub,
         documentId: claims.documentId,
-        title: derivedTitle ?? collaborationDocument.title,
+        title: persistedTitle,
         content: contentHtml,
         expectedUpdatedAt: collaborationDocument.updatedAt,
       }
@@ -708,7 +725,10 @@ async function persistCanonicalDocument(
       ...(collaborationDocument.kind === "item-description"
         ? {}
         : {
-            title: derivedTitle ?? collaborationDocument.title,
+            title:
+              options?.documentTitle ??
+              derivedTitle ??
+              collaborationDocument.title,
           }),
       content: contentHtml,
       contentJson,
@@ -935,6 +955,7 @@ const collaboration = {
       }
 
       await persistCanonicalDocument(room, yDoc, "manual", {
+        documentTitle: flushRequest.documentTitle,
         workItemExpectedUpdatedAt: flushRequest.workItemExpectedUpdatedAt,
         workItemTitle: flushRequest.workItemTitle,
       })
