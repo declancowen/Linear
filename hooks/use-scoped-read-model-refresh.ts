@@ -120,11 +120,22 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   })
 
   useEffect(() => {
-    if (!scopedSyncEnabled || !input.enabled || scopeKeys.length === 0) {
+    if (!scopedSyncEnabled) {
       runGenerationRef.current += 1
       inFlightRef.current = false
       queuedRef.current = false
       setRefreshing(false)
+      setError(null)
+      setHasLoadedOnce(true)
+      return
+    }
+
+    if (!input.enabled || scopeKeys.length === 0) {
+      runGenerationRef.current += 1
+      inFlightRef.current = false
+      queuedRef.current = false
+      setRefreshing(false)
+      setError(null)
       setHasLoadedOnce(false)
       return
     }

@@ -4,9 +4,10 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
 
 const getSnapshotServerMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
 
 vi.mock("@/lib/server/convex", () => ({
-  bumpScopedReadModelVersionsServer: vi.fn(),
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
   getSnapshotServer: getSnapshotServerMock,
 }))
 
@@ -28,7 +29,9 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
   beforeEach(() => {
     vi.resetModules()
     getSnapshotServerMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockReset()
     getSnapshotServerMock.mockResolvedValue(createSnapshotFixture())
+    bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
   })
 
   it("allows current-user and accessible entity scope keys", async () => {
@@ -80,5 +83,20 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
         ["notification-inbox:user_2"]
       )
     ).rejects.toThrow("Unauthorized scoped read model key: notification-inbox:user_2")
+  })
+
+  it("does not bump the global shell-context scope for workspace membership invalidations", async () => {
+    const { bumpWorkspaceMembershipReadModelScopesServer } = await import(
+      "@/lib/server/scoped-read-models"
+    )
+
+    await bumpWorkspaceMembershipReadModelScopesServer("workspace_1")
+
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: [
+        "workspace-membership:workspace_1",
+        "search-seed:workspace_1",
+      ],
+    })
   })
 })

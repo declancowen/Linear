@@ -80,4 +80,30 @@ describe("useScopedReadModelRefresh", () => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(2)
     })
   })
+
+  it("treats scoped refresh as loaded when scoped sync is disabled", async () => {
+    isScopedSyncEnabledMock.mockReturnValue(false)
+
+    const fetchLatestMock = vi.fn().mockResolvedValue({})
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    const { result } = renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:a"],
+        fetchLatest: fetchLatestMock,
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.hasLoadedOnce).toBe(true)
+    })
+
+    expect(result.current.refreshing).toBe(false)
+    expect(result.current.error).toBeNull()
+    expect(fetchLatestMock).not.toHaveBeenCalled()
+    expect(openScopedInvalidationStreamMock).not.toHaveBeenCalled()
+  })
 })

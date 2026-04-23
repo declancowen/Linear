@@ -30,7 +30,6 @@ import {
   createProjectIndexScopeKey,
   createScopedCollectionScopeId,
   createSearchSeedScopeKey,
-  createShellContextScopeKey,
   createViewCatalogScopeKey,
   createWorkIndexScopeKey,
   createWorkItemDetailScopeKey,
@@ -1524,7 +1523,7 @@ export function getDocumentRelatedScopeKeys(
 }
 
 function buildWorkspaceMembershipScopeKeys(workspaceIds: Iterable<string>) {
-  const scopeKeys = new Set<string>([createShellContextScopeKey()])
+  const scopeKeys = new Set<string>()
 
   for (const workspaceId of workspaceIds) {
     if (!workspaceId) {
