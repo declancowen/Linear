@@ -206,6 +206,21 @@ beforeEach(() => {
 })
 
 describe("ChatThread", () => {
+  it("shows a loading state before the first thread refresh completes", () => {
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+        loaded={false}
+      />
+    )
+
+    expect(screen.getByText("Loading messages...")).toBeInTheDocument()
+    expect(screen.queryByText("No messages yet")).not.toBeInTheDocument()
+  })
+
   it("hides the composer when the other participants have left the workspace", () => {
     render(
       <ChatThread

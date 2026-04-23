@@ -43,7 +43,7 @@ function clampInboxListWidth(value: number) {
 export function InboxScreen() {
   const router = useRouter()
   const currentUserId = useAppStore((state) => state.currentUserId)
-  useScopedReadModelRefresh({
+  const { hasLoadedOnce: hasLoadedInbox } = useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
     scopeKeys: currentUserId ? getNotificationInboxScopeKeys(currentUserId) : [],
     fetchLatest: () => fetchNotificationInboxReadModel(currentUserId ?? ""),
@@ -340,57 +340,63 @@ export function InboxScreen() {
     <>
       <div className="flex min-h-0 flex-1 flex-col">
         <ScreenHeader title="Inbox" />
-        <div className="flex min-h-0 flex-1">
-          <InboxListPane
-            width={notificationListWidth}
-            resizing={notificationListResizing}
-            inboxTab={inboxTab}
-            activeId={activeId}
-            entries={visibleEntries}
-            unreadCount={unreadCount}
-            archivedCount={archivedCount}
-            onTabChange={setInboxTab}
-            onMoveAll={moveAllVisibleNotifications}
-            onSelectNotification={(notificationId) => {
-              useAppStore.getState().setActiveInboxNotification(notificationId)
-              useAppStore.getState().markNotificationRead(notificationId)
-            }}
-            onToggleArchive={(notification) => {
-              if (notification.archivedAt) {
-                unarchiveNotification(notification)
-                return
-              }
+        {!hasLoadedInbox && notifications.length === 0 ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+            Loading inbox...
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1">
+            <InboxListPane
+              width={notificationListWidth}
+              resizing={notificationListResizing}
+              inboxTab={inboxTab}
+              activeId={activeId}
+              entries={visibleEntries}
+              unreadCount={unreadCount}
+              archivedCount={archivedCount}
+              onTabChange={setInboxTab}
+              onMoveAll={moveAllVisibleNotifications}
+              onSelectNotification={(notificationId) => {
+                useAppStore.getState().setActiveInboxNotification(notificationId)
+                useAppStore.getState().markNotificationRead(notificationId)
+              }}
+              onToggleArchive={(notification) => {
+                if (notification.archivedAt) {
+                  unarchiveNotification(notification)
+                  return
+                }
 
-              archiveNotification(notification)
-            }}
-            onResizeStart={handleNotificationListResizeStart}
-            onResetWidth={() =>
-              setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)
-            }
-          />
-          <InboxDetailPane
-            activeEntry={activeEntry}
-            visibleNotificationCount={visibleNotifications.length}
-            activeProjectHref={activeProjectHref}
-            activeChannelPostHref={activeChannelPostHref}
-            activeChatHref={activeChatHref}
-            hasPendingActiveInvite={hasPendingActiveInvite}
-            acceptingInvite={acceptingInvite}
-            onAcceptInvite={() => void handleAcceptInvite()}
-            onToggleArchive={(notification) => {
-              if (notification.archivedAt) {
-                unarchiveNotification(notification)
-                return
+                archiveNotification(notification)
+              }}
+              onResizeStart={handleNotificationListResizeStart}
+              onResetWidth={() =>
+                setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH)
               }
+            />
+            <InboxDetailPane
+              activeEntry={activeEntry}
+              visibleNotificationCount={visibleNotifications.length}
+              activeProjectHref={activeProjectHref}
+              activeChannelPostHref={activeChannelPostHref}
+              activeChatHref={activeChatHref}
+              hasPendingActiveInvite={hasPendingActiveInvite}
+              acceptingInvite={acceptingInvite}
+              onAcceptInvite={() => void handleAcceptInvite()}
+              onToggleArchive={(notification) => {
+                if (notification.archivedAt) {
+                  unarchiveNotification(notification)
+                  return
+                }
 
-              archiveNotification(notification)
-            }}
-            onToggleRead={(notification) => {
-              useAppStore.getState().toggleNotificationRead(notification.id)
-            }}
-            onDelete={() => setDeleteDialogOpen(true)}
-          />
-        </div>
+                archiveNotification(notification)
+              }}
+              onToggleRead={(notification) => {
+                useAppStore.getState().toggleNotificationRead(notification.id)
+              }}
+              onDelete={() => setDeleteDialogOpen(true)}
+            />
+          </div>
+        )}
       </div>
       <ConfirmDialog
         open={deleteDialogOpen}

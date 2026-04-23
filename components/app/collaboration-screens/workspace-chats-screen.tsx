@@ -204,11 +204,12 @@ export function WorkspaceChatsScreen() {
       scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
       fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
     })
-  useScopedReadModelRefresh({
+  const { hasLoadedOnce: hasLoadedConversationThread } =
+    useScopedReadModelRefresh({
     enabled: Boolean(activeChatId),
     scopeKeys: activeChatId ? getConversationThreadScopeKeys(activeChatId) : [],
     fetchLatest: () => fetchConversationThreadReadModel(activeChatId ?? ""),
-  })
+    })
   const activeChat =
     chats.find((chat) => chat.id === activeChatId) ?? chats[0] ?? null
   const members = useAppStore(
@@ -468,6 +469,7 @@ export function WorkspaceChatsScreen() {
                 title={activeChat.title}
                 description=""
                 members={members}
+                loaded={hasLoadedConversationThread}
                 videoAction={
                   <CallInviteLauncher conversationId={activeChat.id} />
                 }

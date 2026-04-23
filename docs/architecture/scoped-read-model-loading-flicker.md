@@ -65,3 +65,16 @@ Adding more local guards to `DocsScreen` was rejected because it would only hide
 This removes false empty-state flicker for scope transitions that reuse the same screen instance, including the docs directory path that triggered this work.
 
 It does not change the separate behavior where detail screens still lazy-load richer detail read models after navigation. If those surfaces should feel instant as well, that needs prefetching or a broader bootstrap change, not another empty-state guard.
+
+## Sibling Closure
+
+The same bug family also existed in surfaces that called `useScopedReadModelRefresh` but ignored its readiness state when deciding whether to render:
+
+- setup states such as `Setting up workspace channel`
+- empty states such as `No posts yet`
+- thread empties such as `No messages yet`
+- inbox empties such as `All caught up`
+
+Those screens now wait for the initial scoped list or thread/feed read model before rendering those states.
+
+This pass also fixed the adjacent side effect risk in the collaboration surfaces: auto-create effects for workspace channels, team channels, and team chat now wait for the initial conversation list load before deciding that the shared resource is actually missing.

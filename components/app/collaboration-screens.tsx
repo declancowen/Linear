@@ -87,12 +87,13 @@ export function WorkspaceChannelsScreen() {
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  useScopedReadModelRefresh({
+  const { hasLoadedOnce: hasLoadedConversationList } =
+    useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
     scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
     fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
-  })
-  useScopedReadModelRefresh({
+    })
+  const { hasLoadedOnce: hasLoadedChannelFeed } = useScopedReadModelRefresh({
     enabled: Boolean(activeChannel?.id),
     scopeKeys: activeChannel ? getChannelFeedScopeKeys(activeChannel.id) : [],
     fetchLatest: () => fetchChannelFeedReadModel(activeChannel?.id ?? ""),
@@ -102,7 +103,7 @@ export function WorkspaceChannelsScreen() {
     "Forum-style updates, questions, and threaded decisions for the entire workspace."
 
   useEffect(() => {
-    if (!workspace || activeChannel) {
+    if (!workspace || activeChannel || !hasLoadedConversationList) {
       return
     }
 
@@ -112,7 +113,7 @@ export function WorkspaceChannelsScreen() {
       title: "",
       description: "",
     })
-  }, [activeChannel, workspace])
+  }, [activeChannel, hasLoadedConversationList, workspace])
 
   if (!workspace) {
     return (
@@ -136,7 +137,11 @@ export function WorkspaceChannelsScreen() {
           />
         }
       />
-      {!activeChannel ? (
+      {!hasLoadedConversationList && !activeChannel ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+          Loading channel...
+        </div>
+      ) : !activeChannel ? (
         <EmptyState
           title="Setting up workspace channel"
           description="The shared workspace channel is being created automatically."
@@ -151,7 +156,11 @@ export function WorkspaceChannelsScreen() {
             </div>
             <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
               <div className="mx-auto max-w-3xl px-5 py-5">
-                {posts.length === 0 ? (
+                {!hasLoadedChannelFeed && posts.length === 0 ? (
+                  <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+                    Loading posts...
+                  </div>
+                ) : posts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <div className="flex size-10 items-center justify-center rounded-full bg-muted">
                       <Hash className="size-5 text-muted-foreground" />
@@ -221,22 +230,30 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  useScopedReadModelRefresh({
+  const { hasLoadedOnce: hasLoadedConversationList } =
+    useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
     scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
     fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
-  })
-  useScopedReadModelRefresh({
+    })
+  const { hasLoadedOnce: hasLoadedConversationThread } =
+    useScopedReadModelRefresh({
     enabled: Boolean(conversation?.id),
     scopeKeys: conversation ? getConversationThreadScopeKeys(conversation.id) : [],
     fetchLatest: () => fetchConversationThreadReadModel(conversation?.id ?? ""),
-  })
+    })
   const teamDescription =
     team?.settings.summary ||
     `One live conversation for everyone working in ${team?.name ?? "this team"}.`
 
   useEffect(() => {
-    if (!team || !teamHasFeature(team, "chat") || !editable || conversation) {
+    if (
+      !team ||
+      !teamHasFeature(team, "chat") ||
+      !editable ||
+      conversation ||
+      !hasLoadedConversationList
+    ) {
       return
     }
 
@@ -245,7 +262,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       title: "",
       description: "",
     })
-  }, [conversation, editable, team])
+  }, [conversation, editable, hasLoadedConversationList, team])
 
   if (!team) {
     return (
@@ -284,7 +301,11 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
           />
         }
       />
-      {!conversation ? (
+      {!hasLoadedConversationList && !conversation ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+          Loading team chat...
+        </div>
+      ) : !conversation ? (
         <EmptyState
           title={editable ? "Setting up team chat" : "Team chat unavailable"}
           description={
@@ -302,6 +323,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               title="Team chat"
               description=""
               members={members}
+              loaded={hasLoadedConversationThread}
               showHeader={false}
               videoAction={
                 editable ? (
@@ -370,12 +392,13 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  useScopedReadModelRefresh({
+  const { hasLoadedOnce: hasLoadedConversationList } =
+    useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
     scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
     fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
-  })
-  useScopedReadModelRefresh({
+    })
+  const { hasLoadedOnce: hasLoadedChannelFeed } = useScopedReadModelRefresh({
     enabled: Boolean(activeChannel?.id),
     scopeKeys: activeChannel ? getChannelFeedScopeKeys(activeChannel.id) : [],
     fetchLatest: () => fetchChannelFeedReadModel(activeChannel?.id ?? ""),
@@ -389,7 +412,8 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
       !team ||
       !teamHasFeature(team, "channels") ||
       !editable ||
-      activeChannel
+      activeChannel ||
+      !hasLoadedConversationList
     )
       return
     useAppStore.getState().createChannel({
@@ -398,7 +422,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
       title: "",
       description: "",
     })
-  }, [activeChannel, editable, team])
+  }, [activeChannel, editable, hasLoadedConversationList, team])
 
   if (!team) {
     return (
@@ -431,7 +455,11 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
           />
         }
       />
-      {!activeChannel ? (
+      {!hasLoadedConversationList && !activeChannel ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+          Loading channel...
+        </div>
+      ) : !activeChannel ? (
         <EmptyState
           title={editable ? "Setting up channel" : "Channel unavailable"}
           description={
@@ -452,7 +480,11 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
             ) : null}
             <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
               <div className="mx-auto max-w-3xl px-5 py-5">
-                {posts.length === 0 ? (
+                {!hasLoadedChannelFeed && posts.length === 0 ? (
+                  <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+                    Loading posts...
+                  </div>
+                ) : posts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <div className="flex size-10 items-center justify-center rounded-full bg-muted">
                       <Hash className="size-5 text-muted-foreground" />

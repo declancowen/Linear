@@ -212,6 +212,7 @@ export function ChatThread({
   title,
   description,
   members,
+  loaded = true,
   showHeader = true,
   videoAction,
   detailsAction,
@@ -221,6 +222,7 @@ export function ChatThread({
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
+  loaded?: boolean
   showHeader?: boolean
   videoAction?: ReactNode
   detailsAction?: ReactNode
@@ -490,7 +492,13 @@ export function ChatThread({
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
-        {messages.length === 0 ? (
+        {!loaded && messages.length === 0 ? (
+          <div className="mt-auto px-4 py-3">
+            <div className="flex justify-center py-6 text-sm text-muted-foreground">
+              Loading messages...
+            </div>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="mt-auto px-4 py-3">
             <EmptyState
               title="No messages yet"
