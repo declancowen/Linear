@@ -10,6 +10,7 @@ import {
   syncStartConversationCall,
   syncToggleChatMessageReaction,
 } from "@/lib/convex/client"
+import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import {
   channelSchema,
@@ -443,6 +444,18 @@ export function createCollaborationConversationActions({
         return
       }
 
+      const preparedContent = prepareRichTextMessageForStorage(
+        parsed.data.content,
+        {
+          minPlainTextCharacters: 1,
+        }
+      )
+
+      if (!preparedContent.isMeaningful) {
+        toast.error("Message content must include at least 1 character")
+        return
+      }
+
       const optimisticMessageId = createId("chat_message")
 
       set((state) => {
@@ -489,7 +502,7 @@ export function createCollaborationConversationActions({
         }
 
         const mentionUserIds = createMentionIds(
-          parsed.data.content,
+          preparedContent.sanitized,
           state.users,
           audienceUserIds
         )
@@ -527,7 +540,7 @@ export function createCollaborationConversationActions({
               id: optimisticMessageId,
               conversationId: conversation.id,
               kind: "text",
-              content: parsed.data.content.trim(),
+              content: preparedContent.sanitized,
               callId: null,
               mentionUserIds,
               reactions: [],
@@ -549,7 +562,7 @@ export function createCollaborationConversationActions({
 
       const sendTask = syncSendChatMessage(
         parsed.data.conversationId,
-        parsed.data.content,
+        preparedContent.sanitized,
         optimisticMessageId
       ).finally(() => {
         pendingChatMessageSyncs.delete(optimisticMessageId)

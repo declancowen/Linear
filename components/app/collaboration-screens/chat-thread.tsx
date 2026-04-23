@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
@@ -294,6 +300,7 @@ export function ChatThread({
     enabled: true,
   })
   const scrollRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
@@ -451,6 +458,7 @@ export function ChatThread({
     () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
     [typingUsers]
   )
+  const latestMessageId = messages[messages.length - 1]?.id ?? null
 
   function getWorkspaceMembershipState(userId: string | null | undefined) {
     if (!userId || !currentWorkspaceId) {
@@ -462,13 +470,34 @@ export function ChatThread({
 
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [messages.length])
+    const messagesEnd = messagesEndRef.current
+
+    if (!el || !messagesEnd) {
+      return
+    }
+
+    const scrollToBottom = () => {
+      if (typeof messagesEnd.scrollIntoView === "function") {
+        messagesEnd.scrollIntoView({ block: "end" })
+      }
+      el.scrollTop = el.scrollHeight
+    }
+
+    scrollToBottom()
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollToBottom()
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [latestMessageId])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {showHeader ? (
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-medium">{title}</span>
             {description ? (
@@ -741,6 +770,7 @@ export function ChatThread({
                 )
               })}
             </div>
+            <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
           </>
         )}
       </div>

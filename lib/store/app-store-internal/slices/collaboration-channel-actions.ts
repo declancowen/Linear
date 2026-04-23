@@ -8,6 +8,7 @@ import {
   syncDeleteChannelPost,
   syncToggleChannelPostReaction,
 } from "@/lib/convex/client"
+import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import {
   channelPostCommentSchema,
   channelPostSchema,
@@ -48,6 +49,18 @@ export function createCollaborationChannelActions({
         return
       }
 
+      const preparedContent = prepareRichTextMessageForStorage(
+        parsed.data.content,
+        {
+          minPlainTextCharacters: 2,
+        }
+      )
+
+      if (!preparedContent.isMeaningful) {
+        toast.error("Post content must include at least 2 characters")
+        return
+      }
+
       set((state) => {
         const conversation = state.conversations.find(
           (entry) => entry.id === parsed.data.conversationId
@@ -72,7 +85,7 @@ export function createCollaborationChannelActions({
         const postId = createId("channel_post")
         const actor = state.users.find((user) => user.id === state.currentUserId)
         const mentionUserIds = createMentionIds(
-          parsed.data.content,
+          preparedContent.sanitized,
           state.users,
           getConversationAudienceUserIds(state, conversation)
         ).filter((userId) => userId !== state.currentUserId)
@@ -109,7 +122,7 @@ export function createCollaborationChannelActions({
               id: postId,
               conversationId: conversation.id,
               title: parsed.data.title,
-              content: parsed.data.content.trim(),
+              content: preparedContent.sanitized,
               mentionUserIds,
               reactions: [],
               createdBy: state.currentUserId,
@@ -132,7 +145,10 @@ export function createCollaborationChannelActions({
       })
 
       runtime.syncInBackground(
-        syncCreateChannelPost(parsed.data),
+        syncCreateChannelPost({
+          ...parsed.data,
+          content: preparedContent.sanitized,
+        }),
         "Failed to create post"
       )
 
@@ -141,6 +157,18 @@ export function createCollaborationChannelActions({
     addChannelPostComment(input) {
       const parsed = channelPostCommentSchema.safeParse(input)
       if (!parsed.success) {
+        return
+      }
+
+      const preparedContent = prepareRichTextMessageForStorage(
+        parsed.data.content,
+        {
+          minPlainTextCharacters: 1,
+        }
+      )
+
+      if (!preparedContent.isMeaningful) {
+        toast.error("Comment content must include at least 1 character")
         return
       }
 
@@ -175,7 +203,7 @@ export function createCollaborationChannelActions({
           conversation
         )
         const mentionUserIds = createMentionIds(
-          parsed.data.content,
+          preparedContent.sanitized,
           state.users,
           audienceUserIds
         ).filter((userId) => userId !== state.currentUserId)
@@ -240,7 +268,7 @@ export function createCollaborationChannelActions({
             {
               id: createId("channel_comment"),
               postId: post.id,
-              content: parsed.data.content.trim(),
+              content: preparedContent.sanitized,
               mentionUserIds,
               createdBy: state.currentUserId,
               createdAt: now,
@@ -263,7 +291,10 @@ export function createCollaborationChannelActions({
       })
 
       runtime.syncInBackground(
-        syncAddChannelPostComment(parsed.data.postId, parsed.data.content),
+        syncAddChannelPostComment(
+          parsed.data.postId,
+          preparedContent.sanitized
+        ),
         "Failed to post reply"
       )
     },

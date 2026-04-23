@@ -1,4 +1,5 @@
 import {
+  prepareRichTextMessageForStorage,
   prepareRichTextForStorage,
   sanitizeRichTextContent,
 } from "@/lib/content/rich-text-security"
@@ -50,5 +51,27 @@ describe("rich-text security", () => {
     expect(maliciousOnly.sanitized).toBe("<img />")
     expect(maliciousOnly.plainText).toBe("")
     expect(maliciousOnly.isMeaningful).toBe(false)
+  })
+
+  it("trims trailing hard breaks and empty blocks from message content", () => {
+    const trailingBreaks = prepareRichTextMessageForStorage(
+      "<p>Hello<br><br></p>",
+      {
+        minPlainTextCharacters: 1,
+      }
+    )
+
+    expect(trailingBreaks.sanitized).toBe("<p>Hello</p>")
+    expect(trailingBreaks.plainText).toBe("Hello")
+    expect(trailingBreaks.isMeaningful).toBe(true)
+
+    const trailingEmptyParagraphs = prepareRichTextMessageForStorage(
+      "<p>Hello<br>World</p><p><br></p><p></p>",
+      {
+        minPlainTextCharacters: 1,
+      }
+    )
+
+    expect(trailingEmptyParagraphs.sanitized).toBe("<p>Hello<br>World</p>")
   })
 })

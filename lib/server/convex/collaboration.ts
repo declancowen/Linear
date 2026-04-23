@@ -1,5 +1,5 @@
 import { api } from "@/convex/_generated/api"
-import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
+import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import type { TeamMeetingRole } from "@/lib/server/100ms"
 import { ApplicationError, coerceApplicationError } from "@/lib/server/application-errors"
 
@@ -410,7 +410,7 @@ export async function sendChatMessageServer(input: {
   content: string
   messageId?: string
 }) {
-  const preparedContent = prepareRichTextForStorage(input.content, {
+  const preparedContent = prepareRichTextMessageForStorage(input.content, {
     minPlainTextCharacters: 1,
   })
 
@@ -466,7 +466,7 @@ export async function createChannelPostServer(input: {
   title: string
   content: string
 }) {
-  const preparedContent = prepareRichTextForStorage(input.content, {
+  const preparedContent = prepareRichTextMessageForStorage(input.content, {
     minPlainTextCharacters: 2,
   })
 
@@ -504,7 +504,7 @@ export async function addChannelPostCommentServer(input: {
   postId: string
   content: string
 }) {
-  const preparedContent = prepareRichTextForStorage(input.content, {
+  const preparedContent = prepareRichTextMessageForStorage(input.content, {
     minPlainTextCharacters: 1,
   })
 

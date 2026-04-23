@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { createEmptyState } from "@/lib/domain/empty-state"
@@ -534,5 +534,65 @@ describe("ChatThread", () => {
     })
 
     expect(setTypingMock).toHaveBeenCalledWith(true)
+  })
+
+  it("scrolls the newest message fully into view when a message is added", () => {
+    const scrollIntoViewMock = vi.fn()
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0)
+        return 1
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => {})
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    })
+
+    try {
+      render(
+        <ChatThread
+          conversationId="conversation_1"
+          title="Declan Cowen"
+          description=""
+          members={[currentUser, formerUser]}
+        />
+      )
+
+      scrollIntoViewMock.mockClear()
+
+      act(() => {
+        useAppStore.setState({
+          chatMessages: [
+            {
+              id: "message_1",
+              conversationId: "conversation_1",
+              kind: "text",
+              content: "<p>Hello</p>",
+              callId: null,
+              mentionUserIds: [],
+              reactions: [],
+              createdBy: currentUser.id,
+              createdAt: "2026-04-15T12:00:00.000Z",
+            },
+          ],
+        })
+      })
+
+      expect(scrollIntoViewMock).toHaveBeenCalled()
+      expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ block: "end" })
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+      requestAnimationFrameSpy.mockRestore()
+      cancelAnimationFrameSpy.mockRestore()
+    }
   })
 })

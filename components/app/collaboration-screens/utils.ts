@@ -1,4 +1,5 @@
 import { format, isToday, isYesterday } from "date-fns"
+import { trimTrailingRichTextDisplayWhitespace } from "@/lib/content/rich-text-security"
 
 export function formatTimestamp(value: string) {
   const d = new Date(value)
@@ -40,10 +41,10 @@ function escapeHtml(value: string) {
 
 export function getChatMessageMarkup(content: string) {
   if (CHAT_MESSAGE_HTML_PATTERN.test(content)) {
-    return content
+    return trimTrailingRichTextDisplayWhitespace(content)
   }
 
-  return `<p>${escapeHtml(content).replace(/\r?\n/g, "<br />")}</p>`
+  return `<p>${escapeHtml(content.trimEnd()).replace(/\r?\n/g, "<br />")}</p>`
 }
 
 export function buildCallJoinHref(callId: string) {
