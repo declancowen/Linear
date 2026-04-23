@@ -12,8 +12,22 @@ Default behavior:
 
 - shell bootstrap loads through the bounded workspace-membership read model
 - migrated product surfaces refresh through scoped invalidation plus targeted read-model fetches
-- document and work-item rich-text editing uses the collaboration transport
+- document and work-item rich-text editing uses the hosted PartyKit collaboration transport
 - the legacy full-snapshot route remains available for compatibility recovery and explicit rollback
+
+## Hosted PartyKit Environments
+
+Collaboration now runs through hosted PartyKit services mapped 1:1 to Convex:
+
+- `linear-collaboration-dev` -> Convex dev
+- `linear-collaboration-prod` -> Convex prod
+
+Operational expectations:
+
+- Convex remains the only canonical source of truth
+- PartyKit rooms reseed from Convex on connect and persist back to Convex on flush
+- local web development targets the hosted dev PartyKit environment rather than a local `partykit dev` process
+- private documents do not participate in collaboration rooms
 
 ## Diagnostics
 
@@ -96,11 +110,13 @@ Effect:
 
 ## Verification Checklist
 
+- confirm `NEXT_PUBLIC_PARTYKIT_URL` points at the intended hosted PartyKit environment
 - open a document in two clients and confirm immediate shared edits plus presence
 - open a work-item description in two clients and confirm the same
 - mutate work, views, inbox, chat, channel, and search-triggering entities and confirm only the affected surfaces refetch
 - force a rollback flag and confirm the app still boots and remains editable
 - confirm `/api/snapshot` is no longer the default freshness path during normal scoped-sync operation
+- confirm local web development works without running `pnpm partykit:dev`
 
 ## Recovery Notes
 

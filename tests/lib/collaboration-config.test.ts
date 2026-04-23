@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  resolveCollaborationAppOrigin,
-  resolveCollaborationInternalSecret,
   resolveCollaborationServiceUrl,
   resolveCollaborationTokenSecret,
 } from "@/lib/collaboration/config"
@@ -12,36 +10,28 @@ afterEach(() => {
 })
 
 describe("collaboration config helpers", () => {
-  it("prefers explicit runtime configuration when present", () => {
-    vi.stubEnv("NODE_ENV", "production")
-
+  it("prefers the canonical public PartyKit URL when present", () => {
     const env = {
-      COLLABORATION_APP_ORIGIN: "https://app.example.com",
-      COLLABORATION_INTERNAL_SECRET: "internal-secret",
-      COLLABORATION_TOKEN_SECRET: "token-secret",
       NEXT_PUBLIC_PARTYKIT_URL: "https://collab.example.com",
+      COLLABORATION_TOKEN_SECRET: "token-secret",
     }
 
-    expect(resolveCollaborationAppOrigin(env)).toBe(
-      "https://app.example.com"
-    )
-    expect(resolveCollaborationInternalSecret(env)).toBe("internal-secret")
-    expect(resolveCollaborationTokenSecret(env)).toBe("token-secret")
     expect(resolveCollaborationServiceUrl(env)).toBe(
       "https://collab.example.com"
     )
+    expect(resolveCollaborationTokenSecret(env)).toBe("token-secret")
   })
 
-  it("falls back to local collaboration defaults outside production", () => {
-    vi.stubEnv("NODE_ENV", "development")
+  it("keeps reading deprecated service URL aliases for compatibility", () => {
+    expect(
+      resolveCollaborationServiceUrl({
+        COLLABORATION_SERVICE_URL: "https://legacy-collab.example.com",
+      })
+    ).toBe("https://legacy-collab.example.com")
+  })
 
-    expect(resolveCollaborationAppOrigin({})).toBe("http://127.0.0.1:3000")
-    expect(resolveCollaborationInternalSecret({})).toBe(
-      "linear-local-collaboration-internal-secret"
-    )
-    expect(resolveCollaborationTokenSecret({})).toBe(
-      "linear-local-collaboration-token-secret"
-    )
-    expect(resolveCollaborationServiceUrl({})).toBe("http://127.0.0.1:1999")
+  it("does not fall back to localhost defaults anymore", () => {
+    expect(resolveCollaborationServiceUrl({})).toBeNull()
+    expect(resolveCollaborationTokenSecret({})).toBeNull()
   })
 })

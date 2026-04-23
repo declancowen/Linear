@@ -6,11 +6,6 @@ import type {
   Room,
 } from "partykit/server"
 import { onConnect, unstable_getYDoc, type YPartyKitOptions } from "y-partykit"
-import {
-  clearRange,
-  getLevelKeyRangeAsEncoded,
-  YPartyKitStorage,
-} from "y-partykit/storage"
 import { getSchema, type JSONContent } from "@tiptap/core"
 import {
   prosemirrorJSONToYXmlFragment,
@@ -30,25 +25,30 @@ import {
   doesStateVectorDominate,
   getDocumentStateVector,
 } from "../../lib/collaboration/state-vectors"
+import { resolveCollaborationTokenSecret } from "../../lib/collaboration/config"
 import {
-  resolveCollaborationAppOrigin,
-  resolveCollaborationInternalSecret,
-  resolveCollaborationTokenSecret,
-} from "../../lib/collaboration/config"
+  createCanonicalContentJson,
+  normalizeCollaborationDocumentJson,
+  prepareCanonicalCollaborationContent,
+} from "../../lib/collaboration/canonical-content"
+import {
+  bumpScopedReadModelsFromConvex,
+  getCollaborationDocumentFromConvex,
+  persistCollaborationDocumentToConvex,
+  persistCollaborationItemDescriptionToConvex,
+  persistCollaborationWorkItemToConvex,
+  type CollaborationDocumentFromConvex,
+} from "../../lib/collaboration/partykit-convex"
 import { parseCollaborationRoomId } from "../../lib/collaboration/rooms"
 import {
   parseCollaborationSessionTokenClaims,
   type CollaborationSessionTokenClaims,
 } from "../../lib/collaboration/transport"
 import { createRichTextBaseExtensions } from "../../lib/rich-text/extensions"
+import { buildCollaborationDocumentScopeKeys } from "../../lib/scoped-sync/document-scope-keys"
 
-type CollaborationBootstrapPayload = {
-  documentId: string
-  kind: "team-document" | "workspace-document" | "private-document" | "item-description"
-  itemId: string | null
-  title: string
-  contentHtml: string
-  contentJson?: JSONContent
+type CollaborationBootstrapPayload = CollaborationDocumentFromConvex & {
+  contentJson: JSONContent
 }
 
 type CollaborationRoomStateMeta = {
@@ -70,14 +70,6 @@ const roomBootstrapCache = new Map<string, CollaborationBootstrapPayload>()
 const roomSessionState = new Map<string, CollaborationRoomSessionState>()
 const roomStateMeta = new WeakMap<Doc, CollaborationRoomStateMeta>()
 const observedRoomDocs = new WeakSet<Doc>()
-const EMPTY_DOCUMENT_JSON: JSONContent = {
-  type: "doc",
-  content: [
-    {
-      type: "paragraph",
-    },
-  ],
-}
 
 const COLLABORATION_FLUSH_FENCE_TIMEOUT_MS = 5_000
 const COLLABORATION_FLUSH_FENCE_POLL_MS = 25
@@ -92,16 +84,80 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function normalizeDocumentJson(value: unknown): JSONContent {
-  if (isRecord(value) && typeof value.type === "string") {
-    return value as JSONContent
+function isMessageEventLike(value: unknown): value is { data: unknown } {
+  return isRecord(value) && "data" in value
+}
+
+function normalizeConnectionMessageEvents(connection: Connection) {
+  const patchedConnection = connection as Connection & {
+    __linearMessageEventShimApplied?: boolean
   }
 
-  return EMPTY_DOCUMENT_JSON
+  if (patchedConnection.__linearMessageEventShimApplied) {
+    return
+  }
+
+  const originalAddEventListener =
+    typeof connection.addEventListener === "function"
+      ? (connection.addEventListener.bind(connection) as (
+          type: string,
+          listener: EventListenerOrEventListenerObject,
+          options?: AddEventListenerOptions | boolean
+        ) => void)
+      : null
+
+  if (!originalAddEventListener) {
+    return
+  }
+
+  connection.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: AddEventListenerOptions | boolean) => {
+    if (type !== "message") {
+      return originalAddEventListener(type, listener, options)
+    }
+
+    const dispatch = (normalizedPayload: { data: unknown }) => {
+      if (typeof listener === "function") {
+        return listener(normalizedPayload as never)
+      }
+
+      return listener.handleEvent(normalizedPayload as never)
+    }
+
+    const wrappedListener: EventListenerOrEventListenerObject = (
+      payload: unknown
+    ) => {
+      const data = isMessageEventLike(payload) ? payload.data : payload
+
+      if (data instanceof Blob) {
+        void data
+          .arrayBuffer()
+          .then((buffer) => {
+            dispatch({ data: buffer })
+          })
+          .catch((error) => {
+            console.error(
+              "[collaboration] failed to normalize websocket blob payload",
+              {
+                error,
+              }
+            )
+          })
+        return
+      }
+
+      return dispatch(
+        isMessageEventLike(payload) ? { data: payload.data } : { data }
+      )
+    }
+
+    return originalAddEventListener(type, wrappedListener, options)
+  }) as typeof connection.addEventListener
+
+  patchedConnection.__linearMessageEventShimApplied = true
 }
 
 function isEmptyDocumentJson(value: JSONContent) {
-  const normalized = normalizeDocumentJson(value)
+  const normalized = normalizeCollaborationDocumentJson(value)
 
   if (normalized.type !== "doc") {
     return false
@@ -132,7 +188,7 @@ function isEmptyDocumentJson(value: JSONContent) {
 
 function isCollaborationDocEmpty(doc: Doc) {
   return isEmptyDocumentJson(
-    normalizeDocumentJson(
+    normalizeCollaborationDocumentJson(
       yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT)
     )
   )
@@ -145,7 +201,7 @@ function getCollaborationFragment(doc: Doc) {
 function writeCollaborationDocFromJson(doc: Doc, contentJson: JSONContent) {
   prosemirrorJSONToYXmlFragment(
     richTextSchema,
-    normalizeDocumentJson(contentJson),
+    normalizeCollaborationDocumentJson(contentJson),
     getCollaborationFragment(doc)
   )
 }
@@ -167,7 +223,7 @@ function getCollaborationConnectionCount(doc: Doc) {
 }
 
 function getDocumentJsonHash(value: JSONContent) {
-  return JSON.stringify(normalizeDocumentJson(value))
+  return JSON.stringify(normalizeCollaborationDocumentJson(value))
 }
 
 function areDocumentJsonEqual(left: JSONContent, right: JSONContent) {
@@ -253,6 +309,28 @@ function observeRoomDocument(doc: Doc) {
   doc.on("update", () => {
     getRoomStateMeta(doc).dirty = true
   })
+  ;(
+    doc as Doc & {
+      on(event: "error", callback: (error: unknown) => void): void
+    }
+  ).on("error", (error: unknown) => {
+    const meta = getRoomStateMeta(doc)
+    console.error("[collaboration] yjs document error", {
+      roomId: doc.guid,
+      connectionCount: getCollaborationConnectionCount(doc),
+      dirty: meta.dirty,
+      lastCanonicalHash: meta.lastCanonicalHash,
+      lastPersistError: meta.lastPersistError,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          : error,
+    })
+  })
 }
 
 function markRoomCanonical(doc: Doc, contentJson: JSONContent) {
@@ -280,30 +358,6 @@ function closeActiveRoomConnections(doc: Doc) {
       })
     }
   }
-}
-
-function getAppOrigin(room: Room) {
-  const explicitOrigin = resolveCollaborationAppOrigin(
-    room.env as Record<string, unknown>
-  )
-
-  if (!explicitOrigin) {
-    throw new Error("COLLABORATION_APP_ORIGIN is not configured")
-  }
-
-  return explicitOrigin.replace(/\/$/, "")
-}
-
-function getInternalSecret(room: Room) {
-  const secret = resolveCollaborationInternalSecret(
-    room.env as Record<string, unknown>
-  )
-
-  if (!secret) {
-    throw new Error("COLLABORATION_INTERNAL_SECRET is not configured")
-  }
-
-  return secret
 }
 
 function getTokenSecret(room: Room) {
@@ -497,58 +551,39 @@ async function verifyRequestClaims(
 }
 
 async function fetchBootstrapDocument(room: Room, currentUserId: string) {
-  const response = await fetch(
-    `${getAppOrigin(room)}/api/internal/collaboration/documents/${parseCollaborationRoomId(room.id)?.entityId ?? ""}/bootstrap?currentUserId=${encodeURIComponent(currentUserId)}`,
+  const parsedRoom = parseCollaborationRoomId(room.id)
+
+  if (!parsedRoom) {
+    throw new Error("Invalid collaboration room")
+  }
+
+  const collaborationDocument = await getCollaborationDocumentFromConvex(
+    room.env as Record<string, unknown>,
     {
-      headers: {
-        Authorization: `Bearer ${getInternalSecret(room)}`,
-      },
+      currentUserId,
+      documentId: parsedRoom.entityId,
     }
   )
 
-  if (!response.ok) {
-    throw new Error(
-      `Failed to bootstrap collaboration document (${response.status})`
-    )
+  if (collaborationDocument.kind === "private-document") {
+    throw new Error("Private documents do not support collaboration sessions")
   }
 
-  const payload = (await response.json()) as CollaborationBootstrapPayload
+  const payload: CollaborationBootstrapPayload = {
+    ...collaborationDocument,
+    contentJson: createCanonicalContentJson(collaborationDocument.content),
+  }
 
   roomBootstrapCache.set(room.id, payload)
 
   return payload
 }
 
-async function clearPersistedRoomState(room: Room) {
-  await Promise.all([
-    clearRange(
-      room.storage,
-      ["v1", room.id, "update", 0],
-      ["v1", room.id, "update", Number.MAX_SAFE_INTEGER]
-    ),
-    clearRange(
-      room.storage,
-      ["v1_sv", room.id],
-      ["v1_sv", `${room.id}\uffff`]
-    ),
-  ])
-}
-
-async function hasPersistedRoomUpdates(room: Room) {
-  const persistedKeys = await getLevelKeyRangeAsEncoded(room.storage, {
-    gte: ["v1", room.id, "update", 0],
-    lt: ["v1", room.id, "update", Number.MAX_SAFE_INTEGER],
-  })
-
-  return persistedKeys.length > 0
-}
-
 async function loadCanonicalDocument(
   room: Room
 ) {
-  await clearPersistedRoomState(room)
   const payload = await fetchBootstrapDocument(room, requireRoomClaims(room).sub)
-  const json = normalizeDocumentJson(payload.contentJson)
+  const json = normalizeCollaborationDocumentJson(payload.contentJson)
 
   return prosemirrorJSONToYDoc(
     richTextSchema,
@@ -567,41 +602,92 @@ async function persistCanonicalDocument(
   }
 ) {
   const claims = requireRoomEditorClaims(room)
-  const contentJson = normalizeDocumentJson(
+  const contentJson = normalizeCollaborationDocumentJson(
     yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT)
   )
-
-  const response = await fetch(
-    `${getAppOrigin(room)}/api/internal/collaboration/documents/${claims.documentId}/persist`,
+  const collaborationDocument = await getCollaborationDocumentFromConvex(
+    room.env as Record<string, unknown>,
     {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getInternalSecret(room)}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        currentUserId: claims.sub,
-        contentJson,
-        flushReason,
-        ...(options?.workItemExpectedUpdatedAt
-          ? {
-              workItemExpectedUpdatedAt: options.workItemExpectedUpdatedAt,
-            }
-          : {}),
-        ...(options?.workItemTitle
-          ? {
-              workItemTitle: options.workItemTitle,
-            }
-          : {}),
-      }),
+      currentUserId: claims.sub,
+      documentId: claims.documentId,
     }
   )
 
-  if (!response.ok) {
-    throw new Error(
-      `Failed to persist collaboration document (${response.status})`
+  if (collaborationDocument.kind === "private-document") {
+    throw new Error("Private documents do not support collaboration sessions")
+  }
+
+  if (!collaborationDocument.canEdit) {
+    throw new Error("You do not have permission to edit this document")
+  }
+
+  const { contentHtml, derivedTitle } =
+    prepareCanonicalCollaborationContent(contentJson)
+
+  if (collaborationDocument.kind === "item-description") {
+    if (!collaborationDocument.itemId) {
+      throw new Error("Work item not found")
+    }
+
+    if (options?.workItemTitle) {
+      await persistCollaborationWorkItemToConvex(
+        room.env as Record<string, unknown>,
+        {
+          currentUserId: claims.sub,
+          itemId: collaborationDocument.itemId,
+          patch: {
+            title: options.workItemTitle,
+            description: contentHtml,
+            expectedUpdatedAt:
+              options.workItemExpectedUpdatedAt ??
+              collaborationDocument.itemUpdatedAt ??
+              undefined,
+          },
+        }
+      )
+    } else {
+      await persistCollaborationItemDescriptionToConvex(
+        room.env as Record<string, unknown>,
+        {
+          currentUserId: claims.sub,
+          itemId: collaborationDocument.itemId,
+          content: contentHtml,
+          expectedUpdatedAt: collaborationDocument.updatedAt,
+        }
+      )
+    }
+  } else {
+    await persistCollaborationDocumentToConvex(
+      room.env as Record<string, unknown>,
+      {
+        currentUserId: claims.sub,
+        documentId: claims.documentId,
+        title: derivedTitle ?? collaborationDocument.title,
+        content: contentHtml,
+        expectedUpdatedAt: collaborationDocument.updatedAt,
+      }
     )
   }
+
+  const scopeKeys = buildCollaborationDocumentScopeKeys(
+    {
+      documentId: collaborationDocument.documentId,
+      kind: collaborationDocument.kind,
+      workspaceId: collaborationDocument.workspaceId,
+      teamId: collaborationDocument.teamId,
+      itemId: collaborationDocument.itemId,
+      searchWorkspaceId: collaborationDocument.searchWorkspaceId,
+      teamMemberIds: collaborationDocument.teamMemberIds,
+      projectScopes: collaborationDocument.projectScopes,
+    },
+    {
+      includeCollectionScopes: flushReason !== "periodic",
+    }
+  )
+
+  await bumpScopedReadModelsFromConvex(room.env as Record<string, unknown>, {
+    scopeKeys,
+  })
 
   markRoomCanonical(doc, contentJson)
 
@@ -610,6 +696,12 @@ async function persistCanonicalDocument(
   if (cachedPayload) {
     roomBootstrapCache.set(room.id, {
       ...cachedPayload,
+      ...(collaborationDocument.kind === "item-description"
+        ? {}
+        : {
+            title: derivedTitle ?? collaborationDocument.title,
+          }),
+      content: contentHtml,
       contentJson,
     })
   }
@@ -670,8 +762,8 @@ async function ensureCanonicalDocumentSeeded(
   observeRoomDocument(yDoc)
   const hasActiveConnections = getCollaborationConnectionCount(yDoc) > 0
   const payload = await fetchBootstrapDocument(room, claims.sub)
-  const contentJson = normalizeDocumentJson(payload.contentJson)
-  const currentJson = normalizeDocumentJson(
+  const contentJson = normalizeCollaborationDocumentJson(payload.contentJson)
+  const currentJson = normalizeCollaborationDocumentJson(
     yDocToProsemirrorJSON(yDoc, COLLABORATION_XML_FRAGMENT)
   )
   const roomMeta = getRoomStateMeta(yDoc)
@@ -730,6 +822,8 @@ const collaboration = {
       const claims = await verifyRequestClaims(room, context.request)
       const { options } = await ensureCanonicalDocumentSeeded(room, claims)
 
+      normalizeConnectionMessageEvents(connection)
+
       await onConnect(connection, room, {
         ...options,
         readOnly: claims.role === "viewer",
@@ -756,22 +850,13 @@ const collaboration = {
       if (!claims) {
         return
       }
-
-      const hasPersistedUpdates = await hasPersistedRoomUpdates(room)
       const roomMeta = getRoomStateMeta(yDoc)
 
       if (!roomMeta.dirty) {
-        if (hasPersistedUpdates) {
-          await clearPersistedRoomState(room)
-        }
         return
       }
 
       await persistCanonicalDocument(room, yDoc, "leave")
-
-      if (hasPersistedUpdates) {
-        await clearPersistedRoomState(room)
-      }
     } catch (error) {
       console.error("[collaboration] failed to persist room on last close", {
         roomId: room.id,

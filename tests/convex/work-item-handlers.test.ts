@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
+const getDocumentDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const validateWorkItemParentMock = vi.fn()
+const getClampedNotifiedMentionCountsMock = vi.fn()
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
@@ -19,6 +21,7 @@ vi.mock("@/convex/app/access", () => ({
 }))
 
 vi.mock("@/convex/app/data", () => ({
+  getDocumentDoc: getDocumentDocMock,
   getTeamDoc: getTeamDocMock,
   getWorkItemDoc: getWorkItemDocMock,
 }))
@@ -41,7 +44,7 @@ vi.mock("@/convex/app/collaboration_utils", () => ({
 }))
 
 vi.mock("@/convex/app/document_handlers", () => ({
-  getClampedNotifiedMentionCounts: vi.fn(),
+  getClampedNotifiedMentionCounts: getClampedNotifiedMentionCountsMock,
 }))
 
 vi.mock("@/convex/app/email_job_handlers", () => ({
@@ -62,11 +65,20 @@ describe("work item handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
+    getDocumentDocMock.mockReset()
     getTeamDocMock.mockReset()
     getWorkItemDocMock.mockReset()
     normalizeTeamMock.mockReset()
     validateWorkItemParentMock.mockReset()
+    getClampedNotifiedMentionCountsMock.mockReset()
 
+    getDocumentDocMock.mockResolvedValue({
+      _id: "db_doc_1",
+      id: "doc_1",
+      title: "Launch task description",
+      content: "<p>Existing</p>",
+      notifiedMentionCounts: {},
+    })
     getTeamDocMock.mockResolvedValue({
       id: "team_1",
       name: "Launch",
@@ -96,6 +108,7 @@ describe("work item handlers", () => {
         },
       },
     })
+    getClampedNotifiedMentionCountsMock.mockReturnValue({})
   })
 
   it("rejects invalid schedule strings on create before inserting", async () => {
@@ -196,6 +209,37 @@ describe("work item handlers", () => {
 
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
     expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("persists collaboration title and description updates without origin-driven side effects", async () => {
+    const { persistCollaborationWorkItemHandler } = await import(
+      "@/convex/app/work_item_handlers"
+    )
+    const ctx = createCtx()
+
+    await persistCollaborationWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      itemId: "item_1",
+      patch: {
+        title: "Updated title",
+        description: "<p>Updated</p>",
+        expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+      },
+    })
+
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "db_item_1", {
+      title: "Updated title",
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(2, "db_doc_1", {
+      content: "<p>Updated</p>",
+      notifiedMentionCounts: {},
+      title: "Updated title description",
+      updatedAt: "2026-04-20T22:20:00.000Z",
+      updatedBy: "user_1",
+    })
+    expect(validateWorkItemParentMock).not.toHaveBeenCalled()
   })
 
   it("shifts timeline dates in calendar-day space when moving a scheduled item", async () => {

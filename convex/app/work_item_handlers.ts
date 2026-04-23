@@ -84,6 +84,16 @@ type UpdateWorkItemArgs = ServerAccessArgs & {
   patch: WorkItemPatch
 }
 
+type PersistCollaborationWorkItemArgs = ServerAccessArgs & {
+  currentUserId: string
+  itemId: string
+  patch: {
+    title?: string
+    description?: string
+    expectedUpdatedAt?: string
+  }
+}
+
 type DeleteWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
   itemId: string
@@ -430,6 +440,72 @@ export async function updateWorkItemHandler(
 
   return {
     assignmentEmails,
+  }
+}
+
+export async function persistCollaborationWorkItemHandler(
+  ctx: MutationCtx,
+  args: PersistCollaborationWorkItemArgs
+) {
+  assertServerToken(args.serverToken)
+  const existing = await getWorkItemDoc(ctx, args.itemId)
+
+  if (!existing) {
+    throw new Error("Work item not found")
+  }
+
+  await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
+
+  if (
+    args.patch.expectedUpdatedAt !== undefined &&
+    existing.updatedAt !== args.patch.expectedUpdatedAt
+  ) {
+    throw new Error("Work item changed while you were editing")
+  }
+
+  if (args.patch.title === undefined && args.patch.description === undefined) {
+    return {
+      updatedAt: existing.updatedAt,
+    }
+  }
+
+  const nextTitle =
+    args.patch.title !== undefined ? args.patch.title.trim() : existing.title
+
+  if (nextTitle.length < 2 || nextTitle.length > 96) {
+    throw new Error("Work item title must be between 2 and 96 characters")
+  }
+
+  const updatedAt = getNow()
+
+  await ctx.db.patch(existing._id, {
+    ...(args.patch.title !== undefined ? { title: nextTitle } : {}),
+    updatedAt,
+  })
+
+  if (args.patch.title !== undefined || args.patch.description !== undefined) {
+    const descriptionDocument = await getDocumentDoc(ctx, existing.descriptionDocId)
+
+    if (descriptionDocument) {
+      await ctx.db.patch(descriptionDocument._id, {
+        ...(args.patch.description !== undefined
+          ? {
+              content: args.patch.description,
+              notifiedMentionCounts: getClampedNotifiedMentionCounts(
+                args.patch.description,
+                descriptionDocument.notifiedMentionCounts
+              ),
+            }
+          : {}),
+        title: `${nextTitle} description`,
+        updatedAt,
+        updatedBy: args.currentUserId,
+      })
+    }
+  }
+
+  return {
+    updatedAt,
   }
 }
 

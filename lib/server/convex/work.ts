@@ -287,14 +287,9 @@ export async function persistCollaborationWorkItemServer(input: {
   }
 }) {
   try {
-    const origin = await resolveServerOrigin()
-
     return await getConvexServerClient().mutation(
       api.app.persistCollaborationWorkItem,
-      withServerToken({
-        ...input,
-        origin,
-      })
+      withServerToken(input)
     )
   } catch (error) {
     throw (

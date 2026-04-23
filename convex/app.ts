@@ -142,6 +142,7 @@ import {
   clearWorkItemPresenceHandler,
   deleteWorkItemHandler,
   heartbeatWorkItemPresenceHandler,
+  persistCollaborationWorkItemHandler,
   shiftTimelineItemHandler,
   updateWorkItemHandler,
 } from "./app/work_item_handlers"
@@ -917,23 +918,13 @@ export const persistCollaborationWorkItem = operationalMutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     itemId: v.string(),
-    origin: v.string(),
     patch: v.object({
       title: v.optional(v.string()),
       description: v.optional(v.string()),
       expectedUpdatedAt: v.optional(v.string()),
-      status: v.optional(workStatusValidator),
-      priority: v.optional(priorityValidator),
-      assigneeId: v.optional(nullableStringValidator),
-      parentId: v.optional(nullableStringValidator),
-      primaryProjectId: v.optional(nullableStringValidator),
-      labelIds: v.optional(v.array(v.string())),
-      startDate: v.optional(nullableStringValidator),
-      dueDate: v.optional(nullableStringValidator),
-      targetDate: v.optional(nullableStringValidator),
     }),
   },
-  handler: updateWorkItemHandler,
+  handler: persistCollaborationWorkItemHandler,
 })
 
 export const deleteWorkItem = mutation({
