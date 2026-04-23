@@ -61,11 +61,25 @@ export type CollaborationAwarenessChange<TAwarenessState> = {
   remote: TAwarenessState[]
 }
 
-export type CollaborationFlushInput = {
-  documentTitle?: string
+export type CollaborationContentFlushInput = {
+  kind?: "content"
+}
+
+export type CollaborationDocumentTitleFlushInput = {
+  kind: "document-title"
+  documentTitle: string
+}
+
+export type CollaborationWorkItemMainFlushInput = {
+  kind: "work-item-main"
   workItemExpectedUpdatedAt?: string
   workItemTitle?: string
 }
+
+export type CollaborationFlushInput =
+  | CollaborationContentFlushInput
+  | CollaborationDocumentTitleFlushInput
+  | CollaborationWorkItemMainFlushInput
 
 export interface CollaborationTransportSession<
   TAwarenessState,

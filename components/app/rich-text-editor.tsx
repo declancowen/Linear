@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
   type MutableRefObject,
 } from "react"
 import {
@@ -461,13 +462,6 @@ type CollaborationAwarenessUser = {
   name: string
   color: string
   cursorSide: CollaborationCaretSide | null
-  cursorRect:
-    | {
-        left: number
-        top: number
-        height: number
-      }
-    | null
 }
 
 function getCollaborationAwarenessUser(
@@ -483,9 +477,6 @@ function getCollaborationAwarenessUser(
   const sessionId =
     typeof userValue.sessionId === "string" ? userValue.sessionId.trim() : ""
   const name = typeof userValue.name === "string" ? userValue.name.trim() : ""
-  const cursorRectValue = isRecord(userValue.cursorRect)
-    ? userValue.cursorRect
-    : null
 
   if (!userId || !sessionId || !name) {
     return null
@@ -502,17 +493,6 @@ function getCollaborationAwarenessUser(
     cursorSide:
       userValue.cursorSide === "before" || userValue.cursorSide === "after"
         ? userValue.cursorSide
-        : null,
-    cursorRect:
-      cursorRectValue &&
-      typeof cursorRectValue.left === "number" &&
-      typeof cursorRectValue.top === "number" &&
-      typeof cursorRectValue.height === "number"
-        ? {
-            left: cursorRectValue.left,
-            top: cursorRectValue.top,
-            height: cursorRectValue.height,
-          }
         : null,
   }
 }
@@ -902,8 +882,7 @@ function getLocalTextblockBoundarySide(
 
 function resolveCollaborationCaretCoordinates(
   currentEditor: Editor,
-  position: number,
-  preferredSide: CollaborationCaretSide | null
+  position: number
 ) {
   const localBoundarySide = getLocalTextblockBoundarySide(
     currentEditor,
@@ -918,18 +897,6 @@ function resolveCollaborationCaretCoordinates(
     return getCaretCoordinatesAfterPosition(currentEditor, position)
   }
 
-  try {
-    if (preferredSide === "before" && position > 0) {
-      return getCaretCoordinatesBeforePosition(currentEditor, position)
-    }
-
-    if (preferredSide === "after") {
-      return getCaretCoordinatesAfterPosition(currentEditor, position)
-    }
-  } catch {
-    // Ignore unsupported side lookups and fall through.
-  }
-
   const collapsedRangeCoordinates = getCollapsedRangeCaretCoordinates(
     currentEditor,
     position
@@ -940,6 +907,39 @@ function resolveCollaborationCaretCoordinates(
   }
 
   return getCaretCoordinatesAfterPosition(currentEditor, position)
+}
+
+function collectActiveCollaborationMarkerKeys(input: {
+  collaboration: NonNullable<RichTextEditorProps["collaboration"]>
+  currentPresenceUserId: string | null
+}) {
+  const activeKeys = new Set<string>()
+  const localSessionId =
+    getCollaborationAwarenessUser(
+      input.collaboration.binding.provider.awareness.getLocalState()
+    )?.sessionId ?? input.collaboration.localUser.sessionId
+
+  input.collaboration.binding.provider.awareness
+    .getStates()
+    .forEach((value, clientId) => {
+      const user = getCollaborationAwarenessUser(value)
+
+      if (!user) {
+        return
+      }
+
+      if (
+        user.sessionId === localSessionId ||
+        (input.currentPresenceUserId &&
+          user.userId === input.currentPresenceUserId)
+      ) {
+        return
+      }
+
+      activeKeys.add(`${clientId}:${user.sessionId}`)
+    })
+
+  return activeKeys
 }
 
 function collectCollaborationCursorMarkers(input: {
@@ -1024,14 +1024,13 @@ function collectCollaborationCursorMarkers(input: {
         input.currentEditor.state.doc.content.size,
         0
       )
-      head = Math.min(head, maxDocumentPosition)
+
+      if (head > maxDocumentPosition) {
+        return
+      }
 
       try {
-        const coordinates = resolveCollaborationCaretCoordinates(
-          input.currentEditor,
-          head,
-          user.cursorSide
-        )
+        const coordinates = resolveCollaborationCaretCoordinates(input.currentEditor, head)
         const height = Math.max(
           18,
           Math.round(coordinates.bottom - coordinates.top)
@@ -1359,10 +1358,10 @@ export function RichTextEditor({
 
   // Build editor class based on mode
   const editorClass = fullPage
-    ? "min-h-[calc(100svh-12rem)] text-base outline-none [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+    ? "min-h-[calc(100svh-12rem)] text-base outline-none [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
     : compact
-      ? "min-h-16 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-6 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
-      : "min-h-24 text-sm outline-none [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+      ? "min-h-16 text-sm outline-none [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-6 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+      : "min-h-24 text-sm outline-none [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
 
   const sanitizedStringContent = useMemo(
     () =>
@@ -1870,7 +1869,13 @@ export function RichTextEditor({
       return
     }
 
-    editor.commands.focus("end")
+    const frameId = window.requestAnimationFrame(() => {
+      editor.commands.focus("end")
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
   }, [autoFocus, editor])
 
   useEffect(() => {
@@ -1955,11 +1960,29 @@ export function RichTextEditor({
       collaboration,
       currentPresenceUserId,
     })
+    const activeKeys = collectActiveCollaborationMarkerKeys({
+      collaboration,
+      currentPresenceUserId,
+    })
 
     setCollaborationCursorMarkers((current) =>
-      areCollaborationCursorMarkersEqual(current, nextMarkers)
-        ? current
-        : nextMarkers
+      {
+        const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
+        const preservedMarkers = current.filter(
+          (marker) =>
+            activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
+        )
+        const mergedMarkers = [...nextMarkers, ...preservedMarkers].sort(
+          (left, right) =>
+            left.top - right.top ||
+            left.left - right.left ||
+            left.key.localeCompare(right.key)
+        )
+
+        return areCollaborationCursorMarkersEqual(current, mergedMarkers)
+          ? current
+          : mergedMarkers
+      }
     )
   }, [collaboration, currentPresenceUserId, editor])
 
@@ -2155,6 +2178,28 @@ export function RichTextEditor({
   }
 
   const currentEditor = editor
+
+  function handleInlineMouseDownCapture(event: MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !currentEditor.isEmpty) {
+      return
+    }
+
+    const target =
+      event.target instanceof HTMLElement ? event.target : null
+
+    if (
+      target?.closest(
+        'button, a, input, textarea, label, [role="button"]'
+      )
+    ) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      currentEditor.commands.focus("end")
+    })
+  }
+
   const activeSlashIndex =
     filteredSlashCommands.length === 0
       ? 0
@@ -2386,7 +2431,7 @@ export function RichTextEditor({
         <div className="flex-1 overflow-y-auto">
           <div
             className={cn(
-              "relative mx-auto w-full px-6 pb-4",
+              "relative mx-auto w-full px-6 pt-12 pb-4",
               FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
             )}
             ref={containerRef}
@@ -2407,7 +2452,11 @@ export function RichTextEditor({
   // Inline mode — used for issue descriptions (no card, no border, seamless)
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <div className="relative" ref={containerRef}>
+      <div
+        className={cn("relative", showToolbar && "pt-12")}
+        onMouseDownCapture={handleInlineMouseDownCapture}
+        ref={containerRef}
+      >
         <EditorContent editor={currentEditor} />
         {collaborationSelectionPresence}
         {collaborationCursorPresence}

@@ -173,7 +173,6 @@ describe("collaboration foundation contracts", () => {
         anchor: 3,
         head: 3,
       },
-      cursorRect: null,
       cursorSide: null,
       selection: null,
     })

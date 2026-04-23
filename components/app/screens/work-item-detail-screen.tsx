@@ -1901,6 +1901,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     if (isCollaborationAttached) {
       try {
         await flushCollaboration({
+          kind: "work-item-main",
           ...(mainTitleDirty
             ? {
                 workItemExpectedUpdatedAt:
@@ -2235,40 +2236,43 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               <section className="mt-7">
                 {isMainEditing ? (
                   <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
-                    <RichTextEditor
-                      content={mainDraftDescription}
-                      collaboration={collaboration ?? undefined}
-                      currentPresenceUserId={currentUserId}
-                      editable={editable && !isCollaborationBootstrapping}
-                      placeholder="Add a description…"
-                      presenceViewers={otherDescriptionViewers}
-                      onActiveBlockChange={handleLegacyActiveBlockChange}
-                      mentionCandidates={
-                        team ? getTeamMembers(data, team.id) : data.users
-                      }
-                      onChange={(content) => {
-                        setMainDraftDescription(content)
+                    {isCollaborationBootstrapping ? (
+                      <RichTextContent
+                        content={mainDraftDescription}
+                        className="min-h-24 pt-12 text-sm [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2"
+                      />
+                    ) : (
+                      <RichTextEditor
+                        content={mainDraftDescription}
+                        collaboration={collaboration ?? undefined}
+                        currentPresenceUserId={currentUserId}
+                        editable={editable}
+                        placeholder="Add a description…"
+                        presenceViewers={otherDescriptionViewers}
+                        onActiveBlockChange={handleLegacyActiveBlockChange}
+                        mentionCandidates={
+                          team ? getTeamMembers(data, team.id) : data.users
+                        }
+                        onChange={(content) => {
+                          setMainDraftDescription(content)
 
-                        if (isCollaborationAttached) {
+                          if (isCollaborationAttached) {
+                            useAppStore
+                              .getState()
+                              .applyItemDescriptionCollaborationContent(
+                                currentItem.id,
+                                content
+                              )
+                            return
+                          }
+                        }}
+                        onUploadAttachment={(file) =>
                           useAppStore
                             .getState()
-                            .applyItemDescriptionCollaborationContent(
-                              currentItem.id,
-                              content
-                            )
-                          return
+                            .uploadAttachment("workItem", currentItem.id, file)
                         }
-
-                        if (isCollaborationBootstrapping) {
-                          return
-                        }
-                      }}
-                      onUploadAttachment={(file) =>
-                        useAppStore
-                          .getState()
-                          .uploadAttachment("workItem", currentItem.id, file)
-                      }
-                    />
+                      />
+                    )}
                   </div>
                 ) : isDescriptionPlaceholder(descriptionContent) ? (
                   editable ? (

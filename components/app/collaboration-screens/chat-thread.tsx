@@ -59,7 +59,8 @@ function ChatComposer({
   disabledReason?: string | null
   onTypingChange?: (typing: boolean) => void
 }) {
-  const [content, setContent] = useState("")
+  const EMPTY_COMPOSER_CONTENT = "<p></p>"
+  const [content, setContent] = useState(EMPTY_COMPOSER_CONTENT)
   const [composerKey, setComposerKey] = useState(0)
   const editorInstanceRef = useRef<Editor | null>(null)
   const typingTimeoutRef = useRef<number | null>(null)
@@ -78,7 +79,7 @@ function ChatComposer({
     }
     onTypingChange?.(false)
     onSend(content)
-    setContent("")
+    setContent(EMPTY_COMPOSER_CONTENT)
     setComposerKey((current) => current + 1)
   }
 
@@ -142,7 +143,7 @@ function ChatComposer({
           mentionCandidates={filteredMentionCandidates}
           onSubmitShortcut={handleSend}
           submitOnEnter
-          className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
+          className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.55em] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
         />
         <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
           <EmojiPickerPopover

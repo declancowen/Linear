@@ -41,6 +41,7 @@ import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh
 import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { RichTextContent } from "@/components/app/rich-text-content"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -734,6 +735,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         .getState()
         .applyDocumentCollaborationTitle(loadedDocumentId, normalizedTitle)
       void flushCollaboration({
+        kind: "document-title",
         documentTitle: normalizedTitle,
       }).catch((error) => {
         toast.error(
@@ -892,27 +894,40 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         </div>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <RichTextEditor
-            content={editorContent}
-            collaboration={collaboration ?? undefined}
-            currentPresenceUserId={currentUserId}
-            editable={editable && !isCollaborationBootstrapping}
-            editorInstanceRef={editorInstanceRef}
-            fullPage
-            showStats={false}
-            placeholder="Start writing..."
-            mentionCandidates={mentionCandidates}
-            onMentionCountsChange={handleMentionCountsChange}
-            onStatsChange={setDocumentStats}
-            onChange={handleDocumentContentChange}
-            presenceViewers={otherDocumentViewers}
-            onActiveBlockChange={handleLegacyActiveBlockChange}
-            onUploadAttachment={
-              document.kind === "team-document"
-                ? handleDocumentAttachmentUpload
-                : undefined
-            }
-          />
+          {isCollaborationBootstrapping ? (
+            <div className="relative flex flex-1 flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto">
+                <div className="relative mx-auto w-full max-w-4xl px-6 pt-12 pb-4">
+                  <RichTextContent
+                    content={editorContent}
+                    className="min-h-[calc(100svh-12rem)] text-base [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <RichTextEditor
+              content={editorContent}
+              collaboration={collaboration ?? undefined}
+              currentPresenceUserId={currentUserId}
+              editable={editable}
+              editorInstanceRef={editorInstanceRef}
+              fullPage
+              showStats={false}
+              placeholder="Start writing..."
+              mentionCandidates={mentionCandidates}
+              onMentionCountsChange={handleMentionCountsChange}
+              onStatsChange={setDocumentStats}
+              onChange={handleDocumentContentChange}
+              presenceViewers={otherDocumentViewers}
+              onActiveBlockChange={handleLegacyActiveBlockChange}
+              onUploadAttachment={
+                document.kind === "team-document"
+                  ? handleDocumentAttachmentUpload
+                  : undefined
+              }
+            />
+          )}
         </div>
       </div>
 

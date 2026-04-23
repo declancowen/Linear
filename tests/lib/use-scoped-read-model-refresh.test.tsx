@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react"
+import { act, render, renderHook, waitFor } from "@testing-library/react"
+import { useLayoutEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mergeReadModelDataMock = vi.fn()
@@ -231,6 +232,58 @@ describe("useScopedReadModelRefresh", () => {
     })
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      secondFetch.resolve({})
+      await Promise.resolve()
+    })
+  })
+
+  it("does not report a new scope as loaded before that scope finishes its first refresh", async () => {
+    const firstFetch = createDeferred<Record<string, never>>()
+    const secondFetch = createDeferred<Record<string, never>>()
+    const fetchLatestMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstFetch.promise)
+      .mockImplementationOnce(() => secondFetch.promise)
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+    const committedStates: string[] = []
+
+    function Probe({ scopeKey }: { scopeKey: string }) {
+      const { hasLoadedOnce } = useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: [scopeKey],
+        fetchLatest: fetchLatestMock,
+      })
+
+      useLayoutEffect(() => {
+        committedStates.push(
+          `${scopeKey}:${hasLoadedOnce ? "loaded" : "loading"}`
+        )
+      })
+
+      return null
+    }
+
+    const { rerender } = render(<Probe scopeKey="scope:a" />)
+
+    await act(async () => {
+      firstFetch.resolve({})
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(committedStates).toContain("scope:a:loaded")
+    })
+
+    committedStates.length = 0
+
+    rerender(<Probe scopeKey="scope:b" />)
+
+    expect(committedStates[0]).toBe("scope:b:loading")
+    expect(committedStates).not.toContain("scope:b:loaded")
 
     await act(async () => {
       secondFetch.resolve({})

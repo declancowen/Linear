@@ -42,7 +42,6 @@ function createSession() {
     cursor: { anchor: number; head: number } | null
     selection: { anchor: number; head: number } | null
     cursorSide: "before" | "after" | null
-    cursorRect: { left: number; top: number; height: number } | null
   }, {
     provider: typeof provider
   }> = {

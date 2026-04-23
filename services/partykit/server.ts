@@ -20,11 +20,6 @@ import {
   COLLABORATION_PERSIST_DEBOUNCE_WAIT_MS,
   COLLABORATION_XML_FRAGMENT,
 } from "../../lib/collaboration/constants"
-import {
-  decodeDocumentStateVector,
-  doesStateVectorDominate,
-  getDocumentStateVector,
-} from "../../lib/collaboration/state-vectors"
 import { resolveCollaborationTokenSecret } from "../../lib/collaboration/config"
 import {
   createCanonicalContentJson,
@@ -85,15 +80,21 @@ const roomSessionState = new Map<string, CollaborationRoomSessionState>()
 const roomStateMeta = new WeakMap<Doc, CollaborationRoomStateMeta>()
 const observedRoomDocs = new WeakSet<Doc>()
 
-const COLLABORATION_FLUSH_FENCE_TIMEOUT_MS = 5_000
-const COLLABORATION_FLUSH_FENCE_POLL_MS = 25
-
-type CollaborationFlushRequest = {
-  expectedStateVector: Map<number, number> | null
-  documentTitle?: string
-  workItemExpectedUpdatedAt?: string
-  workItemTitle?: string
-}
+type CollaborationFlushRequest =
+  | {
+      kind: "content"
+      contentJson: JSONContent
+    }
+  | {
+      kind: "document-title"
+      documentTitle: string
+    }
+  | {
+      kind: "work-item-main"
+      contentJson: JSONContent
+      workItemExpectedUpdatedAt?: string
+      workItemTitle?: string
+    }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -532,39 +533,13 @@ function decodeBase64UrlBytes(value: string) {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0))
 }
 
-async function waitForRoomStateVector(
-  doc: Doc,
-  expectedStateVector: Map<number, number>
-) {
-  const deadline = Date.now() + COLLABORATION_FLUSH_FENCE_TIMEOUT_MS
-
-  while (Date.now() <= deadline) {
-    if (
-      doesStateVectorDominate(
-        getDocumentStateVector(doc),
-        expectedStateVector
-      )
-    ) {
-      return
-    }
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, COLLABORATION_FLUSH_FENCE_POLL_MS)
-    })
-  }
-
-  throw new Error("Timed out waiting for collaboration room to receive local updates")
-}
-
 async function parseFlushRequest(
   request: PartyRequest
 ): Promise<CollaborationFlushRequest> {
   const rawBody = await request.text()
 
   if (!rawBody.trim()) {
-    return {
-      expectedStateVector: null,
-    }
+    throw new Error("Invalid collaboration flush request")
   }
 
   const parsed = JSON.parse(rawBody) as unknown
@@ -573,55 +548,64 @@ async function parseFlushRequest(
     throw new Error("Invalid collaboration flush request")
   }
 
-  if (
-    typeof parsed.stateVector !== "undefined" &&
-    typeof parsed.stateVector !== "string"
-  ) {
-    throw new Error("Invalid collaboration flush request")
+  if (parsed.kind === "document-title") {
+    if (typeof parsed.documentTitle !== "string") {
+      throw new Error("Invalid collaboration flush request")
+    }
+
+    return {
+      kind: "document-title",
+      documentTitle: parsed.documentTitle,
+    }
   }
 
-  if (
-    typeof parsed.documentTitle !== "undefined" &&
-    typeof parsed.documentTitle !== "string"
-  ) {
-    throw new Error("Invalid collaboration flush request")
+  if (parsed.kind === "content") {
+    if (!isRecord(parsed.contentJson)) {
+      throw new Error("Invalid collaboration flush request")
+    }
+
+    return {
+      kind: "content",
+      contentJson: parsed.contentJson as JSONContent,
+    }
   }
 
-  if (
-    typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
-    typeof parsed.workItemExpectedUpdatedAt !== "string"
-  ) {
-    throw new Error("Invalid collaboration flush request")
+  if (parsed.kind === "work-item-main") {
+    if (!isRecord(parsed.contentJson)) {
+      throw new Error("Invalid collaboration flush request")
+    }
+
+    if (
+      typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
+      typeof parsed.workItemExpectedUpdatedAt !== "string"
+    ) {
+      throw new Error("Invalid collaboration flush request")
+    }
+
+    if (
+      typeof parsed.workItemTitle !== "undefined" &&
+      typeof parsed.workItemTitle !== "string"
+    ) {
+      throw new Error("Invalid collaboration flush request")
+    }
+
+    return {
+      kind: "work-item-main",
+      contentJson: parsed.contentJson as JSONContent,
+      ...(typeof parsed.workItemExpectedUpdatedAt === "string"
+        ? {
+            workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
+          }
+        : {}),
+      ...(typeof parsed.workItemTitle === "string"
+        ? {
+            workItemTitle: parsed.workItemTitle,
+          }
+        : {}),
+    }
   }
 
-  if (
-    typeof parsed.workItemTitle !== "undefined" &&
-    typeof parsed.workItemTitle !== "string"
-  ) {
-    throw new Error("Invalid collaboration flush request")
-  }
-
-  return {
-    expectedStateVector:
-      typeof parsed.stateVector === "string"
-        ? decodeDocumentStateVector(parsed.stateVector)
-        : null,
-    ...(typeof parsed.documentTitle === "string"
-      ? {
-          documentTitle: parsed.documentTitle,
-        }
-      : {}),
-    ...(typeof parsed.workItemExpectedUpdatedAt === "string"
-      ? {
-          workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
-        }
-      : {}),
-    ...(typeof parsed.workItemTitle === "string"
-      ? {
-          workItemTitle: parsed.workItemTitle,
-        }
-      : {}),
-  }
+  throw new Error("Invalid collaboration flush request")
 }
 
 function createCollaborationFlushCorsHeaders() {
@@ -634,12 +618,6 @@ function createCollaborationFlushCorsHeaders() {
 }
 
 function getCollaborationFlushErrorStatus(message: string) {
-  if (
-    message === "Timed out waiting for collaboration room to receive local updates"
-  ) {
-    return 409
-  }
-
   if (message === "Document not found" || message === "Work item not found") {
     return 404
   }
@@ -766,6 +744,75 @@ async function fetchBootstrapDocument(room: Room, currentUserId: string) {
   return payload
 }
 
+async function getEditableCollaborationDocument(
+  room: Room,
+  claims: DocumentCollaborationSessionTokenClaims
+) {
+  const collaborationDocument = await getCollaborationDocumentFromConvex(
+    room.env as Record<string, unknown>,
+    {
+      currentUserId: claims.sub,
+      documentId: claims.documentId,
+    }
+  )
+
+  if (collaborationDocument.kind === "private-document") {
+    throw new Error("Private documents do not support collaboration sessions")
+  }
+
+  if (!collaborationDocument.canEdit) {
+    throw new Error("You do not have permission to edit this document")
+  }
+
+  return collaborationDocument
+}
+
+function updateRoomBootstrapCache(
+  room: Room,
+  patch: Partial<CollaborationBootstrapPayload>
+) {
+  const cachedPayload = roomBootstrapCache.get(getCanonicalRoomKey(room))
+
+  if (!cachedPayload) {
+    return
+  }
+
+  roomBootstrapCache.set(getCanonicalRoomKey(room), {
+    ...cachedPayload,
+    ...patch,
+  })
+}
+
+async function bumpDocumentScopeKeys(
+  room: Room,
+  collaborationDocument: CollaborationDocumentFromConvex,
+  flushReason: "periodic" | "leave" | "manual" = "manual",
+  options?: {
+    includeCollectionScopes?: boolean
+  }
+) {
+  const scopeKeys = buildCollaborationDocumentScopeKeys(
+    {
+      documentId: collaborationDocument.documentId,
+      kind: collaborationDocument.kind,
+      workspaceId: collaborationDocument.workspaceId,
+      teamId: collaborationDocument.teamId,
+      itemId: collaborationDocument.itemId,
+      searchWorkspaceId: collaborationDocument.searchWorkspaceId,
+      teamMemberIds: collaborationDocument.teamMemberIds,
+      projectScopes: collaborationDocument.projectScopes,
+    },
+    {
+      includeCollectionScopes:
+        options?.includeCollectionScopes ?? flushReason !== "periodic",
+    }
+  )
+
+  await bumpScopedReadModelsFromConvex(room.env as Record<string, unknown>, {
+    scopeKeys,
+  })
+}
+
 async function loadCanonicalDocument(
   room: Room
 ) {
@@ -787,31 +834,18 @@ async function persistCanonicalDocument(
   doc: Doc,
   flushReason: "periodic" | "leave" | "manual" = "periodic",
   options?: {
-    documentTitle?: string
     workItemExpectedUpdatedAt?: string
     workItemTitle?: string
   }
 ) {
   const claims = requireRoomEditorClaims(room)
+  const collaborationDocument = await getEditableCollaborationDocument(
+    room,
+    claims
+  )
   const contentJson = normalizeCollaborationDocumentJson(
     yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT)
   )
-  const collaborationDocument = await getCollaborationDocumentFromConvex(
-    room.env as Record<string, unknown>,
-    {
-      currentUserId: claims.sub,
-      documentId: claims.documentId,
-    }
-  )
-
-  if (collaborationDocument.kind === "private-document") {
-    throw new Error("Private documents do not support collaboration sessions")
-  }
-
-  if (!collaborationDocument.canEdit) {
-    throw new Error("You do not have permission to edit this document")
-  }
-
   const { contentHtml } = prepareCanonicalCollaborationContent(contentJson)
 
   if (collaborationDocument.kind === "item-description") {
@@ -847,59 +881,64 @@ async function persistCanonicalDocument(
       )
     }
   } else {
-    const persistedTitle =
-      options?.documentTitle ?? collaborationDocument.title
-
     await persistCollaborationDocumentToConvex(
       room.env as Record<string, unknown>,
       {
         currentUserId: claims.sub,
         documentId: claims.documentId,
-        title: persistedTitle,
         content: contentHtml,
         expectedUpdatedAt: collaborationDocument.updatedAt,
       }
     )
   }
 
-  const scopeKeys = buildCollaborationDocumentScopeKeys(
-    {
-      documentId: collaborationDocument.documentId,
-      kind: collaborationDocument.kind,
-      workspaceId: collaborationDocument.workspaceId,
-      teamId: collaborationDocument.teamId,
-      itemId: collaborationDocument.itemId,
-      searchWorkspaceId: collaborationDocument.searchWorkspaceId,
-      teamMemberIds: collaborationDocument.teamMemberIds,
-      projectScopes: collaborationDocument.projectScopes,
-    },
-    {
-      includeCollectionScopes: flushReason !== "periodic",
-    }
-  )
-
-  await bumpScopedReadModelsFromConvex(room.env as Record<string, unknown>, {
-    scopeKeys,
-  })
+  await bumpDocumentScopeKeys(room, collaborationDocument, flushReason)
 
   markRoomCanonical(doc, contentJson)
 
-  const cachedPayload = roomBootstrapCache.get(getCanonicalRoomKey(room))
+  updateRoomBootstrapCache(room, {
+    content: contentHtml,
+    contentJson,
+  })
+}
 
-  if (cachedPayload) {
-    roomBootstrapCache.set(getCanonicalRoomKey(room), {
-      ...cachedPayload,
-      ...(collaborationDocument.kind === "item-description"
-        ? {}
-        : {
-            title:
-              options?.documentTitle ??
-              collaborationDocument.title,
-          }),
-      content: contentHtml,
-      contentJson,
-    })
+async function persistDocumentTitle(
+  room: Room,
+  documentTitle: string
+) {
+  const claims = requireRoomEditorClaims(room)
+  const collaborationDocument = await getEditableCollaborationDocument(
+    room,
+    claims
+  )
+
+  if (collaborationDocument.kind === "item-description") {
+    throw new Error("Document title flush is not supported for item descriptions")
   }
+
+  await persistCollaborationDocumentToConvex(
+    room.env as Record<string, unknown>,
+    {
+      currentUserId: claims.sub,
+      documentId: claims.documentId,
+      title: documentTitle,
+    }
+  )
+
+  await bumpDocumentScopeKeys(room, collaborationDocument, "manual", {
+    includeCollectionScopes: true,
+  })
+
+  updateRoomBootstrapCache(room, {
+    title: documentTitle,
+  })
+}
+
+function applyFlushContentJson(doc: Doc, contentJson: JSONContent) {
+  replaceCollaborationDocFromJson(
+    doc,
+    normalizeCollaborationDocumentJson(contentJson)
+  )
 }
 
 function createYPartyKitOptions(room: Room): YPartyKitOptions {
@@ -1163,15 +1202,20 @@ const collaboration = {
       const flushRequest = await parseFlushRequest(req)
       const { yDoc } = await ensureCanonicalDocumentSeeded(room, claims)
 
-      if (flushRequest.expectedStateVector) {
-        await waitForRoomStateVector(yDoc, flushRequest.expectedStateVector)
+      if (flushRequest.kind === "document-title") {
+        await persistDocumentTitle(room, flushRequest.documentTitle)
+      } else {
+        applyFlushContentJson(yDoc, flushRequest.contentJson)
+        await persistCanonicalDocument(room, yDoc, "manual", {
+          ...(flushRequest.kind === "work-item-main"
+            ? {
+                workItemExpectedUpdatedAt:
+                  flushRequest.workItemExpectedUpdatedAt,
+                workItemTitle: flushRequest.workItemTitle,
+              }
+            : {}),
+        })
       }
-
-      await persistCanonicalDocument(room, yDoc, "manual", {
-        documentTitle: flushRequest.documentTitle,
-        workItemExpectedUpdatedAt: flushRequest.workItemExpectedUpdatedAt,
-        workItemTitle: flushRequest.workItemTitle,
-      })
 
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,

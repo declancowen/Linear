@@ -48,6 +48,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
   const [error, setError] = useState<string | null>(null)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [loadedScopeKeySignature, setLoadedScopeKeySignature] = useState("")
   const [refreshing, setRefreshing] = useState(false)
   const inFlightGenerationRef = useRef<number | null>(null)
   const queuedRef = useRef(false)
@@ -58,6 +59,10 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     () => (scopeKeySignature.length > 0 ? scopeKeySignature.split("|") : []),
     [scopeKeySignature]
   )
+  const activeScopeKeySignature =
+    scopedSyncEnabled && input.enabled && scopeKeys.length > 0
+      ? scopeKeySignature
+      : ""
 
   const refresh = useEffectEvent(async () => {
     const refreshGeneration = runGenerationRef.current
@@ -120,6 +125,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       }
 
       if (runGenerationRef.current === refreshGeneration) {
+        setLoadedScopeKeySignature(activeScopeKeySignature)
         setHasLoadedOnce(true)
         setRefreshing(false)
       }
@@ -141,6 +147,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       queuedRef.current = false
       setRefreshing(false)
       setError(null)
+      setLoadedScopeKeySignature("")
       setHasLoadedOnce(true)
       return
     }
@@ -151,6 +158,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       queuedRef.current = false
       setRefreshing(false)
       setError(null)
+      setLoadedScopeKeySignature("")
       setHasLoadedOnce(false)
       return
     }
@@ -203,7 +211,9 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
 
   return {
     error,
-    hasLoadedOnce,
+    hasLoadedOnce:
+      !scopedSyncEnabled ||
+      (hasLoadedOnce && loadedScopeKeySignature === activeScopeKeySignature),
     refreshing,
   }
 }

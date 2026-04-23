@@ -116,9 +116,21 @@ vi.mock("y-partykit/provider", () => ({
   default: MockYPartyKitProvider,
 }))
 
+vi.mock("@tiptap/y-tiptap", () => ({
+  yDocToProsemirrorJSON: vi.fn(() => ({
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+      },
+    ],
+  })),
+}))
+
 vi.mock("yjs", () => ({
   Doc: MockDoc,
   encodeStateVector: vi.fn(() => Uint8Array.from([1, 2, 3])),
+  encodeStateAsUpdate: vi.fn(() => Uint8Array.from([1, 2, 3])),
 }))
 
 describe("PartyKit collaboration adapter", () => {
@@ -345,7 +357,6 @@ describe("PartyKit collaboration adapter", () => {
         cursor: null,
         selection: null,
         cursorSide: null,
-        cursorRect: null,
       },
       remote: [
         {
@@ -359,13 +370,12 @@ describe("PartyKit collaboration adapter", () => {
           cursor: null,
           selection: null,
           cursorSide: null,
-          cursorRect: null,
         },
       ],
     })
   })
 
-  it("preserves cursor geometry fields when updating local awareness", async () => {
+  it("preserves semantic cursor fields when updating local awareness", async () => {
     const { createPartyKitCollaborationAdapter } = await import(
       "@/lib/collaboration/adapters/partykit"
     )
@@ -396,11 +406,6 @@ describe("PartyKit collaboration adapter", () => {
         head: 5,
       },
       cursorSide: "before",
-      cursorRect: {
-        left: 111,
-        top: 222,
-        height: 18,
-      },
     })
 
     expect(providerState.latest?.awareness.getLocalState()).toEqual({
@@ -421,11 +426,6 @@ describe("PartyKit collaboration adapter", () => {
           head: 5,
         },
         cursorSide: "before",
-        cursorRect: {
-          left: 111,
-          top: 222,
-          height: 18,
-        },
       },
     })
   })
@@ -507,7 +507,15 @@ describe("PartyKit collaboration adapter", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          stateVector: "AQID",
+          kind: "content",
+          contentJson: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+              },
+            ],
+          },
         }),
       })
     )
@@ -576,9 +584,7 @@ describe("PartyKit collaboration adapter", () => {
     )
   })
 
-  it("retries manual flush after a room sync timeout", async () => {
-    vi.useFakeTimers()
-
+  it("surfaces manual flush failures without retrying a room sync fence", async () => {
     const { createPartyKitCollaborationAdapter } = await import(
       "@/lib/collaboration/adapters/partykit"
     )
@@ -587,16 +593,7 @@ describe("PartyKit collaboration adapter", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: false,
-        status: 409,
-        text: vi
-          .fn()
-          .mockResolvedValue(
-            "Timed out waiting for collaboration room to receive local updates"
-          ),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
+        status: 400,
         text: vi.fn().mockResolvedValue(""),
       })
     vi.stubGlobal("fetch", fetchMock)
@@ -610,11 +607,11 @@ describe("PartyKit collaboration adapter", () => {
       role: "editor",
     })
 
-    const flushPromise = session.flush()
-    await vi.advanceTimersByTimeAsync(250)
-    await flushPromise
+    await expect(session.flush()).rejects.toThrow(
+      "Failed to flush collaboration state"
+    )
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("includes optional work-item metadata in the manual flush payload", async () => {
@@ -638,7 +635,7 @@ describe("PartyKit collaboration adapter", () => {
     })
 
     await session.flush({
-      documentTitle: "Updated document title",
+      kind: "work-item-main",
       workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
       workItemTitle: "Updated title",
     })
@@ -647,8 +644,15 @@ describe("PartyKit collaboration adapter", () => {
       expect.any(URL),
       expect.objectContaining({
         body: JSON.stringify({
-          stateVector: "AQID",
-          documentTitle: "Updated document title",
+          kind: "work-item-main",
+          contentJson: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+              },
+            ],
+          },
           workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
           workItemTitle: "Updated title",
         }),
@@ -677,6 +681,7 @@ describe("PartyKit collaboration adapter", () => {
     })
 
     await session.flush({
+      kind: "document-title",
       documentTitle: "Updated document title",
     })
 
@@ -684,6 +689,7 @@ describe("PartyKit collaboration adapter", () => {
       expect.any(URL),
       expect.objectContaining({
         body: JSON.stringify({
+          kind: "document-title",
           documentTitle: "Updated document title",
         }),
       })

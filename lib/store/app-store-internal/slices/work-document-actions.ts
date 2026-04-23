@@ -9,7 +9,8 @@ import {
   syncDeleteAttachment,
   syncDeleteDocument,
   syncGenerateAttachmentUploadUrl,
-  syncUpdateDocument,
+  syncRenameDocument,
+  syncUpdateDocumentContent,
   syncUpdateItemDescription,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
@@ -127,11 +128,12 @@ export function createWorkDocumentActions({
             return null
           }
 
-          return syncUpdateDocument(documentId, {
-            title: document.title,
-            content: document.content,
-            expectedUpdatedAt: document.updatedAt,
-          }).then((result) => {
+          return syncUpdateDocumentContent(
+            state.currentUserId,
+            documentId,
+            document.content,
+            document.updatedAt
+          ).then((result) => {
             markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
           })
         },
@@ -210,11 +212,11 @@ export function createWorkDocumentActions({
             return null
           }
 
-          return syncUpdateDocument(documentId, {
-            title: document.title,
-            content: document.content,
-            expectedUpdatedAt: document.updatedAt,
-          }).then((result) => {
+          return syncRenameDocument(
+            state.currentUserId,
+            documentId,
+            document.title
+          ).then((result) => {
             markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
           })
         },

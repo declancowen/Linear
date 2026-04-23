@@ -11,7 +11,8 @@ const syncCreateAttachmentMock = vi.fn()
 const syncCreateDocumentMock = vi.fn()
 const syncDeleteAttachmentMock = vi.fn()
 const syncGenerateAttachmentUploadUrlMock = vi.fn()
-const syncUpdateDocumentMock = vi.fn()
+const syncRenameDocumentMock = vi.fn()
+const syncUpdateDocumentContentMock = vi.fn()
 const syncUpdateItemDescriptionMock = vi.fn()
 const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
@@ -30,7 +31,8 @@ vi.mock("@/lib/convex/client", () => ({
   syncDeleteAttachment: syncDeleteAttachmentMock,
   syncDeleteDocument: vi.fn(),
   syncGenerateAttachmentUploadUrl: syncGenerateAttachmentUploadUrlMock,
-  syncUpdateDocument: syncUpdateDocumentMock,
+  syncRenameDocument: syncRenameDocumentMock,
+  syncUpdateDocumentContent: syncUpdateDocumentContentMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
   syncUpdateItemDescription: syncUpdateItemDescriptionMock,
 }))
@@ -123,7 +125,8 @@ describe("work document actions", () => {
     syncCreateDocumentMock.mockReset()
     syncDeleteAttachmentMock.mockReset()
     syncGenerateAttachmentUploadUrlMock.mockReset()
-    syncUpdateDocumentMock.mockReset()
+    syncRenameDocumentMock.mockReset()
+    syncUpdateDocumentContentMock.mockReset()
     syncUpdateItemDescriptionMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
     toastErrorMock.mockReset()
@@ -490,7 +493,7 @@ describe("work document actions", () => {
       }
     }
 
-    syncUpdateDocumentMock.mockResolvedValue({
+    syncUpdateDocumentContentMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:05:00.000Z",
     })
@@ -526,11 +529,12 @@ describe("work document actions", () => {
 
     await queuedTask?.()
 
-    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
-      title: "Spec",
-      content: "<h1>Launch plan</h1><p>Updated details</p>",
-      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
-    })
+    expect(syncUpdateDocumentContentMock).toHaveBeenCalledWith(
+      "user_1",
+      "document_1",
+      "<h1>Launch plan</h1><p>Updated details</p>",
+      "2026-04-17T10:00:00.000Z"
+    )
     expect(state.documents.find((document) => document.id === "document_1"))
       .toMatchObject({
         updatedAt: "2026-04-17T10:05:00.000Z",
@@ -647,7 +651,7 @@ describe("work document actions", () => {
 
     await queuedTask?.()
 
-    expect(syncUpdateDocumentMock).not.toHaveBeenCalled()
+    expect(syncUpdateDocumentContentMock).not.toHaveBeenCalled()
   })
 
   it("applies collaboration title metadata locally without queueing a legacy sync", async () => {
@@ -685,7 +689,7 @@ describe("work document actions", () => {
 
     expect(cancelRichTextSyncMock).toHaveBeenCalledWith("document:document_1")
     expect(queueRichTextSyncMock).not.toHaveBeenCalled()
-    expect(syncUpdateDocumentMock).not.toHaveBeenCalled()
+    expect(syncRenameDocumentMock).not.toHaveBeenCalled()
     expect(state.documents.find((document) => document.id === "document_1"))
       .toMatchObject({
         title: "Metadata-only collaborative rename",
@@ -709,7 +713,7 @@ describe("work document actions", () => {
       }
     }
 
-    syncUpdateDocumentMock.mockResolvedValue({
+    syncRenameDocumentMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:07:00.000Z",
     })
@@ -740,11 +744,11 @@ describe("work document actions", () => {
 
     await queuedTask?.()
 
-    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
-      title: "Renamed metadata only",
-      content: "<h1>Spec</h1>",
-      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
-    })
+    expect(syncRenameDocumentMock).toHaveBeenCalledWith(
+      "user_1",
+      "document_1",
+      "Renamed metadata only"
+    )
   })
 
   it("skips a queued item-description sync once collaboration protects the description document", async () => {

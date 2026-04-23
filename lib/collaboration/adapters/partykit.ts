@@ -1,5 +1,6 @@
 "use client"
 
+import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import YPartyKitProvider from "y-partykit/provider"
 import * as Y from "yjs"
 
@@ -10,14 +11,14 @@ import {
 import {
   COLLABORATION_FLUSH_PATH,
   COLLABORATION_PARTY_NAME,
+  COLLABORATION_XML_FRAGMENT,
 } from "@/lib/collaboration/constants"
-import { encodeDocumentStateVector } from "@/lib/collaboration/state-vectors"
 import type {
   CollaborationAwarenessChange,
   CollaborationFlushInput,
+  CollaborationTransportSession,
   CollaborationStatusChange,
   CollaborationTransportAdapter,
-  CollaborationTransportSession,
 } from "@/lib/collaboration/transport"
 
 export type PartyKitDocumentCollaborationBinding = {
@@ -27,22 +28,6 @@ export type PartyKitDocumentCollaborationBinding = {
 
 const COLLABORATION_CONNECT_TIMEOUT_MS = 10_000
 const COLLABORATION_TOKEN_REFRESH_BUFFER_SECONDS = 30
-const COLLABORATION_FLUSH_ROOM_SYNC_RETRY_DELAY_MS = 250
-const COLLABORATION_FLUSH_ROOM_SYNC_MAX_RETRIES = 2
-
-function shouldSendFlushStateVector(input?: CollaborationFlushInput) {
-  if (!input) {
-    return true
-  }
-
-  const isMetadataOnlyDocumentTitleFlush =
-    typeof input.documentTitle === "string" &&
-    typeof input.workItemExpectedUpdatedAt === "undefined" &&
-    typeof input.workItemTitle === "undefined"
-
-  return !isMetadataOnlyDocumentTitleFlush
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -59,9 +44,6 @@ function normalizeProviderAwarenessState(
   const sessionId =
     typeof userValue.sessionId === "string" ? userValue.sessionId : null
   const name = typeof userValue.name === "string" ? userValue.name : null
-  const cursorRectValue = isRecord(userValue.cursorRect)
-    ? userValue.cursorRect
-    : null
 
   if (!userId || !sessionId || !name) {
     return null
@@ -82,17 +64,6 @@ function normalizeProviderAwarenessState(
     cursorSide:
       userValue.cursorSide === "before" || userValue.cursorSide === "after"
         ? userValue.cursorSide
-        : null,
-    cursorRect:
-      cursorRectValue &&
-      typeof cursorRectValue.left === "number" &&
-      typeof cursorRectValue.top === "number" &&
-      typeof cursorRectValue.height === "number"
-        ? {
-            left: cursorRectValue.left,
-            top: cursorRectValue.top,
-            height: cursorRectValue.height,
-          }
         : null,
   })
 }
@@ -229,12 +200,6 @@ function isCollaborationSyncTimeoutError(error: unknown) {
   )
 }
 
-function waitForDelay(delayMs: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, delayMs)
-  })
-}
-
 function shouldRetryFlushWithFreshBootstrap(status: number, message: string) {
   const normalizedMessage = message.trim().toLowerCase()
 
@@ -249,21 +214,47 @@ function shouldRetryFlushWithFreshBootstrap(status: number, message: string) {
   )
 }
 
-function shouldRetryFlushForRoomSync(status: number, message: string) {
-  return (
-    status === 409 &&
-    message
-      .trim()
-      .toLowerCase()
-      .includes("timed out waiting for collaboration room to receive local updates")
-  )
-}
-
 function isDocumentMissingFlushError(status: number, message: string) {
   return (
     status === 404 &&
     message.trim().toLowerCase().includes("document not found")
   )
+}
+
+function buildFlushRequestBody(
+  doc: Y.Doc,
+  input?: CollaborationFlushInput
+) {
+  const contentJson = yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT)
+
+  if (input?.kind === "document-title") {
+    return {
+      kind: "document-title" as const,
+      documentTitle: input.documentTitle,
+    }
+  }
+
+  if (input?.kind === "work-item-main") {
+    return {
+      kind: "work-item-main" as const,
+      contentJson,
+      ...(input.workItemExpectedUpdatedAt
+        ? {
+            workItemExpectedUpdatedAt: input.workItemExpectedUpdatedAt,
+          }
+        : {}),
+      ...(input.workItemTitle
+        ? {
+            workItemTitle: input.workItemTitle,
+          }
+        : {}),
+    }
+  }
+
+  return {
+    kind: "content" as const,
+    contentJson,
+  }
 }
 
 export function createPartyKitCollaborationAdapter(): CollaborationTransportAdapter<
@@ -496,7 +487,6 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
               cursor: nextState.cursor,
               selection: nextState.selection,
               cursorSide: nextState.cursorSide,
-              cursorRect: nextState.cursorRect,
             },
           })
           awareness.emit(createAwarenessChange(provider))
@@ -504,7 +494,6 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
         async flush(input?: CollaborationFlushInput) {
           const flushOnce = async (forceRefresh = false) => {
             const nextBootstrap = await getValidBootstrap(forceRefresh)
-            const shouldIncludeStateVector = shouldSendFlushStateVector(input)
             const response = await fetch(
               createRoomRequestUrl(
                 nextBootstrap.serviceUrl,
@@ -517,29 +506,9 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
                   Authorization: `Bearer ${nextBootstrap.token}`,
                   "Content-Type": "application/json",
                 },
-                body: JSON.stringify({
-                  ...(shouldIncludeStateVector
-                    ? {
-                        stateVector: encodeDocumentStateVector(session.binding.doc),
-                      }
-                    : {}),
-                  ...(input?.documentTitle
-                    ? {
-                        documentTitle: input.documentTitle,
-                      }
-                    : {}),
-                  ...(input?.workItemExpectedUpdatedAt
-                    ? {
-                        workItemExpectedUpdatedAt:
-                          input.workItemExpectedUpdatedAt,
-                      }
-                    : {}),
-                  ...(input?.workItemTitle
-                    ? {
-                        workItemTitle: input.workItemTitle,
-                      }
-                    : {}),
-                }),
+                body: JSON.stringify(
+                  buildFlushRequestBody(session.binding.doc, input)
+                ),
               },
             )
 
@@ -554,32 +523,6 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
 
           if (initialResult.ok) {
             return
-          }
-
-          if (shouldRetryFlushForRoomSync(initialResult.status, initialResult.message)) {
-            for (
-              let attempt = 0;
-              attempt < COLLABORATION_FLUSH_ROOM_SYNC_MAX_RETRIES;
-              attempt += 1
-            ) {
-              await waitForDelay(COLLABORATION_FLUSH_ROOM_SYNC_RETRY_DELAY_MS)
-              const retryResult = await flushOnce()
-
-              if (retryResult.ok) {
-                return
-              }
-
-              if (
-                !shouldRetryFlushForRoomSync(
-                  retryResult.status,
-                  retryResult.message
-                )
-              ) {
-                throw new Error(
-                  retryResult.message || "Failed to flush collaboration state"
-                )
-              }
-            }
           }
 
           if (

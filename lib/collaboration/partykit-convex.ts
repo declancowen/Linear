@@ -219,7 +219,7 @@ export async function persistCollaborationDocumentToConvex(
     currentUserId: string
     documentId: string
     title?: string
-    content: string
+    content?: string
     expectedUpdatedAt?: string
   }
 ) {

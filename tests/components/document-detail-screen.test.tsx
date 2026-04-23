@@ -407,6 +407,7 @@ describe("DocumentDetailScreen", () => {
       "Renamed without heading"
     )
     expect(flushCollaborationMock).toHaveBeenCalledWith({
+      kind: "document-title",
       documentTitle: "Renamed without heading",
     })
     expect(renameDocumentMock).not.toHaveBeenCalled()

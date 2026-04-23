@@ -5,12 +5,6 @@ export type CollaborationRange = {
 
 export type CollaborationCaretSide = "before" | "after"
 
-export type CollaborationCaretRect = {
-  left: number
-  top: number
-  height: number
-}
-
 export type CollaborationAwarenessInput = {
   userId: string
   sessionId: string
@@ -22,7 +16,6 @@ export type CollaborationAwarenessInput = {
   cursor?: CollaborationRange | null
   selection?: CollaborationRange | null
   cursorSide?: CollaborationCaretSide | null
-  cursorRect?: CollaborationCaretRect | null
 }
 
 export type CollaborationAwarenessState = {
@@ -36,7 +29,6 @@ export type CollaborationAwarenessState = {
   cursor: CollaborationRange | null
   selection: CollaborationRange | null
   cursorSide: CollaborationCaretSide | null
-  cursorRect: CollaborationCaretRect | null
 }
 
 function requireNonEmpty(value: string, label: string) {
@@ -85,29 +77,6 @@ function normalizeCursorSide(
     : null
 }
 
-function normalizeCursorRect(
-  cursorRect: CollaborationCaretRect | null | undefined
-): CollaborationCaretRect | null {
-  if (!cursorRect) {
-    return null
-  }
-
-  if (
-    !Number.isFinite(cursorRect.left) ||
-    !Number.isFinite(cursorRect.top) ||
-    !Number.isFinite(cursorRect.height) ||
-    cursorRect.height <= 0
-  ) {
-    return null
-  }
-
-  return {
-    left: Math.round(cursorRect.left),
-    top: Math.round(cursorRect.top),
-    height: Math.max(1, Math.round(cursorRect.height)),
-  }
-}
-
 export function createCollaborationAwarenessState(
   input: CollaborationAwarenessInput
 ): CollaborationAwarenessState {
@@ -122,7 +91,6 @@ export function createCollaborationAwarenessState(
     cursor: normalizeRange(input.cursor),
     selection: normalizeRange(input.selection),
     cursorSide: normalizeCursorSide(input.cursorSide),
-    cursorRect: normalizeCursorRect(input.cursorRect),
   }
 }
 

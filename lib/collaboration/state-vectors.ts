@@ -28,6 +28,14 @@ export function decodeDocumentStateVector(value: string) {
   return Y.decodeStateVector(decodeBase64UrlBytes(value))
 }
 
+export function encodeDocumentStateUpdate(doc: Y.Doc) {
+  return encodeBase64UrlBytes(Y.encodeStateAsUpdate(doc))
+}
+
+export function decodeDocumentStateUpdate(value: string) {
+  return decodeBase64UrlBytes(value)
+}
+
 export function getDocumentStateVector(doc: Y.Doc) {
   return Y.decodeStateVector(Y.encodeStateVector(doc))
 }

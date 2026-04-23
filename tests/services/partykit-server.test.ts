@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { getSchema, type JSONContent } from "@tiptap/core"
 import { prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 
-import { encodeDocumentStateVector } from "@/lib/collaboration/state-vectors"
 import { createSignedCollaborationToken } from "@/lib/server/collaboration-token"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 
@@ -126,7 +125,8 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            stateVector: encodeDocumentStateVector(yDoc),
+            kind: "work-item-main",
+            contentJson,
             workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
             workItemTitle: "Updated title",
           }),
@@ -238,7 +238,7 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            stateVector: encodeDocumentStateVector(yDoc),
+            kind: "document-title",
             documentTitle: "Retitled manually",
           }),
         }
@@ -262,8 +262,6 @@ describe("PartyKit collaboration server", () => {
         currentUserId: "user_1",
         documentId: "doc_team_1",
         title: "Retitled manually",
-        content: "<p>Body without title heading</p>",
-        expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
       }
     )
   })
@@ -331,7 +329,7 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            stateVector: encodeDocumentStateVector(yDoc),
+            kind: "document-title",
             documentTitle: "Retitled manually",
           }),
         }
@@ -355,8 +353,6 @@ describe("PartyKit collaboration server", () => {
         currentUserId: "user_1",
         documentId: "doc_team_1",
         title: "Retitled manually",
-        content: "<p>Body without title heading</p>",
-        expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
       }
     )
   })
@@ -424,6 +420,7 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            kind: "document-title",
             documentTitle: "Retitled manually",
           }),
         }
@@ -447,8 +444,6 @@ describe("PartyKit collaboration server", () => {
         currentUserId: "user_1",
         documentId: "doc_team_1",
         title: "Retitled manually",
-        content: "<p>Body without title heading</p>",
-        expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
       }
     )
   })
@@ -478,8 +473,21 @@ describe("PartyKit collaboration server", () => {
         },
       ],
     }
-    const yDoc = createDoc(contentJson)
-    unstableGetYDocMock.mockResolvedValue(yDoc)
+    const roomDoc = createDoc({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Original body",
+            },
+          ],
+        },
+      ],
+    })
+    unstableGetYDocMock.mockResolvedValue(roomDoc)
     getCollaborationDocumentFromConvexMock.mockResolvedValue({
       documentId: "doc_team_1",
       kind: "team-document",
@@ -526,7 +534,8 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            stateVector: encodeDocumentStateVector(yDoc),
+            kind: "content",
+            contentJson,
           }),
         }
       ) as never,
@@ -546,7 +555,7 @@ describe("PartyKit collaboration server", () => {
         CONVEX_URL: "https://convex-dev.example",
       }),
       expect.objectContaining({
-        title: "Original metadata title",
+        content: "<h1>Body heading only</h1><p>Body without metadata rename</p>",
       })
     )
   })
@@ -619,7 +628,15 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            stateVector: encodeDocumentStateVector(yDoc),
+            kind: "content",
+            contentJson: {
+              type: "doc",
+              content: [
+                {
+                  type: "paragraph",
+                },
+              ],
+            },
           }),
         }
       ) as never,
@@ -1010,7 +1027,11 @@ describe("PartyKit collaboration server", () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            stateVector: "AQID",
+            kind: "content",
+            contentJson: {
+              type: "doc",
+              content: [],
+            },
           }),
         }
       ) as never,
