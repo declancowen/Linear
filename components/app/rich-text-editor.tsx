@@ -700,6 +700,7 @@ function getLocalCaretRect(
 
   const containerRect = container.getBoundingClientRect()
   const selection = ownerDocument.getSelection()
+  const editorSelection = currentEditor.state.selection
 
   if (
     !selection ||
@@ -711,10 +712,21 @@ function getLocalCaretRect(
 
   try {
     let coordinates: { left: number; top: number; bottom: number } | null = null
+
+    if (editorSelection.empty) {
+      const preferredCoordinates = resolveCollaborationCaretCoordinates(
+        currentEditor,
+        editorSelection.head,
+        getLocalCaretSide(currentEditor)
+      )
+
+      coordinates = preferredCoordinates
+    }
+
     const focusNode = selection.focusNode
     const focusOffset = selection.focusOffset
 
-    if (focusNode.nodeType === Node.TEXT_NODE) {
+    if (!coordinates && focusNode.nodeType === Node.TEXT_NODE) {
       const textNode = focusNode as Text
 
       if (focusOffset > 0) {
@@ -730,7 +742,7 @@ function getLocalCaretRect(
           offset: focusOffset,
         })
       }
-    } else if (focusNode instanceof HTMLElement) {
+    } else if (!coordinates && focusNode instanceof HTMLElement) {
       const beforeTextNode =
         focusOffset > 0
           ? getLastTextNode(focusNode.childNodes[focusOffset - 1] ?? null)
@@ -909,7 +921,14 @@ function resolveCollaborationCaretCoordinates(
     }
 
     if (position > 0) {
-      return getCaretCoordinatesBeforePosition(currentEditor, position)
+      const before = getCaretCoordinatesBeforePosition(currentEditor, position)
+      const after = getCaretCoordinatesAfterPosition(currentEditor, position)
+
+      if (after.top > before.top || after.left < before.left) {
+        return after
+      }
+
+      return before
     }
   } catch {
     // Ignore unsupported side lookups and fall through.

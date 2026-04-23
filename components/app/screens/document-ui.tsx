@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation"
 import { ArrowSquareOut, Trash } from "@phosphor-icons/react"
 
 import type { AppData, Document, DocumentPresenceViewer } from "@/lib/domain/types"
+import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { useAppStore } from "@/lib/store/app-store"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   Avatar,
   AvatarFallback,
-  AvatarGroup,
   AvatarGroupCount,
   AvatarImage,
 } from "@/components/ui/avatar"
@@ -122,6 +122,7 @@ export function DocumentAuthorAvatar({
   className,
   size = "sm",
   title,
+  ringColor,
 }: {
   avatarImageUrl?: string | null
   avatarUrl?: string | null
@@ -129,6 +130,7 @@ export function DocumentAuthorAvatar({
   className?: string
   size?: "xs" | "compact" | "sm"
   title?: string
+  ringColor?: string | null
 }) {
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
   const compactStyle =
@@ -143,17 +145,27 @@ export function DocumentAuthorAvatar({
           flexBasis: "18px",
         }
       : undefined
+  const ringStyle = ringColor
+    ? {
+        boxShadow: `0 0 0 1.5px ${ringColor}`,
+      }
+    : undefined
 
   return (
     <Avatar
       size={size === "compact" ? "default" : size}
-      style={compactStyle}
+      style={{
+        ...compactStyle,
+        ...ringStyle,
+      }}
       className={cn(
         size === "sm"
           ? "size-5"
           : size === "compact"
             ? "size-[18px]"
             : undefined,
+        ringColor ? "ring-0" : undefined,
+        ringColor ? "after:border-transparent" : undefined,
         className
       )}
       title={title}
@@ -189,7 +201,7 @@ export function DocumentPresenceAvatarGroup({
       aria-label={`Also viewing: ${viewerNames}`}
       title={`Also viewing: ${viewerNames}`}
     >
-      <AvatarGroup className="*:data-[slot=avatar]:ring-1 *:data-[slot=avatar]:ring-background">
+      <div className="flex -space-x-2">
         {visibleViewers.map((viewer) => (
           <DocumentAuthorAvatar
             key={viewer.userId}
@@ -198,6 +210,7 @@ export function DocumentPresenceAvatarGroup({
             name={viewer.name}
             size={compact ? "compact" : "sm"}
             title={viewer.name}
+            ringColor={getCollaborationUserColor(viewer.userId)}
           />
         ))}
         {hiddenViewerCount > 0 ? (
@@ -211,7 +224,7 @@ export function DocumentPresenceAvatarGroup({
             +{hiddenViewerCount}
           </AvatarGroupCount>
         ) : null}
-      </AvatarGroup>
+      </div>
     </div>
   )
 }
