@@ -765,11 +765,14 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     if (isCollaborationAttached && editorInstanceRef.current) {
-      updateCollaborativeDocumentTitle(
+      const updatedTitleInEditor = updateCollaborativeDocumentTitle(
         editorInstanceRef.current,
         normalizedTitle
       )
-      return
+
+      if (updatedTitleInEditor) {
+        return
+      }
     }
 
     if (isCollaborationBootstrapping) {

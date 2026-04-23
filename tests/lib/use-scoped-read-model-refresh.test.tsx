@@ -25,6 +25,22 @@ vi.mock("@/lib/store/app-store", () => ({
     }),
 }))
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve
+    reject = nextReject
+  })
+
+  return {
+    promise,
+    resolve,
+    reject,
+  }
+}
+
 describe("useScopedReadModelRefresh", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -160,5 +176,65 @@ describe("useScopedReadModelRefresh", () => {
         ],
       }
     )
+  })
+
+  it("does not clear the active in-flight guard when a stale generation settles", async () => {
+    const firstFetch = createDeferred<Record<string, never>>()
+    const secondFetch = createDeferred<Record<string, never>>()
+    const fetchLatestMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstFetch.promise)
+      .mockImplementationOnce(() => secondFetch.promise)
+      .mockResolvedValue({})
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    const { rerender } = renderHook(
+      ({
+        scopeKeys,
+      }: {
+        scopeKeys: string[]
+      }) =>
+        useScopedReadModelRefresh({
+          enabled: true,
+          scopeKeys,
+          fetchLatest: fetchLatestMock,
+        }),
+      {
+        initialProps: {
+          scopeKeys: ["scope:a"],
+        },
+      }
+    )
+
+    await waitFor(() => {
+      expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+    })
+
+    rerender({
+      scopeKeys: ["scope:b"],
+    })
+
+    await waitFor(() => {
+      expect(fetchLatestMock).toHaveBeenCalledTimes(2)
+    })
+
+    await act(async () => {
+      firstFetch.resolve({})
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"))
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      secondFetch.resolve({})
+      await Promise.resolve()
+    })
   })
 })

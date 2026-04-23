@@ -49,7 +49,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const [error, setError] = useState<string | null>(null)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const inFlightRef = useRef(false)
+  const inFlightGenerationRef = useRef<number | null>(null)
   const queuedRef = useRef(false)
   const runGenerationRef = useRef(0)
   const scopedSyncEnabled = isScopedSyncEnabled()
@@ -62,12 +62,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const refresh = useEffectEvent(async () => {
     const refreshGeneration = runGenerationRef.current
 
-    if (inFlightRef.current) {
+    if (inFlightGenerationRef.current !== null) {
       queuedRef.current = true
       return
     }
 
-    inFlightRef.current = true
+    inFlightGenerationRef.current = refreshGeneration
     setRefreshing(true)
     const startedAt = window.performance.now()
 
@@ -115,13 +115,19 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
         )
       }
     } finally {
-      inFlightRef.current = false
+      if (inFlightGenerationRef.current === refreshGeneration) {
+        inFlightGenerationRef.current = null
+      }
+
       if (runGenerationRef.current === refreshGeneration) {
         setHasLoadedOnce(true)
         setRefreshing(false)
       }
 
-      if (queuedRef.current) {
+      if (
+        inFlightGenerationRef.current === null &&
+        queuedRef.current
+      ) {
         queuedRef.current = false
         void refresh()
       }
@@ -131,7 +137,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   useEffect(() => {
     if (!scopedSyncEnabled) {
       runGenerationRef.current += 1
-      inFlightRef.current = false
+      inFlightGenerationRef.current = null
       queuedRef.current = false
       setRefreshing(false)
       setError(null)
@@ -141,7 +147,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
 
     if (!input.enabled || scopeKeys.length === 0) {
       runGenerationRef.current += 1
-      inFlightRef.current = false
+      inFlightGenerationRef.current = null
       queuedRef.current = false
       setRefreshing(false)
       setError(null)
@@ -186,7 +192,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
 
     return () => {
       runGenerationRef.current += 1
-      inFlightRef.current = false
+      inFlightGenerationRef.current = null
       queuedRef.current = false
       setRefreshing(false)
       closeStream()

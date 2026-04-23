@@ -468,6 +468,15 @@ async function parseFlushRequest(
   }
 }
 
+function createCollaborationFlushCorsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Max-Age": "86400",
+  }
+}
+
 async function signPayload(payload: string, secret: string) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -871,12 +880,27 @@ const collaboration = {
   },
   async onRequest(req: PartyRequest, room: Room) {
     const url = new URL(req.url)
+    const isFlushRequest =
+      url.searchParams.get("action") ===
+      COLLABORATION_FLUSH_PATH.replace("/", "")
+    const corsHeaders = createCollaborationFlushCorsHeaders()
 
-    if (
-      req.method !== "POST" ||
-      url.searchParams.get("action") !== COLLABORATION_FLUSH_PATH.replace("/", "")
-    ) {
+    if (!isFlushRequest) {
       return new Response("Not found", { status: 404 })
+    }
+
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+      })
+    }
+
+    if (req.method !== "POST") {
+      return new Response("Not found", {
+        status: 404,
+        headers: corsHeaders,
+      })
     }
 
     let claims: CollaborationSessionTokenClaims
@@ -888,6 +912,7 @@ const collaboration = {
         error instanceof Error ? error.message : "Unauthorized",
         {
           status: 401,
+          headers: corsHeaders,
         }
       )
     }
@@ -895,6 +920,7 @@ const collaboration = {
     if (claims.role !== "editor") {
       return new Response("Collaboration flush requires editor access", {
         status: 403,
+        headers: corsHeaders,
       })
     }
 
@@ -916,6 +942,7 @@ const collaboration = {
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: {
+          ...corsHeaders,
           "Content-Type": "application/json",
         },
       })
@@ -928,6 +955,7 @@ const collaboration = {
           message === "Timed out waiting for collaboration room to receive local updates"
             ? 409
             : 400,
+        headers: corsHeaders,
       })
     }
   },

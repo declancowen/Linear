@@ -143,6 +143,7 @@ describe("PartyKit collaboration server", () => {
     )
 
     expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
     expect(persistCollaborationWorkItemToConvexMock).toHaveBeenCalledWith(
       expect.objectContaining({
         CONVEX_URL: "https://convex-dev.example",
@@ -172,6 +173,40 @@ describe("PartyKit collaboration server", () => {
         ],
       }
     )
+  })
+
+  it("handles collaboration flush preflight requests", async () => {
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_desc_1?action=flush",
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+          },
+        }
+      ) as never,
+      {
+        id: "doc:doc_desc_1",
+        env: {
+          COLLABORATION_TOKEN_SECRET: process.env.COLLABORATION_TOKEN_SECRET,
+        },
+      } as never
+    )
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+    expect(response.headers.get("access-control-allow-methods")).toBe(
+      "POST, OPTIONS"
+    )
+    expect(response.headers.get("access-control-allow-headers")).toBe(
+      "Authorization, Content-Type"
+    )
+    expect(getCollaborationDocumentFromConvexMock).not.toHaveBeenCalled()
   })
 
   it("rejects viewer-role manual flush requests before persisting", async () => {

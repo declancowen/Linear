@@ -7,23 +7,29 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  collaborationEditorRunMock,
   fetchDocumentDetailReadModelMock,
   fetchSnapshotMock,
   flushDocumentSyncMock,
+  renameDocumentMock,
   routerPushMock,
   syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresenceMock,
   syncUpdateDocumentMock,
   syncSendDocumentMentionNotificationsMock,
+  useDocumentCollaborationMock,
 } = vi.hoisted(() => ({
+  collaborationEditorRunMock: vi.fn(),
   fetchDocumentDetailReadModelMock: vi.fn(),
   fetchSnapshotMock: vi.fn(),
   flushDocumentSyncMock: vi.fn(),
+  renameDocumentMock: vi.fn(),
   routerPushMock: vi.fn(),
   syncClearDocumentPresenceMock: vi.fn(),
   syncHeartbeatDocumentPresenceMock: vi.fn(),
   syncUpdateDocumentMock: vi.fn(),
   syncSendDocumentMentionNotificationsMock: vi.fn(),
+  useDocumentCollaborationMock: vi.fn(),
 }))
 
 vi.mock("next/link", () => ({
@@ -68,19 +74,39 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateDocument: syncUpdateDocumentMock,
 }))
 
+vi.mock("@/hooks/use-document-collaboration", () => ({
+  useDocumentCollaboration: useDocumentCollaborationMock,
+}))
+
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
+    editorInstanceRef,
     onChange,
     onMentionCountsChange,
   }: {
     content: string
+    editorInstanceRef?: { current: unknown }
     onChange: (content: string) => void
     onMentionCountsChange?: (
       counts: Record<string, number>,
       source: "initial" | "local" | "external"
     ) => void
   }) => {
+    if (editorInstanceRef) {
+      editorInstanceRef.current = {
+        chain() {
+          return {
+            command() {
+              return {
+                run: collaborationEditorRunMock,
+              }
+            },
+          }
+        },
+      }
+    }
+
     function countMentions(nextContent: string) {
       const counts: Record<string, number> = {}
       const matches = nextContent.matchAll(/data-id="([^"]+)"/g)
@@ -258,10 +284,13 @@ describe("DocumentDetailScreen", () => {
   })
 
   beforeEach(() => {
+    collaborationEditorRunMock.mockReset()
+    collaborationEditorRunMock.mockReturnValue(true)
     fetchDocumentDetailReadModelMock.mockReset()
     fetchDocumentDetailReadModelMock.mockResolvedValue({})
     fetchSnapshotMock.mockReset()
     flushDocumentSyncMock.mockReset()
+    renameDocumentMock.mockReset()
     routerPushMock.mockReset()
     syncClearDocumentPresenceMock.mockReset()
     syncHeartbeatDocumentPresenceMock.mockReset()
@@ -277,11 +306,19 @@ describe("DocumentDetailScreen", () => {
       recipientCount: 1,
       mentionCount: 1,
     })
+    useDocumentCollaborationMock.mockReset()
+    useDocumentCollaborationMock.mockReturnValue({
+      collaboration: null,
+      flush: vi.fn(),
+      lifecycle: "legacy",
+      viewers: [],
+    })
     window.history.replaceState({ page: "doc" }, "", "/docs/doc_1")
 
     useAppStore.setState({
       ...createEmptyState(),
       flushDocumentSync: flushDocumentSyncMock,
+      renameDocument: renameDocumentMock,
       currentUserId: currentUser.id,
       currentWorkspaceId: "workspace_1",
       workspaces: [
@@ -332,6 +369,35 @@ describe("DocumentDetailScreen", () => {
         },
       ],
     })
+  })
+
+  it("falls back to renameDocument when collaborative title updates cannot update a heading", async () => {
+    collaborationEditorRunMock.mockReturnValue(false)
+    useDocumentCollaborationMock.mockReturnValue({
+      collaboration: {} as never,
+      flush: vi.fn(),
+      lifecycle: "attached",
+      viewers: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch Notes" }))
+
+    const input = screen.getByPlaceholderText(
+      "Untitled document"
+    ) as HTMLInputElement
+    fireEvent.change(input, {
+      target: {
+        value: "Renamed without heading",
+      },
+    })
+    fireEvent.blur(input)
+
+    expect(renameDocumentMock).toHaveBeenCalledWith(
+      "doc_1",
+      "Renamed without heading"
+    )
   })
 
   it("starts and clears document presence for editable documents", async () => {
