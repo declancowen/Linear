@@ -41,14 +41,17 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
-
     const createdInvites = await createInviteServer({
       currentUserId: appContext.ensuredUser.userId,
       teamIds: parsed.teamIds,
       email: parsed.email,
       role: parsed.role,
     })
+    const workspaceId =
+      createdInvites.workspaceId ??
+      appContext.authContext?.currentWorkspace?.id ??
+      null
+
     if (workspaceId) {
       await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
     }

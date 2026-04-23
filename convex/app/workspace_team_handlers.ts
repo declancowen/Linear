@@ -1331,6 +1331,7 @@ export async function regenerateTeamJoinCodeHandler(
 
   return {
     teamId: team.id,
+    workspaceId: team.workspaceId,
     joinCode: normalizedJoinCode,
   }
 }

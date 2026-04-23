@@ -35,12 +35,15 @@ export async function DELETE(
       return appContext
     }
 
-    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
-
     const cancelled = await cancelInviteServer({
       currentUserId: appContext.ensuredUser.userId,
       inviteId,
     })
+    const workspaceId =
+      cancelled.workspaceId ??
+      appContext.authContext?.currentWorkspace?.id ??
+      null
+
     if (workspaceId) {
       await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
     }

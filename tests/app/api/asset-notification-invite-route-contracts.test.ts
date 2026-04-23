@@ -343,6 +343,7 @@ describe("asset, notification, invite, and document route contracts", () => {
       inviteIds: ["invite_1", "invite_2"],
       batchId: "invite_batch_1",
       token: "token_1",
+      workspaceId: "workspace_1",
       invites: [
         {
           id: "invite_1",
@@ -361,6 +362,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     cancelInviteServerMock.mockResolvedValue({
       inviteId: "invite_1",
       cancelledInviteIds: ["invite_1", "invite_2"],
+      workspaceId: "workspace_1",
       teamName: "Core",
       workspaceName: "Recipe Room",
     })
@@ -431,6 +433,9 @@ describe("asset, notification, invite, and document route contracts", () => {
       email: "alex@example.com",
       role: "member",
     })
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
 
     const cancelResponse = await cancelRoute.DELETE(
       new Request("http://localhost/api/invites/invite_1", {
@@ -455,6 +460,9 @@ describe("asset, notification, invite, and document route contracts", () => {
       currentUserId: "user_1",
       inviteId: "invite_1",
     })
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
 
     const acceptResponse = await acceptRoute.POST(
       new Request("http://localhost/api/invites/accept", {
@@ -505,6 +513,72 @@ describe("asset, notification, invite, and document route contracts", () => {
       currentUserId: "user_1",
       token: "token_1",
     })
+  })
+
+  it("invalidates invite refresh scopes using the target workspace id", async () => {
+    const inviteRoute = await import("@/app/api/invites/route")
+    const cancelRoute = await import("@/app/api/invites/[inviteId]/route")
+
+    requireAppContextMock.mockResolvedValue({
+      ensuredUser: {
+        userId: "user_1",
+      },
+      authContext: {
+        currentWorkspace: {
+          id: "workspace_current",
+        },
+      },
+    })
+    createInviteServerMock.mockResolvedValue({
+      inviteIds: ["invite_1"],
+      batchId: "invite_batch_1",
+      token: "token_1",
+      workspaceId: "workspace_target",
+      invites: [
+        {
+          id: "invite_1",
+          batchId: "invite_batch_1",
+          teamId: "team_1",
+          token: "token_1",
+        },
+      ],
+    })
+    cancelInviteServerMock.mockResolvedValue({
+      inviteId: "invite_1",
+      cancelledInviteIds: ["invite_1"],
+      workspaceId: "workspace_target",
+      teamName: "Core",
+      workspaceName: "Recipe Room",
+    })
+
+    await inviteRoute.POST(
+      new Request("http://localhost/api/invites", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamIds: ["team_1"],
+          email: "alex@example.com",
+          role: "member",
+        }),
+      }) as never
+    )
+
+    await cancelRoute.DELETE(
+      new Request("http://localhost/api/invites/invite_1", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          inviteId: "invite_1",
+        }),
+      }
+    )
+
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock.mock.calls
+    ).toEqual([["workspace_target"], ["workspace_target"]])
   })
 
   it("maps notification failures to typed error responses", async () => {

@@ -18,7 +18,10 @@ import {
   fetchSnapshotVersion,
   RouteMutationError,
 } from "@/lib/convex/client"
-import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-models"
+import {
+  fetchWorkspaceMembershipReadModel,
+  type ReadModelFetchResult,
+} from "@/lib/convex/client/read-models"
 import type { AppSnapshot } from "@/lib/domain/types"
 import { shouldUseLegacySnapshotSync } from "@/lib/realtime/feature-flags"
 import {
@@ -38,8 +41,6 @@ const STREAM_RECONNECT_BASE_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_DELAY_MS = 15000
 const INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS = 2000
 const INITIAL_BOOTSTRAP_RETRY_MAX_DELAY_MS = 15000
-const LEGACY_SNAPSHOT_SYNC_ENABLED = shouldUseLegacySnapshotSync()
-
 function ConvexStateSync({
   children,
   authenticatedUser,
@@ -74,10 +75,14 @@ function ConvexStateSync({
     replaceDomainData(data)
     applyThemeFromSnapshotData(data)
   })
-  const applyReadModelData = useEffectEvent((data: Partial<AppSnapshot>) => {
-    mergeReadModelData(data)
-    applyThemeFromSnapshotData(data)
-  })
+  const applyReadModelData = useEffectEvent(
+    (patch: ReadModelFetchResult<Partial<AppSnapshot>>) => {
+      mergeReadModelData(patch.data, {
+        replace: patch.replace,
+      })
+      applyThemeFromSnapshotData(patch.data)
+    }
+  )
   const redirectToLogin = useEffectEvent(() => {
     const nextPath = normalizeAuthNextPath(
       `${window.location.pathname}${window.location.search}${window.location.hash}`
@@ -102,7 +107,7 @@ function ConvexStateSync({
     let bootstrapRetryTimeoutId: number | null = null
     let appliedSnapshotVersion: number | null = null
     let hasLoadedInitialState = false
-    let syncMode: "scoped" | "legacy" = LEGACY_SNAPSHOT_SYNC_ENABLED
+    let syncMode: "scoped" | "legacy" = shouldUseLegacySnapshotSync()
       ? "legacy"
       : "scoped"
 
@@ -213,7 +218,7 @@ function ConvexStateSync({
           scopeKeys,
           status: "success",
         })
-        applyReadModelData(patch.data)
+        applyReadModelData(patch)
         hasLoadedInitialState = true
         bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
         clearBootstrapRetryTimeout()

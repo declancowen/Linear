@@ -46,8 +46,6 @@ export async function POST(
       return appContext
     }
 
-    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
-
     const result = await withGeneratedJoinCode((joinCode) =>
       regenerateTeamJoinCodeServer({
         currentUserId: appContext.ensuredUser.userId,
@@ -55,6 +53,9 @@ export async function POST(
         joinCode,
       })
     )
+    const workspaceId =
+      result.workspaceId ?? appContext.authContext?.currentWorkspace?.id ?? null
+
     if (workspaceId) {
       await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
     }
