@@ -65,6 +65,11 @@ type ChatPresenceConnectionState = {
   typing: boolean
 }
 
+type DocumentConnectionState = {
+  kind: "doc"
+  claims: DocumentCollaborationSessionTokenClaims
+}
+
 type ChatPresenceSnapshotParticipant = {
   userId: string
   sessionId: string
@@ -346,6 +351,23 @@ function isChatPresenceConnectionState(
   )
 }
 
+function isDocumentConnectionState(
+  value: unknown
+): value is DocumentConnectionState {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return (
+    value.kind === "doc" &&
+    isRecord(value.claims) &&
+    value.claims.kind === "doc" &&
+    typeof value.claims.sub === "string" &&
+    typeof value.claims.sessionId === "string" &&
+    typeof value.claims.documentId === "string"
+  )
+}
+
 function getChatPresenceSnapshot(
   room: Room
 ): ChatPresenceSnapshotParticipant[] {
@@ -433,6 +455,31 @@ function requireRoomEditorClaims(room: Room) {
   }
 
   return claims
+}
+
+function countOtherActiveDocumentConnections(
+  room: Room,
+  excludedSessionId: string
+) {
+  if (typeof room.getConnections !== "function") {
+    return 0
+  }
+
+  let count = 0
+
+  for (const connection of room.getConnections<DocumentConnectionState>()) {
+    if (!isDocumentConnectionState(connection.state)) {
+      continue
+    }
+
+    if (connection.state.claims.sessionId === excludedSessionId) {
+      continue
+    }
+
+    count += 1
+  }
+
+  return count
 }
 
 function observeRoomDocument(doc: Doc) {
@@ -847,6 +894,21 @@ async function persistCanonicalDocument(
     yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT)
   )
   const { contentHtml } = prepareCanonicalCollaborationContent(contentJson)
+  const persistedContentJson = createCanonicalContentJson(
+    collaborationDocument.content
+  )
+  const isPersistedContentUnchanged =
+    collaborationDocument.content === contentHtml ||
+    areDocumentJsonEqual(contentJson, persistedContentJson)
+
+  if (isPersistedContentUnchanged && !options?.workItemTitle) {
+    markRoomCanonical(doc, contentJson)
+    updateRoomBootstrapCache(room, {
+      content: contentHtml,
+      contentJson,
+    })
+    return
+  }
 
   if (collaborationDocument.kind === "item-description") {
     if (!collaborationDocument.itemId) {
@@ -914,6 +976,13 @@ async function persistDocumentTitle(
 
   if (collaborationDocument.kind === "item-description") {
     throw new Error("Document title flush is not supported for item descriptions")
+  }
+
+  if (documentTitle === collaborationDocument.title) {
+    updateRoomBootstrapCache(room, {
+      title: documentTitle,
+    })
+    return
   }
 
   await persistCollaborationDocumentToConvex(
@@ -1087,6 +1156,13 @@ const collaboration = {
         throw new Error("Collaboration room mismatch")
       }
 
+      if (typeof connection.setState === "function") {
+        connection.setState({
+          kind: "doc",
+          claims,
+        } satisfies DocumentConnectionState)
+      }
+
       const { options } = await ensureCanonicalDocumentSeeded(room, claims)
 
       normalizeConnectionMessageEvents(connection)
@@ -1205,7 +1281,31 @@ const collaboration = {
       if (flushRequest.kind === "document-title") {
         await persistDocumentTitle(room, flushRequest.documentTitle)
       } else {
-        applyFlushContentJson(yDoc, flushRequest.contentJson)
+        const nextContentJson = normalizeCollaborationDocumentJson(
+          flushRequest.contentJson
+        )
+        const currentContentJson = normalizeCollaborationDocumentJson(
+          yDocToProsemirrorJSON(yDoc, COLLABORATION_XML_FRAGMENT)
+        )
+        const hasOtherActiveConnections =
+          countOtherActiveDocumentConnections(room, claims.sessionId) > 0
+
+        if (
+          !hasOtherActiveConnections ||
+          areDocumentJsonEqual(currentContentJson, nextContentJson)
+        ) {
+          applyFlushContentJson(yDoc, nextContentJson)
+        } else {
+          console.warn(
+            "[collaboration] ignored divergent manual flush payload from closing session",
+            {
+              roomId: room.id,
+              documentId: claims.documentId,
+              sessionId: claims.sessionId,
+            }
+          )
+        }
+
         await persistCanonicalDocument(room, yDoc, "manual", {
           ...(flushRequest.kind === "work-item-main"
             ? {

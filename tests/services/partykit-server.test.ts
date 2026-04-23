@@ -560,6 +560,272 @@ describe("PartyKit collaboration server", () => {
     )
   })
 
+  it("skips unchanged manual document content flushes", async () => {
+    const contentJson: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Canonical content",
+            },
+          ],
+        },
+      ],
+    }
+    const yDoc = createDoc(contentJson)
+    unstableGetYDocMock.mockResolvedValue(yDoc)
+    getCollaborationDocumentFromConvexMock.mockResolvedValue({
+      documentId: "doc_team_1",
+      kind: "team-document",
+      title: "Doc",
+      content: "<p>Canonical content</p>",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+      searchWorkspaceId: "workspace_1",
+      teamMemberIds: ["user_1"],
+      projectScopes: [],
+    })
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const token = createSignedCollaborationToken({
+      kind: "doc",
+      sub: "user_1",
+      roomId: "doc:doc_team_1",
+      documentId: "doc_team_1",
+      role: "editor",
+      sessionId: "session_1",
+      workspaceId: "workspace_1",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_team_1?action=flush",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            kind: "content",
+            contentJson,
+          }),
+        }
+      ) as never,
+      {
+        id: "doc:doc_team_1",
+        env: {
+          COLLABORATION_TOKEN_SECRET: process.env.COLLABORATION_TOKEN_SECRET,
+          CONVEX_URL: "https://convex-dev.example",
+          CONVEX_SERVER_TOKEN: "server-token",
+        },
+      } as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(getCollaborationDocumentFromConvexMock).toHaveBeenCalled()
+    expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelsFromConvexMock).not.toHaveBeenCalled()
+  })
+
+  it("skips unchanged manual document title flushes", async () => {
+    const yDoc = createDoc({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Canonical content",
+            },
+          ],
+        },
+      ],
+    })
+    unstableGetYDocMock.mockResolvedValue(yDoc)
+    getCollaborationDocumentFromConvexMock.mockResolvedValue({
+      documentId: "doc_team_1",
+      kind: "team-document",
+      title: "Doc",
+      content: "<p>Canonical content</p>",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+      searchWorkspaceId: "workspace_1",
+      teamMemberIds: ["user_1"],
+      projectScopes: [],
+    })
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const token = createSignedCollaborationToken({
+      kind: "doc",
+      sub: "user_1",
+      roomId: "doc:doc_team_1",
+      documentId: "doc_team_1",
+      role: "editor",
+      sessionId: "session_1",
+      workspaceId: "workspace_1",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_team_1?action=flush",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            kind: "document-title",
+            documentTitle: "Doc",
+          }),
+        }
+      ) as never,
+      {
+        id: "doc:doc_team_1",
+        env: {
+          COLLABORATION_TOKEN_SECRET: process.env.COLLABORATION_TOKEN_SECRET,
+          CONVEX_URL: "https://convex-dev.example",
+          CONVEX_SERVER_TOKEN: "server-token",
+        },
+      } as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(getCollaborationDocumentFromConvexMock).toHaveBeenCalled()
+    expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelsFromConvexMock).not.toHaveBeenCalled()
+  })
+
+  it("does not let a closing session overwrite a divergent live room document", async () => {
+    const liveRoomContentJson: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Live collaborator content",
+            },
+          ],
+        },
+      ],
+    }
+    const staleFlushContentJson: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Stale closing-tab content",
+            },
+          ],
+        },
+      ],
+    }
+    const yDoc = createDoc(liveRoomContentJson)
+    unstableGetYDocMock.mockResolvedValue(yDoc)
+    getCollaborationDocumentFromConvexMock.mockResolvedValue({
+      documentId: "doc_team_1",
+      kind: "team-document",
+      title: "Doc",
+      content: "<p>Live collaborator content</p>",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+      searchWorkspaceId: "workspace_1",
+      teamMemberIds: ["user_1", "user_2"],
+      projectScopes: [],
+    })
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const token = createSignedCollaborationToken({
+      kind: "doc",
+      sub: "user_1",
+      roomId: "doc:doc_team_1",
+      documentId: "doc_team_1",
+      role: "editor",
+      sessionId: "session_closing",
+      workspaceId: "workspace_1",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+
+    const response = await collaboration.onRequest(
+      new Request(
+        "http://127.0.0.1:1999/parties/main/doc:doc_team_1?action=flush",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            kind: "content",
+            contentJson: staleFlushContentJson,
+          }),
+        }
+      ) as never,
+      {
+        id: "doc:doc_team_1",
+        env: {
+          COLLABORATION_TOKEN_SECRET: process.env.COLLABORATION_TOKEN_SECRET,
+          CONVEX_URL: "https://convex-dev.example",
+          CONVEX_SERVER_TOKEN: "server-token",
+        },
+        getConnections: () => [
+          {
+            state: {
+              kind: "doc",
+              claims: {
+                kind: "doc",
+                sub: "user_2",
+                roomId: "doc:doc_team_1",
+                documentId: "doc_team_1",
+                role: "editor",
+                sessionId: "session_live",
+                workspaceId: "workspace_1",
+                exp: Math.floor(Date.now() / 1000) + 60,
+              },
+            },
+          },
+        ],
+      } as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelsFromConvexMock).not.toHaveBeenCalled()
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(liveRoomContentJson)
+  })
+
   it("handles collaboration flush preflight requests", async () => {
     const { collaboration } = await import("@/services/partykit/server")
 
