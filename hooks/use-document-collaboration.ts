@@ -464,17 +464,24 @@ export function useDocumentCollaboration(input: {
     : isEnabled
       ? "connecting"
       : "idle"
-  const collaboration = isActiveDocument ? state.collaboration : null
-  const session = isActiveDocument ? state.session : null
-  const role = isActiveDocument ? state.role : null
+  const isSessionAttached =
+    isActiveDocument &&
+    state.collaboration !== null &&
+    state.session !== null &&
+    (connectionState === "connected" || connectionState === "connecting")
+  const collaboration = isSessionAttached ? state.collaboration : null
+  const session = isSessionAttached ? state.session : null
+  const role = isSessionAttached ? state.role : null
   const error = isActiveDocument ? state.error : null
-  const viewers = isActiveDocument ? state.viewers : EMPTY_VIEWERS
+  const viewers = isSessionAttached ? state.viewers : EMPTY_VIEWERS
   const lifecycle: CollaborationLifecycleState =
     !isEnabled || input.documentId === null
       ? "legacy"
-      : isActiveDocument && collaboration
+      : isSessionAttached
         ? "attached"
-        : isActiveDocument && connectionState === "errored"
+        : isActiveDocument &&
+            (connectionState === "errored" ||
+              connectionState === "disconnected")
           ? "degraded"
           : "bootstrapping"
   const isAwaitingCollaboration = lifecycle === "bootstrapping"

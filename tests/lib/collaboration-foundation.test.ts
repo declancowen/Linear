@@ -5,7 +5,9 @@ import {
   createCollaborationAwarenessState,
 } from "@/lib/collaboration/awareness"
 import {
+  createChatCollaborationRoomId,
   createDocumentCollaborationRoomId,
+  isChatCollaborationRoomId,
   isDocumentCollaborationRoomId,
   parseCollaborationRoomId,
 } from "@/lib/collaboration/rooms"
@@ -28,6 +30,7 @@ import {
 describe("collaboration foundation contracts", () => {
   it("creates and parses document collaboration room ids", () => {
     const roomId = createDocumentCollaborationRoomId("doc_123")
+    const chatRoomId = createChatCollaborationRoomId("conversation_123")
 
     expect(roomId).toBe("doc:doc_123")
     expect(parseCollaborationRoomId(roomId)).toEqual({
@@ -35,9 +38,16 @@ describe("collaboration foundation contracts", () => {
       roomId: "doc:doc_123",
       entityId: "doc_123",
     })
+    expect(chatRoomId).toBe("chat:conversation_123")
+    expect(parseCollaborationRoomId(chatRoomId)).toEqual({
+      kind: "chat",
+      roomId: "chat:conversation_123",
+      entityId: "conversation_123",
+    })
     expect(isDocumentCollaborationRoomId(roomId, "doc_123")).toBe(true)
     expect(isDocumentCollaborationRoomId(roomId, "doc_456")).toBe(false)
-    expect(parseCollaborationRoomId("chat:doc_123")).toBeNull()
+    expect(isChatCollaborationRoomId(chatRoomId, "conversation_123")).toBe(true)
+    expect(isChatCollaborationRoomId(chatRoomId, "conversation_456")).toBe(false)
     expect(parseCollaborationRoomId("doc:bad:id")).toBeNull()
   })
 
@@ -95,6 +105,41 @@ describe("collaboration foundation contracts", () => {
         exp: 200,
       })
     ).toThrow("role must be viewer or editor")
+
+    expect(
+      safeParseCollaborationSessionTokenClaims({
+        kind: "chat",
+        sub: "user_1",
+        roomId: "chat:conversation_123",
+        conversationId: "conversation_123",
+        sessionId: "session_2",
+        exp: 200,
+      })
+    ).toEqual({
+      success: true,
+      data: {
+        kind: "chat",
+        sub: "user_1",
+        roomId: "chat:conversation_123",
+        conversationId: "conversation_123",
+        sessionId: "session_2",
+        exp: 200,
+      },
+    })
+
+    expect(
+      safeParseCollaborationSessionTokenClaims({
+        kind: "chat",
+        sub: "user_1",
+        roomId: "chat:conversation_999",
+        conversationId: "conversation_123",
+        sessionId: "session_2",
+        exp: 200,
+      })
+    ).toEqual({
+      success: false,
+      error: "roomId must match the chat collaboration room",
+    })
   })
 
   it("builds collaboration awareness state with sanitized optional fields", () => {
@@ -128,6 +173,8 @@ describe("collaboration foundation contracts", () => {
         anchor: 3,
         head: 3,
       },
+      cursorRect: null,
+      cursorSide: null,
       selection: null,
     })
 

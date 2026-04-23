@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type CSSProperties } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowSquareOut, Trash } from "@phosphor-icons/react"
 
@@ -146,28 +146,18 @@ export function DocumentAuthorAvatar({
           flexBasis: "18px",
         }
       : undefined
-  const ringStyle = ringColor
-    ? {
-        boxShadow: `0 0 0 1.5px ${ringColor}`,
-      }
-    : undefined
-
-  return (
+  const avatarElement = (
     <Avatar
       size={size === "compact" ? "default" : size}
-      style={{
-        ...compactStyle,
-        ...ringStyle,
-      }}
+      style={compactStyle}
       className={cn(
         size === "sm"
           ? "size-5"
           : size === "compact"
             ? "size-[18px]"
             : undefined,
-        ringColor ? "ring-0" : undefined,
         ringColor ? "after:border-transparent" : undefined,
-        className
+        !ringColor ? className : undefined
       )}
       title={title}
     >
@@ -176,6 +166,28 @@ export function DocumentAuthorAvatar({
         {getUserInitials(name)}
       </AvatarFallback>
     </Avatar>
+  )
+
+  if (!ringColor) {
+    return avatarElement
+  }
+
+  const ringWrapperStyle = {
+    "--document-author-avatar-ring-color": ringColor,
+    boxShadow: "0 0 0 1.5px var(--document-author-avatar-ring-color)",
+  } as CSSProperties
+
+  return (
+    <span
+      data-slot="document-author-avatar-ring"
+      style={ringWrapperStyle}
+      className={cn(
+        "relative z-10 inline-flex shrink-0 rounded-full",
+        className
+      )}
+    >
+      {avatarElement}
+    </span>
   )
 }
 
@@ -192,9 +204,12 @@ export function DocumentPresenceAvatarGroup({
     return null
   }
 
-  const visibleViewers = viewers.slice(0, MAX_VISIBLE_DOCUMENT_VIEWERS)
-  const hiddenViewerCount = viewers.length - visibleViewers.length
-  const viewerNames = viewers.map((viewer) => viewer.name).join(", ")
+  const uniqueViewers = Array.from(
+    new Map(viewers.map((viewer) => [viewer.userId, viewer])).values()
+  )
+  const visibleViewers = uniqueViewers.slice(0, MAX_VISIBLE_DOCUMENT_VIEWERS)
+  const hiddenViewerCount = uniqueViewers.length - visibleViewers.length
+  const viewerNames = uniqueViewers.map((viewer) => viewer.name).join(", ")
 
   return (
     <div

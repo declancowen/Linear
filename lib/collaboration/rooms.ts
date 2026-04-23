@@ -1,7 +1,8 @@
 const DOCUMENT_COLLABORATION_ROOM_PREFIX = "doc"
+const CHAT_COLLABORATION_ROOM_PREFIX = "chat"
 const ROOM_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/
 
-export type CollaborationRoomKind = "doc"
+export type CollaborationRoomKind = "doc" | "chat"
 
 export type CollaborationRoomDescriptor = {
   kind: CollaborationRoomKind
@@ -31,6 +32,15 @@ export function createDocumentCollaborationRoomId(documentId: string) {
   return `${DOCUMENT_COLLABORATION_ROOM_PREFIX}:${normalizedDocumentId}`
 }
 
+export function createChatCollaborationRoomId(conversationId: string) {
+  const normalizedConversationId = normalizeRoomSegment(
+    conversationId,
+    "conversationId"
+  )
+
+  return `${CHAT_COLLABORATION_ROOM_PREFIX}:${normalizedConversationId}`
+}
+
 export function parseCollaborationRoomId(
   roomId: string
 ): CollaborationRoomDescriptor | null {
@@ -42,7 +52,11 @@ export function parseCollaborationRoomId(
 
   const [prefix, entityId, ...rest] = normalizedRoomId.split(":")
 
-  if (prefix !== DOCUMENT_COLLABORATION_ROOM_PREFIX || rest.length > 0) {
+  if (
+    (prefix !== DOCUMENT_COLLABORATION_ROOM_PREFIX &&
+      prefix !== CHAT_COLLABORATION_ROOM_PREFIX) ||
+    rest.length > 0
+  ) {
     return null
   }
 
@@ -51,7 +65,10 @@ export function parseCollaborationRoomId(
   }
 
   return {
-    kind: "doc",
+    kind:
+      prefix === DOCUMENT_COLLABORATION_ROOM_PREFIX
+        ? "doc"
+        : "chat",
     roomId: normalizedRoomId,
     entityId,
   }
@@ -63,6 +80,17 @@ export function isDocumentCollaborationRoomId(
 ) {
   try {
     return roomId === createDocumentCollaborationRoomId(documentId)
+  } catch {
+    return false
+  }
+}
+
+export function isChatCollaborationRoomId(
+  roomId: string,
+  conversationId: string
+) {
+  try {
+    return roomId === createChatCollaborationRoomId(conversationId)
   } catch {
     return false
   }

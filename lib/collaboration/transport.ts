@@ -1,5 +1,7 @@
 import {
+  createChatCollaborationRoomId,
   createDocumentCollaborationRoomId,
+  isChatCollaborationRoomId,
   isDocumentCollaborationRoomId,
 } from "./rooms"
 
@@ -11,7 +13,7 @@ export type CollaborationConnectionState =
   | "disconnected"
   | "errored"
 
-export type CollaborationSessionTokenClaims = {
+export type DocumentCollaborationSessionTokenClaims = {
   kind: "doc"
   sub: string
   roomId: string
@@ -22,6 +24,21 @@ export type CollaborationSessionTokenClaims = {
   iat?: number
   exp: number
 }
+
+export type ChatCollaborationSessionTokenClaims = {
+  kind: "chat"
+  sub: string
+  roomId: string
+  conversationId: string
+  sessionId: string
+  workspaceId?: string | null
+  iat?: number
+  exp: number
+}
+
+export type CollaborationSessionTokenClaims =
+  | DocumentCollaborationSessionTokenClaims
+  | ChatCollaborationSessionTokenClaims
 
 export type CollaborationSessionBootstrap = {
   roomId: string
@@ -145,27 +162,38 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
   const sub = input.sub
   const roomId = input.roomId
   const documentId = input.documentId
+  const conversationId = input.conversationId
   const role = input.role
   const sessionId = input.sessionId
   const workspaceId = input.workspaceId
   const iat = input.iat
   const exp = input.exp
 
-  if (kind !== "doc") {
+  if (kind !== "doc" && kind !== "chat") {
     return {
       success: false,
-      error: "kind must be doc",
+      error: "kind must be doc or chat",
     }
   }
 
   const parsedStrings = new Map<string, string>()
 
-  for (const [value, label] of [
-    [sub, "sub"],
-    [roomId, "roomId"],
-    [documentId, "documentId"],
-    [sessionId, "sessionId"],
-  ] as const) {
+  const requiredStringFields =
+    kind === "doc"
+      ? ([
+          [sub, "sub"],
+          [roomId, "roomId"],
+          [documentId, "documentId"],
+          [sessionId, "sessionId"],
+        ] as const)
+      : ([
+          [sub, "sub"],
+          [roomId, "roomId"],
+          [conversationId, "conversationId"],
+          [sessionId, "sessionId"],
+        ] as const)
+
+  for (const [value, label] of requiredStringFields) {
     const parsed = parseRequiredString(value, label)
 
     if (!parsed.success) {
@@ -176,13 +204,6 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
     }
 
     parsedStrings.set(label, parsed.value)
-  }
-
-  if (!isCollaborationSessionRole(role)) {
-    return {
-      success: false,
-      error: "role must be viewer or editor",
-    }
   }
 
   if (
@@ -216,13 +237,51 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
 
   const normalizedSub = parsedStrings.get("sub")!
   const normalizedRoomId = parsedStrings.get("roomId")!
-  const normalizedDocumentId = parsedStrings.get("documentId")!
   const normalizedSessionId = parsedStrings.get("sessionId")!
 
-  if (!isDocumentCollaborationRoomId(normalizedRoomId, normalizedDocumentId)) {
+  if (kind === "doc") {
+    if (!isCollaborationSessionRole(role)) {
+      return {
+        success: false,
+        error: "role must be viewer or editor",
+      }
+    }
+
+    const normalizedRole: CollaborationSessionRole = role
+
+    const normalizedDocumentId = parsedStrings.get("documentId")!
+
+    if (
+      !isDocumentCollaborationRoomId(normalizedRoomId, normalizedDocumentId)
+    ) {
+      return {
+        success: false,
+        error: "roomId must match the document collaboration room",
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        kind,
+        sub: normalizedSub,
+        roomId: normalizedRoomId,
+        documentId: normalizedDocumentId,
+        role: normalizedRole,
+        sessionId: normalizedSessionId,
+        workspaceId,
+        iat: typeof iat === "number" ? iat : undefined,
+        exp: normalizedExp,
+      },
+    }
+  }
+
+  const normalizedConversationId = parsedStrings.get("conversationId")!
+
+  if (!isChatCollaborationRoomId(normalizedRoomId, normalizedConversationId)) {
     return {
       success: false,
-      error: "roomId must match the document collaboration room",
+      error: "roomId must match the chat collaboration room",
     }
   }
 
@@ -232,8 +291,7 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
       kind,
       sub: normalizedSub,
       roomId: normalizedRoomId,
-      documentId: normalizedDocumentId,
-      role,
+      conversationId: normalizedConversationId,
       sessionId: normalizedSessionId,
       workspaceId,
       iat: typeof iat === "number" ? iat : undefined,
@@ -267,4 +325,8 @@ export function createDocumentSessionBootstrap(input: {
     role: input.role,
     contentHtml: input.contentHtml,
   } satisfies CollaborationSessionBootstrap
+}
+
+export function createChatSessionRoomId(conversationId: string) {
+  return createChatCollaborationRoomId(conversationId)
 }

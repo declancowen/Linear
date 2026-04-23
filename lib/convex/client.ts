@@ -32,6 +32,10 @@ export {
   syncCreateDocumentCollaborationSession,
 } from "./client/document-collaboration"
 export {
+  type ChatPresenceSessionPayload,
+  syncCreateChatPresenceSession,
+} from "./client/chat-presence"
+export {
   fetchChannelFeedReadModel,
   fetchConversationListReadModel,
   fetchConversationThreadReadModel,

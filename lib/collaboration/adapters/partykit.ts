@@ -27,6 +27,21 @@ export type PartyKitDocumentCollaborationBinding = {
 
 const COLLABORATION_CONNECT_TIMEOUT_MS = 10_000
 const COLLABORATION_TOKEN_REFRESH_BUFFER_SECONDS = 30
+const COLLABORATION_FLUSH_ROOM_SYNC_RETRY_DELAY_MS = 250
+const COLLABORATION_FLUSH_ROOM_SYNC_MAX_RETRIES = 2
+
+function shouldSendFlushStateVector(input?: CollaborationFlushInput) {
+  if (!input) {
+    return true
+  }
+
+  const isMetadataOnlyDocumentTitleFlush =
+    typeof input.documentTitle === "string" &&
+    typeof input.workItemExpectedUpdatedAt === "undefined" &&
+    typeof input.workItemTitle === "undefined"
+
+  return !isMetadataOnlyDocumentTitleFlush
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -211,6 +226,43 @@ function isCollaborationSyncTimeoutError(error: unknown) {
   return (
     error instanceof Error &&
     error.message.includes("Timed out waiting for collaboration document sync")
+  )
+}
+
+function waitForDelay(delayMs: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs)
+  })
+}
+
+function shouldRetryFlushWithFreshBootstrap(status: number, message: string) {
+  const normalizedMessage = message.trim().toLowerCase()
+
+  if (status !== 401) {
+    return false
+  }
+
+  return (
+    normalizedMessage.includes("collaboration room mismatch") ||
+    normalizedMessage.includes("expired collaboration token") ||
+    normalizedMessage.includes("invalid collaboration token")
+  )
+}
+
+function shouldRetryFlushForRoomSync(status: number, message: string) {
+  return (
+    status === 409 &&
+    message
+      .trim()
+      .toLowerCase()
+      .includes("timed out waiting for collaboration room to receive local updates")
+  )
+}
+
+function isDocumentMissingFlushError(status: number, message: string) {
+  return (
+    status === 404 &&
+    message.trim().toLowerCase().includes("document not found")
   )
 }
 
@@ -450,47 +502,111 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
           awareness.emit(createAwarenessChange(provider))
         },
         async flush(input?: CollaborationFlushInput) {
-          const nextBootstrap = await getValidBootstrap()
-          const stateVector = encodeDocumentStateVector(session.binding.doc)
-          const response = await fetch(
-            createRoomRequestUrl(
-              nextBootstrap.serviceUrl,
-              nextBootstrap.roomId
-            ),
-            {
-              method: "POST",
-              keepalive: true,
-              headers: {
-                Authorization: `Bearer ${nextBootstrap.token}`,
-                "Content-Type": "application/json",
+          const flushOnce = async (forceRefresh = false) => {
+            const nextBootstrap = await getValidBootstrap(forceRefresh)
+            const shouldIncludeStateVector = shouldSendFlushStateVector(input)
+            const response = await fetch(
+              createRoomRequestUrl(
+                nextBootstrap.serviceUrl,
+                nextBootstrap.roomId
+              ),
+              {
+                method: "POST",
+                keepalive: true,
+                headers: {
+                  Authorization: `Bearer ${nextBootstrap.token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  ...(shouldIncludeStateVector
+                    ? {
+                        stateVector: encodeDocumentStateVector(session.binding.doc),
+                      }
+                    : {}),
+                  ...(input?.documentTitle
+                    ? {
+                        documentTitle: input.documentTitle,
+                      }
+                    : {}),
+                  ...(input?.workItemExpectedUpdatedAt
+                    ? {
+                        workItemExpectedUpdatedAt:
+                          input.workItemExpectedUpdatedAt,
+                      }
+                    : {}),
+                  ...(input?.workItemTitle
+                    ? {
+                        workItemTitle: input.workItemTitle,
+                      }
+                    : {}),
+                }),
               },
-              body: JSON.stringify({
-                stateVector,
-                ...(input?.documentTitle
-                  ? {
-                      documentTitle: input.documentTitle,
-                    }
-                  : {}),
-                ...(input?.workItemExpectedUpdatedAt
-                  ? {
-                      workItemExpectedUpdatedAt:
-                        input.workItemExpectedUpdatedAt,
-                    }
-                  : {}),
-                ...(input?.workItemTitle
-                  ? {
-                      workItemTitle: input.workItemTitle,
-                    }
-                  : {}),
-              }),
-            },
-          )
+            )
 
-          if (!response.ok) {
-            const message = await response.text()
-
-            throw new Error(message || "Failed to flush collaboration state")
+            return {
+              ok: response.ok,
+              status: response.status,
+              message: response.ok ? "" : await response.text(),
+            }
           }
+
+          const initialResult = await flushOnce()
+
+          if (initialResult.ok) {
+            return
+          }
+
+          if (shouldRetryFlushForRoomSync(initialResult.status, initialResult.message)) {
+            for (
+              let attempt = 0;
+              attempt < COLLABORATION_FLUSH_ROOM_SYNC_MAX_RETRIES;
+              attempt += 1
+            ) {
+              await waitForDelay(COLLABORATION_FLUSH_ROOM_SYNC_RETRY_DELAY_MS)
+              const retryResult = await flushOnce()
+
+              if (retryResult.ok) {
+                return
+              }
+
+              if (
+                !shouldRetryFlushForRoomSync(
+                  retryResult.status,
+                  retryResult.message
+                )
+              ) {
+                throw new Error(
+                  retryResult.message || "Failed to flush collaboration state"
+                )
+              }
+            }
+          }
+
+          if (
+            activeBootstrap.getFreshBootstrap &&
+            shouldRetryFlushWithFreshBootstrap(
+              initialResult.status,
+              initialResult.message
+            )
+          ) {
+            const refreshedResult = await flushOnce(true)
+
+            if (refreshedResult.ok) {
+              return
+            }
+
+            throw new Error(
+              refreshedResult.message || "Failed to flush collaboration state"
+            )
+          }
+
+          if (isDocumentMissingFlushError(initialResult.status, initialResult.message)) {
+            session.disconnect("document-missing")
+          }
+
+          throw new Error(
+            initialResult.message || "Failed to flush collaboration state"
+          )
         },
         onStatusChange(listener) {
           return status.subscribe(listener)

@@ -63,4 +63,37 @@ describe("DocumentPresenceAvatarGroup", () => {
     expect(overflowCount?.className).toContain("text-[8px]")
     expect(screen.getByLabelText(/also viewing:/i)).toBeInTheDocument()
   })
+
+  it("deduplicates repeated viewers for the same user", () => {
+    render(
+      <DocumentPresenceAvatarGroup
+        viewers={[
+          {
+            userId: "user_1",
+            name: "Declan Cowen",
+            avatarUrl: "",
+            avatarImageUrl: "https://example.com/avatar.png",
+            lastSeenAt: "2026-04-22T11:00:00.000Z",
+          },
+          {
+            userId: "user_1",
+            name: "Declan Cowen",
+            avatarUrl: "",
+            avatarImageUrl: "https://example.com/avatar.png",
+            lastSeenAt: "2026-04-22T11:01:00.000Z",
+          },
+          {
+            userId: "user_2",
+            name: "Taylor Moss",
+            avatarUrl: "",
+            avatarImageUrl: undefined,
+            lastSeenAt: "2026-04-22T11:02:00.000Z",
+          },
+        ]}
+      />
+    )
+
+    const avatars = document.querySelectorAll('[data-slot="avatar"]')
+    expect(avatars).toHaveLength(2)
+  })
 })

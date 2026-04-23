@@ -6,14 +6,32 @@ import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
+const useChatPresenceMock = vi.hoisted(() => vi.fn())
+
 vi.mock("@/components/app/rich-text-editor", () => ({
-  RichTextEditor: ({ placeholder }: { placeholder?: string }) => (
-    <div data-testid="mock-rich-text-editor">{placeholder}</div>
+  RichTextEditor: ({
+    placeholder,
+    onChange,
+  }: {
+    placeholder?: string
+    onChange?: (value: string) => void
+  }) => (
+    <input
+      data-testid="mock-rich-text-editor"
+      aria-label={placeholder}
+      onChange={(event) =>
+        onChange?.(`<p>${(event.target as HTMLInputElement).value}</p>`)
+      }
+    />
   ),
 }))
 
 vi.mock("@/components/app/emoji-picker-popover", () => ({
   EmojiPickerPopover: ({ trigger }: { trigger: ReactNode }) => <>{trigger}</>,
+}))
+
+vi.mock("@/hooks/use-chat-presence", () => ({
+  useChatPresence: useChatPresenceMock,
 }))
 
 vi.mock("next/navigation", () => ({
@@ -66,10 +84,81 @@ const formerUser = {
   },
 }
 
+const markUser = {
+  id: "user_mark",
+  name: "Mark Chen",
+  handle: "mark-chen",
+  email: "mark@example.com",
+  avatarUrl: "",
+  avatarImageUrl: null,
+  workosUserId: null,
+  title: "Designer",
+  status: "active" as const,
+  statusMessage: "",
+  hasExplicitStatus: false,
+  accountDeletionPendingAt: null,
+  accountDeletedAt: null,
+  preferences: {
+    emailMentions: true,
+    emailAssignments: true,
+    emailDigest: true,
+    theme: "system" as const,
+  },
+}
+
+const aliceUser = {
+  id: "user_alice",
+  name: "Alice Park",
+  handle: "alice-park",
+  email: "alice@example.com",
+  avatarUrl: "",
+  avatarImageUrl: null,
+  workosUserId: null,
+  title: "Engineer",
+  status: "active" as const,
+  statusMessage: "",
+  hasExplicitStatus: false,
+  accountDeletionPendingAt: null,
+  accountDeletedAt: null,
+  preferences: {
+    emailMentions: true,
+    emailAssignments: true,
+    emailDigest: true,
+    theme: "system" as const,
+  },
+}
+
+const zoeUser = {
+  id: "user_zoe",
+  name: "Zoe Kim",
+  handle: "zoe-kim",
+  email: "zoe@example.com",
+  avatarUrl: "",
+  avatarImageUrl: null,
+  workosUserId: null,
+  title: "PM",
+  status: "active" as const,
+  statusMessage: "",
+  hasExplicitStatus: false,
+  accountDeletionPendingAt: null,
+  accountDeletedAt: null,
+  preferences: {
+    emailMentions: true,
+    emailAssignments: true,
+    emailDigest: true,
+    theme: "system" as const,
+  },
+}
+
 const toggleChatMessageReactionMock = vi.fn()
 
 beforeEach(() => {
   toggleChatMessageReactionMock.mockReset()
+  useChatPresenceMock.mockReset()
+  useChatPresenceMock.mockReturnValue({
+    participants: [],
+    setTyping: vi.fn(),
+  })
   useAppStore.setState({
     ...createEmptyState(),
     currentUserId: currentUser.id,
@@ -212,5 +301,223 @@ describe("ChatThread", () => {
 
     expect(actionsRow).toBeTruthy()
     expect(actionsRow?.lastElementChild).toBe(reactButton)
+  })
+
+  it("renders a typing indicator for remote chat participants", () => {
+    useChatPresenceMock.mockReturnValue({
+      participants: [
+        {
+          userId: formerUser.id,
+          sessionId: "session_1",
+          typing: true,
+        },
+      ],
+      setTyping: vi.fn(),
+    })
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+      />
+    )
+
+    expect(screen.getByText("Declan Cowen is typing")).toBeInTheDocument()
+  })
+
+  it("renders a combined typing indicator for two remote participants", () => {
+    useChatPresenceMock.mockReturnValue({
+      participants: [
+        {
+          userId: formerUser.id,
+          sessionId: "session_1",
+          typing: true,
+        },
+        {
+          userId: markUser.id,
+          sessionId: "session_2",
+          typing: true,
+        },
+      ],
+      setTyping: vi.fn(),
+    })
+    useAppStore.setState((state) => ({
+      ...state,
+      users: [...state.users, markUser],
+      conversations: [
+        {
+          ...state.conversations[0],
+          variant: "group",
+          title: "Group chat",
+          participantIds: [currentUser.id, formerUser.id, markUser.id],
+        },
+      ],
+    }))
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Group chat"
+        description=""
+        members={[currentUser, formerUser, markUser]}
+      />
+    )
+
+    expect(
+      screen.getByText("Declan Cowen & Mark Chen are typing")
+    ).toBeInTheDocument()
+  })
+
+  it("renders a combined typing indicator for three remote participants", () => {
+    useChatPresenceMock.mockReturnValue({
+      participants: [
+        {
+          userId: formerUser.id,
+          sessionId: "session_1",
+          typing: true,
+        },
+        {
+          userId: markUser.id,
+          sessionId: "session_2",
+          typing: true,
+        },
+        {
+          userId: aliceUser.id,
+          sessionId: "session_3",
+          typing: true,
+        },
+      ],
+      setTyping: vi.fn(),
+    })
+    useAppStore.setState((state) => ({
+      ...state,
+      users: [...state.users, markUser, aliceUser],
+      conversations: [
+        {
+          ...state.conversations[0],
+          variant: "group",
+          title: "Group chat",
+          participantIds: [
+            currentUser.id,
+            formerUser.id,
+            markUser.id,
+            aliceUser.id,
+          ],
+        },
+      ],
+    }))
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Group chat"
+        description=""
+        members={[currentUser, formerUser, markUser, aliceUser]}
+      />
+    )
+
+    expect(
+      screen.getByText("Declan Cowen, Mark Chen and Alice Park are typing")
+    ).toBeInTheDocument()
+  })
+
+  it("renders a generic typing indicator for more than three remote participants", () => {
+    useChatPresenceMock.mockReturnValue({
+      participants: [
+        {
+          userId: formerUser.id,
+          sessionId: "session_1",
+          typing: true,
+        },
+        {
+          userId: markUser.id,
+          sessionId: "session_2",
+          typing: true,
+        },
+        {
+          userId: aliceUser.id,
+          sessionId: "session_3",
+          typing: true,
+        },
+        {
+          userId: zoeUser.id,
+          sessionId: "session_4",
+          typing: true,
+        },
+      ],
+      setTyping: vi.fn(),
+    })
+    useAppStore.setState((state) => ({
+      ...state,
+      users: [...state.users, markUser, aliceUser, zoeUser],
+      conversations: [
+        {
+          ...state.conversations[0],
+          variant: "group",
+          title: "Group chat",
+          participantIds: [
+            currentUser.id,
+            formerUser.id,
+            markUser.id,
+            aliceUser.id,
+            zoeUser.id,
+          ],
+        },
+      ],
+    }))
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Group chat"
+        description=""
+        members={[currentUser, formerUser, markUser, aliceUser, zoeUser]}
+      />
+    )
+
+    expect(screen.getByText("Several people are typing")).toBeInTheDocument()
+  })
+
+  it("publishes typing state while composing a message", () => {
+    const setTypingMock = vi.fn()
+
+    useChatPresenceMock.mockReturnValue({
+      participants: [],
+      setTyping: setTypingMock,
+    })
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaceMemberships: [
+        {
+          workspaceId: "workspace_1",
+          userId: currentUser.id,
+          role: "member",
+        },
+        {
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        },
+      ],
+    }))
+
+    render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+      />
+    )
+
+    fireEvent.change(screen.getByTestId("mock-rich-text-editor"), {
+      target: {
+        value: "Hello",
+      },
+    })
+
+    expect(setTypingMock).toHaveBeenCalledWith(true)
   })
 })

@@ -355,7 +355,7 @@ describe("app store read model merge", () => {
       .getState()
       .documents.find((document) => document.id === "doc_workspace")
 
-    expect(protectedDocument?.title).toBe("Workspace Doc")
+    expect(protectedDocument?.title).toBe("Stale Workspace Doc")
     expect(protectedDocument?.content).toBe("<p>Workspace</p>")
 
     const currentState = useAppStore.getState()
@@ -405,7 +405,7 @@ describe("app store read model merge", () => {
       .getState()
       .documents.find((document) => document.id === "doc_workspace")
 
-    expect(protectedDocument?.title).toBe("Workspace Doc")
+    expect(protectedDocument?.title).toBe("Snapshot Workspace Doc")
     expect(protectedDocument?.content).toBe("<p>Workspace</p>")
   })
 

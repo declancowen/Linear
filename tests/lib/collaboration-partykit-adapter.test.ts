@@ -513,6 +513,110 @@ describe("PartyKit collaboration adapter", () => {
     )
   })
 
+  it("forces a fresh bootstrap and retries manual flush after a room mismatch response", async () => {
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const getFreshBootstrap = vi.fn().mockResolvedValue({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_2",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor" as const,
+      expiresAt: Math.floor(Date.now() / 1000) + 300,
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: vi.fn().mockResolvedValue("Collaboration room mismatch"),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(""),
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+      expiresAt: Math.floor(Date.now() / 1000) + 300,
+      getFreshBootstrap,
+    })
+
+    await session.flush()
+
+    expect(getFreshBootstrap).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.any(URL),
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer token_1",
+          "Content-Type": "application/json",
+        },
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.any(URL),
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer token_2",
+          "Content-Type": "application/json",
+        },
+      }),
+    )
+  })
+
+  it("retries manual flush after a room sync timeout", async () => {
+    vi.useFakeTimers()
+
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: vi
+          .fn()
+          .mockResolvedValue(
+            "Timed out waiting for collaboration room to receive local updates"
+          ),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(""),
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+
+    const flushPromise = session.flush()
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromise
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it("includes optional work-item metadata in the manual flush payload", async () => {
     const { createPartyKitCollaborationAdapter } = await import(
       "@/lib/collaboration/adapters/partykit"
@@ -550,6 +654,66 @@ describe("PartyKit collaboration adapter", () => {
         }),
       })
     )
+  })
+
+  it("omits the room state vector for document-title-only manual flushes", async () => {
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(""),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+
+    await session.flush({
+      documentTitle: "Updated document title",
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: JSON.stringify({
+          documentTitle: "Updated document title",
+        }),
+      })
+    )
+  })
+
+  it("disconnects the session when a manual flush reports a missing document", async () => {
+    const { createPartyKitCollaborationAdapter } = await import(
+      "@/lib/collaboration/adapters/partykit"
+    )
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: vi.fn().mockResolvedValue("Document not found"),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+    const disconnectSpy = vi.spyOn(providerState.latest!, "disconnect")
+
+    await expect(session.flush()).rejects.toThrow("Document not found")
+    expect(disconnectSpy).toHaveBeenCalled()
   })
 
   it("destroys the Y.Doc when the session disconnects", async () => {

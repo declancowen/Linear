@@ -14,10 +14,6 @@ import {
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
 import { documentSchema } from "@/lib/domain/types"
-import {
-  extractDocumentTitleFromContent,
-  replaceDocumentHeading,
-} from "@/lib/content/document-title"
 
 import {
   createId,
@@ -100,15 +96,12 @@ export function createWorkDocumentActions({
 
   return {
     updateDocumentContent(documentId, content) {
-      const nextTitle = extractDocumentTitleFromContent(content)
-
       set((state) => ({
         documents: state.documents.map((document) =>
           document.id === documentId
             ? {
                 ...document,
                 content,
-                title: nextTitle ?? document.title,
               }
             : document
         ),
@@ -153,7 +146,6 @@ export function createWorkDocumentActions({
     },
     applyDocumentCollaborationContent(documentId, content) {
       runtime.cancelRichTextSync(`document:${documentId}`)
-      const nextTitle = extractDocumentTitleFromContent(content)
 
       set((state) => ({
         documents: state.documents.map((document) =>
@@ -161,7 +153,6 @@ export function createWorkDocumentActions({
             ? {
                 ...document,
                 content,
-                title: nextTitle ?? document.title,
               }
             : document
         ),
@@ -194,10 +185,6 @@ export function createWorkDocumentActions({
             ? {
                 ...document,
                 title: normalizedTitle,
-                content: replaceDocumentHeading(
-                  document.content,
-                  normalizedTitle
-                ),
               }
             : document
         ),

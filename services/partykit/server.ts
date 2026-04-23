@@ -42,7 +42,9 @@ import {
 import { parseCollaborationRoomId } from "../../lib/collaboration/rooms"
 import {
   parseCollaborationSessionTokenClaims,
+  type ChatCollaborationSessionTokenClaims,
   type CollaborationSessionTokenClaims,
+  type DocumentCollaborationSessionTokenClaims,
 } from "../../lib/collaboration/transport"
 import { createRichTextBaseExtensions } from "../../lib/rich-text/extensions"
 import { buildCollaborationDocumentScopeKeys } from "../../lib/scoped-sync/document-scope-keys"
@@ -58,8 +60,20 @@ type CollaborationRoomStateMeta = {
 }
 
 type CollaborationRoomSessionState = {
-  latestClaims: CollaborationSessionTokenClaims | null
-  latestEditorClaims: CollaborationSessionTokenClaims | null
+  latestClaims: DocumentCollaborationSessionTokenClaims | null
+  latestEditorClaims: DocumentCollaborationSessionTokenClaims | null
+}
+
+type ChatPresenceConnectionState = {
+  kind: "chat"
+  claims: ChatCollaborationSessionTokenClaims
+  typing: boolean
+}
+
+type ChatPresenceSnapshotParticipant = {
+  userId: string
+  sessionId: string
+  typing: boolean
 }
 
 const richTextExtensions = createRichTextBaseExtensions({
@@ -83,6 +97,28 @@ type CollaborationFlushRequest = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function normalizeRuntimeRoomId(roomId: string) {
+  const trimmedRoomId = roomId.trim()
+
+  if (!trimmedRoomId) {
+    return ""
+  }
+
+  try {
+    return decodeURIComponent(trimmedRoomId)
+  } catch {
+    return trimmedRoomId
+  }
+}
+
+function getCanonicalRoomKey(room: Pick<Room, "id"> | string) {
+  return normalizeRuntimeRoomId(typeof room === "string" ? room : room.id)
+}
+
+function parseRuntimeCollaborationRoomId(room: Pick<Room, "id"> | string) {
+  return parseCollaborationRoomId(getCanonicalRoomKey(room))
 }
 
 function isMessageEventLike(value: unknown): value is { data: unknown } {
@@ -250,7 +286,8 @@ function getRoomStateMeta(doc: Doc) {
 }
 
 function getRoomSessionState(roomId: string) {
-  const existingState = roomSessionState.get(roomId)
+  const canonicalRoomId = getCanonicalRoomKey(roomId)
+  const existingState = roomSessionState.get(canonicalRoomId)
 
   if (existingState) {
     return existingState
@@ -261,14 +298,14 @@ function getRoomSessionState(roomId: string) {
     latestEditorClaims: null,
   }
 
-  roomSessionState.set(roomId, nextState)
+  roomSessionState.set(canonicalRoomId, nextState)
 
   return nextState
 }
 
 function setRoomSessionClaims(
   roomId: string,
-  claims: CollaborationSessionTokenClaims
+  claims: DocumentCollaborationSessionTokenClaims
 ) {
   const state = getRoomSessionState(roomId)
 
@@ -281,7 +318,7 @@ function setRoomSessionClaims(
   return state
 }
 
-function requireRoomClaims(room: Room) {
+function requireRoomDocumentClaims(room: Room) {
   const claims = getRoomSessionState(room.id).latestClaims
 
   if (!claims) {
@@ -289,6 +326,102 @@ function requireRoomClaims(room: Room) {
   }
 
   return claims
+}
+
+function isChatPresenceConnectionState(
+  value: unknown
+): value is ChatPresenceConnectionState {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return (
+    value.kind === "chat" &&
+    isRecord(value.claims) &&
+    value.claims.kind === "chat" &&
+    typeof value.claims.sub === "string" &&
+    typeof value.claims.sessionId === "string" &&
+    typeof value.typing === "boolean"
+  )
+}
+
+function getChatPresenceSnapshot(
+  room: Room
+): ChatPresenceSnapshotParticipant[] {
+  const participants: ChatPresenceSnapshotParticipant[] = []
+
+  for (const connection of room.getConnections<ChatPresenceConnectionState>()) {
+    const state = connection.state
+
+    if (!isChatPresenceConnectionState(state)) {
+      continue
+    }
+
+    participants.push({
+      userId: state.claims.sub,
+      sessionId: state.claims.sessionId,
+      typing: state.typing,
+    })
+  }
+
+  participants.sort((left, right) => {
+    const byUserId = left.userId.localeCompare(right.userId)
+
+    if (byUserId !== 0) {
+      return byUserId
+    }
+
+    return left.sessionId.localeCompare(right.sessionId)
+  })
+
+  return participants
+}
+
+function broadcastChatPresenceSnapshot(room: Room) {
+  room.broadcast(
+    JSON.stringify({
+      type: "presence_snapshot",
+      participants: getChatPresenceSnapshot(room),
+    })
+  )
+}
+
+function handleChatPresenceMessage(
+  message: string,
+  sender: Connection,
+  room: Room
+) {
+  const state = sender.state
+
+  if (!isChatPresenceConnectionState(state)) {
+    return
+  }
+
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(message)
+  } catch {
+    return
+  }
+
+  if (
+    !isRecord(parsed) ||
+    parsed.type !== "typing" ||
+    typeof parsed.typing !== "boolean"
+  ) {
+    return
+  }
+
+  if (state.typing === parsed.typing) {
+    return
+  }
+
+  sender.setState({
+    ...state,
+    typing: parsed.typing,
+  } satisfies ChatPresenceConnectionState)
+  broadcastChatPresenceSnapshot(room)
 }
 
 function requireRoomEditorClaims(room: Room) {
@@ -436,7 +569,14 @@ async function parseFlushRequest(
 
   const parsed = JSON.parse(rawBody) as unknown
 
-  if (!isRecord(parsed) || typeof parsed.stateVector !== "string") {
+  if (!isRecord(parsed)) {
+    throw new Error("Invalid collaboration flush request")
+  }
+
+  if (
+    typeof parsed.stateVector !== "undefined" &&
+    typeof parsed.stateVector !== "string"
+  ) {
     throw new Error("Invalid collaboration flush request")
   }
 
@@ -462,7 +602,10 @@ async function parseFlushRequest(
   }
 
   return {
-    expectedStateVector: decodeDocumentStateVector(parsed.stateVector),
+    expectedStateVector:
+      typeof parsed.stateVector === "string"
+        ? decodeDocumentStateVector(parsed.stateVector)
+        : null,
     ...(typeof parsed.documentTitle === "string"
       ? {
           documentTitle: parsed.documentTitle,
@@ -488,6 +631,27 @@ function createCollaborationFlushCorsHeaders() {
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
   }
+}
+
+function getCollaborationFlushErrorStatus(message: string) {
+  if (
+    message === "Timed out waiting for collaboration room to receive local updates"
+  ) {
+    return 409
+  }
+
+  if (message === "Document not found" || message === "Work item not found") {
+    return 404
+  }
+
+  if (
+    message === "You do not have permission to edit this document" ||
+    message === "Collaboration flush requires editor access"
+  ) {
+    return 403
+  }
+
+  return 400
 }
 
 async function signPayload(payload: string, secret: string) {
@@ -563,7 +727,7 @@ async function verifyRequestClaims(
     throw new Error("Expired collaboration token")
   }
 
-  const parsedRoom = parseCollaborationRoomId(room.id)
+  const parsedRoom = parseRuntimeCollaborationRoomId(room)
 
   if (!parsedRoom || parsedRoom.roomId !== claims.roomId) {
     throw new Error("Collaboration room mismatch")
@@ -573,7 +737,8 @@ async function verifyRequestClaims(
 }
 
 async function fetchBootstrapDocument(room: Room, currentUserId: string) {
-  const parsedRoom = parseCollaborationRoomId(room.id)
+  const parsedRoom = parseRuntimeCollaborationRoomId(room)
+  const canonicalRoomId = getCanonicalRoomKey(room)
 
   if (!parsedRoom) {
     throw new Error("Invalid collaboration room")
@@ -596,7 +761,7 @@ async function fetchBootstrapDocument(room: Room, currentUserId: string) {
     contentJson: createCanonicalContentJson(collaborationDocument.content),
   }
 
-  roomBootstrapCache.set(room.id, payload)
+  roomBootstrapCache.set(canonicalRoomId, payload)
 
   return payload
 }
@@ -604,7 +769,10 @@ async function fetchBootstrapDocument(room: Room, currentUserId: string) {
 async function loadCanonicalDocument(
   room: Room
 ) {
-  const payload = await fetchBootstrapDocument(room, requireRoomClaims(room).sub)
+  const payload = await fetchBootstrapDocument(
+    room,
+    requireRoomDocumentClaims(room).sub
+  )
   const json = normalizeCollaborationDocumentJson(payload.contentJson)
 
   return prosemirrorJSONToYDoc(
@@ -644,8 +812,7 @@ async function persistCanonicalDocument(
     throw new Error("You do not have permission to edit this document")
   }
 
-  const { contentHtml, derivedTitle } =
-    prepareCanonicalCollaborationContent(contentJson)
+  const { contentHtml } = prepareCanonicalCollaborationContent(contentJson)
 
   if (collaborationDocument.kind === "item-description") {
     if (!collaborationDocument.itemId) {
@@ -681,7 +848,7 @@ async function persistCanonicalDocument(
     }
   } else {
     const persistedTitle =
-      options?.documentTitle ?? derivedTitle ?? collaborationDocument.title
+      options?.documentTitle ?? collaborationDocument.title
 
     await persistCollaborationDocumentToConvex(
       room.env as Record<string, unknown>,
@@ -717,17 +884,16 @@ async function persistCanonicalDocument(
 
   markRoomCanonical(doc, contentJson)
 
-  const cachedPayload = roomBootstrapCache.get(room.id)
+  const cachedPayload = roomBootstrapCache.get(getCanonicalRoomKey(room))
 
   if (cachedPayload) {
-    roomBootstrapCache.set(room.id, {
+    roomBootstrapCache.set(getCanonicalRoomKey(room), {
       ...cachedPayload,
       ...(collaborationDocument.kind === "item-description"
         ? {}
         : {
             title:
               options?.documentTitle ??
-              derivedTitle ??
               collaborationDocument.title,
           }),
       content: contentHtml,
@@ -748,7 +914,7 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
       } catch (error) {
         console.error("[collaboration] failed to load canonical document", {
           roomId: room.id,
-          documentId: parseCollaborationRoomId(room.id)?.entityId ?? null,
+          documentId: parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
           userId: getRoomSessionState(room.id).latestClaims?.sub ?? null,
           error,
         })
@@ -769,7 +935,7 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
               : "Failed to persist collaboration document"
           console.error("[collaboration] failed to persist canonical document", {
             roomId: room.id,
-            documentId: parseCollaborationRoomId(room.id)?.entityId ?? null,
+            documentId: parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
             userId: getRoomSessionState(room.id).latestEditorClaims?.sub ?? null,
             error,
           })
@@ -783,7 +949,7 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
 
 async function ensureCanonicalDocumentSeeded(
   room: Room,
-  claims: CollaborationSessionTokenClaims
+  claims: DocumentCollaborationSessionTokenClaims
 ) {
   setRoomSessionClaims(room.id, claims)
   const options = createYPartyKitOptions(room)
@@ -807,7 +973,7 @@ async function ensureCanonicalDocumentSeeded(
     replaceCollaborationDocFromJson(yDoc, contentJson)
     markRoomCanonical(yDoc, contentJson)
   } else if (!isEmptyDocumentJson(contentJson) && isCollaborationDocEmpty(yDoc)) {
-    writeCollaborationDocFromJson(yDoc, contentJson)
+    replaceCollaborationDocFromJson(yDoc, contentJson)
     markRoomCanonical(yDoc, contentJson)
   }
 
@@ -849,6 +1015,39 @@ const collaboration = {
   ) {
     try {
       const claims = await verifyRequestClaims(room, context.request)
+      const parsedRoom = parseRuntimeCollaborationRoomId(room)
+
+      if (!parsedRoom) {
+        throw new Error("Invalid collaboration room")
+      }
+
+      if (parsedRoom.kind === "chat") {
+        if (claims.kind !== "chat") {
+          throw new Error("Collaboration room mismatch")
+        }
+
+        connection.setState({
+          kind: "chat",
+          claims,
+          typing: false,
+        } satisfies ChatPresenceConnectionState)
+        connection.addEventListener("message", (event: unknown) => {
+          const payload = isMessageEventLike(event) ? event.data : event
+
+          if (typeof payload !== "string") {
+            return
+          }
+
+          handleChatPresenceMessage(payload, connection, room)
+        })
+        broadcastChatPresenceSnapshot(room)
+        return
+      }
+
+      if (claims.kind !== "doc") {
+        throw new Error("Collaboration room mismatch")
+      }
+
       const { options } = await ensureCanonicalDocumentSeeded(room, claims)
 
       normalizeConnectionMessageEvents(connection)
@@ -866,6 +1065,13 @@ const collaboration = {
     }
   },
   async onClose(_connection: Connection, room: Room) {
+    const parsedRoom = parseRuntimeCollaborationRoomId(room)
+
+    if (parsedRoom?.kind === "chat") {
+      broadcastChatPresenceSnapshot(room)
+      return
+    }
+
     const yDoc = await unstable_getYDoc(room, createYPartyKitOptions(room))
     const isLastConnection = getCollaborationConnectionCount(yDoc) === 0
 
@@ -889,13 +1095,13 @@ const collaboration = {
     } catch (error) {
       console.error("[collaboration] failed to persist room on last close", {
         roomId: room.id,
-        documentId: parseCollaborationRoomId(room.id)?.entityId ?? null,
+        documentId: parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
         userId: getRoomSessionState(room.id).latestEditorClaims?.sub ?? null,
         error,
       })
     } finally {
-      roomBootstrapCache.delete(room.id)
-      roomSessionState.delete(room.id)
+      roomBootstrapCache.delete(getCanonicalRoomKey(room))
+      roomSessionState.delete(getCanonicalRoomKey(room))
     }
   },
   async onRequest(req: PartyRequest, room: Room) {
@@ -937,6 +1143,13 @@ const collaboration = {
       )
     }
 
+    if (claims.kind !== "doc") {
+      return new Response("Not found", {
+        status: 404,
+        headers: corsHeaders,
+      })
+    }
+
     if (claims.role !== "editor") {
       return new Response("Collaboration flush requires editor access", {
         status: 403,
@@ -972,10 +1185,7 @@ const collaboration = {
         error instanceof Error ? error.message : "Failed to flush collaboration state"
 
       return new Response(message, {
-        status:
-          message === "Timed out waiting for collaboration room to receive local updates"
-            ? 409
-            : 400,
+        status: getCollaborationFlushErrorStatus(message),
         headers: corsHeaders,
       })
     }

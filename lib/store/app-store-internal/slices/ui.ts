@@ -105,10 +105,7 @@ function mergeProtectedDocuments(
 
     return {
       ...document,
-      title: currentDocument.title,
       content: currentDocument.content,
-      updatedAt: currentDocument.updatedAt,
-      updatedBy: currentDocument.updatedBy,
     }
   })
 }

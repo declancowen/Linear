@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain/selectors"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
+import { useChatPresence } from "@/hooks/use-chat-presence"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { RichTextContent } from "@/components/app/rich-text-content"
@@ -47,6 +48,7 @@ function ChatComposer({
   action,
   editable = true,
   disabledReason,
+  onTypingChange,
 }: {
   placeholder?: string
   onSend: (content: string) => void
@@ -55,10 +57,12 @@ function ChatComposer({
   action?: ReactNode
   editable?: boolean
   disabledReason?: string | null
+  onTypingChange?: (typing: boolean) => void
 }) {
   const [content, setContent] = useState("")
   const [composerKey, setComposerKey] = useState(0)
   const editorInstanceRef = useRef<Editor | null>(null)
+  const typingTimeoutRef = useRef<number | null>(null)
   const contentText = getPlainTextContent(content)
   const filteredMentionCandidates = useMemo(
     () =>
@@ -68,6 +72,11 @@ function ChatComposer({
 
   const handleSend = () => {
     if (!editable || !contentText) return
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
+    }
+    onTypingChange?.(false)
     onSend(content)
     setContent("")
     setComposerKey((current) => current + 1)
@@ -77,13 +86,50 @@ function ChatComposer({
     editorInstanceRef.current?.chain().focus().insertContent(emoji).run()
   }
 
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current !== null) {
+        window.clearTimeout(typingTimeoutRef.current)
+      }
+
+      onTypingChange?.(false)
+    }
+  }, [onTypingChange])
+
+  const handleChange = (nextContent: string) => {
+    setContent(nextContent)
+
+    if (!editable) {
+      return
+    }
+
+    const nextText = getPlainTextContent(nextContent)
+    const isTyping = nextText.length > 0
+
+    onTypingChange?.(isTyping)
+
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
+    }
+
+    if (!isTyping) {
+      return
+    }
+
+    typingTimeoutRef.current = window.setTimeout(() => {
+      typingTimeoutRef.current = null
+      onTypingChange?.(false)
+    }, 2_500)
+  }
+
   return (
     <div className="px-4 pt-2.5 pb-3.5">
       <div className="rounded-md border border-line bg-surface px-3 pt-2 pb-1.5 transition-colors focus-within:border-fg-3">
         <RichTextEditor
           key={composerKey}
           content={content}
-          onChange={setContent}
+          onChange={handleChange}
           editable={editable}
           compact
           allowSlashCommands={false}
@@ -138,6 +184,26 @@ function ChatComposer({
       ) : null}
     </div>
   )
+}
+
+function formatTypingIndicatorLabel(names: string[]) {
+  if (names.length === 0) {
+    return ""
+  }
+
+  if (names.length === 1) {
+    return `${names[0]} is typing`
+  }
+
+  if (names.length === 2) {
+    return `${names[0]} & ${names[1]} are typing`
+  }
+
+  if (names.length === 3) {
+    return `${names[0]}, ${names[1]} and ${names[2]} are typing`
+  }
+
+  return "Several people are typing"
 }
 
 export function ChatThread({
@@ -219,6 +285,11 @@ export function ChatThread({
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
+  const { participants: chatPresenceParticipants, setTyping } = useChatPresence({
+    conversationId,
+    currentUserId,
+    enabled: true,
+  })
   const scrollRef = useRef<HTMLDivElement>(null)
   const hasHeaderActions = detailsAction != null
   const showWelcomeIntro =
@@ -339,6 +410,44 @@ export function ChatThread({
     workspaces,
     workspaceMemberships,
   ])
+  const typingUsers = useMemo(() => {
+    const uniqueTypingUsers = new Map<
+      string,
+      {
+        id: string
+        name: string
+        avatarImageUrl?: string | null
+        avatarUrl?: string | null
+      }
+    >()
+
+    for (const participant of chatPresenceParticipants) {
+      if (
+        !participant.typing ||
+        participant.userId === currentUserId ||
+        uniqueTypingUsers.has(participant.userId)
+      ) {
+        continue
+      }
+
+      const user =
+        usersById.get(participant.userId) ??
+        members.find((member) => member.id === participant.userId)
+
+      uniqueTypingUsers.set(participant.userId, {
+        id: participant.userId,
+        name: user?.name ?? "Someone",
+        avatarImageUrl: user?.avatarImageUrl ?? null,
+        avatarUrl: user?.avatarUrl ?? null,
+      })
+    }
+
+    return [...uniqueTypingUsers.values()]
+  }, [chatPresenceParticipants, currentUserId, members, usersById])
+  const typingIndicatorLabel = useMemo(
+    () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
+    [typingUsers]
+  )
 
   function getWorkspaceMembershipState(userId: string | null | undefined) {
     if (!userId || !currentWorkspaceId) {
@@ -627,14 +736,45 @@ export function ChatThread({
         )}
       </div>
 
+      {typingUsers.length > 0 ? (
+        <div className="shrink-0 border-t border-line-soft bg-background px-4 py-2">
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <div className="flex -space-x-1">
+              {typingUsers.slice(0, 3).map((user) => (
+                <UserAvatar
+                  key={user.id}
+                  name={user.name}
+                  avatarImageUrl={user.avatarImageUrl}
+                  avatarUrl={user.avatarUrl}
+                  size="xs"
+                  showStatus={false}
+                  className="ring-2 ring-background"
+                />
+              ))}
+            </div>
+            <span>{typingIndicatorLabel}</span>
+          </div>
+        </div>
+      ) : null}
+
       {hideComposer ? (
         messages.length > 0 && composerDisabledReason ? (
-          <div className="shrink-0 border-t bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur">
+          <div
+            className={cn(
+              "shrink-0 bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur",
+              typingUsers.length > 0 ? "" : "border-t"
+            )}
+          >
             {composerDisabledReason}
           </div>
         ) : null
       ) : (
-        <div className="shrink-0 border-t border-line-soft bg-background">
+        <div
+          className={cn(
+            "shrink-0 bg-background",
+            typingUsers.length > 0 ? "" : "border-t border-line-soft"
+          )}
+        >
           <ChatComposer
             placeholder={`Message ${title}…`}
             mentionCandidates={messageableMembers}
@@ -642,6 +782,7 @@ export function ChatThread({
             action={videoAction}
             editable={composerEditable}
             disabledReason={composerDisabledReason}
+            onTypingChange={setTyping}
             onSend={(content) => {
               useAppStore
                 .getState()

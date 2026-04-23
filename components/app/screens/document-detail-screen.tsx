@@ -1,5 +1,4 @@
 "use client"
-
 import type { Editor } from "@tiptap/react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -83,36 +82,6 @@ function formatMentionCountLabel(count: number) {
 
 function formatRecipientCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`
-}
-
-function updateCollaborativeDocumentTitle(editor: Editor, title: string) {
-  return editor
-    .chain()
-    .command(({ dispatch, state, tr }) => {
-      let handled = false
-
-      state.doc.descendants((node, pos) => {
-        if (handled) {
-          return false
-        }
-
-        if (node.type.name !== "heading" || node.attrs.level !== 1) {
-          return true
-        }
-
-        handled = true
-        tr.insertText(title, pos + 1, pos + node.content.size + 1)
-        return false
-      })
-
-      if (!handled) {
-        return false
-      }
-
-      dispatch?.(tr)
-      return true
-    })
-    .run()
 }
 
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
@@ -203,11 +172,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const {
     hasLoadedOnce: hasLoadedDocumentReadModel,
   } = useScopedReadModelRefresh({
-    enabled:
-      Boolean(documentId) &&
-      (!document ||
-        collaborationLifecycle === "legacy" ||
-        collaborationLifecycle === "degraded"),
+    enabled: Boolean(documentId),
     scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
     fetchLatest: () => fetchDocumentDetailReadModel(documentId),
     notFoundResult: documentId
@@ -764,16 +729,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       return
     }
 
-    if (isCollaborationAttached && editorInstanceRef.current) {
-      const updatedTitleInEditor = updateCollaborativeDocumentTitle(
-        editorInstanceRef.current,
-        normalizedTitle
-      )
-
-      if (updatedTitleInEditor) {
-        return
-      }
-
+    if (isCollaborationAttached) {
       useAppStore
         .getState()
         .applyDocumentCollaborationTitle(loadedDocumentId, normalizedTitle)

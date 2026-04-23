@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { CollaborationTransportSession } from "@/lib/collaboration/transport"
@@ -224,5 +224,63 @@ describe("useDocumentCollaboration", () => {
 
     expect(firstSession.disconnect).toHaveBeenCalled()
     expect(resolveSecondOpen).not.toBeNull()
+  })
+
+  it("degrades out of collaboration when an attached session disconnects", async () => {
+    const session = createSession()
+    let statusListener:
+      | ((change: { state: "disconnected"; reason?: string }) => void)
+      | null = null
+
+    session.onStatusChange = vi.fn((listener) => {
+      statusListener = listener as typeof statusListener
+      return vi.fn()
+    })
+
+    openDocumentCollaborationSessionMock.mockResolvedValue({
+      bootstrap: {
+        roomId: "doc:document_1",
+        documentId: "document_1",
+        token: "token",
+        serviceUrl: "https://collab.example.com",
+        role: "editor",
+        sessionId: "session_1",
+      },
+      session,
+    })
+
+    const { useDocumentCollaboration } = await import(
+      "@/hooks/use-document-collaboration"
+    )
+
+    const { result } = renderHook(() =>
+      useDocumentCollaboration({
+        documentId: "document_1",
+        enabled: true,
+        currentUser: {
+          id: "user_1",
+          name: "Alex",
+          avatarUrl: "",
+          avatarImageUrl: "https://example.com/avatar.png",
+        },
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.lifecycle).toBe("attached")
+    })
+
+    act(() => {
+      statusListener?.({
+        state: "disconnected",
+        reason: "document-missing",
+      })
+    })
+
+    await waitFor(() => {
+      expect(result.current.lifecycle).toBe("degraded")
+      expect(result.current.collaboration).toBeNull()
+      expect(result.current.mode).toBe("legacy")
+    })
   })
 })

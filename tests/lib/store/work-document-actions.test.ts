@@ -512,7 +512,7 @@ describe("work document actions", () => {
 
     expect(state.documents.find((document) => document.id === "document_1"))
       .toMatchObject({
-        title: "Launch plan",
+        title: "Spec",
         content: "<h1>Launch plan</h1><p>Updated details</p>",
         updatedAt: "2026-04-17T10:00:00.000Z",
         updatedBy: "user_1",
@@ -527,7 +527,7 @@ describe("work document actions", () => {
     await queuedTask?.()
 
     expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
-      title: "Launch plan",
+      title: "Spec",
       content: "<h1>Launch plan</h1><p>Updated details</p>",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
@@ -691,6 +691,60 @@ describe("work document actions", () => {
         title: "Metadata-only collaborative rename",
         content: "<h1>Spec</h1>",
       })
+  })
+
+  it("renames document metadata without rewriting the body content", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncUpdateDocumentMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:07:00.000Z",
+    })
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.renameDocument("document_1", "Renamed metadata only")
+
+    expect(state.documents.find((document) => document.id === "document_1"))
+      .toMatchObject({
+        title: "Renamed metadata only",
+        content: "<h1>Spec</h1>",
+      })
+
+    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
+      | (() => Promise<void>)
+      | undefined
+
+    expect(queuedTask).toBeTypeOf("function")
+
+    await queuedTask?.()
+
+    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
+      title: "Renamed metadata only",
+      content: "<h1>Spec</h1>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
   })
 
   it("skips a queued item-description sync once collaboration protects the description document", async () => {

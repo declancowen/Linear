@@ -198,11 +198,12 @@ export function WorkspaceChatsScreen() {
     selectedChatId && chats.some((chat) => chat.id === selectedChatId)
       ? selectedChatId
       : (chats[0]?.id ?? null)
-  useScopedReadModelRefresh({
-    enabled: Boolean(currentUserId),
-    scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
-    fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
-  })
+  const { hasLoadedOnce: hasLoadedConversationList } =
+    useScopedReadModelRefresh({
+      enabled: Boolean(currentUserId),
+      scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
+      fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+    })
   useScopedReadModelRefresh({
     enabled: Boolean(activeChatId),
     scopeKeys: activeChatId ? getConversationThreadScopeKeys(activeChatId) : [],
@@ -363,7 +364,11 @@ export function WorkspaceChatsScreen() {
           router.replace(`/chats?chatId=${id}`, { scroll: false })
         }
       />
-      {chats.length === 0 ? (
+      {!hasLoadedConversationList && chats.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+          Loading chats...
+        </div>
+      ) : chats.length === 0 ? (
         <EmptyState
           title="No chats yet"
           description="Create a direct or group chat with people in the workspace."

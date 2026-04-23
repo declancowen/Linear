@@ -21,7 +21,6 @@ import {
 import Collaboration, {
   isChangeOrigin,
 } from "@tiptap/extension-collaboration"
-import CollaborationCaret from "@tiptap/extension-collaboration-caret"
 import FileHandler from "@tiptap/extension-file-handler"
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model"
 import * as Y from "yjs"
@@ -127,10 +126,20 @@ type CollaborationCursorMarker = {
   height: number
 }
 
+type CollaborationSelectionMarker = {
+  key: string
+  color: string
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 const EMPTY_MENTION_CANDIDATES: MentionCandidate[] = []
 const FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY = "linear.document-canvas-width"
 const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
+const COLLABORATION_OVERLAY_HEADROOM_CLASS = "pt-14"
 
 function escapeHtml(value: string) {
   return value
@@ -163,6 +172,37 @@ function getEditorMentionCounts(currentEditor: Editor): RichTextMentionCounts {
   })
 
   return mentionCounts
+}
+
+function areCollaborationSelectionMarkersEqual(
+  left: CollaborationSelectionMarker[],
+  right: CollaborationSelectionMarker[]
+) {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftMarker = left[index]
+    const rightMarker = right[index]
+
+    if (!leftMarker || !rightMarker) {
+      return false
+    }
+
+    if (
+      leftMarker.key !== rightMarker.key ||
+      leftMarker.color !== rightMarker.color ||
+      leftMarker.left !== rightMarker.left ||
+      leftMarker.top !== rightMarker.top ||
+      leftMarker.width !== rightMarker.width ||
+      leftMarker.height !== rightMarker.height
+    ) {
+      return false
+    }
+  }
+
+  return true
 }
 
 function areBlockPresenceMarkersEqual(
@@ -220,37 +260,11 @@ function getSelectionRange(currentEditor: Editor) {
   return { anchor, head }
 }
 
-function getCollaborationUserColorValue(user: Record<string, unknown>) {
-  return typeof user.color === "string" && user.color.trim().length > 0
-    ? user.color
-    : "#0f172a"
-}
-
-function renderCollaborationCaret(user: Record<string, unknown>) {
-  const caret = document.createElement("span")
-  caret.classList.add("collaboration-carets__anchor")
-  caret.setAttribute("aria-hidden", "true")
-  if (typeof user.userId === "string" && user.userId.trim().length > 0) {
-    caret.dataset.collaborationUserId = user.userId.trim()
-  }
-  if (
-    typeof user.sessionId === "string" &&
-    user.sessionId.trim().length > 0
-  ) {
-    caret.dataset.collaborationSessionId = user.sessionId.trim()
-  }
-
-  return caret
-}
-
-function renderCollaborationSelection(user: Record<string, unknown>) {
-  const color = getCollaborationUserColorValue(user)
-
-  return {
-    nodeName: "span",
-    class: "collaboration-carets__selection",
-    style: `background-color: ${color}22`,
-  }
+function getSemanticCaretSide(currentEditor: Editor) {
+  return getLocalTextblockBoundarySide(
+    currentEditor,
+    currentEditor.state.selection.head
+  )
 }
 
 function updateEditorCollaborationUser(
@@ -348,7 +362,7 @@ function collectBlockPresenceMarkers(input: {
     return [] as BlockPresenceMarker[]
   }
 
-  const viewersByBlockId = new Map<string, DocumentPresenceViewer[]>()
+  const viewersByBlockId = new Map<string, Map<string, DocumentPresenceViewer>>()
 
   for (const viewer of input.viewers) {
     const activeBlockId = viewer.activeBlockId?.trim()
@@ -357,9 +371,10 @@ function collectBlockPresenceMarkers(input: {
       continue
     }
 
-    const blockViewers = viewersByBlockId.get(activeBlockId) ?? []
-    blockViewers.push(viewer)
-    viewersByBlockId.set(activeBlockId, blockViewers)
+    const blockViewerMap =
+      viewersByBlockId.get(activeBlockId) ?? new Map<string, DocumentPresenceViewer>()
+    blockViewerMap.set(viewer.userId, viewer)
+    viewersByBlockId.set(activeBlockId, blockViewerMap)
   }
 
   if (viewersByBlockId.size === 0) {
@@ -375,7 +390,8 @@ function collectBlockPresenceMarkers(input: {
     }
 
     const blockId = `${node.type.name}:${position}`
-    const blockViewers = viewersByBlockId.get(blockId)
+    const blockViewerMap = viewersByBlockId.get(blockId)
+    const blockViewers = blockViewerMap ? Array.from(blockViewerMap.values()) : null
 
     if (!blockViewers || blockViewers.length === 0) {
       return
@@ -517,6 +533,30 @@ function getCollaborationAwarenessCursorHead(value: unknown) {
   return head
 }
 
+function getCollaborationAwarenessSelectionRange(value: unknown) {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const userValue = isRecord(value.user) ? value.user : value
+  const selectionValue = isRecord(userValue.selection) ? userValue.selection : null
+  const anchor = selectionValue?.anchor
+  const head = selectionValue?.head
+
+  if (
+    typeof anchor !== "number" ||
+    !Number.isInteger(anchor) ||
+    anchor < 0 ||
+    typeof head !== "number" ||
+    !Number.isInteger(head) ||
+    head < 0
+  ) {
+    return null
+  }
+
+  return { anchor, head }
+}
+
 type YSyncEditorState = {
   doc: Y.Doc | null
   type: Y.XmlFragment | null
@@ -621,183 +661,108 @@ function getCaretCoordinatesFromTextNode(input: {
   return null
 }
 
-function getLocalCaretSide(currentEditor: Editor): CollaborationCaretSide | null {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  let editorDom: HTMLElement
-  let ownerDocument: Document
-
+function getCollapsedRangeCaretCoordinates(
+  currentEditor: Editor,
+  position: number
+) {
   try {
-    editorDom = currentEditor.view.dom as HTMLElement
-    ownerDocument = editorDom.ownerDocument
-  } catch {
-    return null
-  }
+    const domPosition = currentEditor.view.domAtPos(position)
+    const baseNode = domPosition.node
+    const ownerDocument = baseNode.ownerDocument
 
-  const selection = ownerDocument.getSelection()
-
-  if (
-    !selection ||
-    !selection.focusNode ||
-    !editorDom.contains(selection.focusNode)
-  ) {
-    return null
-  }
-
-  try {
-    const range = ownerDocument.createRange()
-    range.setStart(selection.focusNode, selection.focusOffset)
-    range.setEnd(selection.focusNode, selection.focusOffset)
-
-    const caretRect =
-      range.getClientRects()[0] ?? range.getBoundingClientRect() ?? null
-
-    if (!caretRect) {
+    if (!ownerDocument) {
       return null
     }
 
-    const { head } = currentEditor.state.selection
-    const after = currentEditor.view.coordsAtPos(head, 1)
-    let before: ReturnType<typeof currentEditor.view.coordsAtPos> | null = null
+    const range = ownerDocument.createRange()
 
-    if (head > 0) {
-      before = currentEditor.view.coordsAtPos(head, -1)
+    if (baseNode.nodeType === Node.TEXT_NODE) {
+      const textNode = baseNode as Text
+      const safeOffset = Math.min(
+        Math.max(domPosition.offset, 0),
+        textNode.data.length
+      )
+      range.setStart(textNode, safeOffset)
+      range.setEnd(textNode, safeOffset)
+    } else {
+      const safeOffset = Math.min(
+        Math.max(domPosition.offset, 0),
+        baseNode.childNodes.length
+      )
+      range.setStart(baseNode, safeOffset)
+      range.setEnd(baseNode, safeOffset)
     }
 
-    const distanceToAfter =
-      Math.abs(caretRect.left - after.left) + Math.abs(caretRect.top - after.top)
-    const distanceToBefore =
-      before === null
-        ? Number.POSITIVE_INFINITY
-        : Math.abs(caretRect.left - before.right) +
-          Math.abs(caretRect.top - before.top)
+    const rect =
+      range.getClientRects()[0] ?? range.getBoundingClientRect() ?? null
 
-    return distanceToBefore <= distanceToAfter ? "before" : "after"
+    if (!rect) {
+      return null
+    }
+
+    return {
+      left: rect.left,
+      top: rect.top,
+      bottom: rect.bottom,
+    }
   } catch {
     return null
   }
 }
 
-function getLocalCaretRect(
+function getClientRectsForDocumentRange(
   currentEditor: Editor,
-  container: HTMLDivElement | null
+  startPosition: number,
+  endPosition: number
 ) {
-  if (!container) {
-    return null
-  }
-
-  let editorDom: HTMLElement
-  let ownerDocument: Document
-
   try {
-    editorDom = currentEditor.view.dom as HTMLElement
-    ownerDocument = editorDom.ownerDocument
-  } catch {
-    return null
-  }
+    const ownerDocument = currentEditor.view.dom.ownerDocument
 
-  const containerRect = container.getBoundingClientRect()
-  const selection = ownerDocument.getSelection()
-  const editorSelection = currentEditor.state.selection
+    if (!ownerDocument) {
+      return [] as DOMRect[]
+    }
 
-  if (
-    !selection ||
-    !selection.focusNode ||
-    !editorDom.contains(selection.focusNode)
-  ) {
-    return null
-  }
+    const startDomPosition = currentEditor.view.domAtPos(startPosition)
+    const endDomPosition = currentEditor.view.domAtPos(endPosition)
+    const range = ownerDocument.createRange()
 
-  try {
-    let coordinates: { left: number; top: number; bottom: number } | null = null
-
-    if (editorSelection.empty) {
-      const preferredCoordinates = resolveCollaborationCaretCoordinates(
-        currentEditor,
-        editorSelection.head,
-        getLocalCaretSide(currentEditor)
+    if (startDomPosition.node.nodeType === Node.TEXT_NODE) {
+      const textNode = startDomPosition.node as Text
+      range.setStart(
+        textNode,
+        Math.min(Math.max(startDomPosition.offset, 0), textNode.data.length)
       )
-
-      coordinates = preferredCoordinates
-    }
-
-    const focusNode = selection.focusNode
-    const focusOffset = selection.focusOffset
-
-    if (!coordinates && focusNode.nodeType === Node.TEXT_NODE) {
-      const textNode = focusNode as Text
-
-      if (focusOffset > 0) {
-        coordinates = getCaretCoordinatesFromTextNode({
-          textNode,
-          offset: focusOffset,
-        })
-      }
-
-      if (!coordinates && focusOffset < textNode.data.length) {
-        coordinates = getCaretCoordinatesFromTextNode({
-          textNode,
-          offset: focusOffset,
-        })
-      }
-    } else if (!coordinates && focusNode instanceof HTMLElement) {
-      const beforeTextNode =
-        focusOffset > 0
-          ? getLastTextNode(focusNode.childNodes[focusOffset - 1] ?? null)
-          : null
-
-      if (beforeTextNode) {
-        coordinates = getCaretCoordinatesFromTextNode({
-          textNode: beforeTextNode,
-          offset: beforeTextNode.data.length,
-        })
-      }
-
-      if (!coordinates) {
-        const afterTextNode = getFirstTextNode(
-          focusNode.childNodes[focusOffset] ?? null
+    } else {
+      range.setStart(
+        startDomPosition.node,
+        Math.min(
+          Math.max(startDomPosition.offset, 0),
+          startDomPosition.node.childNodes.length
         )
-
-        if (afterTextNode) {
-          coordinates = getCaretCoordinatesFromTextNode({
-            textNode: afterTextNode,
-            offset: 0,
-          })
-        }
-      }
+      )
     }
 
-    if (!coordinates) {
-      const range = ownerDocument.createRange()
-      range.setStart(focusNode, focusOffset)
-      range.setEnd(focusNode, focusOffset)
-      const caretRect =
-        range.getClientRects()[0] ?? range.getBoundingClientRect() ?? null
-
-      if (!caretRect) {
-        return null
-      }
-
-      coordinates = {
-        left: caretRect.left,
-        top: caretRect.top,
-        bottom: caretRect.bottom,
-      }
+    if (endDomPosition.node.nodeType === Node.TEXT_NODE) {
+      const textNode = endDomPosition.node as Text
+      range.setEnd(
+        textNode,
+        Math.min(Math.max(endDomPosition.offset, 0), textNode.data.length)
+      )
+    } else {
+      range.setEnd(
+        endDomPosition.node,
+        Math.min(
+          Math.max(endDomPosition.offset, 0),
+          endDomPosition.node.childNodes.length
+        )
+      )
     }
 
-    return {
-      left: Math.round(
-        coordinates.left - containerRect.left + container.scrollLeft
-      ),
-      top: Math.round(
-        coordinates.top - containerRect.top + container.scrollTop
-      ),
-      height: Math.max(1, Math.round(coordinates.bottom - coordinates.top)),
-    }
+    return Array.from(range.getClientRects()).filter(
+      (rect) => rect.width > 0 && rect.height > 0
+    )
   } catch {
-    return null
+    return [] as DOMRect[]
   }
 }
 
@@ -906,11 +871,53 @@ function getCaretCoordinatesAfterPosition(
   }
 }
 
+function getLocalTextblockBoundarySide(
+  currentEditor: Editor,
+  position: number
+): CollaborationCaretSide | null {
+  try {
+    const safePosition = Math.min(
+      Math.max(position, 0),
+      currentEditor.state.doc.content.size
+    )
+    const resolvedPosition = currentEditor.state.doc.resolve(safePosition)
+
+    if (!resolvedPosition.parent.isTextblock) {
+      return null
+    }
+
+    if (resolvedPosition.parentOffset === 0) {
+      return "after"
+    }
+
+    if (resolvedPosition.parentOffset === resolvedPosition.parent.content.size) {
+      return "before"
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
 function resolveCollaborationCaretCoordinates(
   currentEditor: Editor,
   position: number,
   preferredSide: CollaborationCaretSide | null
 ) {
+  const localBoundarySide = getLocalTextblockBoundarySide(
+    currentEditor,
+    position
+  )
+
+  if (localBoundarySide === "before" && position > 0) {
+    return getCaretCoordinatesBeforePosition(currentEditor, position)
+  }
+
+  if (localBoundarySide === "after") {
+    return getCaretCoordinatesAfterPosition(currentEditor, position)
+  }
+
   try {
     if (preferredSide === "before" && position > 0) {
       return getCaretCoordinatesBeforePosition(currentEditor, position)
@@ -919,19 +926,17 @@ function resolveCollaborationCaretCoordinates(
     if (preferredSide === "after") {
       return getCaretCoordinatesAfterPosition(currentEditor, position)
     }
-
-    if (position > 0) {
-      const before = getCaretCoordinatesBeforePosition(currentEditor, position)
-      const after = getCaretCoordinatesAfterPosition(currentEditor, position)
-
-      if (after.top > before.top || after.left < before.left) {
-        return after
-      }
-
-      return before
-    }
   } catch {
     // Ignore unsupported side lookups and fall through.
+  }
+
+  const collapsedRangeCoordinates = getCollapsedRangeCaretCoordinates(
+    currentEditor,
+    position
+  )
+
+  if (collapsedRangeCoordinates) {
+    return collapsedRangeCoordinates
   }
 
   return getCaretCoordinatesAfterPosition(currentEditor, position)
@@ -1016,7 +1021,7 @@ function collectCollaborationCursorMarkers(input: {
       }
 
       const maxDocumentPosition = Math.max(
-        input.currentEditor.state.doc.content.size - 1,
+        input.currentEditor.state.doc.content.size,
         0
       )
       head = Math.min(head, maxDocumentPosition)
@@ -1027,30 +1032,108 @@ function collectCollaborationCursorMarkers(input: {
           head,
           user.cursorSide
         )
-        const coordinatesOverride = user.cursorRect
-        const height =
-          coordinatesOverride?.height ??
-          Math.max(18, Math.round(coordinates.bottom - coordinates.top))
+        const height = Math.max(
+          18,
+          Math.round(coordinates.bottom - coordinates.top)
+        )
 
         markers.push({
           key: `${clientId}:${user.sessionId}`,
           name: user.name,
           color: user.color,
-          left:
-            coordinatesOverride?.left ??
-            Math.round(
-              coordinates.left - containerRect.left + container.scrollLeft
-            ),
-          top:
-            coordinatesOverride?.top ??
-            Math.round(
-              coordinates.top - containerRect.top + container.scrollTop
-            ),
+          left: Math.round(
+            coordinates.left - containerRect.left + container.scrollLeft
+          ),
+          top: Math.round(
+            coordinates.top - containerRect.top + container.scrollTop
+          ),
           height,
         })
       } catch {
         return
       }
+    })
+
+  return markers.sort(
+    (left, right) =>
+      left.top - right.top ||
+      left.left - right.left ||
+      left.key.localeCompare(right.key)
+  )
+}
+
+function collectCollaborationSelectionMarkers(input: {
+  currentEditor: Editor
+  container: HTMLDivElement | null
+  collaboration: NonNullable<RichTextEditorProps["collaboration"]>
+  currentPresenceUserId: string | null
+}) {
+  const container = input.container
+
+  if (!container) {
+    return [] as CollaborationSelectionMarker[]
+  }
+
+  const localSessionId =
+    getCollaborationAwarenessUser(
+      input.collaboration.binding.provider.awareness.getLocalState()
+    )?.sessionId ?? input.collaboration.localUser.sessionId
+  const containerRect = container.getBoundingClientRect()
+  const markers: CollaborationSelectionMarker[] = []
+  const maxDocumentPosition = Math.max(
+    input.currentEditor.state.doc.content.size,
+    0
+  )
+
+  input.collaboration.binding.provider.awareness
+    .getStates()
+    .forEach((value, clientId) => {
+      const user = getCollaborationAwarenessUser(value)
+
+      if (!user) {
+        return
+      }
+
+      if (
+        user.sessionId === localSessionId ||
+        (input.currentPresenceUserId &&
+          user.userId === input.currentPresenceUserId)
+      ) {
+        return
+      }
+
+      const selection = getCollaborationAwarenessSelectionRange(value)
+
+      if (!selection || selection.anchor === selection.head) {
+        return
+      }
+
+      const start = Math.min(selection.anchor, selection.head)
+      const end = Math.min(
+        Math.max(selection.anchor, selection.head),
+        maxDocumentPosition
+      )
+
+      if (start === end) {
+        return
+      }
+
+      const clientRects = getClientRectsForDocumentRange(
+        input.currentEditor,
+        start,
+        end
+      )
+
+      clientRects.forEach((rect, index) => {
+        markers.push({
+          key: `${clientId}:${user.sessionId}:${index}`,
+          color: user.color,
+          left: Math.round(rect.left - containerRect.left + container.scrollLeft),
+          top: Math.round(rect.top - containerRect.top + container.scrollTop),
+          width: Math.max(1, Math.round(rect.width)),
+          height: Math.max(1, Math.round(rect.height)),
+        })
+      })
     })
 
   return markers.sort(
@@ -1117,6 +1200,8 @@ export function RichTextEditor({
   const [blockPresenceMarkers, setBlockPresenceMarkers] = useState<
     BlockPresenceMarker[]
   >([])
+  const [collaborationSelectionMarkers, setCollaborationSelectionMarkers] =
+    useState<CollaborationSelectionMarker[]>([])
   const [collaborationCursorMarkers, setCollaborationCursorMarkers] = useState<
     CollaborationCursorMarker[]
   >([])
@@ -1311,12 +1396,6 @@ export function RichTextEditor({
               document: collaboration.binding.doc,
               field: COLLABORATION_XML_FRAGMENT,
               provider: collaboration.binding.provider,
-            }),
-            CollaborationCaret.configure({
-              provider: collaboration.binding.provider,
-              user: collaboration.localUser,
-              render: renderCollaborationCaret,
-              selectionRender: renderCollaborationSelection,
             }),
           ]
         : [],
@@ -1607,7 +1686,7 @@ export function RichTextEditor({
     onCreate({ editor: currentEditor }) {
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getLocalCaretSide(currentEditor)
+      const cursorSide = getSemanticCaretSide(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1641,7 +1720,7 @@ export function RichTextEditor({
       if (collaboration && !isExternalCollaborationChange) {
         const activeBlockId = getActiveBlockId(currentEditor)
         const selection = getSelectionRange(currentEditor)
-        const cursorSide = getLocalCaretSide(currentEditor)
+        const cursorSide = getSemanticCaretSide(currentEditor)
         updateEditorCollaborationUser(currentEditor, collaboration, {
           typing: true,
           activeBlockId,
@@ -1659,7 +1738,7 @@ export function RichTextEditor({
       syncCommandMenus(currentEditor)
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getLocalCaretSide(currentEditor)
+      const cursorSide = getSemanticCaretSide(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1674,7 +1753,7 @@ export function RichTextEditor({
     onFocus({ editor: currentEditor }) {
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getLocalCaretSide(currentEditor)
+      const cursorSide = getSemanticCaretSide(currentEditor)
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
           activeBlockId,
@@ -1689,7 +1768,7 @@ export function RichTextEditor({
       clearTypingTimeout()
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getLocalCaretSide(currentEditor)
+      const cursorSide = getSemanticCaretSide(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1767,7 +1846,7 @@ export function RichTextEditor({
 
     const activeBlockId = getActiveBlockId(editor)
     const selection = getSelectionRange(editor)
-    const cursorSide = getLocalCaretSide(editor)
+    const cursorSide = getSemanticCaretSide(editor)
     updateEditorCollaborationUser(editor, collaboration, {
       typing: false,
       activeBlockId,
@@ -1777,54 +1856,6 @@ export function RichTextEditor({
     })
     reportActiveBlockId(activeBlockId)
   }, [collaboration, editor, reportActiveBlockId])
-
-  useEffect(() => {
-    if (!editor || !collaboration) {
-      return
-    }
-
-    let frameId: number | null = null
-    const queueAwarenessRectUpdate = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        const selection = getSelectionRange(editor)
-        const cursorSide = getLocalCaretSide(editor)
-        const cursorRect = getLocalCaretRect(editor, containerRef.current)
-        updateEditorCollaborationUser(editor, collaboration, {
-          cursor: selection,
-          selection,
-          cursorSide,
-          cursorRect,
-        })
-      })
-    }
-
-    const container = containerRef.current
-    queueAwarenessRectUpdate()
-    editor.on("update", queueAwarenessRectUpdate)
-    editor.on("selectionUpdate", queueAwarenessRectUpdate)
-    editor.on("focus", queueAwarenessRectUpdate)
-    container?.addEventListener("scroll", queueAwarenessRectUpdate, {
-      passive: true,
-    })
-    window.addEventListener("resize", queueAwarenessRectUpdate)
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-
-      editor.off("update", queueAwarenessRectUpdate)
-      editor.off("selectionUpdate", queueAwarenessRectUpdate)
-      editor.off("focus", queueAwarenessRectUpdate)
-      container?.removeEventListener("scroll", queueAwarenessRectUpdate)
-      window.removeEventListener("resize", queueAwarenessRectUpdate)
-    }
-  }, [collaboration, editor, containerWidth, fullPageCanvasWidth])
 
   useEffect(() => {
     if (!editor) {
@@ -1932,6 +1963,28 @@ export function RichTextEditor({
     )
   }, [collaboration, currentPresenceUserId, editor])
 
+  const updateCollaborationSelectionMarkers = useCallback(() => {
+    if (!editor || !collaboration) {
+      setCollaborationSelectionMarkers((current) =>
+        current.length === 0 ? current : []
+      )
+      return
+    }
+
+    const nextMarkers = collectCollaborationSelectionMarkers({
+      currentEditor: editor,
+      container: containerRef.current,
+      collaboration,
+      currentPresenceUserId,
+    })
+
+    setCollaborationSelectionMarkers((current) =>
+      areCollaborationSelectionMarkersEqual(current, nextMarkers)
+        ? current
+        : nextMarkers
+    )
+  }, [collaboration, currentPresenceUserId, editor])
+
   useEffect(() => {
     onStatsChange?.({
       words: statsWords,
@@ -1949,6 +2002,14 @@ export function RichTextEditor({
     containerWidth,
     fullPageCanvasWidth,
     updateCollaborationCursorMarkers,
+  ])
+
+  useEffect(() => {
+    updateCollaborationSelectionMarkers()
+  }, [
+    containerWidth,
+    fullPageCanvasWidth,
+    updateCollaborationSelectionMarkers,
   ])
 
   useEffect(() => {
@@ -1993,15 +2054,22 @@ export function RichTextEditor({
     }
 
     let frameId: number | null = null
+    let settleFrameId: number | null = null
     const provider = collaboration.binding.provider
     const queueUpdate = () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId)
       }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
 
       frameId = window.requestAnimationFrame(() => {
         frameId = null
-        updateCollaborationCursorMarkers()
+        settleFrameId = window.requestAnimationFrame(() => {
+          settleFrameId = null
+          updateCollaborationCursorMarkers()
+        })
       })
     }
 
@@ -2018,6 +2086,9 @@ export function RichTextEditor({
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId)
       }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
 
       editor.off("update", queueUpdate)
       editor.off("selectionUpdate", queueUpdate)
@@ -2027,6 +2098,57 @@ export function RichTextEditor({
       window.removeEventListener("resize", queueUpdate)
     }
   }, [collaboration, editor, updateCollaborationCursorMarkers])
+
+  useEffect(() => {
+    if (!editor || !collaboration) {
+      return
+    }
+
+    let frameId: number | null = null
+    let settleFrameId: number | null = null
+    const provider = collaboration.binding.provider
+    const queueUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        settleFrameId = window.requestAnimationFrame(() => {
+          settleFrameId = null
+          updateCollaborationSelectionMarkers()
+        })
+      })
+    }
+
+    const container = containerRef.current
+    queueUpdate()
+    editor.on("update", queueUpdate)
+    editor.on("selectionUpdate", queueUpdate)
+    provider.awareness.on("change", queueUpdate)
+    provider.awareness.on("update", queueUpdate)
+    container?.addEventListener("scroll", queueUpdate, { passive: true })
+    window.addEventListener("resize", queueUpdate)
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
+
+      editor.off("update", queueUpdate)
+      editor.off("selectionUpdate", queueUpdate)
+      provider.awareness.off("change", queueUpdate)
+      provider.awareness.off("update", queueUpdate)
+      container?.removeEventListener("scroll", queueUpdate)
+      window.removeEventListener("resize", queueUpdate)
+    }
+  }, [collaboration, editor, updateCollaborationSelectionMarkers])
 
   if (!editor) {
     return null
@@ -2221,6 +2343,25 @@ export function RichTextEditor({
       </div>
     ) : null
 
+  const collaborationSelectionPresence =
+    collaboration && collaborationSelectionMarkers.length > 0 ? (
+      <div className="pointer-events-none absolute inset-0 z-[5]">
+        {collaborationSelectionMarkers.map((marker) => (
+          <div
+            key={marker.key}
+            className="absolute rounded-[3px]"
+            style={{
+              left: marker.left,
+              top: marker.top,
+              width: marker.width,
+              height: marker.height,
+              backgroundColor: `${marker.color}22`,
+            }}
+          />
+        ))}
+      </div>
+    ) : null
+
   // Full-page mode — used for standalone documents
   if (fullPage) {
     return (
@@ -2234,12 +2375,14 @@ export function RichTextEditor({
         <div className="flex-1 overflow-y-auto">
           <div
             className={cn(
-              "relative mx-auto w-full px-6 py-4",
+              "relative mx-auto w-full px-6 pb-4",
+              COLLABORATION_OVERLAY_HEADROOM_CLASS,
               FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
             )}
             ref={containerRef}
           >
             <EditorContent editor={currentEditor} />
+            {collaborationSelectionPresence}
             {collaborationCursorPresence}
             {blockPresence}
             {slashMenu}
@@ -2254,8 +2397,15 @@ export function RichTextEditor({
   // Inline mode — used for issue descriptions (no card, no border, seamless)
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <div className="relative" ref={containerRef}>
+      <div
+        className={cn(
+          "relative",
+          COLLABORATION_OVERLAY_HEADROOM_CLASS
+        )}
+        ref={containerRef}
+      >
         <EditorContent editor={currentEditor} />
+        {collaborationSelectionPresence}
         {collaborationCursorPresence}
         {blockPresence}
         {slashMenu}
