@@ -136,4 +136,55 @@ describe("store runtime rich-text recovery", () => {
     expect(replaceDomainDataMock).not.toHaveBeenCalled()
     expect(toastErrorMock).not.toHaveBeenCalled()
   })
+
+  it("ignores stale in-flight rich-text failures after sync invalidation", async () => {
+    const { createStoreRuntime } = await import(
+      "@/lib/store/app-store-internal/runtime"
+    )
+
+    const rejectTaskRef: {
+      current: ((error: unknown) => void) | null
+    } = { current: null }
+    const runtime = createStoreRuntime(
+      () =>
+        ({
+          protectedDocumentIds: [],
+          replaceDomainData: vi.fn(),
+          workItems: [],
+        }) as never
+    )
+
+    runtime.queueRichTextSync(
+      "document:doc_1",
+      () =>
+        new Promise<void>((_, reject: (error: unknown) => void) => {
+          rejectTaskRef.current = reject
+        }),
+      "Failed to update document",
+      {
+        refreshStrategy: "none",
+      }
+    )
+
+    const flushPromise = runtime.flushRichTextSync("document:doc_1")
+    await Promise.resolve()
+
+    runtime.cancelRichTextSync("document:doc_1")
+    expect(rejectTaskRef.current).not.toBeNull()
+
+    if (!rejectTaskRef.current) {
+      throw new Error("Expected in-flight sync task reject handler")
+    }
+
+    rejectTaskRef.current(
+      new RouteMutationError("Document changed while you were editing", 409, {
+        code: "DOCUMENT_EDIT_CONFLICT",
+      })
+    )
+
+    await flushPromise
+
+    expect(fetchSnapshotMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).not.toHaveBeenCalled()
+  })
 })

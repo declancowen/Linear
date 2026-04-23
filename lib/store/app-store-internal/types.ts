@@ -382,7 +382,14 @@ export type AppStoreGet = StoreApi<AppStore>["getState"]
 
 export type AppStoreSlice<T> = (set: AppStoreSet, get: AppStoreGet) => T
 
-export type RichTextSyncTask = () => Promise<unknown> | null
+export type RichTextSyncContext = {
+  generation: number
+  isCurrent: () => boolean
+}
+
+export type RichTextSyncTask = (
+  context: RichTextSyncContext
+) => Promise<unknown> | null
 
 export type ConversationAudienceState = Pick<
   AppData,

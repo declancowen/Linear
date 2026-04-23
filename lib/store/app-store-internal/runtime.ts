@@ -12,6 +12,7 @@ const RICH_TEXT_SYNC_DELAY_MS = 350
 
 type QueuedSyncEntry = {
   fallbackMessage: string
+  generation: number
   inFlight: boolean
   idleWaiters: Array<() => void>
   latestTask: RichTextSyncTask | null
@@ -72,6 +73,7 @@ export function createStoreRuntime(get: AppStoreGet) {
       entry.timeoutId = null
     }
 
+    entry.generation += 1
     entry.latestTask = null
     resolveRichTextSyncIdle(key)
   }
@@ -130,12 +132,22 @@ export function createStoreRuntime(get: AppStoreGet) {
     }
 
     const task = entry.latestTask
+    const taskGeneration = entry.generation
     entry.latestTask = null
     entry.inFlight = true
+    const syncContext = {
+      generation: taskGeneration,
+      isCurrent: () =>
+        queuedRichTextSyncs.get(key)?.generation === taskGeneration,
+    }
 
     try {
-      await task()
+      await task(syncContext)
     } catch (error) {
+      if (!syncContext.isCurrent()) {
+        return
+      }
+
       if (shouldIgnoreRichTextSyncFailure(key, error)) {
         return
       }
@@ -185,6 +197,7 @@ export function createStoreRuntime(get: AppStoreGet) {
 
     const entry: QueuedSyncEntry = existingEntry ?? {
       fallbackMessage,
+      generation: 0,
       inFlight: false,
       idleWaiters: [],
       latestTask: null,

@@ -114,7 +114,7 @@ export function createWorkDocumentActions({
 
       runtime.queueRichTextSync(
         `document:${documentId}`,
-        () => {
+        (syncContext) => {
           const state = get()
           if (state.protectedDocumentIds.includes(documentId)) {
             return null
@@ -134,6 +134,10 @@ export function createWorkDocumentActions({
             document.content,
             document.updatedAt
           ).then((result) => {
+            if (!syncContext.isCurrent()) {
+              return
+            }
+
             markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
           })
         },
@@ -198,7 +202,7 @@ export function createWorkDocumentActions({
 
       runtime.queueRichTextSync(
         `document:${documentId}`,
-        () => {
+        (syncContext) => {
           const state = get()
           if (state.protectedDocumentIds.includes(documentId)) {
             return null
@@ -217,6 +221,10 @@ export function createWorkDocumentActions({
             documentId,
             document.title
           ).then((result) => {
+            if (!syncContext.isCurrent()) {
+              return
+            }
+
             markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
           })
         },
@@ -318,7 +326,7 @@ export function createWorkDocumentActions({
 
       runtime.queueRichTextSync(
         `item-description:${itemId}`,
-        () => {
+        (syncContext) => {
           const state = get()
           const item = state.workItems.find((entry) => entry.id === itemId)
 
@@ -347,6 +355,10 @@ export function createWorkDocumentActions({
             descriptionDocument.content,
             descriptionDocument.updatedAt
           ).then((result) => {
+            if (!syncContext.isCurrent()) {
+              return
+            }
+
             markItemDescriptionPersisted(
               itemId,
               descriptionDocument.id,

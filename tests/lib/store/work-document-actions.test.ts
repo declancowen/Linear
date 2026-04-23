@@ -37,6 +37,15 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateItemDescription: syncUpdateItemDescriptionMock,
 }))
 
+const ACTIVE_SYNC_CONTEXT = {
+  generation: 0,
+  isCurrent: () => true,
+} as const
+
+type ActiveSyncTask = (
+  context: typeof ACTIVE_SYNC_CONTEXT
+) => Promise<void> | null
+
 function createState() {
   return {
     ...createEmptyState(),
@@ -522,12 +531,12 @@ describe("work document actions", () => {
       })
 
     const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | (() => Promise<void>)
+      | ActiveSyncTask
       | undefined
 
     expect(queuedTask).toBeTypeOf("function")
 
-    await queuedTask?.()
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     expect(syncUpdateDocumentContentMock).toHaveBeenCalledWith(
       "user_1",
@@ -586,12 +595,12 @@ describe("work document actions", () => {
     })
 
     const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | (() => Promise<void>)
+      | ActiveSyncTask
       | undefined
 
     expect(queuedTask).toBeTypeOf("function")
 
-    await queuedTask?.()
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     expect(syncUpdateItemDescriptionMock).toHaveBeenCalledWith(
       "user_1",
@@ -646,10 +655,10 @@ describe("work document actions", () => {
     }
 
     const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | (() => Promise<void>)
+      | ActiveSyncTask
       | undefined
 
-    await queuedTask?.()
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     expect(syncUpdateDocumentContentMock).not.toHaveBeenCalled()
   })
@@ -737,12 +746,12 @@ describe("work document actions", () => {
       })
 
     const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | (() => Promise<void>)
+      | ActiveSyncTask
       | undefined
 
     expect(queuedTask).toBeTypeOf("function")
 
-    await queuedTask?.()
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     expect(syncRenameDocumentMock).toHaveBeenCalledWith(
       "user_1",
@@ -785,10 +794,10 @@ describe("work document actions", () => {
     }
 
     const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | (() => Promise<void>)
+      | ActiveSyncTask
       | undefined
 
-    await queuedTask?.()
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     expect(syncUpdateItemDescriptionMock).not.toHaveBeenCalled()
   })

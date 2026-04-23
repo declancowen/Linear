@@ -16,6 +16,7 @@ import {
   useEditor,
 } from "@tiptap/react"
 import {
+  absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
 } from "@tiptap/y-tiptap"
@@ -53,8 +54,11 @@ import {
 import {
   FULL_PAGE_CANVAS_WIDTH_CLASSNAME,
   RichTextToolbar,
-  type FullPageCanvasWidth,
 } from "./rich-text-editor/toolbar"
+import {
+  FullPageRichTextShell,
+  useFullPageCanvasWidthPreference,
+} from "./rich-text-editor/full-page-shell"
 
 type UploadedAttachment = {
   fileName: string
@@ -118,6 +122,13 @@ type BlockPresenceMarker = {
   viewers: DocumentPresenceViewer[]
 }
 
+type CollaborationRelativePositionJson = Record<string, unknown>
+
+type CollaborationRelativeRange = {
+  anchor: CollaborationRelativePositionJson | null
+  head: CollaborationRelativePositionJson | null
+}
+
 type CollaborationCursorMarker = {
   key: string
   name: string
@@ -137,7 +148,6 @@ type CollaborationSelectionMarker = {
 }
 
 const EMPTY_MENTION_CANDIDATES: MentionCandidate[] = []
-const FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY = "linear.document-canvas-width"
 const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
 const COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX = 28
@@ -261,17 +271,86 @@ function getSelectionRange(currentEditor: Editor) {
   return { anchor, head }
 }
 
-function getSemanticCaretSide(currentEditor: Editor) {
-  return getLocalTextblockBoundarySide(
-    currentEditor,
-    currentEditor.state.selection.head
-  )
+function normalizeCollaborationRelativePosition(
+  value: unknown
+): CollaborationRelativePositionJson | null {
+  return isRecord(value) ? value : null
+}
+
+function normalizeCollaborationRelativeRange(
+  value: unknown
+): CollaborationRelativeRange | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const anchor = normalizeCollaborationRelativePosition(value.anchor)
+  const head = normalizeCollaborationRelativePosition(value.head)
+
+  if (!anchor || !head) {
+    return null
+  }
+
+  return { anchor, head }
+}
+
+function getYSyncEditorState(currentEditor: Editor) {
+  return ySyncPluginKey.getState(
+    currentEditor.state
+  ) as YSyncEditorState | undefined
+}
+
+function createSerializedRelativePosition(
+  currentEditor: Editor,
+  position: number
+): CollaborationRelativePositionJson | null {
+  const yState = getYSyncEditorState(currentEditor)
+
+  if (!yState?.type || !yState.binding) {
+    return null
+  }
+
+  try {
+    const safePosition = Math.min(
+      Math.max(position, 0),
+      currentEditor.state.doc.content.size
+    )
+    const relativePosition = absolutePositionToRelativePosition(
+      safePosition,
+      yState.type,
+      yState.binding.mapping
+    )
+
+    return normalizeCollaborationRelativePosition(relativePosition)
+  } catch {
+    return null
+  }
+}
+
+function getRelativeSelectionRange(
+  currentEditor: Editor
+): CollaborationRelativeRange | null {
+  const { anchor, head } = currentEditor.state.selection
+  const relativeAnchor = createSerializedRelativePosition(currentEditor, anchor)
+  const relativeHead = createSerializedRelativePosition(currentEditor, head)
+
+  if (!relativeAnchor || !relativeHead) {
+    return null
+  }
+
+  return {
+    anchor: relativeAnchor,
+    head: relativeHead,
+  }
 }
 
 function updateEditorCollaborationUser(
   currentEditor: Editor,
   collaboration: RichTextEditorProps["collaboration"],
-  patch?: Partial<CollaborationAwarenessState>
+  patch?: Partial<CollaborationAwarenessState> & {
+    relativeCursor?: CollaborationRelativeRange | null
+    relativeSelection?: CollaborationRelativeRange | null
+  }
 ) {
   if (!collaboration) {
     return
@@ -282,15 +361,30 @@ function updateEditorCollaborationUser(
   const localAwarenessUser = isRecord(localAwarenessState)
     ? localAwarenessState.user
     : null
-  const mergedUser = createCollaborationAwarenessState({
+  const relativeCursor =
+    patch?.relativeCursor ??
+    normalizeCollaborationRelativeRange(
+      isRecord(localAwarenessUser) ? localAwarenessUser.relativeCursor : null
+    )
+  const relativeSelection =
+    patch?.relativeSelection ??
+    normalizeCollaborationRelativeRange(
+      isRecord(localAwarenessUser) ? localAwarenessUser.relativeSelection : null
+    )
+  const mergedUserBase = createCollaborationAwarenessState({
     ...collaboration.localUser,
     ...(isRecord(localAwarenessUser) ? localAwarenessUser : {}),
     ...patch,
   })
+  const mergedUser = {
+    ...mergedUserBase,
+    relativeCursor,
+    relativeSelection,
+  }
 
   const updateUserCommand = (
     currentEditor.commands as {
-      updateUser?: (attributes: CollaborationAwarenessState) => boolean
+      updateUser?: (attributes: typeof mergedUser) => boolean
     }
   ).updateUser
 
@@ -461,7 +555,6 @@ type CollaborationAwarenessUser = {
   sessionId: string
   name: string
   color: string
-  cursorSide: CollaborationCaretSide | null
 }
 
 function getCollaborationAwarenessUser(
@@ -490,19 +583,69 @@ function getCollaborationAwarenessUser(
       typeof userValue.color === "string" && userValue.color.trim().length > 0
         ? userValue.color
         : getCollaborationUserColor(userId),
-    cursorSide:
-      userValue.cursorSide === "before" || userValue.cursorSide === "after"
-        ? userValue.cursorSide
-        : null,
   }
 }
 
-function getCollaborationAwarenessCursorHead(value: unknown) {
+function resolveCollaborationRelativePosition(
+  currentEditor: Editor,
+  value: unknown
+) {
+  const json = normalizeCollaborationRelativePosition(value)
+
+  if (!json) {
+    return null
+  }
+
+  const yState = getYSyncEditorState(currentEditor)
+
+  if (!yState?.doc || !yState.type || !yState.binding) {
+    return null
+  }
+
+  try {
+    const relativePosition = Y.createRelativePositionFromJSON(json)
+
+    if (!relativePosition) {
+      return null
+    }
+
+    const absolutePosition = relativePositionToAbsolutePosition(
+      yState.doc,
+      yState.type,
+      relativePosition,
+      yState.binding.mapping
+    )
+
+    return typeof absolutePosition === "number" ? absolutePosition : null
+  } catch {
+    return null
+  }
+}
+
+function getCollaborationAwarenessCursorHead(
+  currentEditor: Editor,
+  value: unknown
+) {
   if (!isRecord(value)) {
     return null
   }
 
   const userValue = isRecord(value.user) ? value.user : value
+  const relativeCursor = normalizeCollaborationRelativeRange(
+    userValue.relativeCursor
+  )
+
+  if (relativeCursor?.head) {
+    const resolvedHead = resolveCollaborationRelativePosition(
+      currentEditor,
+      relativeCursor.head
+    )
+
+    if (typeof resolvedHead === "number") {
+      return resolvedHead
+    }
+  }
+
   const cursorValue = isRecord(userValue.cursor) ? userValue.cursor : null
   const head = cursorValue?.head
 
@@ -513,12 +656,41 @@ function getCollaborationAwarenessCursorHead(value: unknown) {
   return head
 }
 
-function getCollaborationAwarenessSelectionRange(value: unknown) {
+function getCollaborationAwarenessSelectionRange(
+  currentEditor: Editor,
+  value: unknown
+) {
   if (!isRecord(value)) {
     return null
   }
 
   const userValue = isRecord(value.user) ? value.user : value
+  const relativeSelection = normalizeCollaborationRelativeRange(
+    userValue.relativeSelection
+  )
+
+  if (relativeSelection?.anchor && relativeSelection?.head) {
+    const anchor = resolveCollaborationRelativePosition(
+      currentEditor,
+      relativeSelection.anchor
+    )
+    const head = resolveCollaborationRelativePosition(
+      currentEditor,
+      relativeSelection.head
+    )
+
+    if (
+      typeof anchor === "number" &&
+      Number.isInteger(anchor) &&
+      anchor >= 0 &&
+      typeof head === "number" &&
+      Number.isInteger(head) &&
+      head >= 0
+    ) {
+      return { anchor, head }
+    }
+  }
+
   const selectionValue = isRecord(userValue.selection) ? userValue.selection : null
   const anchor = selectionValue?.anchor
   const head = selectionValue?.head
@@ -969,8 +1141,6 @@ function collectCollaborationCursorMarkers(input: {
     return [] as CollaborationCursorMarker[]
   }
 
-  const { doc, type, binding } = yState
-
   const localSessionId =
     getCollaborationAwarenessUser(
       input.collaboration.binding.provider.awareness.getLocalState()
@@ -999,22 +1169,10 @@ function collectCollaborationCursorMarkers(input: {
         isRecord(value) && isRecord(value.cursor) ? value.cursor : null
       const headJson = cursorValue?.head
 
-      let head: number | null = getCollaborationAwarenessCursorHead(value)
-
-      if (head === null && headJson) {
-        const relativeHeadPosition = Y.createRelativePositionFromJSON(headJson)
-
-        if (relativeHeadPosition) {
-          const absoluteHead = relativePositionToAbsolutePosition(
-            doc,
-            type,
-            relativeHeadPosition,
-            binding.mapping
-          )
-
-          head = typeof absoluteHead === "number" ? absoluteHead : null
-        }
-      }
+      const head = getCollaborationAwarenessCursorHead(
+        input.currentEditor,
+        value
+      )
 
       if (typeof head !== "number") {
         return
@@ -1101,7 +1259,10 @@ function collectCollaborationSelectionMarkers(input: {
         return
       }
 
-      const selection = getCollaborationAwarenessSelectionRange(value)
+      const selection = getCollaborationAwarenessSelectionRange(
+        input.currentEditor,
+        value
+      )
 
       if (!selection || selection.anchor === selection.head) {
         return
@@ -1232,10 +1393,8 @@ export function RichTextEditor({
     },
     [onActiveBlockChange]
   )
-  const [fullPageCanvasWidth, setFullPageCanvasWidth] =
-    useState<FullPageCanvasWidth>("narrow")
-  const [fullPageCanvasWidthReady, setFullPageCanvasWidthReady] =
-    useState(false)
+  const { fullPageCanvasWidth, setFullPageCanvasWidth } =
+    useFullPageCanvasWidthPreference(fullPage)
 
   useEffect(() => {
     const container = containerRef.current
@@ -1264,42 +1423,6 @@ export function RichTextEditor({
       resizeObserver.disconnect()
     }
   }, [fullPage])
-
-  useEffect(() => {
-    if (!fullPage) {
-      return
-    }
-
-    const storedWidth = window.localStorage.getItem(
-      FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY
-    )
-    const frameId = window.requestAnimationFrame(() => {
-      if (
-        storedWidth === "narrow" ||
-        storedWidth === "medium" ||
-        storedWidth === "wide"
-      ) {
-        setFullPageCanvasWidth(storedWidth)
-      }
-
-      setFullPageCanvasWidthReady(true)
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-    }
-  }, [fullPage])
-
-  useEffect(() => {
-    if (!fullPage || !fullPageCanvasWidthReady) {
-      return
-    }
-
-    window.localStorage.setItem(
-      FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY,
-      fullPageCanvasWidth
-    )
-  }, [fullPage, fullPageCanvasWidth, fullPageCanvasWidthReady])
 
   function requestAttachmentPicker(currentEditor: Editor) {
     setPickerInsertPosition(currentEditor.state.selection.from)
@@ -1685,7 +1808,7 @@ export function RichTextEditor({
     onCreate({ editor: currentEditor }) {
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getSemanticCaretSide(currentEditor)
+      const relativeSelection = getRelativeSelectionRange(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1693,7 +1816,8 @@ export function RichTextEditor({
           activeBlockId,
           cursor: selection,
           selection,
-          cursorSide,
+          relativeCursor: relativeSelection,
+          relativeSelection,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1719,13 +1843,14 @@ export function RichTextEditor({
       if (collaboration && !isExternalCollaborationChange) {
         const activeBlockId = getActiveBlockId(currentEditor)
         const selection = getSelectionRange(currentEditor)
-        const cursorSide = getSemanticCaretSide(currentEditor)
+        const relativeSelection = getRelativeSelectionRange(currentEditor)
         updateEditorCollaborationUser(currentEditor, collaboration, {
           typing: true,
           activeBlockId,
           cursor: selection,
           selection,
-          cursorSide,
+          relativeCursor: relativeSelection,
+          relativeSelection,
         })
         reportActiveBlockId(activeBlockId)
         scheduleTypingIdleReset(currentEditor)
@@ -1737,14 +1862,15 @@ export function RichTextEditor({
       syncCommandMenus(currentEditor)
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getSemanticCaretSide(currentEditor)
+      const relativeSelection = getRelativeSelectionRange(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
           activeBlockId,
           cursor: selection,
           selection,
-          cursorSide,
+          relativeCursor: relativeSelection,
+          relativeSelection,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1752,13 +1878,14 @@ export function RichTextEditor({
     onFocus({ editor: currentEditor }) {
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getSemanticCaretSide(currentEditor)
+      const relativeSelection = getRelativeSelectionRange(currentEditor)
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
           activeBlockId,
           cursor: selection,
           selection,
-          cursorSide,
+          relativeCursor: relativeSelection,
+          relativeSelection,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1767,7 +1894,7 @@ export function RichTextEditor({
       clearTypingTimeout()
       const activeBlockId = getActiveBlockId(currentEditor)
       const selection = getSelectionRange(currentEditor)
-      const cursorSide = getSemanticCaretSide(currentEditor)
+      const relativeSelection = getRelativeSelectionRange(currentEditor)
 
       if (collaboration) {
         updateEditorCollaborationUser(currentEditor, collaboration, {
@@ -1775,7 +1902,8 @@ export function RichTextEditor({
           activeBlockId,
           cursor: selection,
           selection,
-          cursorSide,
+          relativeCursor: relativeSelection,
+          relativeSelection,
         })
       }
       reportActiveBlockId(activeBlockId)
@@ -1845,13 +1973,14 @@ export function RichTextEditor({
 
     const activeBlockId = getActiveBlockId(editor)
     const selection = getSelectionRange(editor)
-    const cursorSide = getSemanticCaretSide(editor)
+    const relativeSelection = getRelativeSelectionRange(editor)
     updateEditorCollaborationUser(editor, collaboration, {
       typing: false,
       activeBlockId,
       cursor: selection,
       selection,
-      cursorSide,
+      relativeCursor: relativeSelection,
+      relativeSelection,
     })
     reportActiveBlockId(activeBlockId)
   }, [collaboration, editor, reportActiveBlockId])
@@ -2421,31 +2550,20 @@ export function RichTextEditor({
   // Full-page mode — used for standalone documents
   if (fullPage) {
     return (
-      <div
-        className={cn(
-          "relative flex flex-1 flex-col overflow-hidden",
-          className
-        )}
+      <FullPageRichTextShell
+        canvasWidth={fullPageCanvasWidth}
+        className={className}
+        containerRef={containerRef}
+        toolbar={toolbar}
       >
-        {toolbar}
-        <div className="flex-1 overflow-y-auto">
-          <div
-            className={cn(
-              "relative mx-auto w-full px-6 pt-12 pb-4",
-              FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
-            )}
-            ref={containerRef}
-          >
-            <EditorContent editor={currentEditor} />
-            {collaborationSelectionPresence}
-            {collaborationCursorPresence}
-            {blockPresence}
-            {slashMenu}
-            {mentionMenu}
-            {inlineEmojiPicker}
-          </div>
-        </div>
-      </div>
+        <EditorContent editor={currentEditor} />
+        {collaborationSelectionPresence}
+        {collaborationCursorPresence}
+        {blockPresence}
+        {slashMenu}
+        {mentionMenu}
+        {inlineEmojiPicker}
+      </FullPageRichTextShell>
     )
   }
 

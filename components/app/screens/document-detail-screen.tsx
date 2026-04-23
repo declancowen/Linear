@@ -42,6 +42,10 @@ import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { RichTextContent } from "@/components/app/rich-text-content"
+import {
+  FullPageRichTextShell,
+  useFullPageCanvasWidthPreference,
+} from "@/components/app/rich-text-editor/full-page-shell"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -146,6 +150,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
+  const { fullPageCanvasWidth } = useFullPageCanvasWidthPreference(true)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const editorInstanceRef = useRef<Editor | null>(null)
   const legacyActiveBlockIdRef = useRef<string | null>(null)
@@ -213,9 +218,13 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       return
     }
 
-    useAppStore
-      .getState()
-      .setDocumentBodyProtection(currentDocumentId, isProtectingDocumentBody)
+    const state = useAppStore.getState()
+
+    if (isProtectingDocumentBody) {
+      state.cancelDocumentSync(currentDocumentId)
+    }
+
+    state.setDocumentBodyProtection(currentDocumentId, isProtectingDocumentBody)
 
     return () => {
       useAppStore.getState().setDocumentBodyProtection(currentDocumentId, false)
@@ -895,16 +904,15 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {isCollaborationBootstrapping ? (
-            <div className="relative flex flex-1 flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto">
-                <div className="relative mx-auto w-full max-w-4xl px-6 pt-12 pb-4">
-                  <RichTextContent
-                    content={editorContent}
-                    className="min-h-[calc(100svh-12rem)] text-base [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3"
-                  />
-                </div>
-              </div>
-            </div>
+            <FullPageRichTextShell
+              canvasWidth={fullPageCanvasWidth}
+              reserveToolbarSpace={editable}
+            >
+              <RichTextContent
+                content={editorContent}
+                className="min-h-[calc(100svh-12rem)] text-base [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3"
+              />
+            </FullPageRichTextShell>
           ) : (
             <RichTextEditor
               content={editorContent}
