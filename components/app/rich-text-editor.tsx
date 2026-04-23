@@ -139,7 +139,7 @@ const EMPTY_MENTION_CANDIDATES: MentionCandidate[] = []
 const FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY = "linear.document-canvas-width"
 const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
-const COLLABORATION_OVERLAY_HEADROOM_CLASS = "pt-14"
+const COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX = 28
 
 function escapeHtml(value: string) {
   return value
@@ -2312,34 +2312,45 @@ export function RichTextEditor({
   const collaborationCursorPresence =
     collaboration && collaborationCursorMarkers.length > 0 ? (
       <div className="pointer-events-none absolute inset-0 z-10">
-        {collaborationCursorMarkers.map((marker) => (
-          <div
-            key={marker.key}
-            className="absolute"
-            style={{
-              left: marker.left,
-              top: marker.top,
-            }}
-            aria-label={`${marker.name} is editing here`}
-            title={`${marker.name} is editing here`}
-          >
-            <span
-              className="absolute left-0 top-0 w-0.5 rounded-full"
+        {collaborationCursorMarkers.map((marker) => {
+          const showLabelBelow =
+            marker.top < COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX
+
+          return (
+            <div
+              key={marker.key}
+              className="absolute"
               style={{
-                height: marker.height,
-                backgroundColor: marker.color,
+                left: marker.left,
+                top: marker.top,
               }}
-            />
-            <span
-              className="absolute left-0 top-0 -translate-x-1/2 -translate-y-[calc(100%+4px)] rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white shadow-sm"
-              style={{
-                backgroundColor: marker.color,
-              }}
+              aria-label={`${marker.name} is editing here`}
+              title={`${marker.name} is editing here`}
             >
-              {marker.name}
-            </span>
-          </div>
-        ))}
+              <span
+                className="absolute left-0 top-0 w-0.5 rounded-full"
+                style={{
+                  height: marker.height,
+                  backgroundColor: marker.color,
+                }}
+              />
+              <span
+                className={cn(
+                  "absolute left-0 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white shadow-sm",
+                  showLabelBelow
+                    ? "-translate-x-1/2"
+                    : "-translate-x-1/2 -translate-y-[calc(100%+4px)]"
+                )}
+                style={{
+                  top: showLabelBelow ? marker.height + 4 : 0,
+                  backgroundColor: marker.color,
+                }}
+              >
+                {marker.name}
+              </span>
+            </div>
+          )
+        })}
       </div>
     ) : null
 
@@ -2376,7 +2387,6 @@ export function RichTextEditor({
           <div
             className={cn(
               "relative mx-auto w-full px-6 pb-4",
-              COLLABORATION_OVERLAY_HEADROOM_CLASS,
               FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
             )}
             ref={containerRef}
@@ -2397,13 +2407,7 @@ export function RichTextEditor({
   // Inline mode — used for issue descriptions (no card, no border, seamless)
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <div
-        className={cn(
-          "relative",
-          COLLABORATION_OVERLAY_HEADROOM_CLASS
-        )}
-        ref={containerRef}
-      >
+      <div className="relative" ref={containerRef}>
         <EditorContent editor={currentEditor} />
         {collaborationSelectionPresence}
         {collaborationCursorPresence}
