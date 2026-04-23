@@ -1380,6 +1380,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     hasLoadedOnce: hasLoadedWorkItemReadModel,
   } = useScopedReadModelRefresh({
     enabled:
+      !item ||
       collaborationLifecycle === "legacy" ||
       collaborationLifecycle === "degraded",
     scopeKeys: [createWorkItemDetailScopeKey(itemId)],

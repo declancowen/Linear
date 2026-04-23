@@ -203,7 +203,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   } = useScopedReadModelRefresh({
     enabled:
       Boolean(documentId) &&
-      (collaborationLifecycle === "legacy" ||
+      (!document ||
+        collaborationLifecycle === "legacy" ||
         collaborationLifecycle === "degraded"),
     scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
     fetchLatest: () => fetchDocumentDetailReadModel(documentId),

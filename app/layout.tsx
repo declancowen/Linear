@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next"
 import { Geist_Mono, Noto_Sans } from "next/font/google"
+import { headers } from "next/headers"
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components"
 
 import "./globals.css"
@@ -34,11 +35,14 @@ export const viewport: Viewport = {
   ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const requestHeaders = await headers()
+  const nonce = requestHeaders.get("x-nonce") ?? undefined
+
   return (
     <html
       lang="en"
@@ -52,7 +56,7 @@ export default function RootLayout({
     >
       <body>
         <AuthKitProvider>
-          <ThemeProvider>
+          <ThemeProvider nonce={nonce}>
             <TooltipProvider>
               {children}
               <Toaster richColors />
