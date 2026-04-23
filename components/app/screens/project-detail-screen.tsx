@@ -26,7 +26,10 @@ import {
 } from "@/lib/domain/types"
 import { createViewDefinition } from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
-import { fetchProjectDetailReadModel } from "@/lib/convex/client"
+import {
+  fetchProjectDetailReadModel,
+} from "@/lib/convex/client"
+import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { createProjectDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
@@ -69,6 +72,12 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     enabled: true,
     scopeKeys: [createProjectDetailScopeKey(projectId)],
     fetchLatest: () => fetchProjectDetailReadModel(projectId),
+    notFoundResult: createMissingScopedReadModelResult([
+      {
+        kind: "project-detail",
+        projectId,
+      },
+    ]),
   })
   const searchParams = useSearchParams()
   const projectModel = getProjectDetailModel(data, projectId)

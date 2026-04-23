@@ -14,6 +14,30 @@ export type ReadModelFetchResult<T extends Partial<AppSnapshot>> = {
   replace?: ScopedReadModelReplaceInstruction[]
 }
 
+const EMPTY_SCOPED_READ_MODEL_DATA: Partial<AppSnapshot> = {
+  workspaces: [],
+  workspaceMemberships: [],
+  teams: [],
+  teamMemberships: [],
+  users: [],
+  labels: [],
+  projects: [],
+  milestones: [],
+  workItems: [],
+  documents: [],
+  views: [],
+  comments: [],
+  attachments: [],
+  notifications: [],
+  invites: [],
+  projectUpdates: [],
+  conversations: [],
+  calls: [],
+  chatMessages: [],
+  channelPosts: [],
+  channelPostComments: [],
+}
+
 async function fetchReadModel<T extends Partial<AppSnapshot>>(
   url: string,
   replace?: ScopedReadModelReplaceInstruction[]
@@ -24,6 +48,15 @@ async function fetchReadModel<T extends Partial<AppSnapshot>>(
 
   return {
     data: payload.data as T,
+    replace,
+  }
+}
+
+export function createMissingScopedReadModelResult(
+  replace: ScopedReadModelReplaceInstruction[]
+): ReadModelFetchResult<Partial<AppSnapshot>> {
+  return {
+    data: EMPTY_SCOPED_READ_MODEL_DATA,
     replace,
   }
 }

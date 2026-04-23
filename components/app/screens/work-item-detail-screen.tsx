@@ -41,6 +41,7 @@ import {
   syncSendItemDescriptionMentionNotifications,
 } from "@/lib/convex/client"
 import { RouteMutationError } from "@/lib/convex/client/shared"
+import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { createWorkItemDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import {
@@ -1383,6 +1384,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       collaborationLifecycle === "degraded",
     scopeKeys: [createWorkItemDetailScopeKey(itemId)],
     fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
+    notFoundResult: createMissingScopedReadModelResult([
+      {
+        kind: "work-item-detail",
+        itemId,
+      },
+    ]),
   })
   const isCollaborationAttached = collaborationLifecycle === "attached"
   const isCollaborationBootstrapping =

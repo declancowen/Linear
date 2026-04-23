@@ -757,12 +757,21 @@ const collaboration = {
         return
       }
 
-      if (!(await hasPersistedRoomUpdates(room))) {
+      const hasPersistedUpdates = await hasPersistedRoomUpdates(room)
+      const roomMeta = getRoomStateMeta(yDoc)
+
+      if (!roomMeta.dirty) {
+        if (hasPersistedUpdates) {
+          await clearPersistedRoomState(room)
+        }
         return
       }
 
       await persistCanonicalDocument(room, yDoc, "leave")
-      await clearPersistedRoomState(room)
+
+      if (hasPersistedUpdates) {
+        await clearPersistedRoomState(room)
+      }
     } catch (error) {
       console.error("[collaboration] failed to persist room on last close", {
         roomId: room.id,

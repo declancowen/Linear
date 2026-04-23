@@ -19,6 +19,9 @@ type ScopedReadModelRefreshInput = {
   fetchLatest: () => Promise<
     Partial<AppSnapshot> | ReadModelFetchResult<Partial<AppSnapshot>>
   >
+  notFoundResult?:
+    | Partial<AppSnapshot>
+    | ReadModelFetchResult<Partial<AppSnapshot>>
 }
 
 function normalizeScopeKeys(scopeKeys: string[]) {
@@ -96,6 +99,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
             : "Failed to refresh scoped read model",
       })
       if (isExpectedScopedReadModelMiss(nextError)) {
+        if (input.notFoundResult) {
+          const missingResult = normalizeReadModelFetchResult(input.notFoundResult)
+          mergeReadModelData(missingResult.data, {
+            replace: missingResult.replace,
+          })
+        }
         setError(null)
       } else {
         console.error("Failed to refresh scoped read model", nextError)

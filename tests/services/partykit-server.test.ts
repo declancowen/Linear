@@ -299,6 +299,93 @@ describe("PartyKit collaboration server", () => {
     expect(clearRangeMock).not.toHaveBeenCalled()
   })
 
+  it("clears persisted room history without re-persisting canonical content on last close", async () => {
+    const contentJson: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Canonical content",
+            },
+          ],
+        },
+      ],
+    }
+    const yDoc = createDoc(contentJson)
+    unstableGetYDocMock.mockResolvedValue(yDoc)
+    onConnectMock.mockResolvedValue(undefined)
+    getLevelKeyRangeAsEncodedMock.mockResolvedValue([new Uint8Array([1])])
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes("/bootstrap")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_1",
+            kind: "private-document",
+            workspaceId: "workspace_1",
+            title: "Doc",
+            contentHtml: "<p>Canonical content</p>",
+            contentJson,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { collaboration } = await import("@/services/partykit/server")
+
+    const token = createSignedCollaborationToken({
+      kind: "doc",
+      sub: "user_1",
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      role: "editor",
+      sessionId: "session_1",
+      workspaceId: "workspace_1",
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+
+    await collaboration.onConnect(
+      {} as never,
+      {
+        id: "doc:doc_1",
+        env: process.env,
+      } as never,
+      {
+        request: new Request("http://127.0.0.1:1999/parties/main/doc:doc_1", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }) as never,
+      }
+    )
+
+    await collaboration.onClose(
+      {} as never,
+      {
+        id: "doc:doc_1",
+        env: process.env,
+      } as never
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(getLevelKeyRangeAsEncodedMock).toHaveBeenCalledTimes(1)
+    expect(clearRangeMock).toHaveBeenCalledTimes(2)
+  })
+
   it("returns 401 for invalid collaboration flush tokens", async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)

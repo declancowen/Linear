@@ -21,6 +21,7 @@ import {
   syncHeartbeatDocumentPresence,
   syncSendDocumentMentionNotifications,
 } from "@/lib/convex/client"
+import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import {
   createDocumentMentionQueueState,
   getPendingDocumentMentionEntries,
@@ -206,6 +207,14 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         collaborationLifecycle === "degraded"),
     scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
     fetchLatest: () => fetchDocumentDetailReadModel(documentId),
+    notFoundResult: documentId
+      ? createMissingScopedReadModelResult([
+          {
+            kind: "document-detail",
+            documentId,
+          },
+        ])
+      : undefined,
   })
   const isProtectingDocumentBody = Boolean(
     currentDocumentId &&

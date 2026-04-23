@@ -32,6 +32,7 @@ describe("useScopedReadModelRefresh", () => {
     openScopedInvalidationStreamMock.mockReset()
     isScopedSyncEnabledMock.mockReset()
     isScopedSyncEnabledMock.mockReturnValue(true)
+    openScopedInvalidationStreamMock.mockReturnValue(vi.fn())
   })
 
   it("refreshes when the scoped stream reports ready after the initial handshake", async () => {
@@ -105,5 +106,59 @@ describe("useScopedReadModelRefresh", () => {
     expect(result.current.error).toBeNull()
     expect(fetchLatestMock).not.toHaveBeenCalled()
     expect(openScopedInvalidationStreamMock).not.toHaveBeenCalled()
+  })
+
+  it("prunes stale scoped detail state when the fetch returns 404", async () => {
+    const { RouteMutationError } = await import("@/lib/convex/client/shared")
+    const fetchLatestMock = vi
+      .fn()
+      .mockRejectedValue(new RouteMutationError("Not found", 404))
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    const { result } = renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:detail"],
+        fetchLatest: fetchLatestMock,
+        notFoundResult: {
+          data: {
+            documents: [],
+            comments: [],
+            users: [],
+            attachments: [],
+          },
+          replace: [
+            {
+              kind: "document-detail",
+              documentId: "doc_1",
+            },
+          ],
+        },
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.hasLoadedOnce).toBe(true)
+    })
+
+    expect(result.current.error).toBeNull()
+    expect(mergeReadModelDataMock).toHaveBeenCalledWith(
+      {
+        documents: [],
+        comments: [],
+        users: [],
+        attachments: [],
+      },
+      {
+        replace: [
+          {
+            kind: "document-detail",
+            documentId: "doc_1",
+          },
+        ],
+      }
+    )
   })
 })
