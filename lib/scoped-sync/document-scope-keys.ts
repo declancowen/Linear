@@ -80,6 +80,10 @@ export function buildCollaborationDocumentScopeKeys(
     return [...scopeKeys]
   }
 
+  if (input.kind === "private-document") {
+    return [...scopeKeys]
+  }
+
   if (!includeCollectionScopes) {
     return [...scopeKeys]
   }

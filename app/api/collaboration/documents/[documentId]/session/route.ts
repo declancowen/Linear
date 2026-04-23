@@ -80,6 +80,17 @@ export async function POST(
       currentUserId: appContext.ensuredUser.userId,
       documentId,
     })
+
+    if (collaborationDocument.kind === "private-document") {
+      throw new ApplicationError(
+        "Private documents do not support collaboration sessions",
+        503,
+        {
+          code: "COLLABORATION_UNAVAILABLE",
+        }
+      )
+    }
+
     const issuedAt = Math.floor(Date.now() / 1000)
     const expiresAt = issuedAt + SESSION_TTL_SECONDS
     const sessionId = randomUUID()

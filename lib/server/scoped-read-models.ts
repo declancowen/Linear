@@ -12,6 +12,8 @@ import {
   getDocumentRelatedScopeKeys,
   getDocumentDetailScopeKeys,
   getNotificationInboxScopeKeys,
+  getPrivateDocumentIndexScopeKeys,
+  getPrivateSearchSeedScopeKeys,
   getProjectIndexScopeKeys,
   getProjectRelatedScopeKeys,
   getProjectDetailScopeKeys,
@@ -84,6 +86,14 @@ function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
     case READ_MODEL_SCOPE_KINDS.workspaceMembership:
     case READ_MODEL_SCOPE_KINDS.searchSeed:
       return descriptor.parts.length === 1 && workspaceIds.has(descriptor.parts[0])
+
+    case READ_MODEL_SCOPE_KINDS.privateDocumentIndex:
+    case READ_MODEL_SCOPE_KINDS.privateSearchSeed:
+      return (
+        descriptor.parts.length === 2 &&
+        workspaceIds.has(descriptor.parts[0]) &&
+        descriptor.parts[1] === snapshot.currentUserId
+      )
 
     case READ_MODEL_SCOPE_KINDS.notificationInbox:
     case READ_MODEL_SCOPE_KINDS.conversationList:
@@ -189,6 +199,15 @@ export async function bumpDocumentIndexReadModelScopesServer(
 ) {
   await bumpScopedReadModelVersionsServer({
     scopeKeys: getDocumentIndexScopeKeys(scopeType, scopeId),
+  })
+}
+
+export async function bumpPrivateDocumentIndexReadModelScopesServer(
+  workspaceId: string,
+  userId: string
+) {
+  await bumpScopedReadModelVersionsServer({
+    scopeKeys: getPrivateDocumentIndexScopeKeys(workspaceId, userId),
   })
 }
 
@@ -343,6 +362,15 @@ export async function resolveChatMessageReadModelScopeKeysServer(
 export async function bumpSearchSeedReadModelScopesServer(workspaceId: string) {
   await bumpScopedReadModelVersionsServer({
     scopeKeys: getSearchSeedScopeKeys(workspaceId),
+  })
+}
+
+export async function bumpPrivateSearchSeedReadModelScopesServer(
+  workspaceId: string,
+  userId: string
+) {
+  await bumpScopedReadModelVersionsServer({
+    scopeKeys: getPrivateSearchSeedScopeKeys(workspaceId, userId),
   })
 }
 

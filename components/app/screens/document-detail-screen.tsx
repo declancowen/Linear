@@ -196,7 +196,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   } = useDocumentCollaboration({
     documentId: currentDocumentId,
     currentUser,
-    enabled: resolvedDocumentKind !== "item-description",
+    enabled:
+      resolvedDocumentKind !== "item-description" &&
+      resolvedDocumentKind !== "private-document",
   })
   const {
     hasLoadedOnce: hasLoadedDocumentReadModel,

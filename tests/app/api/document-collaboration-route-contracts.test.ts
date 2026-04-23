@@ -8,7 +8,7 @@ const requireAppContextMock = vi.fn()
 const getCollaborationDocumentServerMock = vi.fn()
 const persistCollaborationDocumentServerMock = vi.fn()
 const persistCollaborationItemDescriptionServerMock = vi.fn()
-const updateWorkItemServerMock = vi.fn()
+const persistCollaborationWorkItemServerMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
@@ -23,7 +23,8 @@ vi.mock("@/lib/server/convex", () => ({
   persistCollaborationDocumentServer: persistCollaborationDocumentServerMock,
   persistCollaborationItemDescriptionServer:
     persistCollaborationItemDescriptionServerMock,
-  updateWorkItemServer: updateWorkItemServerMock,
+  persistCollaborationWorkItemServer:
+    persistCollaborationWorkItemServerMock,
   bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
 }))
 
@@ -40,7 +41,7 @@ describe("document collaboration route contracts", () => {
     getCollaborationDocumentServerMock.mockReset()
     persistCollaborationDocumentServerMock.mockReset()
     persistCollaborationItemDescriptionServerMock.mockReset()
-    updateWorkItemServerMock.mockReset()
+    persistCollaborationWorkItemServerMock.mockReset()
     bumpScopedReadModelVersionsServerMock.mockReset()
     logProviderErrorMock.mockReset()
 
@@ -163,6 +164,39 @@ describe("document collaboration route contracts", () => {
       error: "Document not found",
       message: "Document not found",
       code: "DOCUMENT_NOT_FOUND",
+    })
+  })
+
+  it("rejects private documents for collaboration sessions", async () => {
+    const { POST } = await import(
+      "@/app/api/collaboration/documents/[documentId]/session/route"
+    )
+
+    getCollaborationDocumentServerMock.mockResolvedValue({
+      documentId: "doc_private_1",
+      kind: "private-document",
+      title: "Private notes",
+      content: "<p>Hello</p>",
+      workspaceId: "workspace_1",
+      teamId: null,
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+    })
+
+    const response = await POST(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        documentId: "doc_private_1",
+      }),
+    })
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: "Private documents do not support collaboration sessions",
+      message: "Private documents do not support collaboration sessions",
+      code: "COLLABORATION_UNAVAILABLE",
     })
   })
 
@@ -299,6 +333,49 @@ describe("document collaboration route contracts", () => {
     })
   })
 
+  it("rejects private documents on internal collaboration bootstrap", async () => {
+    const { GET } = await import(
+      "@/app/api/internal/collaboration/documents/[documentId]/bootstrap/route"
+    )
+
+    getCollaborationDocumentServerMock.mockResolvedValue({
+      documentId: "doc_private_1",
+      kind: "private-document",
+      title: "Private notes",
+      content: "<p>Hello</p>",
+      workspaceId: "workspace_1",
+      teamId: null,
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+    })
+
+    const response = await GET(
+      new Request(
+        "http://localhost/api/internal/collaboration/documents/doc_private_1/bootstrap?currentUserId=user_1",
+        {
+          headers: {
+            Authorization: "Bearer test-collaboration-internal-secret",
+          },
+        }
+      ),
+      {
+        params: Promise.resolve({
+          documentId: "doc_private_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: "Private documents do not support collaboration sessions",
+      message: "Private documents do not support collaboration sessions",
+      code: "COLLABORATION_UNAVAILABLE",
+    })
+  })
+
   it("persists standalone document collaboration through the canonical document route and bumps scoped keys", async () => {
     const { POST } = await import(
       "@/app/api/internal/collaboration/documents/[documentId]/persist/route"
@@ -379,6 +456,57 @@ describe("document collaboration route contracts", () => {
       flushReason: "periodic",
       sourceVersion: 2,
     })
+  })
+
+  it("rejects private documents on internal collaboration persist", async () => {
+    const { POST } = await import(
+      "@/app/api/internal/collaboration/documents/[documentId]/persist/route"
+    )
+
+    getCollaborationDocumentServerMock.mockResolvedValue({
+      documentId: "doc_private_1",
+      kind: "private-document",
+      title: "Private notes",
+      content: "<p>Hello</p>",
+      workspaceId: "workspace_1",
+      teamId: null,
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      updatedBy: "user_1",
+      canEdit: true,
+      itemId: null,
+      itemUpdatedAt: null,
+    })
+
+    const response = await POST(
+      new Request(
+        "http://localhost/api/internal/collaboration/documents/doc_private_1/persist",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer test-collaboration-internal-secret",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            currentUserId: "user_1",
+            contentHtml: "<p>Updated</p>",
+          }),
+        }
+      ),
+      {
+        params: Promise.resolve({
+          documentId: "doc_private_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: "Private documents do not support collaboration sessions",
+      message: "Private documents do not support collaboration sessions",
+      code: "COLLABORATION_UNAVAILABLE",
+    })
+    expect(persistCollaborationDocumentServerMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
   })
 
   it("persists item-description collaboration through the work-item description path", async () => {
@@ -497,7 +625,7 @@ describe("document collaboration route contracts", () => {
         },
       ],
     })
-    updateWorkItemServerMock.mockResolvedValue({
+    persistCollaborationWorkItemServerMock.mockResolvedValue({
       ok: true,
     })
     bumpScopedReadModelVersionsServerMock.mockResolvedValue({
@@ -529,7 +657,7 @@ describe("document collaboration route contracts", () => {
       }
     )
 
-    expect(updateWorkItemServerMock).toHaveBeenCalledWith({
+    expect(persistCollaborationWorkItemServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
       itemId: "item_1",
       patch: {

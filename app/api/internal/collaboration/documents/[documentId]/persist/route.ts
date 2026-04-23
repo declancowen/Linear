@@ -12,7 +12,7 @@ import {
   getCollaborationDocumentServer,
   persistCollaborationDocumentServer,
   persistCollaborationItemDescriptionServer,
-  updateWorkItemServer,
+  persistCollaborationWorkItemServer,
 } from "@/lib/server/convex"
 import { requireInternalBearerAuthorization } from "@/lib/server/internal-route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
@@ -119,6 +119,17 @@ export async function POST(
       currentUserId: parsed.currentUserId,
       documentId,
     })
+
+    if (collaborationDocument.kind === "private-document") {
+      throw new ApplicationError(
+        "Private documents do not support collaboration sessions",
+        503,
+        {
+          code: "COLLABORATION_UNAVAILABLE",
+        }
+      )
+    }
+
     const title =
       collaborationDocument.kind === "item-description"
         ? undefined
@@ -140,7 +151,7 @@ export async function POST(
       }
 
       if (parsed.workItemTitle) {
-        await updateWorkItemServer({
+        await persistCollaborationWorkItemServer({
           currentUserId: parsed.currentUserId,
           itemId: collaborationDocument.itemId,
           patch: {

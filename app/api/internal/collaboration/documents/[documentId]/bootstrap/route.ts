@@ -56,6 +56,16 @@ export async function GET(
       documentId,
     })
 
+    if (collaborationDocument.kind === "private-document") {
+      throw new ApplicationError(
+        "Private documents do not support collaboration sessions",
+        503,
+        {
+          code: "COLLABORATION_UNAVAILABLE",
+        }
+      )
+    }
+
     return jsonOk({
       documentId: collaborationDocument.documentId,
       kind: collaborationDocument.kind,

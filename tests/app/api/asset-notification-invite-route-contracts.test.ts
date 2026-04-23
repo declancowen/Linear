@@ -24,6 +24,8 @@ const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpPrivateDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpPrivateSearchSeedReadModelScopesServerMock = vi.fn()
 const bumpSearchSeedReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
@@ -69,6 +71,10 @@ vi.mock("@/lib/server/authenticated-app", () => ({
 vi.mock("@/lib/server/scoped-read-models", () => ({
   bumpDocumentIndexReadModelScopesServer:
     bumpDocumentIndexReadModelScopesServerMock,
+  bumpPrivateDocumentIndexReadModelScopesServer:
+    bumpPrivateDocumentIndexReadModelScopesServerMock,
+  bumpPrivateSearchSeedReadModelScopesServer:
+    bumpPrivateSearchSeedReadModelScopesServerMock,
   bumpSearchSeedReadModelScopesServer:
     bumpSearchSeedReadModelScopesServerMock,
   bumpWorkspaceMembershipReadModelScopesServer:
@@ -99,6 +105,8 @@ describe("asset, notification, invite, and document route contracts", () => {
     logProviderErrorMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpPrivateDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpPrivateSearchSeedReadModelScopesServerMock.mockReset()
     bumpSearchSeedReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
@@ -129,6 +137,8 @@ describe("asset, notification, invite, and document route contracts", () => {
     })
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
     bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpPrivateDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpPrivateSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
@@ -722,9 +732,15 @@ describe("asset, notification, invite, and document route contracts", () => {
       "workspace",
       "workspace_1"
     )
+    expect(
+      bumpPrivateDocumentIndexReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
     expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
       "workspace_1"
     )
+    expect(
+      bumpPrivateSearchSeedReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
   })
 
   it("uses the created team document workspace for search invalidation", async () => {
@@ -766,8 +782,59 @@ describe("asset, notification, invite, and document route contracts", () => {
       "team",
       "team_2"
     )
+    expect(
+      bumpPrivateDocumentIndexReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
     expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
       "workspace_2"
     )
+    expect(
+      bumpPrivateSearchSeedReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
+  })
+
+  it("scopes private document invalidations to the owner", async () => {
+    const { POST } = await import("@/app/api/documents/route")
+
+    createDocumentServerMock.mockResolvedValue({
+      documentId: "document_private",
+      workspaceId: "workspace_1",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "document_private",
+          kind: "private-document",
+          workspaceId: "workspace_1",
+          title: "Private notes",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      documentId: "document_private",
+    })
+    expect(createDocumentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      id: "document_private",
+      kind: "private-document",
+      workspaceId: "workspace_1",
+      title: "Private notes",
+    })
+    expect(
+      bumpPrivateDocumentIndexReadModelScopesServerMock
+    ).toHaveBeenCalledWith("workspace_1", "user_1")
+    expect(bumpDocumentIndexReadModelScopesServerMock).not.toHaveBeenCalled()
+    expect(
+      bumpPrivateSearchSeedReadModelScopesServerMock
+    ).toHaveBeenCalledWith("workspace_1", "user_1")
+    expect(bumpSearchSeedReadModelScopesServerMock).not.toHaveBeenCalled()
   })
 })

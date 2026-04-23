@@ -1957,9 +1957,10 @@ export function DocsScreen({
   description?: string
 }) {
   const data = useAppStore((state) => state)
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),
-    scopeKeys: getDocumentIndexScopeKeys(scopeType, scopeId),
+    scopeKeys: getDocumentIndexScopeKeys(scopeType, scopeId, currentUserId),
     fetchLatest: () => fetchDocumentIndexReadModel(scopeType, scopeId),
   })
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)

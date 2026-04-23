@@ -5,6 +5,8 @@ import { documentSchema } from "@/lib/domain/types"
 import { createDocumentServer } from "@/lib/server/convex"
 import {
   bumpDocumentIndexReadModelScopesServer,
+  bumpPrivateDocumentIndexReadModelScopesServer,
+  bumpPrivateSearchSeedReadModelScopesServer,
   bumpSearchSeedReadModelScopesServer,
 } from "@/lib/server/scoped-read-models"
 import {
@@ -57,12 +59,26 @@ export async function POST(request: NextRequest) {
       (parsed.kind === "team-document"
         ? appContext.authContext?.currentWorkspace?.id ?? null
         : parsed.workspaceId)
-    await bumpDocumentIndexReadModelScopesServer(
-      documentScopeType,
-      documentScopeId
-    )
+    if (parsed.kind === "private-document") {
+      await bumpPrivateDocumentIndexReadModelScopesServer(
+        documentScopeId,
+        appContext.ensuredUser.userId
+      )
+    } else {
+      await bumpDocumentIndexReadModelScopesServer(
+        documentScopeType,
+        documentScopeId
+      )
+    }
     if (searchWorkspaceId) {
-      await bumpSearchSeedReadModelScopesServer(searchWorkspaceId)
+      if (parsed.kind === "private-document") {
+        await bumpPrivateSearchSeedReadModelScopesServer(
+          searchWorkspaceId,
+          appContext.ensuredUser.userId
+        )
+      } else {
+        await bumpSearchSeedReadModelScopesServer(searchWorkspaceId)
+      }
     }
 
     return jsonOk({

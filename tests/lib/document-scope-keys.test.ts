@@ -68,7 +68,7 @@ describe("buildCollaborationDocumentScopeKeys", () => {
     ])
   })
 
-  it("uses prefixed workspace document-index keys for private documents", () => {
+  it("keeps private documents on the detail scope only", () => {
     expect(
       buildCollaborationDocumentScopeKeys({
         documentId: "doc_1",
@@ -77,8 +77,6 @@ describe("buildCollaborationDocumentScopeKeys", () => {
       })
     ).toEqual([
       "document-detail:doc_1",
-      "document-index:workspace_workspace_1",
-      "search-seed:workspace_1",
     ])
   })
 

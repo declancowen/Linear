@@ -6,6 +6,7 @@ export const READ_MODEL_SCOPE_KINDS = {
   workIndex: "work-index",
   workItemDetail: "work-item-detail",
   documentIndex: "document-index",
+  privateDocumentIndex: "private-document-index",
   documentDetail: "document-detail",
   projectIndex: "project-index",
   projectDetail: "project-detail",
@@ -15,6 +16,7 @@ export const READ_MODEL_SCOPE_KINDS = {
   conversationThread: "conversation-thread",
   channelFeed: "channel-feed",
   searchSeed: "search-seed",
+  privateSearchSeed: "private-search-seed",
 } as const
 
 export type ReadModelScopeKind =
@@ -132,6 +134,17 @@ export function createDocumentIndexScopeKey(scopeId: string) {
   return createReadModelScopeKey(READ_MODEL_SCOPE_KINDS.documentIndex, scopeId)
 }
 
+export function createPrivateDocumentIndexScopeKey(
+  workspaceId: string,
+  userId: string
+) {
+  return createReadModelScopeKey(
+    READ_MODEL_SCOPE_KINDS.privateDocumentIndex,
+    workspaceId,
+    userId
+  )
+}
+
 export function createDocumentDetailScopeKey(documentId: string) {
   return createReadModelScopeKey(
     READ_MODEL_SCOPE_KINDS.documentDetail,
@@ -184,4 +197,15 @@ export function createChannelFeedScopeKey(conversationId: string) {
 
 export function createSearchSeedScopeKey(scopeId: string) {
   return createReadModelScopeKey(READ_MODEL_SCOPE_KINDS.searchSeed, scopeId)
+}
+
+export function createPrivateSearchSeedScopeKey(
+  workspaceId: string,
+  userId: string
+) {
+  return createReadModelScopeKey(
+    READ_MODEL_SCOPE_KINDS.privateSearchSeed,
+    workspaceId,
+    userId
+  )
 }

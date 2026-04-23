@@ -115,11 +115,12 @@ export function GlobalSearchDialog({
 }) {
   const router = useRouter()
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const currentUserId = useAppStore((state) => state.currentUserId)
   useScopedReadModelRefresh({
     enabled: open && Boolean(currentWorkspaceId),
     scopeKeys:
       open && currentWorkspaceId
-        ? getSearchSeedScopeKeys(currentWorkspaceId)
+        ? getSearchSeedScopeKeys(currentWorkspaceId, currentUserId)
         : [],
     fetchLatest: () => fetchSearchSeedReadModel(currentWorkspaceId),
   })

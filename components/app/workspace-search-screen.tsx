@@ -96,10 +96,11 @@ export function WorkspaceSearchScreen({
   initialQuery?: string
 }) {
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const currentUserId = useAppStore((state) => state.currentUserId)
   useScopedReadModelRefresh({
     enabled: Boolean(currentWorkspaceId),
     scopeKeys: currentWorkspaceId
-      ? getSearchSeedScopeKeys(currentWorkspaceId)
+      ? getSearchSeedScopeKeys(currentWorkspaceId, currentUserId)
       : [],
     fetchLatest: () => fetchSearchSeedReadModel(currentWorkspaceId),
   })

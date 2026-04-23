@@ -26,6 +26,8 @@ import {
   createDocumentDetailScopeKey,
   createDocumentIndexScopeKey,
   createNotificationInboxScopeKey,
+  createPrivateDocumentIndexScopeKey,
+  createPrivateSearchSeedScopeKey,
   createProjectDetailScopeKey,
   createProjectIndexScopeKey,
   createScopedCollectionScopeId,
@@ -1489,11 +1491,25 @@ export function getDocumentDetailScopeKeys(documentId: string) {
 
 export function getDocumentIndexScopeKeys(
   scopeType: "team" | "workspace",
-  scopeId: string
+  scopeId: string,
+  currentUserId?: string | null
 ) {
-  return [
+  const scopeKeys = [
     createDocumentIndexScopeKey(createScopedCollectionScopeId(scopeType, scopeId)),
   ]
+
+  if (scopeType === "workspace" && currentUserId) {
+    scopeKeys.push(...getPrivateDocumentIndexScopeKeys(scopeId, currentUserId))
+  }
+
+  return scopeKeys
+}
+
+export function getPrivateDocumentIndexScopeKeys(
+  workspaceId: string,
+  userId: string
+) {
+  return [createPrivateDocumentIndexScopeKey(workspaceId, userId)]
 }
 
 export function getDocumentRelatedScopeKeys(
@@ -1505,6 +1521,22 @@ export function getDocumentRelatedScopeKeys(
   const scopeKeys = new Set<string>([createDocumentDetailScopeKey(documentId)])
 
   if (!document || document.kind === "item-description") {
+    return [...scopeKeys]
+  }
+
+  if (document.kind === "private-document") {
+    scopeKeys.add(
+      createPrivateDocumentIndexScopeKey(
+        document.workspaceId,
+        document.createdBy
+      )
+    )
+    scopeKeys.add(
+      createPrivateSearchSeedScopeKey(
+        document.workspaceId,
+        document.createdBy
+      )
+    )
     return [...scopeKeys]
   }
 
@@ -1683,8 +1715,24 @@ export function getChannelFeedScopeKeys(conversationId: string) {
   return [createChannelFeedScopeKey(conversationId)]
 }
 
-export function getSearchSeedScopeKeys(workspaceId: string) {
-  return [createSearchSeedScopeKey(workspaceId)]
+export function getSearchSeedScopeKeys(
+  workspaceId: string,
+  currentUserId?: string | null
+) {
+  const scopeKeys = [createSearchSeedScopeKey(workspaceId)]
+
+  if (currentUserId) {
+    scopeKeys.push(...getPrivateSearchSeedScopeKeys(workspaceId, currentUserId))
+  }
+
+  return scopeKeys
+}
+
+export function getPrivateSearchSeedScopeKeys(
+  workspaceId: string,
+  userId: string
+) {
+  return [createPrivateSearchSeedScopeKey(workspaceId, userId)]
 }
 
 export function getViewRelatedScopeKeys(
