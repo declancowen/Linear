@@ -46,6 +46,10 @@ export type ScopedReadModelReplaceInstruction =
       documentId: string
     }
   | {
+      kind: "missing-document-detail"
+      documentId: string
+    }
+  | {
       kind: "document-index"
       scopeType: "team" | "workspace"
       scopeId: string
@@ -55,12 +59,20 @@ export type ScopedReadModelReplaceInstruction =
       itemId: string
     }
   | {
+      kind: "missing-work-item-detail"
+      itemId: string
+    }
+  | {
       kind: "work-index"
       scopeType: "team" | "workspace" | "personal"
       scopeId: string
     }
   | {
       kind: "project-detail"
+      projectId: string
+    }
+  | {
+      kind: "missing-project-detail"
       projectId: string
     }
   | {
@@ -766,6 +778,15 @@ export function selectDocumentDetailReadModel(
   }
 }
 
+function selectMissingDocumentDetailReadModel(
+  snapshot: AppSnapshot,
+  documentId: string
+): ScopedReadModelPatch {
+  return {
+    documents: snapshot.documents.filter((entry) => entry.id === documentId),
+  }
+}
+
 export function selectDocumentIndexReadModel(
   snapshot: AppSnapshot,
   scopeType: "team" | "workspace",
@@ -881,6 +902,15 @@ export function selectWorkItemDetailReadModel(
   }
 }
 
+function selectMissingWorkItemDetailReadModel(
+  snapshot: AppSnapshot,
+  itemId: string
+): ScopedReadModelPatch {
+  return {
+    workItems: snapshot.workItems.filter((entry) => entry.id === itemId),
+  }
+}
+
 export function selectProjectDetailReadModel(
   snapshot: AppSnapshot,
   projectId: string
@@ -929,6 +959,15 @@ export function selectProjectDetailReadModel(
     documents,
     views,
     users,
+  }
+}
+
+function selectMissingProjectDetailReadModel(
+  snapshot: AppSnapshot,
+  projectId: string
+): ScopedReadModelPatch {
+  return {
+    projects: snapshot.projects.filter((entry) => entry.id === projectId),
   }
 }
 
@@ -1437,6 +1476,8 @@ export function selectReadModelForInstruction(
   switch (instruction.kind) {
     case "document-detail":
       return selectDocumentDetailReadModel(snapshot, instruction.documentId)
+    case "missing-document-detail":
+      return selectMissingDocumentDetailReadModel(snapshot, instruction.documentId)
     case "document-index":
       return selectDocumentIndexReadModel(
         snapshot,
@@ -1445,6 +1486,8 @@ export function selectReadModelForInstruction(
       )
     case "work-item-detail":
       return selectWorkItemDetailReadModel(snapshot, instruction.itemId)
+    case "missing-work-item-detail":
+      return selectMissingWorkItemDetailReadModel(snapshot, instruction.itemId)
     case "work-index":
       return selectWorkIndexReadModel(
         snapshot,
@@ -1453,6 +1496,8 @@ export function selectReadModelForInstruction(
       )
     case "project-detail":
       return selectProjectDetailReadModel(snapshot, instruction.projectId)
+    case "missing-project-detail":
+      return selectMissingProjectDetailReadModel(snapshot, instruction.projectId)
     case "project-index":
       return selectProjectIndexReadModel(
         snapshot,

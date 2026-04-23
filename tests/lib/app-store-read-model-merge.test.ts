@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
+import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { createDefaultTeamWorkflowSettings } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
@@ -406,5 +407,103 @@ describe("app store read model merge", () => {
 
     expect(protectedDocument?.title).toBe("Workspace Doc")
     expect(protectedDocument?.content).toBe("<p>Workspace</p>")
+  })
+
+  it("evicts only the missing work item when a detail refresh returns not found", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      users: [
+        ...state.users,
+        projectLead,
+      ],
+      teamMemberships: [
+        ...state.teamMemberships,
+        {
+          teamId: "team_1",
+          userId: projectLead.id,
+          role: "member",
+        },
+      ],
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Launch",
+          summary: "",
+          description: "",
+          leadId: projectLead.id,
+          memberIds: [currentUser.id],
+          health: "on-track",
+          priority: "medium",
+          status: "planned",
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-22T00:00:00.000Z",
+        },
+      ],
+      labels: [
+        {
+          id: "label_1",
+          workspaceId: "workspace_1",
+          name: "Bug",
+          color: "#ef4444",
+        },
+      ],
+      workItems: [
+        ...state.workItems,
+        {
+          id: "item_2",
+          key: "ENG-2",
+          teamId: "team_1",
+          title: "Sibling item",
+          descriptionDocId: "doc_workspace",
+          status: "todo",
+          priority: "low",
+          type: "task",
+          assigneeId: projectLead.id,
+          parentId: null,
+          creatorId: projectLead.id,
+          subscriberIds: [currentUser.id],
+          labelIds: ["label_1"],
+          linkedProjectIds: ["project_1"],
+          linkedDocumentIds: [],
+          primaryProjectId: "project_1",
+          milestoneId: null,
+          startDate: null,
+          dueDate: null,
+          targetDate: null,
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-22T00:00:00.000Z",
+        },
+      ],
+    }))
+
+    const missingResult = createMissingScopedReadModelResult([
+      {
+        kind: "work-item-detail",
+        itemId: "item_1",
+      },
+    ])
+
+    useAppStore
+      .getState()
+      .mergeReadModelData(missingResult.data, { replace: missingResult.replace })
+
+    const state = useAppStore.getState()
+
+    expect(state.workItems.map((item) => item.id)).toEqual(["item_2"])
+    expect(state.projects.map((project) => project.id)).toEqual(["project_1"])
+    expect(state.labels.map((label) => label.id)).toEqual(["label_1"])
+    expect(state.teamMemberships.map((membership) => membership.userId).sort()).toEqual([
+      currentUser.id,
+      projectLead.id,
+    ])
+    expect(state.users.map((user) => user.id).sort()).toEqual([
+      currentUser.id,
+      projectLead.id,
+    ])
   })
 })

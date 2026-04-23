@@ -14,28 +14,223 @@ export type ReadModelFetchResult<T extends Partial<AppSnapshot>> = {
   replace?: ScopedReadModelReplaceInstruction[]
 }
 
-const EMPTY_SCOPED_READ_MODEL_DATA: Partial<AppSnapshot> = {
-  workspaces: [],
-  workspaceMemberships: [],
-  teams: [],
-  teamMemberships: [],
-  users: [],
-  labels: [],
-  projects: [],
-  milestones: [],
-  workItems: [],
-  documents: [],
-  views: [],
-  comments: [],
-  attachments: [],
-  notifications: [],
-  invites: [],
-  projectUpdates: [],
-  conversations: [],
-  calls: [],
-  chatMessages: [],
-  channelPosts: [],
-  channelPostComments: [],
+type ScopedArrayDomainKey = keyof Pick<
+  AppSnapshot,
+  | "workspaces"
+  | "workspaceMemberships"
+  | "teams"
+  | "teamMemberships"
+  | "users"
+  | "labels"
+  | "projects"
+  | "milestones"
+  | "workItems"
+  | "documents"
+  | "views"
+  | "comments"
+  | "attachments"
+  | "notifications"
+  | "invites"
+  | "projectUpdates"
+  | "conversations"
+  | "calls"
+  | "chatMessages"
+  | "channelPosts"
+  | "channelPostComments"
+>
+
+function getEmptyScopedArrayDomains(
+  instruction: ScopedReadModelReplaceInstruction
+): ScopedArrayDomainKey[] {
+  switch (instruction.kind) {
+    case "document-detail":
+      return ["documents", "comments", "attachments", "users"]
+    case "missing-document-detail":
+      return ["documents"]
+    case "document-index":
+      return ["documents", "views", "users"]
+    case "work-item-detail":
+      return [
+        "workItems",
+        "labels",
+        "projects",
+        "milestones",
+        "documents",
+        "comments",
+        "attachments",
+        "teamMemberships",
+        "users",
+      ]
+    case "missing-work-item-detail":
+      return ["workItems"]
+    case "work-index":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "users",
+        "labels",
+        "projects",
+        "milestones",
+        "workItems",
+        "views",
+      ]
+    case "project-detail":
+      return [
+        "projects",
+        "milestones",
+        "projectUpdates",
+        "workItems",
+        "documents",
+        "views",
+        "users",
+      ]
+    case "missing-project-detail":
+      return ["projects"]
+    case "project-index":
+      return ["projects", "workItems", "teams", "views", "users"]
+    case "workspace-membership":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "labels",
+        "users",
+        "invites",
+      ]
+    case "view-catalog":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "views",
+      ]
+    case "notification-inbox":
+      return [
+        "workspaces",
+        "teams",
+        "users",
+        "notifications",
+        "invites",
+        "conversations",
+        "channelPosts",
+        "projects",
+      ]
+    case "conversation-list":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "users",
+        "conversations",
+        "chatMessages",
+      ]
+    case "conversation-thread":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "users",
+        "conversations",
+        "calls",
+        "chatMessages",
+      ]
+    case "channel-feed":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "users",
+        "conversations",
+        "channelPosts",
+        "channelPostComments",
+      ]
+    case "search-seed":
+      return [
+        "workspaces",
+        "workspaceMemberships",
+        "teams",
+        "teamMemberships",
+        "users",
+        "projects",
+        "documents",
+        "workItems",
+      ]
+    default:
+      return []
+  }
+}
+
+function createEmptyScopedReadModelData(
+  replace: ScopedReadModelReplaceInstruction[]
+): Partial<AppSnapshot> {
+  const domains = new Set<ScopedArrayDomainKey>()
+
+  for (const instruction of replace) {
+    for (const domain of getEmptyScopedArrayDomains(instruction)) {
+      domains.add(domain)
+    }
+  }
+
+  return [...domains].reduce<Partial<AppSnapshot>>((result, domain) => {
+    result[domain] = []
+    return result
+  }, {})
+}
+
+function createMissingReplaceInstruction(
+  instruction: ScopedReadModelReplaceInstruction
+): ScopedReadModelReplaceInstruction {
+  switch (instruction.kind) {
+    case "document-detail":
+      return {
+        kind: "missing-document-detail",
+        documentId: instruction.documentId,
+      }
+    case "work-item-detail":
+      return {
+        kind: "missing-work-item-detail",
+        itemId: instruction.itemId,
+      }
+    case "project-detail":
+      return {
+        kind: "missing-project-detail",
+        projectId: instruction.projectId,
+      }
+    default:
+      return instruction
+  }
+}
+
+function createMissingScopedReadModelData(
+  replace: ScopedReadModelReplaceInstruction[]
+): Partial<AppSnapshot> {
+  const missingReplace = replace.map(createMissingReplaceInstruction)
+
+  return missingReplace.reduce<Partial<AppSnapshot>>((result, instruction) => {
+    switch (instruction.kind) {
+      case "missing-document-detail":
+        result.documents = []
+        break
+      case "missing-work-item-detail":
+        result.workItems = []
+        break
+      case "missing-project-detail":
+        result.projects = []
+        break
+      default:
+        Object.assign(result, createEmptyScopedReadModelData([instruction]))
+        break
+    }
+
+    return result
+  }, {})
 }
 
 async function fetchReadModel<T extends Partial<AppSnapshot>>(
@@ -56,8 +251,8 @@ export function createMissingScopedReadModelResult(
   replace: ScopedReadModelReplaceInstruction[]
 ): ReadModelFetchResult<Partial<AppSnapshot>> {
   return {
-    data: EMPTY_SCOPED_READ_MODEL_DATA,
-    replace,
+    data: createMissingScopedReadModelData(replace),
+    replace: replace.map(createMissingReplaceInstruction),
   }
 }
 
