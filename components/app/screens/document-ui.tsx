@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   Avatar,
   AvatarFallback,
+  AvatarGroup,
   AvatarGroupCount,
   AvatarImage,
 } from "@/components/ui/avatar"
@@ -201,7 +202,7 @@ export function DocumentPresenceAvatarGroup({
       aria-label={`Also viewing: ${viewerNames}`}
       title={`Also viewing: ${viewerNames}`}
     >
-      <div className="flex -space-x-2">
+      <AvatarGroup className="*:data-[slot=avatar]:ring-0">
         {visibleViewers.map((viewer) => (
           <DocumentAuthorAvatar
             key={viewer.userId}
@@ -224,7 +225,7 @@ export function DocumentPresenceAvatarGroup({
             +{hiddenViewerCount}
           </AvatarGroupCount>
         ) : null}
-      </div>
+      </AvatarGroup>
     </div>
   )
 }
