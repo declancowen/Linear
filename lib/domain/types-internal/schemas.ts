@@ -12,6 +12,7 @@ import {
   documentTitleConstraints,
   getPlainTextLength,
   getRichTextMarkupSafetyCap,
+  isLegacyImageSourceValue,
   labelNameConstraints,
   optionalWorkspaceDescriptionConstraints,
   profileAvatarFallbackConstraints,
@@ -65,12 +66,24 @@ function boundedTrimmedStringSchema(constraint: {
   min?: number
   max: number
   allowEmpty?: boolean
+  allowLegacyImageSource?: boolean
+  trim?: boolean
 }) {
-  let schema = z.string().trim().max(constraint.max)
+  let schema = z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        isLegacyImageSourceValue(value, constraint) || value.length <= constraint.max,
+      {
+        message: `Enter ${constraint.max} characters or fewer`,
+      }
+    )
 
   if (constraint.min !== undefined) {
     schema = schema.refine(
       (value) =>
+        isLegacyImageSourceValue(value, constraint) ||
         (constraint.allowEmpty && value.length === 0) ||
         value.length >= constraint.min!,
       {

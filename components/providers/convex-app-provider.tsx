@@ -44,20 +44,14 @@ function getInitialShellSeedSignature(
   initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>>,
   initialWorkspaceId: string
 ) {
-  const replaceSignature =
-    initialShellSeed.replace
-      ?.map((instruction) =>
-        instruction.kind === "workspace-membership"
-          ? `${instruction.kind}:${instruction.workspaceId}`
-          : instruction.kind
-      )
-      .join("|") ?? "no-replace"
-
-  return [
-    initialShellSeed.data.currentUserId ?? "",
-    initialShellSeed.data.currentWorkspaceId ?? initialWorkspaceId,
-    replaceSignature,
-  ].join("|")
+  return JSON.stringify({
+    initialWorkspaceId,
+    currentUserId: initialShellSeed.data.currentUserId ?? "",
+    currentWorkspaceId:
+      initialShellSeed.data.currentWorkspaceId ?? initialWorkspaceId,
+    replace: initialShellSeed.replace ?? [],
+    data: initialShellSeed.data,
+  })
 }
 
 function InitialShellSeedHydrator({

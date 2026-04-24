@@ -51,11 +51,11 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 15:31:22 BST` |
-| **Total turns** | `2` |
+| **Last reviewed** | `2026-04-24 15:50:45 BST` |
+| **Total turns** | `3` |
 | **Open findings** | `0` |
-| **Resolved findings** | `5` |
-| **Accepted findings** | `5` |
+| **Resolved findings** | `8` |
+| **Accepted findings** | `14` |
 
 ---
 
@@ -227,3 +227,57 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 - The `chat-thread.tsx` `typeof liveContent === "string"` ternary is dead-code cleanup only and not a correctness issue.
 - The Convex bootstrap simplification note is architectural context, not a branch blocker.
 - Blank project summaries/descriptions remaining blank is intentional and matches the explicit product request for this branch.
+
+---
+
+## Turn 3 — 2026-04-24 15:50:45 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `5fbbcd89a4b5d7080c4b4bf63a1821260ec7a0ec` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the review loop against the newly supplied findings. Three additional regressions were confirmed and fixed: retained team state now expires instead of persisting indefinitely after the live team disappears, same-workspace shell seed payload changes now rehydrate instead of being skipped by an overly coarse signature, and the new character-limit enforcement no longer bricks workspace/profile settings when legacy `logoUrl` / `avatarUrl` values are empty or URL-shaped. The remaining notes in this batch were either intentional UX changes, architectural observations, or false positives on the current tree.
+
+**Outcome:** all clear
+**Risk score:** high — this turn touched shared hydration, shared constraints, and route/schema compatibility
+**Change archetypes:** hydration-contract, legacy-compatibility, transient-retention
+**Intended change:** close the final shared-state and compatibility regressions without reopening the earlier UI-enhancement fixes
+**Intent vs actual:** aligned on intent after remediation; the shared boundaries now behave coherently under route transitions, deleted-team scenarios, and legacy profile/workspace data
+**Confidence:** medium-high — current branch state was reassessed this turn, the hotspot ledger was revisited, sibling closure was completed for the new bug families, targeted verification was rerun, and the challenger pass did not find a remaining blocker
+**Coverage note:** re-read the provider/hook/constraint/schema diffs, validated the external findings against the current tree, and reran both the new focused proof set and a broader cross-surface regression slice
+**Finding triage:** the “create group chat button disabled state” report is not a live bug on the current tree because the CTA footer is only rendered once participants exist; the remaining accepted notes below were likewise confirmed as intentional or non-blocking
+**Branch totality:** reassessed on the current working tree, not inherited from Turn 2
+**Hotspot ledger:** revisited this turn; no open hotspot families remain
+**Sibling closure:** completed across retained-team callers, shell-seed hydration callers, and profile/workspace avatar/logo compatibility paths
+**Remediation impact surface:** checked the client limit-state helper, shared schemas, provider hydrator, retained-team hook, and route-contract tests so the fixes hold across UI and API boundaries
+**Challenger pass:** completed — challenged the batch for false positives, then reran the broader touched-area regression slice after the confirmed fixes landed
+**Weakest-evidence areas:** manual browser QA for drag/drop pointer behavior remains the weakest evidence area, but no new code or test evidence indicates an open issue there
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm exec vitest run tests/lib/use-retained-team-by-slug.test.tsx tests/components/convex-app-provider.test.tsx tests/app/api/workspace-profile-route-contracts.test.ts tests/lib/domain/input-constraints.test.ts` — passed (`4/4` files, `17/17` tests)
+- `pnpm exec vitest run tests/components/chat-thread.test.tsx tests/components/document-ui.test.tsx tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/entity-context-menus.test.tsx tests/components/inbox-screen.test.tsx tests/components/work-item-ui-comments-inline.test.tsx tests/components/work-item-labels-editor.test.tsx tests/components/work-item-project-cascade-confirmation.test.tsx tests/components/channel-ui.test.tsx tests/components/convex-app-provider.test.tsx tests/lib/store/work-item-actions.test.ts tests/lib/store/work-document-actions.test.ts tests/lib/server/convex-notifications.test.ts tests/lib/use-retained-team-by-slug.test.tsx tests/lib/domain/input-constraints.test.ts tests/app/api/asset-notification-invite-route-contracts.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/app/api/workspace-profile-route-contracts.test.ts` — passed (`19/19` files, `116/116` tests)
+
+### Resolution ledger
+
+#### Resolved
+
+- `B3-01` — retained team state now expires after a bounded grace window when the live team does not come back, which preserves transient-gap UX without letting stale team data persist indefinitely. Evidence: `hooks/use-retained-team-by-slug.ts`, `tests/lib/use-retained-team-by-slug.test.tsx`.
+- `B3-02` — initial shell seed hydration now reapplies when same-workspace payload data changes, not just when workspace/user identity changes. Evidence: `components/providers/convex-app-provider.tsx`, `tests/components/convex-app-provider.test.tsx`.
+- `B3-03` — the new character-limit enforcement now preserves backward compatibility for empty and URL-shaped `logoUrl` / `avatarUrl` values while still enforcing badge-length limits for real fallback text. Evidence: `lib/domain/input-constraints.ts`, `lib/domain/types-internal/schemas.ts`, `tests/lib/domain/input-constraints.test.ts`, `tests/app/api/workspace-profile-route-contracts.test.ts`.
+
+#### Accepted / non-blocking observations
+
+- `workspace-chat-ui.tsx` create-chat CTA gating report is not a live bug on the current tree because the footer button is not rendered until at least one participant is selected.
+- Empty-group synthesis suppression when filters are active remains an intentional UX tradeoff rather than a proven correctness bug.
+- Item-drop and lane-drop extraction behavior on the work surface remains intentional and should be validated in manual QA, but it is not a code defect relative to the requested behavior.
+- The `chat-thread.tsx` dead-code ternary is cleanup-only.
+- The `ConvexAppProvider` loading-contract observations are architectural notes, not blockers.
+- The `pending-work-item-creations.ts` and `pending view config reconciliation` notes are positive findings, not defects.
+- Top-level items still not becoming children via drag is intentional on this branch.

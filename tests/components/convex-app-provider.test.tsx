@@ -241,4 +241,115 @@ describe("ConvexAppProvider", () => {
       expect(replaceDomainDataMock).toHaveBeenCalled()
     })
   })
+
+  it("rehydrates when the shell seed payload changes for the same workspace", async () => {
+    const { ConvexAppProvider } = await import(
+      "@/components/providers/convex-app-provider"
+    )
+
+    const updatedSeed: ReadModelFetchResult<Partial<AppSnapshot>> = {
+      ...initialShellSeed,
+      data: {
+        ...initialShellSeed.data,
+        teams: [
+          {
+            id: "team_1",
+            workspaceId: "workspace_1",
+            slug: "platform",
+            name: "Platform",
+            icon: "code",
+            settings: {
+              joinCode: "JOIN1234",
+              summary: "Platform team",
+              guestProjectIds: [],
+              guestDocumentIds: [],
+              guestWorkItemIds: [],
+              experience: "software-development",
+              features: {
+                issues: true,
+                projects: true,
+                views: true,
+                docs: true,
+                chat: true,
+                channels: true,
+              },
+              workflow: {
+                statusOrder: [
+                  "backlog",
+                  "todo",
+                  "in-progress",
+                  "done",
+                  "cancelled",
+                  "duplicate",
+                ],
+                templateDefaults: {
+                  "software-delivery": {
+                    defaultPriority: "high",
+                    targetWindowDays: 28,
+                    defaultViewLayout: "board",
+                    recommendedItemTypes: [
+                      "epic",
+                      "feature",
+                      "requirement",
+                      "story",
+                    ],
+                    summaryHint: "",
+                  },
+                  "bug-tracking": {
+                    defaultPriority: "high",
+                    targetWindowDays: 14,
+                    defaultViewLayout: "list",
+                    recommendedItemTypes: ["issue", "sub-issue"],
+                    summaryHint: "",
+                  },
+                  "project-management": {
+                    defaultPriority: "medium",
+                    targetWindowDays: 35,
+                    defaultViewLayout: "timeline",
+                    recommendedItemTypes: ["task", "sub-task"],
+                    summaryHint: "",
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    }
+
+    const { rerender } = render(
+      <ConvexAppProvider
+        initialShellSeed={initialShellSeed}
+        initialWorkspaceId="workspace_1"
+      >
+        <div>App content</div>
+      </ConvexAppProvider>
+    )
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenCalledWith(
+        initialShellSeed.data,
+        {
+          replace: initialShellSeed.replace,
+        }
+      )
+    })
+
+    mergeReadModelDataMock.mockClear()
+
+    rerender(
+      <ConvexAppProvider
+        initialShellSeed={updatedSeed}
+        initialWorkspaceId="workspace_1"
+      >
+        <div>App content</div>
+      </ConvexAppProvider>
+    )
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenCalledWith(updatedSeed.data, {
+        replace: updatedSeed.replace,
+      })
+    })
+  })
 })

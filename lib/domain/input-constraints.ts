@@ -1,10 +1,11 @@
-import { getPlainTextContent } from "@/lib/utils"
+import { getPlainTextContent, isImageAssetSource } from "@/lib/utils"
 
 export type TextInputConstraint = {
   min?: number
   max: number
   trim?: boolean
   allowEmpty?: boolean
+  allowLegacyImageSource?: boolean
 }
 
 export type TextInputLimitState = {
@@ -50,6 +51,8 @@ export const workspaceFallbackBadgeConstraints = {
   min: 1,
   max: 24,
   trim: true,
+  allowEmpty: true,
+  allowLegacyImageSource: true,
 } satisfies TextInputConstraint
 
 export const workspaceAccentConstraints = {
@@ -100,6 +103,8 @@ export const profileAvatarFallbackConstraints = {
   min: 1,
   max: 24,
   trim: true,
+  allowEmpty: true,
+  allowLegacyImageSource: true,
 } satisfies TextInputConstraint
 
 export const profileStatusMessageConstraints = {
@@ -216,6 +221,16 @@ function resolveCountSource(value: string, trim = true) {
   return trim ? value.trim() : value
 }
 
+export function isLegacyImageSourceValue(
+  value: string,
+  constraint: Pick<TextInputConstraint, "allowLegacyImageSource" | "trim">
+) {
+  return (
+    constraint.allowLegacyImageSource === true &&
+    isImageAssetSource(resolveCountSource(value, constraint.trim ?? true))
+  )
+}
+
 export function getTextLength(
   value: string,
   constraint: Pick<TextInputConstraint, "trim"> = {}
@@ -244,13 +259,19 @@ export function getTextInputLimitState(
     plainText?: boolean
   }
 ): TextInputLimitState {
+  const usesLegacyImageSource =
+    !options?.plainText && isLegacyImageSourceValue(value, constraint)
   const displayCount = options?.plainText
     ? getPlainTextLength(value, constraint)
-    : getTextLength(value, constraint)
+    : usesLegacyImageSource
+      ? 0
+      : getTextLength(value, constraint)
   const minimum = constraint.min ?? 0
   const tooShort =
-    !(constraint.allowEmpty && displayCount === 0) && displayCount < minimum
-  const tooLong = displayCount > constraint.max
+    !usesLegacyImageSource &&
+    !(constraint.allowEmpty && displayCount === 0) &&
+    displayCount < minimum
+  const tooLong = !usesLegacyImageSource && displayCount > constraint.max
   const remaining = constraint.max - displayCount
   const isAtLimit = displayCount >= constraint.max
   const canSubmit = !tooShort && !tooLong

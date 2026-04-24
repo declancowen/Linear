@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react"
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import { createEmptyState } from "@/lib/domain/empty-state"
@@ -59,6 +59,10 @@ describe("useRetainedTeamBySlug", () => {
     seedTeamState()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("retains the last resolved team while the live team entry is temporarily missing", () => {
     const { result } = renderHook(() => useRetainedTeamBySlug("platform"))
 
@@ -90,6 +94,31 @@ describe("useRetainedTeamBySlug", () => {
 
     rerender({
       teamSlug: "other-team",
+    })
+
+    expect(result.current.liveTeam).toBeNull()
+    expect(result.current.team).toBeNull()
+  })
+
+  it("expires a retained team after the grace window when the live team does not return", () => {
+    vi.useFakeTimers()
+
+    const { result } = renderHook(() => useRetainedTeamBySlug("platform"))
+
+    expect(result.current.team?.id).toBe("team_1")
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        teams: [],
+      }))
+    })
+
+    expect(result.current.liveTeam).toBeNull()
+    expect(result.current.team?.id).toBe("team_1")
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
     })
 
     expect(result.current.liveTeam).toBeNull()

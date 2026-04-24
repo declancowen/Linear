@@ -144,7 +144,7 @@ describe("workspace and profile route contracts", () => {
         },
         body: JSON.stringify({
           name: "Acme 2",
-          logoUrl: "AC",
+          logoUrl: "https://example.com/logo-2.png",
           accent: "green",
           description: "Updated ok",
         }),
@@ -237,7 +237,7 @@ describe("workspace and profile route contracts", () => {
         body: JSON.stringify({
           name: "Alex",
           title: "Engineer",
-          avatarUrl: "AC",
+          avatarUrl: "https://example.com/avatar.png",
           preferences: {
             emailMentions: true,
             emailAssignments: true,
@@ -269,7 +269,7 @@ describe("workspace and profile route contracts", () => {
         body: JSON.stringify({
           name: "Alex",
           title: "",
-          avatarUrl: "AC",
+          avatarUrl: "https://example.com/avatar.png",
           preferences: {
             emailMentions: true,
             emailAssignments: true,
@@ -290,7 +290,7 @@ describe("workspace and profile route contracts", () => {
       userId: "user_1",
       name: "Alex",
       title: "",
-      avatarUrl: "AC",
+      avatarUrl: "https://example.com/avatar.png",
       preferences: {
         emailMentions: true,
         emailAssignments: true,
