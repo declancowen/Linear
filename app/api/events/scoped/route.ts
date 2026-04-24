@@ -10,6 +10,7 @@ import { authorizeScopedReadModelScopeKeysServer } from "@/lib/server/scoped-rea
 const STREAM_POLL_INTERVAL_MS = 1000
 const STREAM_HEARTBEAT_INTERVAL_MS = 15000
 const STREAM_MAX_DURATION_MS = 55000
+const STREAM_DEFAULT_RETRY_MS = 3000
 const STREAM_UNAVAILABLE_RETRY_MS = 10000
 
 export const dynamic = "force-dynamic"
@@ -138,13 +139,21 @@ export async function GET(request: Request) {
         } catch {}
       }
 
-      const sendEvent = (event: string, payload: unknown) => {
+      const sendEvent = (
+        event: string,
+        payload: unknown,
+        options?: {
+          retryMs?: number
+        }
+      ) => {
         if (closed) {
           return
         }
 
         controller.enqueue(
-          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+          encoder.encode(
+            `${options?.retryMs ? `retry: ${options.retryMs}\n` : ""}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
+          )
         )
       }
 
@@ -158,9 +167,15 @@ export async function GET(request: Request) {
           let lastHeartbeatAt = Date.now()
           const startedAt = Date.now()
 
-          sendEvent("ready", {
-            versions: initial.versions,
-          })
+          sendEvent(
+            "ready",
+            {
+              versions: initial.versions,
+            },
+            {
+              retryMs: STREAM_DEFAULT_RETRY_MS,
+            }
+          )
 
           while (!closed && !request.signal.aborted) {
             if (Date.now() - startedAt >= STREAM_MAX_DURATION_MS) {
@@ -184,10 +199,16 @@ export async function GET(request: Request) {
                 error instanceof ApplicationError &&
                 error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
               ) {
-                sendEvent("unavailable", {
-                  code: error.code,
-                  message: error.message,
-                })
+                sendEvent(
+                  "unavailable",
+                  {
+                    code: error.code,
+                    message: error.message,
+                  },
+                  {
+                    retryMs: STREAM_UNAVAILABLE_RETRY_MS,
+                  }
+                )
                 break
               }
 
