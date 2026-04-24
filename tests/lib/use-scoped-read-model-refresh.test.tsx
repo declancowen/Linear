@@ -1,6 +1,6 @@
 import { act, render, renderHook, waitFor } from "@testing-library/react"
 import { useLayoutEffect } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mergeReadModelDataMock = vi.fn()
 const openScopedInvalidationStreamMock = vi.fn()
@@ -43,8 +43,13 @@ function createDeferred<T>() {
 }
 
 describe("useScopedReadModelRefresh", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     vi.resetModules()
+    vi.useRealTimers()
     mergeReadModelDataMock.mockReset()
     openScopedInvalidationStreamMock.mockReset()
     isScopedSyncEnabledMock.mockReset()
@@ -97,6 +102,72 @@ describe("useScopedReadModelRefresh", () => {
     await waitFor(() => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(2)
     })
+  })
+
+  it("falls back to periodic refresh when the scoped stream is unavailable", async () => {
+    let handlers:
+      | {
+          onReady?: () => void
+          onUnavailable?: () => void
+        }
+      | undefined
+    let degradedRefreshCallback: (() => void) | null = null
+
+    const setIntervalSpy = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation((callback) => {
+        degradedRefreshCallback = callback as () => void
+        return 1 as unknown as ReturnType<typeof setInterval>
+      })
+    const clearIntervalSpy = vi
+      .spyOn(window, "clearInterval")
+      .mockImplementation(() => {})
+
+    openScopedInvalidationStreamMock.mockImplementation((input) => {
+      handlers = input
+      return vi.fn()
+    })
+
+    const fetchLatestMock = vi.fn().mockResolvedValue({})
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:a"],
+        fetchLatest: fetchLatestMock,
+      })
+    )
+
+    await waitFor(() => {
+      expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      handlers?.onUnavailable?.()
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      degradedRefreshCallback?.()
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(3)
+
+    await act(async () => {
+      handlers?.onReady?.()
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(3)
+    expect(degradedRefreshCallback).not.toBeNull()
+    expect(setIntervalSpy).toHaveBeenCalled()
+    expect(clearIntervalSpy).toHaveBeenCalled()
   })
 
   it("treats scoped refresh as loaded when scoped sync is disabled", async () => {

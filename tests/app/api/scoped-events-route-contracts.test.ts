@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ApplicationError } from "@/lib/server/application-errors"
 
 const requireSessionMock = vi.fn()
 const requireConvexUserMock = vi.fn()
@@ -103,5 +104,24 @@ describe("scoped events route contracts", () => {
     expect(getScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
       scopeKeys: ["shell-context"],
     })
+  })
+
+  it("emits an unavailable event when scoped read model versions are unavailable", async () => {
+    getScopedReadModelVersionsServerMock.mockRejectedValueOnce(
+      new ApplicationError("Scoped read model versions are unavailable", 503, {
+        code: "SCOPED_READ_MODELS_UNAVAILABLE",
+      })
+    )
+
+    const { GET } = await import("@/app/api/events/scoped/route")
+
+    const response = await GET(
+      new Request("http://localhost/api/events/scoped?scopeKey=shell-context")
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain(
+      "event: unavailable"
+    )
   })
 })

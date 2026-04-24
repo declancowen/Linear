@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { ApplicationError } from "@/lib/server/application-errors"
 import { getScopedReadModelVersionsServer } from "@/lib/server/convex"
 import { logProviderError } from "@/lib/server/provider-errors"
 import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
@@ -20,6 +21,28 @@ function sleep(durationMs: number) {
 
 function normalizeScopeKeys(request: Request) {
   return [...new Set(new URL(request.url).searchParams.getAll("scopeKey").map((value) => value.trim()).filter(Boolean))]
+}
+
+function createScopedEventStreamResponse(event: string, payload: unknown) {
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+      )
+      controller.close()
+    },
+  })
+
+  return new NextResponse(stream, {
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "Content-Type": "text/event-stream",
+      "X-Accel-Buffering": "no",
+    },
+  })
 }
 
 export async function GET(request: Request) {
@@ -64,9 +87,25 @@ export async function GET(request: Request) {
   }
 
   const encoder = new TextEncoder()
-  const initial = await getScopedReadModelVersionsServer({
-    scopeKeys,
-  })
+  let initial
+
+  try {
+    initial = await getScopedReadModelVersionsServer({
+      scopeKeys,
+    })
+  } catch (error) {
+    if (
+      error instanceof ApplicationError &&
+      error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
+    ) {
+      return createScopedEventStreamResponse("unavailable", {
+        code: error.code,
+        message: error.message,
+      })
+    }
+
+    throw error
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -119,9 +158,26 @@ export async function GET(request: Request) {
               break
             }
 
-            const next = await getScopedReadModelVersionsServer({
-              scopeKeys,
-            })
+            let next
+
+            try {
+              next = await getScopedReadModelVersionsServer({
+                scopeKeys,
+              })
+            } catch (error) {
+              if (
+                error instanceof ApplicationError &&
+                error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
+              ) {
+                sendEvent("unavailable", {
+                  code: error.code,
+                  message: error.message,
+                })
+                break
+              }
+
+              throw error
+            }
             const changed = next.versions.filter(
               (entry) => currentVersions.get(entry.scopeKey) !== entry.version
             )
