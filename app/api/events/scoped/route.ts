@@ -10,6 +10,7 @@ import { authorizeScopedReadModelScopeKeysServer } from "@/lib/server/scoped-rea
 const STREAM_POLL_INTERVAL_MS = 1000
 const STREAM_HEARTBEAT_INTERVAL_MS = 15000
 const STREAM_MAX_DURATION_MS = 55000
+const STREAM_UNAVAILABLE_RETRY_MS = 10000
 
 export const dynamic = "force-dynamic"
 
@@ -23,13 +24,21 @@ function normalizeScopeKeys(request: Request) {
   return [...new Set(new URL(request.url).searchParams.getAll("scopeKey").map((value) => value.trim()).filter(Boolean))]
 }
 
-function createScopedEventStreamResponse(event: string, payload: unknown) {
+function createScopedEventStreamResponse(
+  event: string,
+  payload: unknown,
+  options?: {
+    retryMs?: number
+  }
+) {
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(
-        encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+        encoder.encode(
+          `${options?.retryMs ? `retry: ${options.retryMs}\n` : ""}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
+        )
       )
       controller.close()
     },
@@ -98,10 +107,16 @@ export async function GET(request: Request) {
       error instanceof ApplicationError &&
       error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
     ) {
-      return createScopedEventStreamResponse("unavailable", {
-        code: error.code,
-        message: error.message,
-      })
+      return createScopedEventStreamResponse(
+        "unavailable",
+        {
+          code: error.code,
+          message: error.message,
+        },
+        {
+          retryMs: STREAM_UNAVAILABLE_RETRY_MS,
+        }
+      )
     }
 
     throw error

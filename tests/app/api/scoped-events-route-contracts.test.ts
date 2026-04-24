@@ -120,8 +120,8 @@ describe("scoped events route contracts", () => {
     )
 
     expect(response.status).toBe(200)
-    await expect(response.text()).resolves.toContain(
-      "event: unavailable"
-    )
+    const body = await response.text()
+    expect(body).toContain("retry: 10000")
+    expect(body).toContain("event: unavailable")
   })
 })
