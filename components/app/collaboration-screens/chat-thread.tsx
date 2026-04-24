@@ -24,6 +24,7 @@ import {
   getUser,
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
+import { chatMessageContentConstraints } from "@/lib/domain/input-constraints"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import { useChatPresence } from "@/hooks/use-chat-presence"
@@ -51,7 +52,6 @@ function ChatComposer({
   onSend,
   mentionCandidates,
   currentUserId,
-  action,
   editable = true,
   disabledReason,
   onTypingChange,
@@ -60,7 +60,6 @@ function ChatComposer({
   onSend: (content: string) => void
   mentionCandidates: ReturnType<typeof getConversationParticipants>
   currentUserId: string
-  action?: ReactNode
   editable?: boolean
   disabledReason?: string | null
   onTypingChange?: (typing: boolean) => void
@@ -70,7 +69,7 @@ function ChatComposer({
   const [composerKey, setComposerKey] = useState(0)
   const editorInstanceRef = useRef<Editor | null>(null)
   const typingTimeoutRef = useRef<number | null>(null)
-  const contentText = getPlainTextContent(content)
+  const contentText = getPlainTextContent(content).trim()
   const filteredMentionCandidates = useMemo(
     () =>
       mentionCandidates.filter((candidate) => candidate.id !== currentUserId),
@@ -78,13 +77,24 @@ function ChatComposer({
   )
 
   const handleSend = () => {
-    if (!editable || !contentText) return
+    const liveContent =
+      editorInstanceRef.current?.getHTML() ??
+      editorInstanceRef.current?.getText() ??
+      content
+    const livePlainText = getPlainTextContent(liveContent).trim()
+
+    if (!editable || livePlainText.length === 0) {
+      return
+    }
+
     if (typingTimeoutRef.current !== null) {
       window.clearTimeout(typingTimeoutRef.current)
       typingTimeoutRef.current = null
     }
     onTypingChange?.(false)
-    onSend(content)
+    onSend(
+      typeof liveContent === "string" ? liveContent : editorInstanceRef.current?.getHTML() ?? content
+    )
     setContent(EMPTY_COMPOSER_CONTENT)
     setComposerKey((current) => current + 1)
   }
@@ -111,7 +121,7 @@ function ChatComposer({
     }
 
     const nextText = getPlainTextContent(nextContent)
-    const isTyping = nextText.length > 0
+    const isTyping = nextText.trim().length > 0
 
     onTypingChange?.(isTyping)
 
@@ -147,6 +157,9 @@ function ChatComposer({
           editorInstanceRef={editorInstanceRef}
           mentionMenuPlacement="above"
           mentionCandidates={filteredMentionCandidates}
+          minPlainTextCharacters={chatMessageContentConstraints.min}
+          maxPlainTextCharacters={chatMessageContentConstraints.max}
+          enforcePlainTextLimit
           onSubmitShortcut={handleSend}
           submitOnEnter
           className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.55em] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
@@ -168,7 +181,6 @@ function ChatComposer({
             }
           />
           <span className="flex-1" />
-          {action ? <span className="shrink-0">{action}</span> : null}
           <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
             ⏎
           </kbd>
@@ -301,7 +313,7 @@ export function ChatThread({
   })
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const hasHeaderActions = detailsAction != null
+  const hasHeaderActions = videoAction != null || detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
   const messageableMembers = useMemo(
@@ -511,7 +523,10 @@ export function ChatThread({
           </div>
           {hasHeaderActions ? (
             <div className="flex items-center gap-1.5">
-              <ChatHeaderActions detailsAction={detailsAction} />
+              <ChatHeaderActions
+                videoAction={videoAction}
+                detailsAction={detailsAction}
+              />
             </div>
           ) : null}
         </div>
@@ -818,7 +833,6 @@ export function ChatThread({
             placeholder={`Message ${title}…`}
             mentionCandidates={messageableMembers}
             currentUserId={currentUserId}
-            action={videoAction}
             editable={composerEditable}
             disabledReason={composerDisabledReason}
             onTypingChange={setTyping}

@@ -13,6 +13,7 @@ import {
   getStatusOrderForTeam,
   getTeam,
   getTeamMembers,
+  getUser,
 } from "@/lib/domain/selectors"
 import {
   getDisplayLabelForWorkItemType,
@@ -23,6 +24,7 @@ import {
   type WorkItem,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   ContextMenu,
@@ -46,6 +48,9 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { getTeamProjectOptions } from "./helpers"
+import { PriorityIcon, StatusIcon } from "./shared"
+import { WorkItemAssigneeAvatar } from "./work-item-ui"
 
 export function stopMenuEvent(event: SyntheticEvent) {
   event.preventDefault()
@@ -72,6 +77,11 @@ function IssueActionMenuContent({
     team?.settings.experience
   ).toLowerCase()
   const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const currentUser = getUser(data, data.currentUserId)
+  const assigneeMenuMembers = teamMembers.filter(
+    (member) => member.id !== data.currentUserId
+  )
+  const teamProjects = getTeamProjectOptions(data, team?.id, item.primaryProjectId)
   const statusOptions = getStatusOrderForTeam(team)
   const MenuLabel: ElementType =
     kind === "dropdown" ? DropdownMenuLabel : ContextMenuLabel
@@ -106,7 +116,8 @@ function IssueActionMenuContent({
                 useAppStore.getState().updateWorkItem(item.id, { status })
               }
             >
-              {statusMeta[status].label}
+              <StatusIcon status={status} />
+              <span>{statusMeta[status].label}</span>
             </MenuItem>
           ))}
         </MenuSubContent>
@@ -123,7 +134,8 @@ function IssueActionMenuContent({
                 })
               }
             >
-              {meta.label}
+              <PriorityIcon priority={priority as Priority} />
+              <span>{meta.label}</span>
             </MenuItem>
           ))}
         </MenuSubContent>
@@ -138,7 +150,7 @@ function IssueActionMenuContent({
               })
             }
           >
-            Unassigned
+            <span className="text-fg-3">Unassigned</span>
           </MenuItem>
           <MenuItem
             onSelect={() =>
@@ -147,10 +159,16 @@ function IssueActionMenuContent({
               })
             }
           >
-            Assign to me
+            {currentUser ? (
+              <WorkItemAssigneeAvatar
+                user={currentUser}
+                className="size-4 data-[size=sm]:size-4"
+              />
+            ) : null}
+            <span>Assign to me</span>
           </MenuItem>
           <MenuSeparator />
-          {teamMembers.map((member) => (
+          {assigneeMenuMembers.map((member) => (
             <MenuItem
               key={`${item.id}-${member.id}`}
               onSelect={() =>
@@ -159,7 +177,42 @@ function IssueActionMenuContent({
                 })
               }
             >
-              {member.name}
+              <WorkItemAssigneeAvatar
+                user={member}
+                className="size-4 data-[size=sm]:size-4"
+              />
+              <span>{member.name}</span>
+            </MenuItem>
+          ))}
+        </MenuSubContent>
+      </MenuSub>
+      <MenuSub>
+        <MenuSubTrigger disabled={!editable}>Project</MenuSubTrigger>
+        <MenuSubContent>
+          <MenuItem
+            onSelect={() =>
+              useAppStore.getState().updateWorkItem(item.id, {
+                primaryProjectId: null,
+              })
+            }
+          >
+            <span className="text-fg-3">No project</span>
+          </MenuItem>
+          {teamProjects.length > 0 ? <MenuSeparator /> : null}
+          {teamProjects.map((project) => (
+            <MenuItem
+              key={`${item.id}-${project.id}`}
+              onSelect={() =>
+                useAppStore.getState().updateWorkItem(item.id, {
+                  primaryProjectId: project.id,
+                })
+              }
+            >
+              <ProjectTemplateGlyph
+                templateType={project.templateType}
+                className="size-4 text-fg-3"
+              />
+              <span>{project.name}</span>
             </MenuItem>
           ))}
         </MenuSubContent>

@@ -31,6 +31,7 @@ vi.mock("@/components/ui/scroll-area", () => ({
     children: ReactNode
     className?: string
   }) => <div className={className}>{children}</div>,
+  ScrollBar: () => null,
 }))
 
 vi.mock("@/components/app/screens/work-item-menus", () => ({
@@ -52,9 +53,16 @@ vi.mock("@/components/app/screens/work-item-ui", () => ({
   WorkItemAssigneeAvatar: () => <span>Assignee</span>,
 }))
 
-vi.mock("@/components/ui/template-primitives", () => ({
-  StatusRing: ({ status }: { status: string }) => <span>{status}</span>,
-}))
+vi.mock("@/components/ui/template-primitives", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/components/ui/template-primitives")
+  >()
+
+  return {
+    ...actual,
+    StatusRing: ({ status }: { status: string }) => <span>{status}</span>,
+  }
+})
 
 import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
 import { createEmptyState } from "@/lib/domain/empty-state"
@@ -155,6 +163,19 @@ function createData(): AppData {
     currentWorkspaceId: "workspace_1",
     teams: [createTeam()],
     workItems: [createWorkItem()],
+  }
+}
+
+function createEditableData(): AppData {
+  return {
+    ...createData(),
+    teamMemberships: [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ],
   }
 }
 
@@ -474,7 +495,7 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
-  it("keeps list drag handles and makes board cards draggable from the full card surface", () => {
+  it("removes dedicated list drag handles and makes board cards draggable from the full card surface", () => {
     const data = createData()
     const { rerender } = render(
       <ListView
@@ -485,7 +506,7 @@ describe("ListView", () => {
       />
     )
 
-    expect(screen.getByLabelText("Drag Ship it")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Drag Ship it")).not.toBeInTheDocument()
 
     rerender(
       <BoardView
@@ -497,10 +518,38 @@ describe("ListView", () => {
     )
 
     expect(screen.queryByLabelText("Drag Ship it")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /ship it/i })).toHaveAttribute(
-      "aria-roledescription",
-      "draggable"
+    expect(
+      screen
+        .getByText("Ship it")
+        .closest('[aria-roledescription="draggable"]')
+    ).toBeTruthy()
+  })
+
+  it("opens inline property pickers from both board cards and list rows", async () => {
+    const data = createEditableData()
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["priority"])}
+        editable
+      />
     )
+
+    fireEvent.click(screen.getByRole("button", { name: "Medium" }))
+    expect(await screen.findByText("Urgent")).toBeInTheDocument()
+
+    rerender(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["priority"])}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Medium" }))
+    expect(await screen.findByText("Urgent")).toBeInTheDocument()
   })
 
   it("renders the lowest assigned descendant under the selected parent level in list mode", () => {

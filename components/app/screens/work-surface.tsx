@@ -131,6 +131,7 @@ export function WorkSurface({
   loadingLabel = "Loading items...",
   childDisplayMode = "direct",
   allowCreateViews = true,
+  hiddenFilters = [],
 }: {
   title: string
   routeKey: string
@@ -146,6 +147,7 @@ export function WorkSurface({
   loadingLabel?: string
   childDisplayMode?: WorkSurfaceChildDisplayMode
   allowCreateViews?: boolean
+  hiddenFilters?: ViewFilterKey[]
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const searchParams = useSearchParams()
@@ -472,6 +474,7 @@ export function WorkSurface({
           <FilterPopover
             view={compatibleActiveView}
             items={filterPopoverItems}
+            hiddenFilters={hiddenFilters}
             variant="chip"
             onToggleFilterValue={
               usingFallbackViews ? toggleLocalActiveViewFilterValue : undefined
@@ -527,7 +530,16 @@ export function WorkSurface({
         </Viewbar>
       ) : null}
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+      <div
+        className={cn(
+          "min-h-0 min-w-0 flex-1 overscroll-contain",
+          compatibleActiveView?.layout === "board"
+            ? "overflow-hidden"
+            : compatibleActiveView?.layout === "timeline"
+              ? "overflow-hidden"
+              : "overflow-x-hidden overflow-y-auto"
+        )}
+      >
         {isLoading ? (
           <div className="flex h-full items-center justify-center px-6 py-20 text-sm text-muted-foreground">
             {loadingLabel}

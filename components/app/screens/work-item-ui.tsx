@@ -16,6 +16,11 @@ import {
 
 import { getStatusOrderForTeam, getTeam, getUser } from "@/lib/domain/selectors"
 import {
+  commentContentConstraints,
+  getTextInputLimitState,
+  workItemTitleConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   getAllowedChildWorkItemTypesForItem,
   getAllowedWorkItemTypesForTemplate,
   getChildWorkItemCopy,
@@ -34,6 +39,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
@@ -300,6 +306,9 @@ function CommentThreadItem({
               placeholder="Reply to this thread..."
               editorInstanceRef={replyEditorRef}
               mentionCandidates={mentionCandidates}
+              minPlainTextCharacters={commentContentConstraints.min}
+              maxPlainTextCharacters={commentContentConstraints.max}
+              enforcePlainTextLimit
               onSubmitShortcut={handleReply}
               submitOnEnter
               className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
@@ -497,6 +506,9 @@ export function CommentsInline({
             placeholder="Leave a comment or mention a teammate with @handle..."
             editorInstanceRef={commentEditorRef}
             mentionCandidates={mentionCandidates}
+            minPlainTextCharacters={commentContentConstraints.min}
+            maxPlainTextCharacters={commentContentConstraints.max}
+            enforcePlainTextLimit
             onSubmitShortcut={handleComment}
             submitOnEnter
             className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
@@ -644,10 +656,17 @@ export function InlineChildIssueComposer({
       ? null
       : (teamMembers.find((user) => user.id === assigneeId) ?? null)
   const normalizedTitle = title.trim()
+  const titleLimitState = getTextInputLimitState(title, workItemTitleConstraints)
   const canCreate =
-    !disabled && normalizedTitle.length >= 2 && availableItemTypes.length > 0
+    !disabled &&
+    titleLimitState.canSubmit &&
+    availableItemTypes.length > 0
 
   function handleCreate() {
+    if (!titleLimitState.canSubmit) {
+      return
+    }
+
     const createdItemId = useAppStore.getState().createWorkItem({
       teamId,
       type: selectedType,
@@ -684,8 +703,14 @@ export function InlineChildIssueComposer({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={childCopy.titlePlaceholder}
+            maxLength={workItemTitleConstraints.max}
             className="h-auto border-none bg-transparent px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
+          />
+          <FieldCharacterLimit
+            state={titleLimitState}
+            limit={workItemTitleConstraints.max}
+            className="mt-1"
           />
           <Textarea
             value={description}

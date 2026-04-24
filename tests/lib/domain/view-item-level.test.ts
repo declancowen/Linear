@@ -150,6 +150,44 @@ describe("view item levels", () => {
     ]).toEqual(["todo"])
   })
 
+  it("does not synthesize filtered-out status groups when status filters are active", () => {
+    const state = createEmptyState()
+    const filteredItems = [createItem("todo-only", { status: "todo" })]
+
+    expect([
+      ...buildItemGroupsWithEmptyGroups(
+        state,
+        filteredItems,
+        createView({
+          grouping: "status",
+          filters: {
+            ...createView().filters,
+            status: ["todo"],
+          },
+        })
+      ).keys(),
+    ]).toEqual(["todo"])
+  })
+
+  it("does not synthesize filtered-out type groups when type filters are active", () => {
+    const state = createEmptyState()
+    const filteredItems = [createItem("task-only", { type: "task" })]
+
+    expect([
+      ...buildItemGroupsWithEmptyGroups(
+        state,
+        filteredItems,
+        createView({
+          grouping: "type",
+          filters: {
+            ...createView().filters,
+            itemTypes: ["task"],
+          },
+        })
+      ).keys(),
+    ]).toEqual(["task"])
+  })
+
   it("does not force timeline views back to top-level items when a level is set", () => {
     const state = createEmptyState()
     const items = [

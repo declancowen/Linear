@@ -28,6 +28,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import { getMentionDisplayLabel } from "@/lib/domain/input-constraints"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 
@@ -77,7 +78,7 @@ export function insertMention(
         type: "mention",
         attrs: {
           id: candidate.id,
-          label: candidate.handle,
+          label: getMentionDisplayLabel(candidate.name, candidate.handle),
           mentionSuggestionChar: "@",
         },
       },

@@ -19,6 +19,11 @@ import {
   getStatusOrderForTeam,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
+import {
+  getTextInputLimitState,
+  labelNameConstraints,
+  workItemTitleConstraints,
+} from "@/lib/domain/input-constraints"
 import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   canParentWorkItemTypeAcceptChild,
@@ -65,6 +70,7 @@ import {
   PropertyPopoverSearch,
 } from "@/components/ui/template-primitives"
 import { Textarea } from "@/components/ui/textarea"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
   PriorityDot,
   PriorityIcon,
@@ -162,12 +168,23 @@ export function CreateWorkItemDialog({
   defaultTeamId,
   defaultProjectId,
   initialType,
+  defaultValues,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   defaultTeamId?: string | null
   defaultProjectId?: string | null
   initialType?: WorkItemType | null
+  defaultValues?: Partial<{
+    status: WorkStatus
+    priority: Priority
+    assigneeId: string | null
+    primaryProjectId: string | null
+    parentId: string | null
+    labelIds: string[]
+    startDate: string | null
+    targetDate: string | null
+  }>
 }) {
   const availableTeams = useAppStore(
     useShallow((state) => getEditableTeamsForFeature(state, "issues"))
@@ -202,6 +219,14 @@ export function CreateWorkItemDialog({
     initialTeam,
     initialTemplateType
   ).defaultPriority
+  const initialWorkspaceId = initialTeam?.workspaceId ?? null
+  const initialTeamProjects = projects.filter(
+    (project) =>
+      (project.scopeType === "team" && project.scopeId === initialTeamId) ||
+      (initialWorkspaceId !== null &&
+        project.scopeType === "workspace" &&
+        project.scopeId === initialWorkspaceId)
+  )
   const initialWorkItemType =
     initialType &&
     getDefaultWorkItemTypesForTeamExperience(
@@ -209,6 +234,29 @@ export function CreateWorkItemDialog({
     ).includes(initialType)
       ? initialType
       : getPreferredCreateDialogType(initialTemplateType)
+  const initialStatus =
+    defaultValues?.status && initialStatuses.includes(defaultValues.status)
+      ? defaultValues.status
+      : initialStatuses.includes("todo")
+        ? "todo"
+        : (initialStatuses[0] ?? "backlog")
+  const initialSelectedPriority =
+    defaultValues?.priority ?? initialPriority
+  const initialAssigneeId =
+    defaultValues?.assigneeId &&
+    users.some((user) => user.id === defaultValues.assigneeId)
+      ? defaultValues.assigneeId
+      : "none"
+  const initialProjectId =
+    defaultValues?.primaryProjectId &&
+    initialTeamProjects.some(
+      (project) => project.id === defaultValues.primaryProjectId
+    )
+      ? defaultValues.primaryProjectId
+      : defaultProjectId &&
+          initialTeamProjects.some((project) => project.id === defaultProjectId)
+        ? defaultProjectId
+        : "none"
   const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
   const [teamPickerOpen, setTeamPickerOpen] = useState(false)
   const [teamQuery, setTeamQuery] = useState("")
@@ -268,23 +316,22 @@ export function CreateWorkItemDialog({
   const [type, setType] = useState<WorkItemType>(initialWorkItemType)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [status, setStatus] = useState<WorkStatus>(
-    initialStatuses.includes("todo")
-      ? "todo"
-      : (initialStatuses[0] ?? "backlog")
+  const [status, setStatus] = useState<WorkStatus>(initialStatus)
+  const [priority, setPriority] = useState<Priority>(initialSelectedPriority)
+  const [assigneeId, setAssigneeId] = useState<string>(initialAssigneeId)
+  const [startDate, setStartDate] = useState<string | null>(
+    defaultValues?.startDate ?? null
   )
-  const [priority, setPriority] = useState<Priority>(initialPriority)
-  const [assigneeId, setAssigneeId] = useState<string>("none")
-  const [startDate, setStartDate] = useState<string | null>(null)
-  const [targetDate, setTargetDate] = useState<string | null>(null)
-  const initialProjectId =
-    defaultProjectId &&
-    teamProjects.some((project) => project.id === defaultProjectId)
-      ? defaultProjectId
-      : "none"
+  const [targetDate, setTargetDate] = useState<string | null>(
+    defaultValues?.targetDate ?? null
+  )
   const [projectId, setProjectId] = useState<string>(initialProjectId)
-  const [selectedParentId, setSelectedParentId] = useState<string>("none")
-  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
+  const [selectedParentId, setSelectedParentId] = useState<string>(
+    defaultValues?.parentId ?? "none"
+  )
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(
+    defaultValues?.labelIds ?? []
+  )
   const [newLabelName, setNewLabelName] = useState("")
   const [creatingLabel, setCreatingLabel] = useState(false)
   const selectedProject =
@@ -340,8 +387,13 @@ export function CreateWorkItemDialog({
   const titlePlaceholder = selectedType
     ? `${selectedTypeLabel} title`
     : workCopy.titlePlaceholder
+  const titleLimitState = getTextInputLimitState(title, workItemTitleConstraints)
   const normalizedTitle = title.trim()
   const normalizedDescription = description.trim()
+  const labelNameLimitState = getTextInputLimitState(
+    newLabelName,
+    labelNameConstraints
+  )
   const requiresParent =
     selectedType === "sub-task" || selectedType === "sub-issue"
   const showParentSelect =
@@ -349,7 +401,7 @@ export function CreateWorkItemDialog({
     (requiresParent || parentOptions.length > 0 || selectedParentItem !== null)
   const canCreate =
     filteredTeams.length > 0 &&
-    normalizedTitle.length >= 2 &&
+    titleLimitState.canSubmit &&
     selectedType !== null &&
     (!requiresParent || selectedParentItem !== null)
   const labelsTriggerText =
@@ -419,7 +471,7 @@ export function CreateWorkItemDialog({
   async function handleCreateLabel() {
     const normalizedName = newLabelName.trim()
 
-    if (!normalizedName || creatingLabel) {
+    if (!normalizedName || creatingLabel || !labelNameLimitState.canSubmit) {
       return
     }
 
@@ -648,8 +700,14 @@ export function CreateWorkItemDialog({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={titlePlaceholder}
+            maxLength={workItemTitleConstraints.max}
             className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
+          />
+          <FieldCharacterLimit
+            state={titleLimitState}
+            limit={workItemTitleConstraints.max}
+            className="mt-1"
           />
           <Textarea
             value={description}
@@ -1373,6 +1431,7 @@ export function CreateWorkItemDialog({
                           onChange={(event) =>
                             setNewLabelName(event.target.value)
                           }
+                          maxLength={labelNameConstraints.max}
                           placeholder="Create new label"
                           className="h-5 flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-fg-4"
                           onKeyDown={(event) => {
@@ -1388,19 +1447,30 @@ export function CreateWorkItemDialog({
                           <button
                             type="button"
                             className="text-[11px] font-medium text-fg-2 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                            disabled={!team || creatingLabel}
+                            disabled={
+                              !team ||
+                              creatingLabel ||
+                              !labelNameLimitState.canSubmit
+                            }
                             onClick={() => {
                               void handleCreateLabel()
                             }}
                           >
-                            Add
-                          </button>
-                        ) : null}
-                      </div>
-                    </>
-                  )
-                })()}
-              </PropertyPopoverList>
+                          Add
+                        </button>
+                      ) : null}
+                    </div>
+                    {newLabelName.length > 0 ? (
+                      <FieldCharacterLimit
+                        state={labelNameLimitState}
+                        limit={labelNameConstraints.max}
+                        className="mt-0 border-t border-line-soft px-2.5 pt-2"
+                      />
+                    ) : null}
+                  </>
+                )
+              })()}
+            </PropertyPopoverList>
               <PropertyPopoverFoot>
                 <span>Tap to toggle · Esc to close</span>
               </PropertyPopoverFoot>

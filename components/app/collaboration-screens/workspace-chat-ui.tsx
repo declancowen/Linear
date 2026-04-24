@@ -2,8 +2,13 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react"
 import { X } from "@phosphor-icons/react"
+import {
+  conversationTitleConstraints,
+  getTextInputLimitState,
+} from "@/lib/domain/input-constraints"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
   ShortcutKeys,
   useCommandEnterSubmit,
@@ -175,6 +180,10 @@ export function CreateWorkspaceChatDialog({
   const selectedUsers = participantIds
     .map((id) => allUsers.find((user) => user.id === id))
     .filter(Boolean) as typeof allUsers
+  const groupNameLimitState = getTextInputLimitState(
+    groupName,
+    conversationTitleConstraints
+  )
 
   function addUser(userId: string) {
     setParticipantIds((ids) => [...ids, userId])
@@ -188,7 +197,9 @@ export function CreateWorkspaceChatDialog({
   }
 
   function handleCreate() {
-    if (!workspace || participantIds.length === 0) return
+    if (!workspace || participantIds.length === 0 || !groupNameLimitState.canSubmit) {
+      return
+    }
     const conversationId = useAppStore.getState().createWorkspaceChat({
       workspaceId: workspace.id,
       participantIds,
@@ -204,7 +215,10 @@ export function CreateWorkspaceChatDialog({
     }
   }
 
-  useCommandEnterSubmit(open && participantIds.length > 0, handleCreate)
+  useCommandEnterSubmit(
+    open && participantIds.length > 0 && groupNameLimitState.canSubmit,
+    handleCreate
+  )
 
   if (!workspace) return null
 
@@ -278,15 +292,23 @@ export function CreateWorkspaceChatDialog({
         </div>
 
         {isGroup ? (
-          <div className="flex items-center gap-2 border-b px-4 py-2.5">
-            <span className="shrink-0 text-sm text-muted-foreground">
-              Name:
-            </span>
-            <input
-              value={groupName}
-              onChange={(event) => setGroupName(event.target.value)}
-              placeholder="Group name (optional)"
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+          <div className="border-b px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-sm text-muted-foreground">
+                Name:
+              </span>
+              <input
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                placeholder="Group name (optional)"
+                maxLength={conversationTitleConstraints.max}
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+              />
+            </div>
+            <FieldCharacterLimit
+              state={groupNameLimitState}
+              limit={conversationTitleConstraints.max}
+              className="mt-1"
             />
           </div>
         ) : null}
@@ -341,6 +363,7 @@ export function CreateWorkspaceChatDialog({
               size="sm"
               className="h-7 gap-1 text-xs"
               onClick={handleCreate}
+              disabled={!groupNameLimitState.canSubmit}
             >
               {isGroup ? "Create group" : "Start chat"}
               <ShortcutKeys

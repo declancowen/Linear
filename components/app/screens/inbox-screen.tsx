@@ -278,6 +278,14 @@ export function InboxScreen() {
     useAppStore.getState().unarchiveNotifications(notificationIds)
   }
 
+  const markAllVisibleNotificationsRead = () => {
+    const notificationIds = visibleNotifications
+      .filter((notification) => notification.readAt == null)
+      .map((notification) => notification.id)
+
+    useAppStore.getState().markNotificationsRead(notificationIds)
+  }
+
   async function handleAcceptInvite() {
     if (!activeInvite || !hasPendingActiveInvite) {
       return
@@ -355,6 +363,7 @@ export function InboxScreen() {
               unreadCount={unreadCount}
               archivedCount={archivedCount}
               onTabChange={setInboxTab}
+              onMarkAllRead={markAllVisibleNotificationsRead}
               onMoveAll={moveAllVisibleNotifications}
               onSelectNotification={(notificationId) => {
                 useAppStore.getState().setActiveInboxNotification(notificationId)

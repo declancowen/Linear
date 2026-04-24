@@ -2,6 +2,7 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 
+import { redirectToExpiredSessionLogin } from "@/lib/browser/session-redirect"
 import {
   reportScopedReadModelDiagnostic,
   reportScopedStreamReconnectDiagnostic,
@@ -69,6 +70,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
 
   const refresh = useEffectEvent(async () => {
     const refreshGeneration = runGenerationRef.current
+    let didRedirectToLogin = false
 
     if (inFlightGenerationRef.current !== null) {
       queuedRef.current = true
@@ -114,6 +116,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
           })
         }
         setError(null)
+      } else if (
+        nextError instanceof RouteMutationError &&
+        nextError.status === 401
+      ) {
+        didRedirectToLogin = true
+        redirectToExpiredSessionLogin()
       } else {
         console.error("Failed to refresh scoped read model", nextError)
         setError(
@@ -128,9 +136,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       }
 
       if (runGenerationRef.current === refreshGeneration) {
-        setLoadedScopeKeySignature(activeScopeKeySignature)
-        setHasLoadedOnce(true)
         setRefreshing(false)
+
+        if (!didRedirectToLogin) {
+          setLoadedScopeKeySignature(activeScopeKeySignature)
+          setHasLoadedOnce(true)
+        }
       }
 
       if (

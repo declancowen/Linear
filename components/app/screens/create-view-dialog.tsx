@@ -22,6 +22,11 @@ import {
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import {
+  getTextInputLimitState,
+  viewDescriptionConstraints,
+  viewNameConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   createViewDefinition,
   getDefaultRouteForViewContext,
   isRouteAllowedForViewContext,
@@ -35,6 +40,7 @@ import {
   type DisplayProperty,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
   createEmptyViewFilters,
   type ViewFilterKey,
@@ -256,6 +262,11 @@ export function CreateViewDialog({
   )
   const [creating, setCreating] = useState(false)
   const shortcutModifierLabel = useShortcutModifierLabel()
+  const nameLimitState = getTextInputLimitState(name, viewNameConstraints)
+  const descriptionLimitState = getTextInputLimitState(
+    description,
+    viewDescriptionConstraints
+  )
 
   useEffect(() => {
     if (!open) {
@@ -545,7 +556,10 @@ export function CreateViewDialog({
         }
       : {}
   const canCreate =
-    name.trim().length >= 2 && Boolean(effectiveScope) && Boolean(resolvedRoute)
+    nameLimitState.canSubmit &&
+    descriptionLimitState.canSubmit &&
+    Boolean(effectiveScope) &&
+    Boolean(resolvedRoute)
   const showProjectPicker =
     !isProjectSpecificItemView && (selectedProject || projectOptions.length > 0)
 
@@ -986,15 +1000,27 @@ export function CreateViewDialog({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="View name"
+            maxLength={viewNameConstraints.max}
             className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
+          />
+          <FieldCharacterLimit
+            state={nameLimitState}
+            limit={viewNameConstraints.max}
+            className="mt-1"
           />
           <Textarea
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="What this view is for"
+            maxLength={viewDescriptionConstraints.max}
             rows={3}
             className="mt-0.5 min-h-[84px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+          />
+          <FieldCharacterLimit
+            state={descriptionLimitState}
+            limit={viewDescriptionConstraints.max}
+            className="mt-1"
           />
           <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
             {isProjectSpecificItemView

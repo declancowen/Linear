@@ -224,6 +224,9 @@ describe("work route contracts", () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       itemId: "item_1",
+      itemUpdatedAt: null,
+      descriptionDocId: null,
+      descriptionUpdatedAt: null,
     })
   })
 

@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 
 import {
+  getTextInputLimitState,
+  teamNameConstraints,
+  teamSummaryConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   canAdminTeam,
-  getTeamBySlug,
   getTeamFeatureSettings,
   getTeamSurfaceDisableReasons,
 } from "@/lib/domain/selectors"
@@ -18,6 +22,7 @@ import {
   type Role,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -42,18 +47,15 @@ import {
 
 export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   const router = useRouter()
-  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
+  const teamId = team?.id ?? null
   const canManageTeam = useAppStore((state) => {
-    const currentTeam = getTeamBySlug(state, teamSlug)
-
-    return currentTeam ? canAdminTeam(state, currentTeam.id) : false
+    return teamId ? canAdminTeam(state, teamId) : false
   })
   const surfaceDisableReasons = useAppStore(
     useShallow((state) => {
-      const currentTeam = getTeamBySlug(state, teamSlug)
-
-      return currentTeam
-        ? getTeamSurfaceDisableReasons(state, currentTeam.id)
+      return teamId
+        ? getTeamSurfaceDisableReasons(state, teamId)
         : defaultTeamSurfaceDisableReasons
     })
   )
@@ -153,6 +155,9 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     normalizeTeamIconToken(team?.icon, experience)
   )
   const [summary, setSummary] = useState(team?.settings.summary ?? "")
+  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
+  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const canSaveTeam = nameLimitState.canSubmit && summaryLimitState.canSubmit
   const [features, setFeatures] = useState<TeamFeatureSettings>(
     team?.settings.features ?? getTeamFeatureSettings(team)
   )
@@ -176,12 +181,12 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   }, [team])
 
   useEffect(() => {
-    if (!team || canManageTeam) {
+    if (!liveTeam || canManageTeam) {
       return
     }
 
     router.replace("/workspace/projects")
-  }, [canManageTeam, router, team])
+  }, [canManageTeam, liveTeam, router])
 
   if (!team) {
     return (
@@ -199,7 +204,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     )
   }
 
-  if (!canManageTeam) {
+  if (liveTeam && !canManageTeam) {
     return (
       <SettingsScaffold
         title="Team settings"
@@ -316,7 +321,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
       footer={
         activeTab === "team" ? (
           <Button
-            disabled={!canManageTeam || saving}
+            disabled={!canManageTeam || saving || !canSaveTeam}
             onClick={async () => {
               setSaving(true)
               const updated = await useAppStore

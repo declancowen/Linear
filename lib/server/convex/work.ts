@@ -568,6 +568,8 @@ export async function clearWorkItemPresenceServer(input: {
 
 export async function createWorkItemServer(input: {
   currentUserId: string
+  id?: string
+  descriptionDocId?: string
   teamId: string
   type: WorkItemType
   title: string

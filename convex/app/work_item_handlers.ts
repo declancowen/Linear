@@ -127,6 +127,8 @@ type ShiftTimelineItemArgs = ServerAccessArgs & {
 type CreateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
+  id?: string
+  descriptionDocId?: string
   teamId: string
   type: WorkItemType
   title: string
@@ -902,7 +904,8 @@ export async function createWorkItemHandler(
 
   const prefix = toTeamKeyPrefix(team.name, args.teamId)
   const nextNumber = 1 + teamItems.length + 100
-  const descriptionDocId = createId("doc")
+  const descriptionDocId = args.descriptionDocId ?? createId("doc")
+  const now = getNow()
 
   await ctx.db.insert("documents", {
     id: descriptionDocId,
@@ -917,12 +920,12 @@ export async function createWorkItemHandler(
     linkedWorkItemIds: [],
     createdBy: args.currentUserId,
     updatedBy: args.currentUserId,
-    createdAt: getNow(),
-    updatedAt: getNow(),
+    createdAt: now,
+    updatedAt: now,
   })
 
   const workItem = {
-    id: createId("item"),
+    id: args.id ?? createId("item"),
     key: `${prefix}-${nextNumber}`,
     teamId: args.teamId,
     type: args.type,
@@ -942,8 +945,8 @@ export async function createWorkItemHandler(
     dueDate: args.dueDate ?? addLocalCalendarDays(7),
     targetDate: args.targetDate ?? addLocalCalendarDays(10),
     subscriberIds: [args.currentUserId],
-    createdAt: getNow(),
-    updatedAt: getNow(),
+    createdAt: now,
+    updatedAt: now,
   }
 
   await ctx.db.insert("workItems", workItem)
@@ -991,6 +994,9 @@ export async function createWorkItemHandler(
 
   return {
     itemId: workItem.id,
+    itemUpdatedAt: now,
+    descriptionDocId,
+    descriptionUpdatedAt: now,
     assignmentEmails,
   }
 }

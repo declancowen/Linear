@@ -22,7 +22,6 @@ import {
   getProjectProgress,
   getProjectsForScope,
   getTeam,
-  getTeamBySlug,
   getTeamDocuments,
   getUser,
   getViewByRoute,
@@ -61,6 +60,7 @@ import {
   fetchWorkIndexReadModel,
 } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import {
   getDocumentIndexScopeKeys,
   getProjectIndexScopeKeys,
@@ -1021,7 +1021,7 @@ function SavedViewCard({
 /* ------------------------------------------------------------------ */
 
 export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
-  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const { team } = useRetainedTeamBySlug(teamSlug)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(team?.id),
     scopeKeys: team ? getWorkIndexScopeKeys("team", team.id) : [],
@@ -1132,6 +1132,7 @@ export function AssignedScreen() {
       loadingLabel="Loading items..."
       childDisplayMode="assigned-descendants"
       allowCreateViews={false}
+      hiddenFilters={["assigneeIds"]}
     />
   )
 }

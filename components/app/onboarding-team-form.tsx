@@ -4,7 +4,13 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
+import {
+  getTextInputLimitState,
+  teamNameConstraints,
+  teamSummaryConstraints,
+} from "@/lib/domain/input-constraints"
 import { syncCreateTeam } from "@/lib/convex/client"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -91,11 +97,18 @@ export function OnboardingTeamForm({ workspaceName }: OnboardingTeamFormProps) {
   const [summary, setSummary] = useState("")
   const [presetId, setPresetId] = useState(teamPresets[0].id)
   const [submitting, setSubmitting] = useState(false)
+  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
+  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const canSubmit = nameLimitState.canSubmit && summaryLimitState.canSubmit
 
   const preset =
     teamPresets.find((entry) => entry.id === presetId) ?? teamPresets[0]
 
   async function handleCreateTeam() {
+    if (!canSubmit) {
+      return
+    }
+
     setSubmitting(true)
 
     try {
@@ -141,6 +154,11 @@ export function OnboardingTeamForm({ workspaceName }: OnboardingTeamFormProps) {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Software development"
+                maxLength={teamNameConstraints.max}
+              />
+              <FieldCharacterLimit
+                state={nameLimitState}
+                limit={teamNameConstraints.max}
               />
             </FieldContent>
           </Field>
@@ -151,8 +169,13 @@ export function OnboardingTeamForm({ workspaceName }: OnboardingTeamFormProps) {
                 id="team-summary"
                 value={summary}
                 onChange={(event) => setSummary(event.target.value)}
+                maxLength={teamSummaryConstraints.max}
                 className="min-h-24 resize-none"
                 placeholder="Ship product work, manage delivery, and keep priorities aligned."
+              />
+              <FieldCharacterLimit
+                state={summaryLimitState}
+                limit={teamSummaryConstraints.max}
               />
             </FieldContent>
           </Field>
@@ -189,7 +212,10 @@ export function OnboardingTeamForm({ workspaceName }: OnboardingTeamFormProps) {
             </FieldDescription>
           </Field>
         </FieldGroup>
-        <Button disabled={submitting} onClick={() => void handleCreateTeam()}>
+        <Button
+          disabled={submitting || !canSubmit}
+          onClick={() => void handleCreateTeam()}
+        >
           {submitting ? "Creating..." : "Create first team"}
         </Button>
       </CardContent>

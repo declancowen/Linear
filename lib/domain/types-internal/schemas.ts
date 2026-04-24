@@ -1,7 +1,35 @@
 import { z } from "zod"
 
 import { isValidCalendarDateString } from "@/lib/calendar-date"
-import { getPlainTextContent } from "@/lib/utils"
+import {
+  channelPostCommentContentConstraints,
+  channelPostContentConstraints,
+  channelPostTitleConstraints,
+  chatMessageContentConstraints,
+  commentContentConstraints,
+  conversationDescriptionConstraints,
+  conversationTitleConstraints,
+  documentTitleConstraints,
+  getPlainTextLength,
+  getRichTextMarkupSafetyCap,
+  labelNameConstraints,
+  optionalWorkspaceDescriptionConstraints,
+  profileAvatarFallbackConstraints,
+  profileNameConstraints,
+  profileStatusMessageConstraints,
+  profileTitleConstraints,
+  projectSummaryConstraints,
+  teamJoinCodeConstraints,
+  teamNameConstraints,
+  teamSummaryConstraints,
+  viewDescriptionConstraints,
+  workItemTitleConstraints,
+  workspaceAccentConstraints,
+  workspaceFallbackBadgeConstraints,
+  workspaceBrandingNameConstraints,
+  workspaceDescriptionConstraints,
+  workspaceSetupNameConstraints,
+} from "../input-constraints"
 
 import {
   attachmentTargetTypes,
@@ -32,6 +60,57 @@ import {
 } from "./primitives"
 import { getTeamFeatureValidationMessage } from "./work"
 
+function boundedTrimmedStringSchema(constraint: {
+  min?: number
+  max: number
+  allowEmpty?: boolean
+}) {
+  let schema = z.string().trim().max(constraint.max)
+
+  if (constraint.min !== undefined) {
+    schema = schema.refine(
+      (value) =>
+        (constraint.allowEmpty && value.length === 0) ||
+        value.length >= constraint.min!,
+      {
+        message:
+          constraint.min === 1
+            ? "Enter at least 1 character"
+            : `Enter at least ${constraint.min} characters`,
+      }
+    )
+  }
+
+  return schema
+}
+
+function boundedRichTextPlainTextSchema(constraint: {
+  min?: number
+  max: number
+}) {
+  return z
+    .string()
+    .trim()
+    .max(getRichTextMarkupSafetyCap(constraint.max))
+    .refine(
+      (value) => {
+        const plainTextLength = getPlainTextLength(value)
+        return constraint.min === undefined
+          ? true
+          : plainTextLength >= constraint.min
+      },
+      {
+        message:
+          constraint.min === 1
+            ? "Content must include at least 1 character"
+            : `Content must include at least ${constraint.min} characters`,
+      }
+    )
+    .refine((value) => getPlainTextLength(value) <= constraint.max, {
+      message: `Content must be ${constraint.max} characters or fewer`,
+    })
+}
+
 export const nullableCalendarDateSchema = z
   .string()
   .trim()
@@ -42,7 +121,7 @@ export const nullableCalendarDateSchema = z
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
-  name: z.string().trim().min(1).max(32),
+  name: boundedTrimmedStringSchema(labelNameConstraints),
   color: z.string().trim().min(1).max(24).optional(),
 })
 
@@ -53,29 +132,31 @@ export const inviteSchema = z.object({
 })
 
 export const joinCodeSchema = z.object({
-  code: z.string().trim().min(4),
+  code: boundedTrimmedStringSchema(teamJoinCodeConstraints),
 })
 
 export const workspaceBrandingSchema = z.object({
-  name: z.string().trim().min(2).max(48),
-  logoUrl: z.string().trim().min(1),
+  name: boundedTrimmedStringSchema(workspaceBrandingNameConstraints),
+  logoUrl: boundedTrimmedStringSchema(workspaceFallbackBadgeConstraints),
   logoImageStorageId: z.string().trim().min(1).optional(),
   clearLogoImage: z.boolean().optional(),
-  accent: z.string().trim().min(2).max(24),
-  description: z.string().trim().min(8).max(220),
+  accent: boundedTrimmedStringSchema(workspaceAccentConstraints),
+  description: boundedTrimmedStringSchema(workspaceDescriptionConstraints),
 })
 
 export const workspaceSetupSchema = z.object({
-  name: z.string().trim().min(2).max(64),
-  description: z.string().trim().min(8).max(220).optional(),
+  name: boundedTrimmedStringSchema(workspaceSetupNameConstraints),
+  description: boundedTrimmedStringSchema(
+    optionalWorkspaceDescriptionConstraints
+  ).optional(),
 })
 
 export const teamDetailsSchema = z
   .object({
-    name: z.string().trim().min(2).max(48),
+    name: boundedTrimmedStringSchema(teamNameConstraints),
     icon: z.enum(teamIconTokens),
-    summary: z.string().trim().min(8).max(180),
-    joinCode: z.string().trim().min(4).max(24).optional(),
+    summary: boundedTrimmedStringSchema(teamSummaryConstraints),
+    joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
     features: z.object({
       issues: z.boolean(),
@@ -108,7 +189,7 @@ export const teamMembershipRoleSchema = z.object({
 export const appWorkspaceBootstrapSchema = z.object({
   workspaceSlug: z.string().trim().min(2).max(64),
   workspaceName: z.string().trim().min(2).max(64),
-  workspaceLogoUrl: z.string().trim().min(1).max(24),
+  workspaceLogoUrl: boundedTrimmedStringSchema(workspaceFallbackBadgeConstraints),
   workspaceAccent: z.string().trim().min(2).max(24),
   workspaceDescription: z.string().trim().min(8).max(220),
   teamSlug: z.string().trim().min(2).max(64),
@@ -126,21 +207,23 @@ export const appWorkspaceBootstrapSchema = z.object({
     ),
   email: z.email(),
   userName: z.string().trim().min(2).max(80),
-  avatarUrl: z.string().trim().min(1).max(24),
+  avatarUrl: boundedTrimmedStringSchema(profileAvatarFallbackConstraints),
   workosUserId: z.string().trim().min(1),
   teamExperience: z.enum(teamExperienceTypes).default("software-development"),
   role: z.enum(roles).default("admin"),
 })
 
 export const profileSchema = z.object({
-  name: z.string().trim().min(2).max(48),
-  title: z.string().trim().min(2).max(72),
-  avatarUrl: z.string().trim().min(1),
+  name: boundedTrimmedStringSchema(profileNameConstraints),
+  title: boundedTrimmedStringSchema(profileTitleConstraints),
+  avatarUrl: boundedTrimmedStringSchema(profileAvatarFallbackConstraints),
   avatarImageStorageId: z.string().trim().min(1).optional(),
   clearAvatarImage: z.boolean().optional(),
   clearStatus: z.boolean().optional(),
   status: z.enum(userStatuses).optional(),
-  statusMessage: z.string().trim().max(userStatusMessageMaxLength).optional(),
+  statusMessage: boundedTrimmedStringSchema(
+    profileStatusMessageConstraints
+  ).optional(),
   preferences: z.object({
     emailMentions: z.boolean(),
     emailAssignments: z.boolean(),
@@ -158,7 +241,7 @@ export const projectSchema = z.object({
     "project-management",
   ]),
   name: z.string().trim().min(projectNameMinLength).max(projectNameMaxLength),
-  summary: z.string().trim().min(2).max(140),
+  summary: boundedTrimmedStringSchema(projectSummaryConstraints),
   status: z.enum(projectStatuses).optional(),
   priority: z.enum(priorities),
   leadId: z.string().nullable().optional(),
@@ -223,7 +306,7 @@ export const viewSchema = z.object({
   containerId: z.string().trim().min(1).nullable().optional(),
   route: z.string().trim().min(1),
   name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
-  description: z.string().trim().max(160).default(""),
+  description: boundedTrimmedStringSchema(viewDescriptionConstraints).default(""),
   layout: z.enum(viewLayouts).optional(),
   grouping: z.enum(groupFields).optional(),
   subGrouping: z.enum(groupFields).nullable().optional(),
@@ -252,9 +335,11 @@ export const viewSchema = z.object({
 })
 
 export const workItemSchema = z.object({
+  id: z.string().trim().min(1).optional(),
+  descriptionDocId: z.string().trim().min(1).optional(),
   teamId: z.string().min(1),
   type: z.enum(workItemTypes),
-  title: z.string().trim().min(2).max(96),
+  title: boundedTrimmedStringSchema(workItemTitleConstraints),
   parentId: z.string().nullable().optional(),
   primaryProjectId: z.string().nullable(),
   assigneeId: z.string().nullable(),
@@ -268,7 +353,7 @@ export const workItemSchema = z.object({
 
 const createDocumentBaseSchema = {
   id: z.string().trim().min(1).optional(),
-  title: z.string().trim().min(2).max(80),
+  title: boundedTrimmedStringSchema(documentTitleConstraints),
 }
 
 export const documentSchema = z.discriminatedUnion("kind", [
@@ -293,28 +378,34 @@ export const commentSchema = z.object({
   targetType: z.enum(commentTargetTypes),
   targetId: z.string().min(1),
   parentCommentId: z.string().min(1).nullable().optional(),
-  content: z.string().trim().min(2).max(4000),
+  content: boundedRichTextPlainTextSchema(commentContentConstraints),
 })
 
 export const workspaceChatSchema = z.object({
   workspaceId: z.string().min(1),
   participantIds: z.array(z.string().min(1)).min(1).max(24),
-  title: z.string().trim().max(80).default(""),
-  description: z.string().trim().max(180).default(""),
+  title: boundedTrimmedStringSchema(conversationTitleConstraints).default(""),
+  description: boundedTrimmedStringSchema(
+    conversationDescriptionConstraints
+  ).default(""),
 })
 
 export const teamChatSchema = z.object({
   teamId: z.string().min(1),
-  title: z.string().trim().max(80).default(""),
-  description: z.string().trim().max(180).default(""),
+  title: boundedTrimmedStringSchema(conversationTitleConstraints).default(""),
+  description: boundedTrimmedStringSchema(
+    conversationDescriptionConstraints
+  ).default(""),
 })
 
 export const channelSchema = z
   .object({
     teamId: z.string().min(1).optional(),
     workspaceId: z.string().min(1).optional(),
-    title: z.string().trim().max(80).default(""),
-    description: z.string().trim().max(180).default(""),
+    title: boundedTrimmedStringSchema(conversationTitleConstraints).default(""),
+    description: boundedTrimmedStringSchema(
+      conversationDescriptionConstraints
+    ).default(""),
   })
   .superRefine((value, ctx) => {
     const targets =
@@ -330,36 +421,20 @@ export const channelSchema = z
 
 export const chatMessageSchema = z.object({
   conversationId: z.string().min(1),
-  content: z
-    .string()
-    .trim()
-    .max(4000)
-    .refine((value) => getPlainTextContent(value).length >= 1, {
-      message: "Message content must include at least 1 character",
-    }),
+  content: boundedRichTextPlainTextSchema(chatMessageContentConstraints),
 })
 
 export const channelPostSchema = z.object({
   conversationId: z.string().min(1),
-  title: z.string().trim().max(120).default(""),
-  content: z
-    .string()
-    .trim()
-    .max(8000)
-    .refine((value) => getPlainTextContent(value).length >= 2, {
-      message: "Post content must include at least 2 characters",
-    }),
+  title: boundedTrimmedStringSchema(channelPostTitleConstraints).default(""),
+  content: boundedRichTextPlainTextSchema(channelPostContentConstraints),
 })
 
 export const channelPostCommentSchema = z.object({
   postId: z.string().min(1),
-  content: z
-    .string()
-    .trim()
-    .max(4000)
-    .refine((value) => getPlainTextContent(value).length >= 1, {
-      message: "Comment content must include at least 1 character",
-    }),
+  content: boundedRichTextPlainTextSchema(
+    channelPostCommentContentConstraints
+  ),
 })
 
 export const attachmentUploadUrlSchema = z.object({

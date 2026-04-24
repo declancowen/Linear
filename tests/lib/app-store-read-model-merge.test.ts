@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest"
 
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import { createEmptyState } from "@/lib/domain/empty-state"
-import { createDefaultTeamWorkflowSettings } from "@/lib/domain/types"
+import {
+  createDefaultTeamWorkflowSettings,
+  type ViewDefinition,
+} from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 
 const currentUser = {
@@ -231,6 +234,95 @@ describe("app store read model merge", () => {
 
     expect(users).toHaveLength(1)
     expect(users[0]?.name).toBe("Updated Current User")
+  })
+
+  it("preserves pending optimistic view config until the server catches up", () => {
+    const baseView: ViewDefinition = {
+      id: "view_1",
+      name: "All work",
+      description: "",
+      scopeType: "team" as const,
+      scopeId: "team_1",
+      entityKind: "items" as const,
+      containerType: null,
+      containerId: null,
+      itemLevel: null,
+      showChildItems: true,
+      layout: "list" as const,
+      grouping: "status" as const,
+      subGrouping: null,
+      ordering: "priority" as const,
+      filters: {
+        status: [],
+        priority: [],
+        assigneeIds: [],
+        creatorIds: [],
+        leadIds: [],
+        health: [],
+        milestoneIds: [],
+        relationTypes: [],
+        projectIds: [],
+        parentIds: [],
+        itemTypes: [],
+        labelIds: [],
+        teamIds: [],
+        showCompleted: true,
+      },
+      displayProps: ["id", "status", "assignee"],
+      hiddenState: {
+        groups: [],
+        subgroups: [],
+      },
+      isShared: true,
+      route: "/team/eng/work",
+      createdAt: "2026-04-22T00:00:00.000Z",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    }
+
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [baseView],
+      pendingViewConfigById: {
+        view_1: {
+          token: "pending_1",
+          patch: {
+            layout: "timeline",
+          },
+        },
+      },
+    }))
+
+    useAppStore.getState().mergeReadModelData({
+      views: [
+        {
+          ...baseView,
+          updatedAt: "2026-04-23T00:00:00.000Z",
+        },
+      ],
+    })
+
+    let state = useAppStore.getState()
+    expect(state.views[0]?.layout).toBe("timeline")
+    expect(state.pendingViewConfigById.view_1).toEqual({
+      token: "pending_1",
+      patch: {
+        layout: "timeline",
+      },
+    })
+
+    useAppStore.getState().mergeReadModelData({
+      views: [
+        {
+          ...baseView,
+          layout: "timeline",
+          updatedAt: "2026-04-24T00:00:00.000Z",
+        },
+      ],
+    })
+
+    state = useAppStore.getState()
+    expect(state.views[0]?.layout).toBe("timeline")
+    expect(state.pendingViewConfigById).toEqual({})
   })
 
   it("prunes stale documents when a document index scope is refreshed", () => {

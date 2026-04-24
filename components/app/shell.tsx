@@ -50,8 +50,10 @@ import {
   getWorkSurfaceCopy,
   resolveUserStatus,
   type UserStatus,
+  type UserProfile,
   userStatusMeta,
   userStatuses,
+  type Workspace,
 } from "@/lib/domain/types"
 import { buildGlobalCreateActions } from "@/lib/domain/search-create-actions"
 import {
@@ -211,6 +213,36 @@ function SidebarInsetResizeHandle() {
   )
 }
 
+function ShellFrameFallback() {
+  return (
+    <div className="flex min-h-screen bg-background">
+      <aside className="hidden w-72 border-r bg-sidebar/40 px-4 py-5 md:block">
+        <div className="space-y-3">
+          <div className="h-8 w-32 animate-pulse rounded-md bg-muted" />
+          <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="mt-8 space-y-3">
+          <div className="h-9 w-full animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-full animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-full animate-pulse rounded-md bg-muted" />
+        </div>
+      </aside>
+      <div className="flex min-h-screen flex-1 flex-col">
+        <header className="border-b px-6 py-4">
+          <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+        </header>
+        <main className="flex-1 px-6 py-8">
+          <div className="max-w-xl space-y-3">
+            <div className="h-6 w-48 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-full animate-pulse rounded bg-muted" />
+            <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+          </div>
+        </main>
+      </div>
+    </div>
+  )
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -225,6 +257,13 @@ export function AppShell({ children }: AppShellProps) {
   )
   const workspace = useAppStore(getCurrentWorkspace)
   const currentUser = useAppStore(getCurrentUser)
+  const retainedShellContextRef = useRef<{
+    currentUser: UserProfile | null
+    workspace: Workspace | null
+  }>({
+    currentUser: null,
+    workspace: null,
+  })
   const pendingInviteCount = useAppStore((state) => {
     const user = getCurrentUser(state)
 
@@ -256,6 +295,20 @@ export function AppShell({ children }: AppShellProps) {
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
   const activeCreateDialog = useAppStore((state) => state.ui.activeCreateDialog)
+
+  if (currentUser) {
+    retainedShellContextRef.current.currentUser = currentUser
+  }
+
+  if (workspace) {
+    retainedShellContextRef.current.workspace = workspace
+  }
+
+  const renderedCurrentUser =
+    currentUser ?? retainedShellContextRef.current.currentUser
+  const renderedWorkspace =
+    workspace ?? retainedShellContextRef.current.workspace
+
   useScopedReadModelRefresh({
     enabled: Boolean(currentUserId) && Boolean(currentWorkspaceId),
     scopeKeys: currentWorkspaceId
@@ -300,14 +353,14 @@ export function AppShell({ children }: AppShellProps) {
     )
   })
   const workspaceLogoImageSrc = resolveImageAssetSource(
-    workspace?.logoImageUrl,
-    workspace?.logoUrl
+    renderedWorkspace?.logoImageUrl,
+    renderedWorkspace?.logoUrl
   )
   const currentUserAvatarImageSrc = resolveImageAssetSource(
-    currentUser?.avatarImageUrl,
-    currentUser?.avatarUrl
+    renderedCurrentUser?.avatarImageUrl,
+    renderedCurrentUser?.avatarUrl
   )
-  const currentUserStatus = resolveUserStatus(currentUser?.status)
+  const currentUserStatus = resolveUserStatus(renderedCurrentUser?.status)
   const editableTeamIds = new Set(
     currentMemberships
       .filter(
@@ -418,10 +471,10 @@ export function AppShell({ children }: AppShellProps) {
     projectCreateTeams,
     viewTeams: viewCreateTeams,
     workspaceViewOption:
-      workspace && canEditCurrentWorkspace
+      renderedWorkspace && canEditCurrentWorkspace
         ? {
-            id: workspace.id,
-            name: workspace.name,
+            id: renderedWorkspace.id,
+            name: renderedWorkspace.name,
           }
         : null,
   })
@@ -526,12 +579,8 @@ export function AppShell({ children }: AppShellProps) {
     })
   }
 
-  if (!currentUser) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading workspace...
-      </div>
-    )
+  if (!renderedCurrentUser || !renderedWorkspace) {
+    return <ShellFrameFallback />
   }
 
   return (
@@ -562,6 +611,7 @@ export function AppShell({ children }: AppShellProps) {
           defaultTeamId={activeCreateDialog.defaultTeamId}
           defaultProjectId={activeCreateDialog.defaultProjectId}
           initialType={activeCreateDialog.initialType}
+          defaultValues={activeCreateDialog.defaultValues}
         />
       ) : null}
       {activeCreateDialog?.kind === "project" ? (
@@ -634,16 +684,16 @@ export function AppShell({ children }: AppShellProps) {
                         {workspaceLogoImageSrc ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            alt={workspace?.name ?? "Workspace"}
+                            alt={renderedWorkspace.name}
                             className="size-full rounded-[5px] object-cover"
                             src={workspaceLogoImageSrc}
                           />
                         ) : (
-                          workspace?.logoUrl
+                          renderedWorkspace.logoUrl
                         )}
                       </div>
                       <span className="truncate text-[12px] leading-none font-semibold">
-                        {workspace?.name}
+                        {renderedWorkspace.name}
                       </span>
                       <CaretDown
                         className="ml-auto size-2.5 shrink-0 text-sidebar-foreground/50"
@@ -688,13 +738,9 @@ export function AppShell({ children }: AppShellProps) {
                           <DropdownMenuItem
                             variant="destructive"
                             onSelect={() => {
-                              if (!workspace) {
-                                return
-                              }
-
                               setWorkspacePendingLeave({
-                                id: workspace.id,
-                                name: workspace.name,
+                                id: renderedWorkspace.id,
+                                name: renderedWorkspace.name,
                               })
                             }}
                           >
@@ -1053,12 +1099,12 @@ export function AppShell({ children }: AppShellProps) {
                       {currentUserAvatarImageSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          alt={currentUser.name}
+                          alt={renderedCurrentUser.name}
                           className="size-full rounded-full object-cover"
                           src={currentUserAvatarImageSrc}
                         />
                       ) : (
-                        currentUser.avatarUrl
+                        renderedCurrentUser.avatarUrl
                       )}
                       <UserStatusDot
                         status={currentUserStatus}
@@ -1066,21 +1112,21 @@ export function AppShell({ children }: AppShellProps) {
                       />
                     </div>
                     <span className="truncate text-[12px]">
-                      {currentUser.name}
+                      {renderedCurrentUser.name}
                     </span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
                   <UserHoverCard
-                    user={currentUser}
-                    userId={currentUser.id}
+                    user={renderedCurrentUser}
+                    userId={renderedCurrentUser.id}
                     currentUserId={currentUserId}
                     workspaceId={currentWorkspaceId}
                     side="right"
                   >
                     <DropdownMenuLabel className="space-y-1.5">
                       <div className="font-medium text-foreground">
-                        {currentUser.name}
+                        {renderedCurrentUser.name}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <UserStatusDot status={currentUserStatus} />
@@ -1101,7 +1147,7 @@ export function AppShell({ children }: AppShellProps) {
                           onValueChange={(value) => {
                             useAppStore.getState().updateCurrentUserStatus({
                               status: value as UserStatus,
-                              statusMessage: currentUser.statusMessage,
+                              statusMessage: renderedCurrentUser.statusMessage,
                             })
                           }}
                         >
@@ -1116,11 +1162,11 @@ export function AppShell({ children }: AppShellProps) {
                     </DropdownMenuSub>
                     <DropdownMenuItem onSelect={openStatusMessageDialog}>
                       <NotePencil />
-                      {currentUser.statusMessage
+                      {renderedCurrentUser.statusMessage
                         ? "Edit status message"
                         : "Set status message"}
                     </DropdownMenuItem>
-                    {currentUser.statusMessage ? (
+                    {renderedCurrentUser.statusMessage ? (
                       <DropdownMenuItem
                         onSelect={() => {
                           useAppStore.getState().updateCurrentUserStatus({

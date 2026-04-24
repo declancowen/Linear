@@ -75,6 +75,16 @@ export type RichTextEditorStats = {
   characters: number
 }
 
+export type RichTextEditorValidity = {
+  characters: number
+  minimum: number
+  maximum: number | null
+  remaining: number | null
+  tooShort: boolean
+  tooLong: boolean
+  canSubmit: boolean
+}
+
 export type RichTextMentionCountsChangeSource = "initial" | "local" | "external"
 
 type RichTextEditorProps = {
@@ -98,6 +108,10 @@ type RichTextEditorProps = {
   onSubmitShortcut?: () => void
   submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
+  minPlainTextCharacters?: number
+  maxPlainTextCharacters?: number
+  enforcePlainTextLimit?: boolean
+  onValidityChange?: (validity: RichTextEditorValidity) => void
   onMentionCountsChange?: (
     counts: RichTextMentionCounts,
     source: RichTextMentionCountsChangeSource
@@ -1321,6 +1335,10 @@ export function RichTextEditor({
   onSubmitShortcut,
   submitOnEnter = false,
   onStatsChange,
+  minPlainTextCharacters = 0,
+  maxPlainTextCharacters,
+  enforcePlainTextLimit = false,
+  onValidityChange,
   onMentionCountsChange,
   mentionMenuPlacement = "below",
   editorInstanceRef,
@@ -1507,8 +1525,12 @@ export function RichTextEditor({
       createRichTextBaseExtensions({
         placeholder,
         collaboration: Boolean(collaboration),
+        characterLimit:
+          enforcePlainTextLimit && maxPlainTextCharacters
+            ? maxPlainTextCharacters
+            : undefined,
       }),
-    [collaboration, placeholder]
+    [collaboration, enforcePlainTextLimit, maxPlainTextCharacters, placeholder]
   )
   const collaborationExtensions = useMemo(
     () =>
@@ -2053,6 +2075,16 @@ export function RichTextEditor({
 
   const statsWords = editor?.storage.characterCount.words() ?? 0
   const statsCharacters = editor?.storage.characterCount.characters() ?? 0
+  const tooShort =
+    minPlainTextCharacters > 0 && statsCharacters < minPlainTextCharacters
+  const tooLong =
+    maxPlainTextCharacters !== undefined &&
+    statsCharacters > maxPlainTextCharacters
+  const canSubmit = !tooShort && !tooLong
+  const remainingCharacters =
+    maxPlainTextCharacters !== undefined
+      ? maxPlainTextCharacters - statsCharacters
+      : null
 
   const updateBlockPresenceMarkers = useCallback(() => {
     if (!editor || visiblePresenceViewers.length === 0) {
@@ -2143,6 +2175,27 @@ export function RichTextEditor({
       characters: statsCharacters,
     })
   }, [onStatsChange, statsCharacters, statsWords])
+
+  useEffect(() => {
+    onValidityChange?.({
+      characters: statsCharacters,
+      minimum: minPlainTextCharacters,
+      maximum: maxPlainTextCharacters ?? null,
+      remaining: remainingCharacters,
+      tooShort,
+      tooLong,
+      canSubmit,
+    })
+  }, [
+    canSubmit,
+    maxPlainTextCharacters,
+    minPlainTextCharacters,
+    onValidityChange,
+    remainingCharacters,
+    statsCharacters,
+    tooLong,
+    tooShort,
+  ])
 
   useEffect(() => {
     updateBlockPresenceMarkers()
@@ -2571,7 +2624,7 @@ export function RichTextEditor({
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <div
-        className={cn("relative", showToolbar && "pt-12")}
+        className="relative"
         onMouseDownCapture={handleInlineMouseDownCapture}
         ref={containerRef}
       >

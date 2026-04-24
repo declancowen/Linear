@@ -17,6 +17,7 @@ export function createRichTextBaseExtensions(options?: {
   placeholder?: string
   collaboration?: boolean
   includeCharacterCount?: boolean
+  characterLimit?: number
 }) {
   const extensions: Extensions = [
     StarterKit.configure({
@@ -83,7 +84,11 @@ export function createRichTextBaseExtensions(options?: {
   ]
 
   if (options?.includeCharacterCount ?? true) {
-    extensions.push(CharacterCount)
+    extensions.push(
+      CharacterCount.configure({
+        limit: options?.characterLimit,
+      })
+    )
   }
 
   if (options?.placeholder) {

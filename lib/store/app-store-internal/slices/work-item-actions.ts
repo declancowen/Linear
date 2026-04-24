@@ -32,6 +32,7 @@ import {
   getNow,
   toTeamKeyPrefix,
 } from "../helpers"
+import { registerPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   effectiveRole,
   getProjectsForTeamScope,
@@ -442,6 +443,7 @@ export function createWorkItemActions({
       }
 
       let createdItemId: string | null = null
+      let createdDescriptionDocId: string | null = null
       const resolvedStartDate =
         parsed.data.startDate ?? formatLocalCalendarDate()
       const resolvedDueDate = parsed.data.dueDate ?? addLocalCalendarDays(7)
@@ -536,6 +538,7 @@ export function createWorkItemActions({
             : state.notifications
 
         createdItemId = workItem.id
+        createdDescriptionDocId = descriptionDocId
 
         return {
           ...state,
@@ -549,15 +552,53 @@ export function createWorkItemActions({
         return null
       }
 
-      runtime.syncInBackground(
-        syncCreateWorkItem(get().currentUserId, {
-          ...parsed.data,
-          startDate: resolvedStartDate,
-          dueDate: resolvedDueDate,
-          targetDate: resolvedTargetDate,
-        }),
-        "Failed to create work item"
-      )
+      const createTask = syncCreateWorkItem(get().currentUserId, {
+        id: createdItemId,
+        descriptionDocId: createdDescriptionDocId ?? undefined,
+        ...parsed.data,
+        startDate: resolvedStartDate,
+        dueDate: resolvedDueDate,
+        targetDate: resolvedTargetDate,
+      }).then((result) => {
+        if (!createdItemId) {
+          return result
+        }
+
+        set((state) => {
+          const nextDescriptionDocId =
+            result?.descriptionDocId ?? createdDescriptionDocId ?? null
+
+          return {
+            ...state,
+            documents: state.documents.map((document) =>
+              document.id === createdDescriptionDocId ||
+              document.id === nextDescriptionDocId
+                ? {
+                    ...document,
+                    id: nextDescriptionDocId ?? document.id,
+                    updatedAt:
+                      result?.descriptionUpdatedAt ?? document.updatedAt,
+                    updatedBy: state.currentUserId,
+                  }
+                : document
+            ),
+            workItems: state.workItems.map((item) =>
+              item.id === createdItemId
+                ? {
+                    ...item,
+                    descriptionDocId: nextDescriptionDocId ?? item.descriptionDocId,
+                    updatedAt: result?.itemUpdatedAt ?? item.updatedAt,
+                  }
+                : item
+            ),
+          }
+        })
+
+        return result
+      })
+
+      registerPendingWorkItemCreation(createdItemId, createTask)
+      runtime.syncInBackground(createTask, "Failed to create work item")
 
       toast.success("Work item created")
       return createdItemId

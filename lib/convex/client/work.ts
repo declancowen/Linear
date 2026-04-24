@@ -141,6 +141,19 @@ export function syncArchiveNotifications(notificationIds: string[]) {
   })
 }
 
+export function syncMarkNotificationsRead(notificationIds: string[]) {
+  return runRouteMutation("/api/notifications", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "markRead",
+      notificationIds,
+    }),
+  })
+}
+
 export function syncUnarchiveNotifications(notificationIds: string[]) {
   return runRouteMutation("/api/notifications", {
     method: "PATCH",
@@ -833,6 +846,8 @@ export function syncCreateDocument(
 export function syncCreateWorkItem(
   _currentUserId: string,
   input: {
+    id?: string
+    descriptionDocId?: string
     teamId: string
     type: WorkItemType
     title: string
@@ -847,7 +862,13 @@ export function syncCreateWorkItem(
     targetDate?: string | null
   }
 ) {
-  return runRouteMutation("/api/items", {
+  return runRouteMutation<{
+    ok: true
+    itemId: string | null
+    itemUpdatedAt: string | null
+    descriptionDocId: string | null
+    descriptionUpdatedAt: string | null
+  }>("/api/items", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

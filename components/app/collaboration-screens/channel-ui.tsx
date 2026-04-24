@@ -16,9 +16,16 @@ import {
   getChannelPostComments,
   getConversationParticipants,
 } from "@/lib/domain/selectors"
+import {
+  channelPostCommentContentConstraints,
+  channelPostContentConstraints,
+  channelPostTitleConstraints,
+  getTextInputLimitState,
+} from "@/lib/domain/input-constraints"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import {
@@ -360,6 +367,9 @@ export function ForumPostCard({ postId }: { postId: string }) {
                 placeholder="Reply with @mentions or /commands…"
                 editorInstanceRef={replyEditorRef}
                 mentionCandidates={mentionCandidates}
+                minPlainTextCharacters={channelPostCommentContentConstraints.min}
+                maxPlainTextCharacters={channelPostCommentContentConstraints.max}
+                enforcePlainTextLimit
                 onSubmitShortcut={handleReply}
                 submitOnEnter
                 className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
@@ -522,10 +532,14 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
   const [content, setContent] = useState("")
   const editorInstanceRef = useRef<Editor | null>(null)
   const contentText = getPlainTextContent(content)
+  const titleLimitState = getTextInputLimitState(
+    title,
+    channelPostTitleConstraints
+  )
   const shortcutModifierLabel = useShortcutModifierLabel()
 
   const handlePost = () => {
-    if (!contentText) return
+    if (!contentText || !titleLimitState.canSubmit) return
     useAppStore.getState().createChannelPost({
       conversationId: channelId,
       title: title.trim(),
@@ -565,7 +579,13 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         placeholder="Start a new thread — add a headline…"
+        maxLength={channelPostTitleConstraints.max}
         className="w-full border-0 bg-transparent pb-1 text-[14px] font-semibold text-foreground outline-none placeholder:text-fg-3"
+      />
+      <FieldCharacterLimit
+        state={titleLimitState}
+        limit={channelPostTitleConstraints.max}
+        className="mt-0 mb-1"
       />
       <RichTextEditor
         content={content}
@@ -577,6 +597,9 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
         placeholder="Write something the whole channel can read and reply to…"
         editorInstanceRef={editorInstanceRef}
         mentionCandidates={mentionCandidates}
+        minPlainTextCharacters={channelPostContentConstraints.min}
+        maxPlainTextCharacters={channelPostContentConstraints.max}
+        enforcePlainTextLimit
         onSubmitShortcut={handlePost}
         className="min-w-0 [&_.ProseMirror]:min-h-[2.625rem] [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
       />
@@ -616,7 +639,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
           type="button"
           size="sm"
           onClick={handlePost}
-          disabled={!contentText}
+          disabled={!contentText || !titleLimitState.canSubmit}
           className="ml-1 h-7 gap-1.5 rounded-md px-2.5 text-[12px]"
         >
           <PaperPlaneTilt className="size-3" weight="fill" />

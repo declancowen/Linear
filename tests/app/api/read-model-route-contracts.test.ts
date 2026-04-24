@@ -5,6 +5,7 @@ import type { AppSnapshot } from "@/lib/domain/types"
 
 const requireSessionMock = vi.fn()
 const getSnapshotServerMock = vi.fn()
+const getWorkspaceMembershipBootstrapServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 
 vi.mock("@/lib/server/convex", () => ({
   getSnapshotServer: getSnapshotServerMock,
+  getWorkspaceMembershipBootstrapServer: getWorkspaceMembershipBootstrapServerMock,
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -527,6 +529,7 @@ describe("read model route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
     getSnapshotServerMock.mockReset()
+    getWorkspaceMembershipBootstrapServerMock.mockReset()
     logProviderErrorMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
@@ -564,7 +567,17 @@ describe("read model route contracts", () => {
       "@/app/api/read-models/workspaces/[workspaceId]/membership/route"
     )
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    getWorkspaceMembershipBootstrapServerMock.mockResolvedValue({
+      currentUserId: "user_1",
+      currentWorkspaceId: "workspace_1",
+      workspaces: [{ id: "workspace_1" }],
+      teams: [{ id: "team_1" }],
+      workspaceMemberships: [{ workspaceId: "workspace_1" }],
+      teamMemberships: [{ teamId: "team_1" }],
+      labels: [{ id: "label_1" }],
+      invites: [{ id: "invite_1" }],
+      users: [{ id: "user_1" }],
+    })
 
     const response = await GET(new Request("http://localhost") as never, {
       params: Promise.resolve({
@@ -583,6 +596,13 @@ describe("read model route contracts", () => {
         labels: [{ id: "label_1" }],
         invites: [{ id: "invite_1" }],
       },
+    })
+
+    expect(getSnapshotServerMock).not.toHaveBeenCalled()
+    expect(getWorkspaceMembershipBootstrapServerMock).toHaveBeenCalledWith({
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+      workspaceId: "workspace_1",
     })
   })
 

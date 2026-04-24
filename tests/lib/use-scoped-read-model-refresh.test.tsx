@@ -5,10 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mergeReadModelDataMock = vi.fn()
 const openScopedInvalidationStreamMock = vi.fn()
 const isScopedSyncEnabledMock = vi.fn()
+const redirectToExpiredSessionLoginMock = vi.fn()
 
 vi.mock("@/lib/browser/snapshot-diagnostics", () => ({
   reportScopedReadModelDiagnostic: vi.fn(),
   reportScopedStreamReconnectDiagnostic: vi.fn(),
+}))
+
+vi.mock("@/lib/browser/session-redirect", () => ({
+  redirectToExpiredSessionLogin: redirectToExpiredSessionLoginMock,
 }))
 
 vi.mock("@/lib/realtime/feature-flags", () => ({
@@ -53,6 +58,7 @@ describe("useScopedReadModelRefresh", () => {
     mergeReadModelDataMock.mockReset()
     openScopedInvalidationStreamMock.mockReset()
     isScopedSyncEnabledMock.mockReset()
+    redirectToExpiredSessionLoginMock.mockReset()
     isScopedSyncEnabledMock.mockReturnValue(true)
     openScopedInvalidationStreamMock.mockReturnValue(vi.fn())
   })
@@ -248,6 +254,31 @@ describe("useScopedReadModelRefresh", () => {
         ],
       }
     )
+  })
+
+  it("redirects to login instead of surfacing a 401 scoped refresh error", async () => {
+    const { RouteMutationError } = await import("@/lib/convex/client/shared")
+    const fetchLatestMock = vi
+      .fn()
+      .mockRejectedValue(new RouteMutationError("Unauthorized", 401))
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    const { result } = renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:a"],
+        fetchLatest: fetchLatestMock,
+      })
+    )
+
+    await waitFor(() => {
+      expect(redirectToExpiredSessionLoginMock).toHaveBeenCalledTimes(1)
+    })
+
+    expect(result.current.error).toBeNull()
+    expect(result.current.hasLoadedOnce).toBe(false)
   })
 
   it("does not clear the active in-flight guard when a stale generation settles", async () => {

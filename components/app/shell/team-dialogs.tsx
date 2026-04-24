@@ -6,6 +6,11 @@ import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 
 import {
+  getTextInputLimitState,
+  teamNameConstraints,
+  teamSummaryConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   getCurrentWorkspace,
   getTeamFeatureSettings,
   getTeamSurfaceDisableReasons,
@@ -60,6 +65,9 @@ export function CreateTeamDialog({
     createDefaultTeamFeatureSettings("software-development")
   )
   const [saving, setSaving] = useState(false)
+  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
+  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const canSubmit = nameLimitState.canSubmit && summaryLimitState.canSubmit
   const shortcutModifierLabel = useShortcutModifierLabel()
 
   async function handleCreate() {
@@ -83,7 +91,7 @@ export function CreateTeamDialog({
     }
   }
 
-  useCommandEnterSubmit(open && !saving, () => {
+  useCommandEnterSubmit(open && !saving && canSubmit, () => {
     void handleCreate()
   })
 
@@ -138,7 +146,7 @@ export function CreateTeamDialog({
           </Button>
           <Button
             size="sm"
-            disabled={saving}
+            disabled={saving || !canSubmit}
             onClick={() => void handleCreate()}
             className="gap-1"
           >
@@ -190,6 +198,9 @@ export function TeamDetailsDialog({
     team?.settings.features ?? getTeamFeatureSettings(team)
   )
   const [saving, setSaving] = useState(false)
+  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
+  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const canSubmit = nameLimitState.canSubmit && summaryLimitState.canSubmit
 
   if (!team) {
     return null
@@ -244,7 +255,7 @@ export function TeamDetailsDialog({
           </Button>
           <Button
             size="sm"
-            disabled={saving}
+            disabled={saving || !canSubmit}
             onClick={async () => {
               setSaving(true)
               const updated = await useAppStore

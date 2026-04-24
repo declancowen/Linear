@@ -43,6 +43,12 @@ import {
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import {
+  commentContentConstraints,
+  getTextInputLimitState,
+  labelNameConstraints,
+  workItemTitleConstraints,
+} from "@/lib/domain/input-constraints"
 import { createWorkItemDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import {
   canEditTeam,
@@ -75,6 +81,7 @@ import {
 } from "@/lib/domain/types"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -103,6 +110,7 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
 import { DocumentPresenceAvatarGroup } from "./document-ui"
+import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import {
   getEligibleParentWorkItems,
   getTeamProjectOptions,
@@ -110,6 +118,7 @@ import {
   selectAppDataSnapshot,
 } from "./helpers"
 import {
+  LabelColorDot,
   MissingState,
   PROPERTY_SELECT_SEPARATOR_VALUE,
   PriorityIcon,
@@ -292,7 +301,6 @@ function DetailSidebarSelectRow({
                   <span className="truncate">{selectedLabel}</span>
                 )}
               </span>
-              <CaretDown className="size-3 shrink-0 text-fg-4" />
             </button>
           </PopoverTrigger>
           <PopoverContent
@@ -425,6 +433,10 @@ function DetailSidebarLabelsRow({
   editable: boolean
 }) {
   const [newLabelName, setNewLabelName] = useState("")
+  const labelNameLimitState = getTextInputLimitState(
+    newLabelName,
+    labelNameConstraints
+  )
   const selectedLabels = labels.filter((label) =>
     item.labelIds.includes(label.id)
   )
@@ -440,7 +452,11 @@ function DetailSidebarLabelsRow({
   }
 
   async function handleCreateLabel() {
-    if (!workspaceId || newLabelName.trim().length === 0) {
+    if (
+      !workspaceId ||
+      newLabelName.trim().length === 0 ||
+      !labelNameLimitState.canSubmit
+    ) {
       return
     }
 
@@ -485,10 +501,7 @@ function DetailSidebarLabelsRow({
                 {selectedLabels.length > 0 ? (
                   selectedLabels.map((label) => (
                     <span key={label.id} className={detailChipClassName}>
-                      <span
-                        className="inline-block size-1.5 rounded-full"
-                        style={{ backgroundColor: label.color }}
-                      />
+                      <LabelColorDot color={label.color} className="size-1.5" />
                       <span>{label.name}</span>
                     </span>
                   ))
@@ -534,9 +547,9 @@ function DetailSidebarLabelsRow({
                           )}
                           onClick={() => toggleLabel(label.id)}
                         >
-                          <span
-                            className="inline-block size-1.5 rounded-full"
-                            style={{ backgroundColor: label.color }}
+                          <LabelColorDot
+                            color={label.color}
+                            className="size-1.5"
                           />
                           <span>{label.name}</span>
                         </button>
@@ -559,6 +572,7 @@ function DetailSidebarLabelsRow({
                     value={newLabelName}
                     onChange={(event) => setNewLabelName(event.target.value)}
                     placeholder="Add label"
+                    maxLength={labelNameConstraints.max}
                     disabled={!editable || !workspaceId}
                     className="h-8"
                   />
@@ -567,19 +581,89 @@ function DetailSidebarLabelsRow({
                     disabled={
                       !editable ||
                       !workspaceId ||
-                      newLabelName.trim().length === 0
+                      newLabelName.trim().length === 0 ||
+                      !labelNameLimitState.canSubmit
                     }
                     onClick={() => void handleCreateLabel()}
                   >
                     Create
                   </Button>
                 </div>
+                {newLabelName.length > 0 ? (
+                  <FieldCharacterLimit
+                    state={labelNameLimitState}
+                    limit={labelNameConstraints.max}
+                    className="mt-0"
+                  />
+                ) : null}
               </div>
             </div>
           </PopoverContent>
         </Popover>
       </dd>
     </>
+  )
+}
+
+function DetailChildWorkItemRow({
+  data,
+  item,
+  variant = "main",
+}: {
+  data: AppData
+  item: WorkItem
+  variant?: "main" | "sidebar"
+}) {
+  const childDone = item.status === "done"
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-2",
+        variant === "sidebar" ? "gap-y-1.5" : "gap-y-2"
+      )}
+    >
+      <Link
+        href={`/items/${item.id}`}
+        className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
+      >
+        <span className="font-mono text-[11.5px] text-fg-3">{item.key}</span>
+        <span
+          className={cn(
+            "truncate text-[12.5px]",
+            childDone && "text-fg-3 line-through decoration-line"
+          )}
+        >
+          {item.title}
+        </span>
+      </Link>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="status"
+          variant="child"
+        />
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="priority"
+          variant="child"
+        />
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="assignee"
+          variant="child"
+        />
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="project"
+          variant="child"
+        />
+      </div>
+    </div>
   )
 }
 
@@ -793,6 +877,9 @@ function DetailSidebarActivity({
           placeholder="Leave a comment or mention a teammate with @handle..."
           editorInstanceRef={commentEditorRef}
           mentionCandidates={mentionCandidates}
+          minPlainTextCharacters={commentContentConstraints.min}
+          maxPlainTextCharacters={commentContentConstraints.max}
+          enforcePlainTextLimit
           onSubmitShortcut={handleComment}
           submitOnEnter
           className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
@@ -1042,6 +1129,9 @@ function MainActivityCommentCard({
                 placeholder="Write a reply…"
                 editorInstanceRef={replyEditorRef}
                 mentionCandidates={mentionCandidates}
+                minPlainTextCharacters={commentContentConstraints.min}
+                maxPlainTextCharacters={commentContentConstraints.max}
+                enforcePlainTextLimit
                 onSubmitShortcut={handleReply}
                 submitOnEnter
                 className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
@@ -1394,7 +1484,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     editorCollaboration,
     collaboration,
     flush: flushCollaboration,
-    hasAttachedOnce,
     isAwaitingCollaboration,
     lifecycle: collaborationLifecycle,
     viewers: collaborationViewers,
@@ -1850,6 +1939,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         )
       )
     : []
+  const mainTitleLimitState = getTextInputLimitState(
+    mainDraftTitle,
+    workItemTitleConstraints
+  )
   const normalizedMainDraftTitle = mainDraftTitle.trim()
   const mainTitleDirty =
     isMainEditing && normalizedMainDraftTitle !== currentItem.title
@@ -1866,8 +1959,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       ? isMainEditing && !savingMainSection
       : !isAwaitingCollaboration &&
           isMainEditing &&
-          normalizedMainDraftTitle.length >= 2 &&
-          normalizedMainDraftTitle.length <= 96 &&
+          mainTitleLimitState.canSubmit &&
           (mainDirty || pendingMainMentionEntries.length > 0) &&
           !savingMainSection &&
           !mainDraftStale
@@ -2260,16 +2352,26 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   ) : null}
                 </div>
                 {isMainEditing ? (
-                  <Input
-                    value={mainDraftTitle}
-                    onChange={(event) => setMainDraftTitle(event.target.value)}
-                    placeholder={`${getDisplayLabelForWorkItemType(
-                      currentItem.type,
-                      team?.settings.experience
-                    )} title`}
-                    className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
-                    autoFocus
-                  />
+                  <div>
+                    <Input
+                      value={mainDraftTitle}
+                      onChange={(event) =>
+                        setMainDraftTitle(event.target.value)
+                      }
+                      placeholder={`${getDisplayLabelForWorkItemType(
+                        currentItem.type,
+                        team?.settings.experience
+                      )} title`}
+                      maxLength={workItemTitleConstraints.max}
+                      className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
+                      autoFocus
+                    />
+                    <FieldCharacterLimit
+                      state={mainTitleLimitState}
+                      limit={workItemTitleConstraints.max}
+                      className="mt-1"
+                    />
+                  </div>
                 ) : (
                   <h1 className="text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] text-foreground">
                     {currentItem.title}
@@ -2432,48 +2534,15 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     <div className="border-t border-line-soft">
                       {childItems.length > 0 ? (
                         <ul className="flex flex-col divide-y divide-line-soft">
-                          {childItems.map((child) => {
-                            const childDone = child.status === "done"
-
-                            return (
-                              <li key={child.id}>
-                                <Link
-                                  href={`/items/${child.id}`}
-                                  className="group/sub flex items-center gap-3 px-4 py-2 text-[12.5px] transition-colors hover:bg-surface-2"
-                                >
-                                  <StatusIcon status={child.status} />
-                                  <span className="shrink-0 font-mono text-[11px] text-fg-4">
-                                    {child.key}
-                                  </span>
-                                  <span
-                                    className={cn(
-                                      "min-w-0 flex-1 truncate",
-                                      childDone &&
-                                        "text-fg-3 line-through decoration-line"
-                                    )}
-                                  >
-                                    {child.title}
-                                  </span>
-                                  {child.priority !== "none" ? (
-                                    <span className="hidden shrink-0 items-center gap-1 text-[11px] text-fg-4 sm:inline-flex">
-                                      <PriorityIcon priority={child.priority} />
-                                      <span>
-                                        {priorityMeta[child.priority].label}
-                                      </span>
-                                    </span>
-                                  ) : null}
-                                  {child.assigneeId ? (
-                                    <WorkItemAssigneeAvatar
-                                      user={getUser(data, child.assigneeId)}
-                                      className="shrink-0"
-                                    />
-                                  ) : (
-                                    <span className="size-5 shrink-0" />
-                                  )}
-                                </Link>
-                              </li>
-                            )
-                          })}
+                          {childItems.map((child) => (
+                            <li key={child.id}>
+                              <DetailChildWorkItemRow
+                                data={data}
+                                item={child}
+                                variant="main"
+                              />
+                            </li>
+                          ))}
                         </ul>
                       ) : null}
 
@@ -2808,24 +2877,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     </div>
                   ) : null}
                   {childItems.map((child) => (
-                    <Link
+                    <DetailChildWorkItemRow
                       key={child.id}
-                      href={`/items/${child.id}`}
-                      className="grid grid-cols-[16px_80px_minmax(0,1fr)] items-center gap-2.5 rounded-md px-2 py-1.5 text-[12.5px] transition-colors hover:bg-surface-2"
-                    >
-                      <StatusIcon status={child.status} />
-                      <span className="font-mono text-[11.5px] text-fg-3">
-                        {child.key}
-                      </span>
-                      <span
-                        className={cn(
-                          "truncate",
-                          child.status === "done" && "text-fg-3 line-through"
-                        )}
-                      >
-                        {child.title}
-                      </span>
-                    </Link>
+                      data={data}
+                      item={child}
+                      variant="sidebar"
+                    />
                   ))}
                   {sidebarChildComposerOpen ? (
                     <div className="mt-1 rounded-md border border-line">

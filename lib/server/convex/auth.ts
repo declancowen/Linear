@@ -130,6 +130,27 @@ export async function getSnapshotVersionServer(input?: {
   }
 }
 
+export async function getWorkspaceMembershipBootstrapServer(input: {
+  workosUserId?: string
+  email?: string
+  workspaceId: string
+}) {
+  try {
+    await triggerEmailJobProcessingServer()
+
+    return await runConvexRequestWithRetry(
+      "getWorkspaceMembershipBootstrapServer",
+      () =>
+        getConvexServerClient().query(
+          api.app.getWorkspaceMembershipBootstrap,
+          withServerToken(input)
+        )
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...SNAPSHOT_ERROR_MAPPINGS]) ?? error
+  }
+}
+
 export async function getScopedReadModelVersionsServer(input: {
   scopeKeys: string[]
 }) {

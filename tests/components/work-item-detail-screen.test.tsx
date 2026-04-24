@@ -292,24 +292,29 @@ vi.mock("@/components/ui/separator", () => ({
   Separator: () => null,
 }))
 
-vi.mock("@phosphor-icons/react", () => ({
-  CalendarBlank: () => null,
-  CaretDown: () => null,
-  CaretRight: () => null,
-  Clock: () => null,
-  DotsThree: () => null,
-  Flag: () => null,
-  FolderSimple: () => null,
-  LinkSimple: () => null,
-  NotePencil: () => null,
-  PaperPlaneTilt: () => null,
-  Plus: () => null,
-  SidebarSimple: () => null,
-  Smiley: () => null,
-  Tag: () => null,
-  Trash: () => null,
-  X: () => null,
-}))
+vi.mock("@phosphor-icons/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
+
+  return {
+    ...actual,
+    CalendarBlank: () => null,
+    CaretDown: () => null,
+    CaretRight: () => null,
+    Clock: () => null,
+    DotsThree: () => null,
+    Flag: () => null,
+    FolderSimple: () => null,
+    LinkSimple: () => null,
+    NotePencil: () => null,
+    PaperPlaneTilt: () => null,
+    Plus: () => null,
+    SidebarSimple: () => null,
+    Smiley: () => null,
+    Tag: () => null,
+    Trash: () => null,
+    X: () => null,
+  }
+})
 
 function seedState() {
   useAppStore.setState({
@@ -1022,7 +1027,9 @@ describe("work item detail screen", () => {
     expect(
       screen.getByRole("button", { name: "Manage labels" })
     ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
+    expect(
+      screen.getAllByRole("button", { name: "Project" }).length
+    ).toBeGreaterThan(0)
     expect(screen.getAllByText("PLA-3").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Child item").length).toBeGreaterThan(0)
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()

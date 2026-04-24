@@ -24,6 +24,11 @@ import {
   getTemplateDefaultsForTeam,
   getVisibleWorkItems,
 } from "@/lib/domain/selectors"
+import {
+  getTextInputLimitState,
+  projectNameConstraints,
+  projectSummaryConstraints,
+} from "@/lib/domain/input-constraints"
 import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   createDefaultProjectPresentationConfig,
@@ -38,6 +43,7 @@ import {
   type ViewDefinition,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   ShortcutKeys,
@@ -294,12 +300,14 @@ export function CreateProjectDialog({
   const [leadQuery, setLeadQuery] = useState("")
   const [memberQuery, setMemberQuery] = useState("")
   const [labelQuery, setLabelQuery] = useState("")
+  const nameLimitState = getTextInputLimitState(name, projectNameConstraints)
+  const summaryLimitState = getTextInputLimitState(
+    summary,
+    projectSummaryConstraints
+  )
   const normalizedName = name.trim()
   const normalizedSummary = summary.trim()
-  const resolvedSummary =
-    normalizedSummary.length >= 2
-      ? normalizedSummary
-      : templateDefaults.summaryHint
+  const resolvedSummary = normalizedSummary
   const resolvedMemberIds = useMemo(
     () => [...new Set(memberIds)].filter(Boolean),
     [memberIds]
@@ -322,7 +330,8 @@ export function CreateProjectDialog({
   )
   const canCreate =
     availableTeams.length > 0 &&
-    normalizedName.length >= 2 &&
+    nameLimitState.canSubmit &&
+    summaryLimitState.canSubmit &&
     Boolean(selectedTeamId) &&
     Boolean(leadId)
   const triggerClassName = chipTriggerClass
@@ -593,15 +602,27 @@ export function CreateProjectDialog({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Project name"
+            maxLength={projectNameConstraints.max}
             className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
+          />
+          <FieldCharacterLimit
+            state={nameLimitState}
+            limit={projectNameConstraints.max}
+            className="mt-1"
           />
           <Textarea
             value={summary}
             onChange={(event) => setSummary(event.target.value)}
+            maxLength={projectSummaryConstraints.max}
             placeholder={templateDefaults.summaryHint}
             rows={4}
             className="mt-0.5 min-h-[96px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+          />
+          <FieldCharacterLimit
+            state={summaryLimitState}
+            limit={projectSummaryConstraints.max}
+            className="mt-1"
           />
           <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
             Configure the default project view before the team starts using it.

@@ -135,6 +135,13 @@ describe("work item actions", () => {
     syncShiftTimelineItemMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
     toastErrorMock.mockReset()
+    syncCreateWorkItemMock.mockResolvedValue({
+      ok: true,
+      itemId: null,
+      itemUpdatedAt: null,
+      descriptionDocId: null,
+      descriptionUpdatedAt: null,
+    })
     syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
   })
 
@@ -465,6 +472,8 @@ describe("work item actions", () => {
       content: "<p></p>",
     })
     expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
+      id: createdItemId,
+      descriptionDocId: state.workItems[0]?.descriptionDocId,
       teamId: "team_1",
       type: "task",
       title: "Schedule work",
@@ -532,6 +541,8 @@ describe("work item actions", () => {
         targetDate: addLocalCalendarDays(10),
       })
       expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
+        id: createdItemId,
+        descriptionDocId: state.workItems[0]?.descriptionDocId,
         teamId: "team_1",
         type: "task",
         title: "Schedule work",
@@ -548,6 +559,71 @@ describe("work item actions", () => {
       vi.useRealTimers()
       vi.resetModules()
     }
+  })
+
+  it("reconciles optimistic work-item timestamps from the create response", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    syncCreateWorkItemMock.mockImplementation(
+      async (_userId, input: { id?: string; descriptionDocId?: string }) => ({
+        ok: true,
+        itemId: input.id ?? null,
+        itemUpdatedAt: "2026-04-18T10:05:00.000Z",
+        descriptionDocId: input.descriptionDocId ?? null,
+        descriptionUpdatedAt: "2026-04-18T10:05:00.000Z",
+      })
+    )
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const createdItemId = actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Reconcile work",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+    })
+
+    await syncInBackgroundMock.mock.calls[0]?.[0]
+
+    expect(state.workItems.find((item) => item.id === createdItemId)).toMatchObject(
+      {
+        updatedAt: "2026-04-18T10:05:00.000Z",
+      }
+    )
+    expect(
+      state.documents.find(
+        (document) =>
+          document.id ===
+          state.workItems.find((item) => item.id === createdItemId)
+            ?.descriptionDocId
+      )
+    ).toMatchObject({
+      updatedAt: "2026-04-18T10:05:00.000Z",
+    })
   })
 
   it("rejects work item schedule ranges where the target date is before the start date", async () => {

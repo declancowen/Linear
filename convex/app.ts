@@ -49,6 +49,7 @@ import {
   getInviteByTokenHandler,
   getSnapshotHandler,
   getSnapshotVersionHandler,
+  getWorkspaceMembershipBootstrapHandler,
   listWorkspacesForSyncHandler,
   lookupTeamByJoinCodeHandler,
 } from "./app/auth_bootstrap"
@@ -286,6 +287,16 @@ export const getSnapshotVersion = query({
     email: v.optional(v.string()),
   },
   handler: getSnapshotVersionHandler,
+})
+
+export const getWorkspaceMembershipBootstrap = query({
+  args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    workspaceId: v.string(),
+  },
+  handler: getWorkspaceMembershipBootstrapHandler,
 })
 
 export const getScopedReadModelVersions = query({
@@ -1309,6 +1320,8 @@ export const createWorkItem = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     origin: v.string(),
+    id: v.optional(v.string()),
+    descriptionDocId: v.optional(v.string()),
     teamId: v.string(),
     type: workItemTypeValidator,
     title: v.string(),

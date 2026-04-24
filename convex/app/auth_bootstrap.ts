@@ -91,6 +91,10 @@ type ServerUserArgs = {
   email?: string
 }
 
+type GetWorkspaceMembershipBootstrapArgs = ServerUserArgs & {
+  workspaceId: string
+}
+
 type AuthContextArgs = {
   serverToken: string
   workosUserId: string
@@ -195,6 +199,176 @@ function resolveUserPresencePatch(
     status: resolveUserStatus(user.status),
     statusMessage: user.statusMessage ?? defaultUserStatusMessage,
     hasExplicitStatus: user.hasExplicitStatus ?? false,
+  }
+}
+
+function dedupeById<T extends { id: string }>(entries: T[]) {
+  return [...new Map(entries.map((entry) => [entry.id, entry] as const)).values()]
+}
+
+function resolveWorkspaceMembershipWorkspaceId(input: {
+  requestedWorkspaceId: string
+  preferredWorkspaceId: string
+  accessibleWorkspaceIds: Set<string>
+}) {
+  return (
+    [
+      input.requestedWorkspaceId,
+      input.preferredWorkspaceId,
+      ...input.accessibleWorkspaceIds,
+    ].find(
+      (workspaceId) =>
+        typeof workspaceId === "string" &&
+        workspaceId.length > 0 &&
+        input.accessibleWorkspaceIds.has(workspaceId)
+    ) ?? ""
+  )
+}
+
+function selectWorkspaceMembershipInviteEntries<
+  T extends {
+    workspaceId: string
+    email: string
+    acceptedAt?: string | null
+    declinedAt?: string | null
+  },
+>(input: {
+  invites: T[]
+  resolvedWorkspaceId: string
+  normalizedCurrentUserEmail: string
+}) {
+  return input.invites.filter((invite) => {
+    const isPendingCurrentUserInvite =
+      input.normalizedCurrentUserEmail.length > 0 &&
+      normalizeEmailAddress(invite.email) === input.normalizedCurrentUserEmail &&
+      !invite.acceptedAt &&
+      !invite.declinedAt
+
+    return invite.workspaceId === input.resolvedWorkspaceId || isPendingCurrentUserInvite
+  })
+}
+
+async function buildWorkspaceMembershipBootstrap(
+  ctx: QueryCtx,
+  input: {
+    currentUserId: string
+    currentUserEmail: string
+    requestedWorkspaceId: string
+  }
+) {
+  const userAppState = await getUserAppState(ctx, input.currentUserId)
+  const normalizedCurrentUserEmail = normalizeEmailAddress(input.currentUserEmail)
+  const [accessibleWorkspaceMemberships, accessibleMemberships] =
+    await Promise.all([
+      listWorkspaceMembershipsByUser(ctx, input.currentUserId),
+      listTeamMembershipsByUser(ctx, input.currentUserId),
+    ])
+  const accessibleTeamIdList = [
+    ...new Set(accessibleMemberships.map((membership) => membership.teamId)),
+  ]
+  const visibleTeams = await listTeamsByIds(ctx, accessibleTeamIdList)
+  const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, input.currentUserId)
+  const accessibleWorkspaceIds = new Set<string>(
+    [
+      ...accessibleWorkspaceMemberships.map(
+        (membership) => membership.workspaceId
+      ),
+      ...visibleTeams.map((team) => team.workspaceId),
+      ...ownedWorkspaces.map((workspace) => workspace.id),
+    ].filter(Boolean)
+  )
+  const accessibleWorkspaceIdList = [...accessibleWorkspaceIds]
+  const membershipWorkspaceId =
+    accessibleWorkspaceMemberships[0]?.workspaceId ??
+    visibleTeams[0]?.workspaceId ??
+    null
+  const preferredWorkspaceId =
+    resolvePreferredWorkspaceId({
+      selectedWorkspaceId: userAppState?.currentWorkspaceId ?? null,
+      accessibleWorkspaceIds,
+      fallbackWorkspaceIds: [
+        membershipWorkspaceId,
+        accessibleWorkspaceIdList[0] ?? null,
+      ],
+    }) ?? ""
+  const resolvedWorkspaceId = resolveWorkspaceMembershipWorkspaceId({
+    requestedWorkspaceId: input.requestedWorkspaceId,
+    preferredWorkspaceId,
+    accessibleWorkspaceIds,
+  })
+  const visibleWorkspaces = dedupeById(
+    [
+      ...ownedWorkspaces,
+      ...(accessibleWorkspaceIdList.length > 0
+        ? await listWorkspacesByIds(ctx, accessibleWorkspaceIdList)
+        : []),
+    ].filter((workspace) => accessibleWorkspaceIds.has(workspace.id))
+  )
+  const workspace =
+    visibleWorkspaces.find((entry) => entry.id === resolvedWorkspaceId) ?? null
+  const [visibleWorkspaceMemberships, teamInvites, currentUserInvites, labels] =
+    await Promise.all([
+      accessibleWorkspaceIdList.length > 0
+        ? listWorkspaceMembershipsByWorkspaces(ctx, accessibleWorkspaceIdList)
+        : Promise.resolve([]),
+      accessibleTeamIdList.length > 0
+        ? listInvitesByTeams(ctx, accessibleTeamIdList)
+        : Promise.resolve([]),
+      normalizedCurrentUserEmail.length > 0
+        ? listInvitesByNormalizedEmail(ctx, normalizedCurrentUserEmail)
+        : Promise.resolve([]),
+      resolvedWorkspaceId
+        ? listLabelsByWorkspaces(ctx, [resolvedWorkspaceId])
+        : Promise.resolve([]),
+    ])
+  const workspaceMemberships = visibleWorkspaceMemberships.filter(
+    (membership) =>
+      membership.workspaceId === resolvedWorkspaceId ||
+      (membership.userId === input.currentUserId &&
+        accessibleWorkspaceIds.has(membership.workspaceId))
+  )
+  const teams = visibleTeams
+    .filter((team) => team.workspaceId === resolvedWorkspaceId)
+    .map((team) => normalizeTeam(team))
+  const teamIds = teams.map((team) => team.id)
+  const teamMemberships =
+    teamIds.length > 0
+      ? await listTeamMembershipsByTeams(ctx, teamIds)
+      : []
+  const invites = selectWorkspaceMembershipInviteEntries({
+    invites: dedupeById([...teamInvites, ...currentUserInvites]),
+    resolvedWorkspaceId,
+    normalizedCurrentUserEmail,
+  })
+  const userIds = new Set<string>([
+    input.currentUserId,
+    workspace?.createdBy ?? "",
+    ...workspaceMemberships.map((membership) => membership.userId),
+    ...teamMemberships.map((membership) => membership.userId),
+    ...invites.map((invite) => invite.invitedBy),
+  ])
+  const users = await Promise.all(
+    (
+      userIds.size > 0
+        ? await listUsersByIds(ctx, [...userIds].filter(Boolean))
+        : []
+    ).map((user) => resolveUserSnapshot(ctx, user))
+  )
+
+  return {
+    currentUserId: input.currentUserId,
+    currentWorkspaceId: resolvedWorkspaceId,
+    workspaces: await Promise.all(
+      visibleWorkspaces.map((workspaceEntry) =>
+        resolveWorkspaceSnapshot(ctx, workspaceEntry)
+      )
+    ),
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+    labels,
+    users,
+    invites,
   }
 }
 
@@ -818,6 +992,23 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     channelPosts: visibleChannelPosts,
     channelPostComments: visibleChannelPostComments,
   }
+}
+
+export async function getWorkspaceMembershipBootstrapHandler(
+  ctx: QueryCtx,
+  args: GetWorkspaceMembershipBootstrapArgs
+) {
+  const authenticatedUser = await resolveUserFromServerArgs(ctx, args)
+
+  if (!authenticatedUser) {
+    throw new Error("Authenticated user not found")
+  }
+
+  return buildWorkspaceMembershipBootstrap(ctx, {
+    currentUserId: authenticatedUser.id,
+    currentUserEmail: authenticatedUser.email,
+    requestedWorkspaceId: args.workspaceId,
+  })
 }
 
 export async function getSnapshotVersionHandler(

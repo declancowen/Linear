@@ -310,6 +310,8 @@ export function createViewSlice(
       }
     },
     updateViewConfig(viewId, patch) {
+      const pendingToken = createId("view_sync")
+
       const { showCompleted, ...viewPatch } = patch
 
       set((state) => ({
@@ -329,10 +331,39 @@ export function createViewSlice(
               }
             : view
         ),
+        pendingViewConfigById: {
+          ...(state.pendingViewConfigById ?? {}),
+          [viewId]: {
+            token: pendingToken,
+            patch: {
+              ...(state.pendingViewConfigById?.[viewId]?.patch ?? {}),
+              ...patch,
+            },
+          },
+        },
       }))
 
       runtime.syncInBackground(
-        syncUpdateViewConfig(viewId, patch),
+        Promise.resolve(syncUpdateViewConfig(viewId, patch)).catch((error) => {
+          set((state) => {
+            const pendingConfig = state.pendingViewConfigById?.[viewId]
+
+            if (!pendingConfig || pendingConfig.token !== pendingToken) {
+              return state
+            }
+
+            const nextPendingViewConfigById = {
+              ...(state.pendingViewConfigById ?? {}),
+            }
+            delete nextPendingViewConfigById[viewId]
+
+            return {
+              pendingViewConfigById: nextPendingViewConfigById,
+            }
+          })
+
+          throw error
+        }),
         "Failed to update view"
       )
     },

@@ -221,8 +221,24 @@ export type AddChannelPostCommentInput = {
   content: string
 }
 
+export type ViewConfigPatch = Partial<{
+  layout: "list" | "board" | "timeline"
+  grouping: GroupField
+  subGrouping: GroupField | null
+  ordering: OrderingField
+  itemLevel: WorkItemType | null
+  showChildItems: boolean
+  showCompleted: boolean
+}>
+
+export type PendingViewConfig = {
+  token: string
+  patch: ViewConfigPatch
+}
+
 export type AppStore = AppData & {
   protectedDocumentIds: string[]
+  pendingViewConfigById: Record<string, PendingViewConfig>
   replaceDomainData: (data: AppSnapshot) => void
   mergeReadModelData: (
     data: Partial<AppSnapshot>,
@@ -237,6 +253,7 @@ export type AppStore = AppData & {
   setSelectedView: (route: string, viewId: string) => void
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
+  markNotificationsRead: (notificationIds: string[]) => void
   toggleNotificationRead: (notificationId: string) => void
   archiveNotification: (notificationId: string) => void
   archiveNotifications: (notificationIds: string[]) => void
@@ -270,15 +287,7 @@ export type AppStore = AppData & {
   clearCurrentUserStatus: () => void
   updateViewConfig: (
     viewId: string,
-    patch: Partial<{
-      layout: "list" | "board" | "timeline"
-      grouping: GroupField
-      subGrouping: GroupField | null
-      ordering: OrderingField
-      itemLevel: WorkItemType | null
-      showChildItems: boolean
-      showCompleted: boolean
-    }>
+    patch: ViewConfigPatch
   ) => void
   renameView: (viewId: string, name: string) => Promise<boolean>
   deleteView: (viewId: string) => Promise<boolean>

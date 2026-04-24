@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react"
 import { Smiley } from "@phosphor-icons/react"
 
+import {
+  getTextInputLimitState,
+  profileStatusMessageConstraints,
+} from "@/lib/domain/input-constraints"
 import { getCurrentUser } from "@/lib/domain/selectors"
 import {
   resolveUserStatus,
@@ -16,6 +20,7 @@ import {
   EmojiPickerPopover,
   insertEmojiIntoTextarea,
 } from "@/components/app/emoji-picker-popover"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,6 +53,10 @@ export function StatusDialog({
   )
   const [statusMessage, setStatusMessage] = useState(
     currentUser?.statusMessage ?? ""
+  )
+  const statusMessageLimitState = getTextInputLimitState(
+    statusMessage,
+    profileStatusMessageConstraints
   )
   const statusTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const hasCurrentUser = currentUser != null
@@ -140,6 +149,10 @@ export function StatusDialog({
                   onChange={(event) => setStatusMessage(event.target.value)}
                   placeholder="Heads down on planning, back this afternoon"
                   maxLength={userStatusMessageMaxLength}
+                />
+                <FieldCharacterLimit
+                  state={statusMessageLimitState}
+                  limit={userStatusMessageMaxLength}
                 />
                 <div className="mt-2 flex items-center">
                   <EmojiPickerPopover

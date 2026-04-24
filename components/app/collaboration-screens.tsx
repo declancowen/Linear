@@ -17,7 +17,6 @@ import {
   getCurrentWorkspace,
   getPrimaryTeamChannel,
   getPrimaryWorkspaceChannel,
-  getTeamBySlug,
   getTeamChannels,
   getTeamChatConversation,
   getWorkspaceChannels,
@@ -28,6 +27,7 @@ import {
   fetchConversationListReadModel,
   fetchConversationThreadReadModel,
 } from "@/lib/convex/client"
+import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import {
   getChannelFeedScopeKeys,
@@ -77,7 +77,7 @@ export function WorkspaceChannelsScreen() {
     useShallow((state) =>
       channels
         .flatMap((channel) => getChannelPosts(state, channel.id))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     )
   )
   const members = useAppStore(
@@ -216,7 +216,7 @@ export function WorkspaceChannelsScreen() {
 
 export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   const currentUserId = useAppStore((state) => state.currentUserId)
-  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
   const editable = useAppStore((state) =>
     team ? canEditTeam(state, team.id) : false
   )
@@ -248,8 +248,8 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
 
   useEffect(() => {
     if (
-      !team ||
-      !teamHasFeature(team, "chat") ||
+      !liveTeam ||
+      !teamHasFeature(liveTeam, "chat") ||
       !editable ||
       conversation ||
       !hasLoadedConversationList
@@ -258,11 +258,11 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
     }
 
     useAppStore.getState().ensureTeamChat({
-      teamId: team.id,
+      teamId: liveTeam.id,
       title: "",
       description: "",
     })
-  }, [conversation, editable, hasLoadedConversationList, team])
+  }, [conversation, editable, hasLoadedConversationList, liveTeam])
 
   if (!team) {
     return (
@@ -291,6 +291,11 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         subtitle="Chat"
         actions={
           <ChatHeaderActions
+            videoAction={
+              editable && conversation ? (
+                <CallInviteLauncher conversationId={conversation.id} />
+              ) : null
+            }
             detailsAction={
               <DetailsSidebarToggle
                 sidebarOpen={sidebarOpen}
@@ -325,11 +330,6 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
               members={members}
               loaded={hasLoadedConversationThread}
               showHeader={false}
-              videoAction={
-                editable ? (
-                  <CallInviteLauncher conversationId={conversation.id} />
-                ) : null
-              }
             />
           </div>
           <TeamSurfaceSidebar
@@ -368,7 +368,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
 
 export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   const currentUserId = useAppStore((state) => state.currentUserId)
-  const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
   const channels = useAppStore(
     useShallow((state) => (team ? getTeamChannels(state, team.id) : []))
   )
@@ -387,7 +387,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
     useShallow((state) =>
       channels
         .flatMap((channel) => getChannelPosts(state, channel.id))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     )
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -409,20 +409,20 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
 
   useEffect(() => {
     if (
-      !team ||
-      !teamHasFeature(team, "channels") ||
+      !liveTeam ||
+      !teamHasFeature(liveTeam, "channels") ||
       !editable ||
       activeChannel ||
       !hasLoadedConversationList
     )
       return
     useAppStore.getState().createChannel({
-      teamId: team.id,
+      teamId: liveTeam.id,
       silent: true,
       title: "",
       description: "",
     })
-  }, [activeChannel, editable, hasLoadedConversationList, team])
+  }, [activeChannel, editable, hasLoadedConversationList, liveTeam])
 
   if (!team) {
     return (

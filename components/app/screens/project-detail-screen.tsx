@@ -26,9 +26,7 @@ import {
 } from "@/lib/domain/types"
 import { createViewDefinition } from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
-import {
-  fetchProjectDetailReadModel,
-} from "@/lib/convex/client"
+import { fetchProjectDetailReadModel } from "@/lib/convex/client"
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { createProjectDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
@@ -624,7 +622,14 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
           </div>
         </Viewbar>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-1 overscroll-contain",
+            activeProjectItemsView.layout === "timeline"
+              ? "overflow-hidden"
+              : "overflow-y-auto"
+          )}
+        >
           <>
             {activeProjectItemsView.layout === "board" ? (
               <BoardView

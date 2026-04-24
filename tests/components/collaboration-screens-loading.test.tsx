@@ -36,7 +36,7 @@ vi.mock("@/components/app/collaboration-screens/call-invite-launcher", () => ({
 }))
 
 vi.mock("@/components/app/collaboration-screens/channel-ui", () => ({
-  ForumPostCard: () => <div>Forum post</div>,
+  ForumPostCard: ({ postId }: { postId: string }) => <div>{`Forum post ${postId}`}</div>,
   NewPostComposer: () => <div>Composer</div>,
 }))
 
@@ -335,5 +335,69 @@ describe("collaboration screen loading", () => {
 
     expect(screen.getByText("Loading posts...")).toBeInTheDocument()
     expect(screen.queryByText("No posts yet")).not.toBeInTheDocument()
+  })
+
+  it("orders workspace channel posts by creation date instead of reply activity", () => {
+    useAppStore.setState({
+      conversations: [
+        {
+          id: "workspace_channel_1",
+          kind: "channel",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          variant: "group",
+          title: "Workspace channel",
+          description: "",
+          participantIds: ["user_1"],
+          roomId: null,
+          roomName: null,
+          createdBy: "user_1",
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-22T00:00:00.000Z",
+          lastActivityAt: "2026-04-22T00:00:00.000Z",
+        },
+      ],
+      channelPosts: [
+        {
+          id: "older-post",
+          conversationId: "workspace_channel_1",
+          title: "Older",
+          content: "<p>Older</p>",
+          createdBy: "user_1",
+          mentionUserIds: [],
+          reactions: [],
+          createdAt: "2026-04-20T00:00:00.000Z",
+          updatedAt: "2026-04-24T00:00:00.000Z",
+        },
+        {
+          id: "newer-post",
+          conversationId: "workspace_channel_1",
+          title: "Newer",
+          content: "<p>Newer</p>",
+          createdBy: "user_1",
+          mentionUserIds: [],
+          reactions: [],
+          createdAt: "2026-04-23T00:00:00.000Z",
+          updatedAt: "2026-04-23T00:00:00.000Z",
+        },
+      ],
+    })
+    useScopedReadModelRefreshMock
+      .mockReturnValueOnce({
+        error: null,
+        hasLoadedOnce: true,
+        refreshing: false,
+      })
+      .mockReturnValueOnce({
+        error: null,
+        hasLoadedOnce: true,
+        refreshing: false,
+      })
+
+    render(<WorkspaceChannelsScreen />)
+
+    expect(
+      screen.getAllByText(/Forum post/).map((node) => node.textContent)
+    ).toEqual(["Forum post newer-post", "Forum post older-post"])
   })
 })

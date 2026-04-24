@@ -15,6 +15,10 @@ import { Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
+  documentTitleConstraints,
+  getTextInputLimitState,
+} from "@/lib/domain/input-constraints"
+import {
   fetchDocumentDetailReadModel,
   syncClearDocumentPresence,
   syncHeartbeatDocumentPresence,
@@ -38,6 +42,7 @@ import {
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextContent } from "@/components/app/rich-text-content"
@@ -153,6 +158,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   )
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState("")
+  const draftTitleLimitState = getTextInputLimitState(draftTitle, {
+    ...documentTitleConstraints,
+    allowEmpty: true,
+  })
   const [documentStats, setDocumentStats] = useState({
     words: 0,
     characters: 0,
@@ -838,6 +847,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }
 
   function saveTitle() {
+    if (!draftTitleLimitState.canSubmit) {
+      titleInputRef.current?.focus()
+      return
+    }
+
     const normalizedTitle = draftTitle.trim() || "Untitled document"
     setIsEditingTitle(false)
     setDraftTitle(normalizedTitle)
@@ -955,20 +969,28 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
             <span className="text-muted-foreground/50">/</span>
             {editable && !isCollaborationBootstrapping ? (
               isEditingTitle ? (
-                <Input
-                  ref={titleInputRef}
-                  value={draftTitle}
-                  onBlur={saveTitle}
-                  onChange={(event) => setDraftTitle(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault()
-                      event.currentTarget.blur()
-                    }
-                  }}
-                  className="h-7 w-full max-w-sm border-none bg-transparent px-1 py-0 text-sm font-medium shadow-none focus-visible:bg-background focus-visible:ring-1"
-                  placeholder="Untitled document"
-                />
+                <div className="w-full max-w-sm">
+                  <Input
+                    ref={titleInputRef}
+                    value={draftTitle}
+                    onBlur={saveTitle}
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        event.currentTarget.blur()
+                      }
+                    }}
+                    maxLength={documentTitleConstraints.max}
+                    className="h-7 w-full border-none bg-transparent px-1 py-0 text-sm font-medium shadow-none focus-visible:bg-background focus-visible:ring-1"
+                    placeholder="Untitled document"
+                  />
+                  <FieldCharacterLimit
+                    state={draftTitleLimitState}
+                    limit={documentTitleConstraints.max}
+                    className="mt-1 px-1"
+                  />
+                </div>
               ) : (
                 <button
                   type="button"

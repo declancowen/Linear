@@ -16,11 +16,12 @@ import {
   normalizeNotifications,
   normalizeUsers,
 } from "../helpers"
-import type { AppStore, AppStoreSlice } from "../types"
+import type { AppStore, AppStoreSlice, PendingViewConfig } from "../types"
 
 type UiSlice = Pick<
   AppStore,
   | "protectedDocumentIds"
+  | "pendingViewConfigById"
   | "setDocumentBodyProtection"
   | "replaceDomainData"
   | "mergeReadModelData"
@@ -108,6 +109,117 @@ function mergeProtectedDocuments(
       content: currentDocument.content,
     }
   })
+}
+
+function applyPendingViewConfig(
+  view: AppData["views"][number],
+  patch: PendingViewConfig["patch"]
+) {
+  const { showCompleted, ...viewPatch } = patch
+
+  return {
+    ...view,
+    ...viewPatch,
+    filters:
+      showCompleted === undefined
+        ? view.filters
+        : {
+            ...view.filters,
+            showCompleted,
+          },
+  }
+}
+
+function matchesPendingViewConfig(
+  view: AppData["views"][number],
+  patch: PendingViewConfig["patch"]
+) {
+  if (patch.layout !== undefined && view.layout !== patch.layout) {
+    return false
+  }
+
+  if (patch.grouping !== undefined && view.grouping !== patch.grouping) {
+    return false
+  }
+
+  if (
+    patch.subGrouping !== undefined &&
+    (view.subGrouping ?? null) !== patch.subGrouping
+  ) {
+    return false
+  }
+
+  if (patch.ordering !== undefined && view.ordering !== patch.ordering) {
+    return false
+  }
+
+  if (patch.itemLevel !== undefined && view.itemLevel !== patch.itemLevel) {
+    return false
+  }
+
+  if (
+    patch.showChildItems !== undefined &&
+    view.showChildItems !== patch.showChildItems
+  ) {
+    return false
+  }
+
+  if (
+    patch.showCompleted !== undefined &&
+    view.filters.showCompleted !== patch.showCompleted
+  ) {
+    return false
+  }
+
+  return true
+}
+
+function reconcilePendingViews(
+  existing: AppData["views"],
+  incoming: AppData["views"] | undefined,
+  pendingViewConfigById: AppStore["pendingViewConfigById"],
+  options?: {
+    replace?: boolean
+  }
+) {
+  if (!incoming) {
+    return {
+      pendingViewConfigById,
+      views: existing,
+    }
+  }
+
+  const baseViews = options?.replace
+    ? incoming
+    : mergeByKey(existing, incoming, (value) => value.id)
+
+  if (Object.keys(pendingViewConfigById).length === 0) {
+    return {
+      pendingViewConfigById,
+      views: baseViews,
+    }
+  }
+
+  const nextPendingViewConfigById = { ...pendingViewConfigById }
+  const views = baseViews.map((view) => {
+    const pendingConfig = nextPendingViewConfigById[view.id]
+
+    if (!pendingConfig) {
+      return view
+    }
+
+    if (matchesPendingViewConfig(view, pendingConfig.patch)) {
+      delete nextPendingViewConfigById[view.id]
+      return view
+    }
+
+    return applyPendingViewConfig(view, pendingConfig.patch)
+  })
+
+  return {
+    pendingViewConfigById: nextPendingViewConfigById,
+    views,
+  }
 }
 
 function getWorkspaceMembershipKey(value: AppData["workspaceMemberships"][number]) {
@@ -280,15 +392,26 @@ function applyScopedReadModelPruning(
 }
 
 function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
+  const reconciledViews = reconcilePendingViews(
+    state.views,
+    data.views,
+    state.pendingViewConfigById,
+    {
+      replace: true,
+    }
+  )
+
   return {
     ...state,
     ...data,
     protectedDocumentIds: state.protectedDocumentIds,
+    pendingViewConfigById: reconciledViews.pendingViewConfigById,
     documents: mergeProtectedDocuments(
       state.documents,
       data.documents,
       state.protectedDocumentIds
     ),
+    views: reconciledViews.views,
     users: normalizeUsers(data.users ?? state.users),
     notifications: normalizeNotifications(
       data.notifications ?? state.notifications
@@ -328,6 +451,11 @@ function applyMergedReadModelData(
   const teams = mergeByKey(prunedState.teams, data.teams, (value) => value.id)
   const preserveExistingDocumentBodies =
     shouldPreserveExistingDocumentBodies(replaceInstructions)
+  const reconciledViews = reconcilePendingViews(
+    prunedState.views,
+    data.views,
+    prunedState.pendingViewConfigById
+  )
 
   return {
     ...prunedState,
@@ -363,7 +491,8 @@ function applyMergedReadModelData(
         preserveExistingBodies: preserveExistingDocumentBodies,
       }
     ),
-    views: mergeByKey(prunedState.views, data.views, (value) => value.id),
+    pendingViewConfigById: reconciledViews.pendingViewConfigById,
+    views: reconciledViews.views,
     comments: normalizeComments(
       mergeByKey(prunedState.comments, data.comments, (value) => value.id)
     ),
@@ -417,6 +546,7 @@ export function createUiSlice(
   return {
     ...createEmptyState(),
     protectedDocumentIds: [],
+    pendingViewConfigById: {},
     replaceDomainData(data) {
       set((state) => applyReplacedDomainData(state, data))
     },
