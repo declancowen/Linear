@@ -17,6 +17,7 @@ const syncUpdateItemDescriptionMock = vi.fn()
 const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
 const toastSuccessMock = vi.fn()
+const waitForPendingWorkItemCreationMock = vi.fn()
 
 vi.mock("sonner", () => ({
   toast: {
@@ -35,6 +36,10 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateDocumentContent: syncUpdateDocumentContentMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
   syncUpdateItemDescription: syncUpdateItemDescriptionMock,
+}))
+
+vi.mock("@/lib/store/app-store-internal/pending-work-item-creations", () => ({
+  waitForPendingWorkItemCreation: waitForPendingWorkItemCreationMock,
 }))
 
 const ACTIVE_SYNC_CONTEXT = {
@@ -138,6 +143,7 @@ describe("work document actions", () => {
     syncUpdateDocumentContentMock.mockReset()
     syncUpdateItemDescriptionMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
+    waitForPendingWorkItemCreationMock.mockReset()
     toastErrorMock.mockReset()
     toastSuccessMock.mockReset()
     vi.restoreAllMocks()
@@ -571,6 +577,7 @@ describe("work document actions", () => {
       ok: true,
       updatedAt: "2026-04-17T10:06:00.000Z",
     })
+    waitForPendingWorkItemCreationMock.mockReturnValue(null)
 
     const actions = createWorkDocumentActions({
       get: () => state as never,
@@ -800,5 +807,70 @@ describe("work document actions", () => {
     await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     expect(syncUpdateItemDescriptionMock).not.toHaveBeenCalled()
+  })
+
+  it("waits for pending work-item creation before syncing an item description", async () => {
+    const { createWorkDocumentActions } =
+      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+
+    let state = createState()
+    const queueRichTextSyncMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function" ? update(state as never) : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    let resolvePendingCreation: ((value: boolean) => void) | undefined
+    waitForPendingWorkItemCreationMock.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolvePendingCreation = resolve
+      })
+    )
+    syncUpdateItemDescriptionMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:06:00.000Z",
+    })
+
+    const actions = createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn(),
+        handleSyncFailure: vi.fn(),
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    })
+
+    actions.updateItemDescription("item_1", "<p>Queued after create</p>")
+
+    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
+      | ActiveSyncTask
+      | undefined
+    const taskPromise = queuedTask?.(ACTIVE_SYNC_CONTEXT)
+
+    await Promise.resolve()
+
+    expect(syncUpdateItemDescriptionMock).not.toHaveBeenCalled()
+
+    expect(resolvePendingCreation).toBeTypeOf("function")
+
+    if (!resolvePendingCreation) {
+      throw new Error("Expected pending creation resolver")
+    }
+
+    resolvePendingCreation(true)
+    await taskPromise
+
+    expect(syncUpdateItemDescriptionMock).toHaveBeenCalledWith(
+      "user_1",
+      "item_1",
+      "<p>Queued after create</p>",
+      "2026-04-17T10:00:00.000Z"
+    )
   })
 })

@@ -1,12 +1,10 @@
-import type { AppSnapshot } from "@/lib/domain/types"
-import { getSnapshotServer } from "@/lib/server/convex"
+import { getWorkspaceMembershipBootstrapServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
 import { requireSession } from "@/lib/server/route-auth"
 import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
-import { selectWorkspaceMembershipReadModel } from "@/lib/scoped-sync/read-models"
 
 export async function GET(
   _request: Request,
@@ -20,11 +18,11 @@ export async function GET(
 
   try {
     const { workspaceId } = await params
-    const snapshot = (await getSnapshotServer({
+    const data = await getWorkspaceMembershipBootstrapServer({
       workosUserId: session.user.id,
       email: session.user.email ?? undefined,
-    })) as AppSnapshot
-    const data = selectWorkspaceMembershipReadModel(snapshot, workspaceId)
+      workspaceId,
+    })
 
     return jsonOk({
       data,

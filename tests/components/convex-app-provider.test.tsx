@@ -1,16 +1,27 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
+import type { AppSnapshot, ThemePreference } from "@/lib/domain/types"
+
 const {
-  fetchWorkspaceMembershipReadModelMock,
+  fetchSnapshotStateMock,
+  fetchSnapshotVersionMock,
   mergeReadModelDataMock,
   replaceDomainDataMock,
+  resolveSnapshotThemePreferenceMock,
   setThemeMock,
+  shouldUseLegacySnapshotSyncMock,
 } = vi.hoisted(() => ({
-  fetchWorkspaceMembershipReadModelMock: vi.fn(),
+  fetchSnapshotStateMock: vi.fn(),
+  fetchSnapshotVersionMock: vi.fn(),
   mergeReadModelDataMock: vi.fn(),
   replaceDomainDataMock: vi.fn(),
+  resolveSnapshotThemePreferenceMock: vi.fn<
+    (value: ThemePreference) => ThemePreference | null
+  >(() => null),
   setThemeMock: vi.fn(),
+  shouldUseLegacySnapshotSyncMock: vi.fn(() => false),
 }))
 
 vi.mock("next-themes", () => ({
@@ -19,44 +30,31 @@ vi.mock("next-themes", () => ({
   }),
 }))
 
-vi.mock("@/lib/auth-routing", () => ({
-  buildAuthPageHref: () => "/login",
-  normalizeAuthNextPath: (value: string) => value,
+vi.mock("@/lib/browser/session-redirect", () => ({
+  redirectToExpiredSessionLogin: vi.fn(),
 }))
 
 vi.mock("@/lib/browser/snapshot-diagnostics", () => ({
   reportBootstrapModeDiagnostic: vi.fn(),
-  reportRealtimeFallbackDiagnostic: vi.fn(),
-  reportScopedReadModelDiagnostic: vi.fn(),
   reportSnapshotApplyDiagnostic: vi.fn(),
   reportSnapshotFetchDiagnostic: vi.fn(),
   reportSnapshotStreamReconnectDiagnostic: vi.fn(),
 }))
 
 vi.mock("@/lib/browser/theme-preference-sync", () => ({
-  resolveSnapshotThemePreference: vi.fn(() => null),
+  resolveSnapshotThemePreference: resolveSnapshotThemePreferenceMock,
 }))
 
 vi.mock("@/lib/convex/client", () => ({
-  fetchSnapshotState: vi.fn(),
-  fetchSnapshotVersion: vi.fn(),
+  fetchSnapshotState: fetchSnapshotStateMock,
+  fetchSnapshotVersion: fetchSnapshotVersionMock,
   RouteMutationError: class RouteMutationError extends Error {
     status = 500
   },
 }))
 
-vi.mock("@/lib/convex/client/read-models", () => ({
-  fetchWorkspaceMembershipReadModel: fetchWorkspaceMembershipReadModelMock,
-}))
-
 vi.mock("@/lib/realtime/feature-flags", () => ({
-  shouldUseLegacySnapshotSync: () => false,
-}))
-
-vi.mock("@/lib/scoped-sync/scope-keys", () => ({
-  createShellContextScopeKey: () => "shell-context",
-  createWorkspaceMembershipScopeKey: (workspaceId: string) =>
-    `workspace-membership:${workspaceId}`,
+  shouldUseLegacySnapshotSync: shouldUseLegacySnapshotSyncMock,
 }))
 
 vi.mock("@/lib/store/app-store", () => ({
@@ -64,82 +62,294 @@ vi.mock("@/lib/store/app-store", () => ({
     selector: (state: {
       replaceDomainData: typeof replaceDomainDataMock
       mergeReadModelData: typeof mergeReadModelDataMock
-      currentWorkspaceId: string
     }) => unknown
   ) =>
     selector({
       replaceDomainData: replaceDomainDataMock,
       mergeReadModelData: mergeReadModelDataMock,
-      currentWorkspaceId: "",
     }),
 }))
 
+const initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>> = {
+  data: {
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    users: [
+      {
+        id: "user_1",
+        name: "Recipe Person",
+        handle: "recipe",
+        email: "recipe@example.com",
+        avatarUrl: "RP",
+        avatarImageUrl: null,
+        workosUserId: "workos_1",
+        title: "",
+        status: "offline",
+        statusMessage: "",
+        hasExplicitStatus: false,
+        accountDeletionPendingAt: null,
+        accountDeletedAt: null,
+        preferences: {
+          emailMentions: true,
+          emailAssignments: true,
+          emailDigest: true,
+          theme: "light",
+        },
+      },
+    ],
+    workspaces: [
+      {
+        id: "workspace_1",
+        name: "Recipe Room",
+        slug: "recipe-room",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: null,
+        workosOrganizationId: null,
+        settings: {
+          accent: "#000000",
+          description: "",
+        },
+      },
+    ],
+  },
+  replace: [
+    {
+      kind: "workspace-membership",
+      workspaceId: "workspace_1",
+    },
+  ],
+}
+
 describe("ConvexAppProvider", () => {
   beforeEach(() => {
-    fetchWorkspaceMembershipReadModelMock.mockReset()
+    fetchSnapshotStateMock.mockReset()
+    fetchSnapshotVersionMock.mockReset()
     mergeReadModelDataMock.mockReset()
     replaceDomainDataMock.mockReset()
+    resolveSnapshotThemePreferenceMock.mockReset()
+    resolveSnapshotThemePreferenceMock.mockReturnValue(null)
     setThemeMock.mockReset()
-
-    fetchWorkspaceMembershipReadModelMock.mockResolvedValue({
-      data: {
-        workspaces: [
-          {
-            id: "workspace_1",
-            name: "Recipe Room",
-            slug: "recipe-room",
-            description: "",
-            logoUrl: "",
-            logoImageStorageId: null,
-            accent: "#000000",
-            createdAt: "2026-04-23T12:00:00.000Z",
-            updatedAt: "2026-04-23T12:00:00.000Z",
-          },
-        ],
-      },
-      replace: [
-        {
-          kind: "workspace-membership",
-          workspaceId: "workspace_1",
-        },
-      ],
-    })
+    shouldUseLegacySnapshotSyncMock.mockReset()
+    shouldUseLegacySnapshotSyncMock.mockReturnValue(false)
   })
 
-  it("forwards scoped bootstrap replace instructions into store merges", async () => {
+  it("hydrates the initial shell seed and renders children without a loading overlay", async () => {
     const { ConvexAppProvider } = await import(
       "@/components/providers/convex-app-provider"
     )
 
     render(
-      <ConvexAppProvider initialWorkspaceId="workspace_1">
+      <ConvexAppProvider
+        initialShellSeed={initialShellSeed}
+        initialWorkspaceId="workspace_1"
+      >
+        <div>App content</div>
+      </ConvexAppProvider>
+    )
+
+    expect(screen.getByText("App content")).toBeInTheDocument()
+    expect(screen.queryByText("Loading workspace...")).not.toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenCalledWith(
+        initialShellSeed.data,
+        {
+          replace: initialShellSeed.replace,
+        }
+      )
+    })
+
+    expect(fetchSnapshotStateMock).not.toHaveBeenCalled()
+  })
+
+  it("applies theme from the seeded current user preferences", async () => {
+    resolveSnapshotThemePreferenceMock.mockReturnValue("dark")
+
+    const { ConvexAppProvider } = await import(
+      "@/components/providers/convex-app-provider"
+    )
+
+    render(
+      <ConvexAppProvider
+        initialShellSeed={initialShellSeed}
+        initialWorkspaceId="workspace_1"
+      >
         <div>App content</div>
       </ConvexAppProvider>
     )
 
     await waitFor(() => {
-      expect(screen.getByText("App content")).toBeInTheDocument()
+      expect(setThemeMock).toHaveBeenCalledWith("dark")
+    })
+  })
+
+  it("keeps legacy snapshot sync non-blocking when explicitly enabled", async () => {
+    shouldUseLegacySnapshotSyncMock.mockReturnValue(true)
+    fetchSnapshotStateMock.mockResolvedValue({
+      version: 7,
+      snapshot: {
+        currentUserId: "user_1",
+        currentWorkspaceId: "workspace_1",
+        workspaces: [],
+        workspaceMemberships: [],
+        teams: [],
+        teamMemberships: [],
+        users: [],
+        labels: [],
+        projects: [],
+        milestones: [],
+        workItems: [],
+        documents: [],
+        views: [],
+        comments: [],
+        attachments: [],
+        notifications: [],
+        invites: [],
+        projectUpdates: [],
+        conversations: [],
+        calls: [],
+        chatMessages: [],
+        channelPosts: [],
+        channelPostComments: [],
+        ui: {
+          activeTeamId: "",
+          activeInboxNotificationId: null,
+          selectedViewByRoute: {},
+          activeCreateDialog: null,
+        },
+      },
     })
 
-    expect(fetchWorkspaceMembershipReadModelMock).toHaveBeenCalledWith(
-      "workspace_1"
+    const { ConvexAppProvider } = await import(
+      "@/components/providers/convex-app-provider"
     )
-    expect(mergeReadModelDataMock).toHaveBeenCalledWith(
-      {
-        workspaces: [
-          expect.objectContaining({
-            id: "workspace_1",
-          }),
-        ],
-      },
-      {
-        replace: [
+
+    render(
+      <ConvexAppProvider
+        initialShellSeed={initialShellSeed}
+        initialWorkspaceId="workspace_1"
+      >
+        <div>App content</div>
+      </ConvexAppProvider>
+    )
+
+    expect(screen.getByText("App content")).toBeInTheDocument()
+    expect(screen.queryByText("Loading workspace...")).not.toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(replaceDomainDataMock).toHaveBeenCalled()
+    })
+  })
+
+  it("rehydrates when the shell seed payload changes for the same workspace", async () => {
+    const { ConvexAppProvider } = await import(
+      "@/components/providers/convex-app-provider"
+    )
+
+    const updatedSeed: ReadModelFetchResult<Partial<AppSnapshot>> = {
+      ...initialShellSeed,
+      data: {
+        ...initialShellSeed.data,
+        teams: [
           {
-            kind: "workspace-membership",
+            id: "team_1",
             workspaceId: "workspace_1",
+            slug: "platform",
+            name: "Platform",
+            icon: "code",
+            settings: {
+              joinCode: "JOIN1234",
+              summary: "Platform team",
+              guestProjectIds: [],
+              guestDocumentIds: [],
+              guestWorkItemIds: [],
+              experience: "software-development",
+              features: {
+                issues: true,
+                projects: true,
+                views: true,
+                docs: true,
+                chat: true,
+                channels: true,
+              },
+              workflow: {
+                statusOrder: [
+                  "backlog",
+                  "todo",
+                  "in-progress",
+                  "done",
+                  "cancelled",
+                  "duplicate",
+                ],
+                templateDefaults: {
+                  "software-delivery": {
+                    defaultPriority: "high",
+                    targetWindowDays: 28,
+                    defaultViewLayout: "board",
+                    recommendedItemTypes: [
+                      "epic",
+                      "feature",
+                      "requirement",
+                      "story",
+                    ],
+                    summaryHint: "",
+                  },
+                  "bug-tracking": {
+                    defaultPriority: "high",
+                    targetWindowDays: 14,
+                    defaultViewLayout: "list",
+                    recommendedItemTypes: ["issue", "sub-issue"],
+                    summaryHint: "",
+                  },
+                  "project-management": {
+                    defaultPriority: "medium",
+                    targetWindowDays: 35,
+                    defaultViewLayout: "timeline",
+                    recommendedItemTypes: ["task", "sub-task"],
+                    summaryHint: "",
+                  },
+                },
+              },
+            },
           },
         ],
-      }
+      },
+    }
+
+    const { rerender } = render(
+      <ConvexAppProvider
+        initialShellSeed={initialShellSeed}
+        initialWorkspaceId="workspace_1"
+      >
+        <div>App content</div>
+      </ConvexAppProvider>
     )
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenCalledWith(
+        initialShellSeed.data,
+        {
+          replace: initialShellSeed.replace,
+        }
+      )
+    })
+
+    mergeReadModelDataMock.mockClear()
+
+    rerender(
+      <ConvexAppProvider
+        initialShellSeed={updatedSeed}
+        initialWorkspaceId="workspace_1"
+      >
+        <div>App content</div>
+      </ConvexAppProvider>
+    )
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenCalledWith(updatedSeed.data, {
+        replace: updatedSeed.replace,
+      })
+    })
   })
 })

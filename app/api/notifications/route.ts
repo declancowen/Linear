@@ -3,8 +3,7 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
-  archiveNotificationServer,
-  unarchiveNotificationServer,
+  updateNotificationsServer,
 } from "@/lib/server/convex"
 import { bumpNotificationInboxReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
@@ -27,6 +26,10 @@ const notificationsMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("unarchive"),
+    notificationIds: z.array(z.string()),
+  }),
+  z.object({
+    action: z.literal("markRead"),
     notificationIds: z.array(z.string()),
   }),
 ])
@@ -57,20 +60,11 @@ export async function PATCH(request: NextRequest) {
 
     const currentUserId = authContext.currentUser.id
 
-    for (const notificationId of parsed.notificationIds) {
-      if (parsed.action === "archive") {
-        await archiveNotificationServer({
-          currentUserId,
-          notificationId,
-        })
-        continue
-      }
-
-      await unarchiveNotificationServer({
-        currentUserId,
-        notificationId,
-      })
-    }
+    await updateNotificationsServer({
+      currentUserId,
+      action: parsed.action,
+      notificationIds: parsed.notificationIds,
+    })
     await bumpNotificationInboxReadModelScopesServer([currentUserId])
 
     return jsonOk({ ok: true })

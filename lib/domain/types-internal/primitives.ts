@@ -1,3 +1,9 @@
+import {
+  profileStatusMessageConstraints,
+  projectNameConstraints,
+  viewNameConstraints,
+} from "../input-constraints"
+
 export const roles = ["admin", "member", "viewer", "guest"] as const
 export type Role = (typeof roles)[number]
 
@@ -75,8 +81,8 @@ export const projectStatuses = [
 ] as const
 export type ProjectStatus = (typeof projectStatuses)[number]
 
-export const projectNameMinLength = 2
-export const projectNameMaxLength = 64
+export const projectNameMinLength = projectNameConstraints.min ?? 0
+export const projectNameMaxLength = projectNameConstraints.max
 
 export const viewFilterStatuses = [
   "backlog",
@@ -114,8 +120,8 @@ export type NotificationEntityType = (typeof notificationEntityTypes)[number]
 export const entityKinds = ["items", "projects", "docs"] as const
 export type EntityKind = (typeof entityKinds)[number]
 
-export const viewNameMinLength = 2
-export const viewNameMaxLength = 64
+export const viewNameMinLength = viewNameConstraints.min ?? 0
+export const viewNameMaxLength = viewNameConstraints.max
 
 export const viewContainerTypes = ["project-items"] as const
 export type ViewContainerType = (typeof viewContainerTypes)[number]
@@ -173,7 +179,7 @@ export const userStatuses = [
   "out-of-office",
 ] as const
 export type UserStatus = (typeof userStatuses)[number]
-export const userStatusMessageMaxLength = 80
+export const userStatusMessageMaxLength = profileStatusMessageConstraints.max
 export const userStatusMeta: Record<
   UserStatus,
   {

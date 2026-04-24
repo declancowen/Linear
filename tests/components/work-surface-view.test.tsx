@@ -31,6 +31,7 @@ vi.mock("@/components/ui/scroll-area", () => ({
     children: ReactNode
     className?: string
   }) => <div className={className}>{children}</div>,
+  ScrollBar: () => null,
 }))
 
 vi.mock("@/components/app/screens/work-item-menus", () => ({
@@ -52,11 +53,23 @@ vi.mock("@/components/app/screens/work-item-ui", () => ({
   WorkItemAssigneeAvatar: () => <span>Assignee</span>,
 }))
 
-vi.mock("@/components/ui/template-primitives", () => ({
-  StatusRing: ({ status }: { status: string }) => <span>{status}</span>,
+vi.mock("@/components/ui/template-primitives", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/components/ui/template-primitives")
+  >()
+
+  return {
+    ...actual,
+    StatusRing: ({ status }: { status: string }) => <span>{status}</span>,
+  }
+})
+
+vi.mock("@/lib/browser/dialog-transitions", () => ({
+  openManagedCreateDialog: vi.fn(),
 }))
 
 import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
@@ -155,6 +168,19 @@ function createData(): AppData {
     currentWorkspaceId: "workspace_1",
     teams: [createTeam()],
     workItems: [createWorkItem()],
+  }
+}
+
+function createEditableData(): AppData {
+  return {
+    ...createData(),
+    teamMemberships: [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ],
   }
 }
 
@@ -337,6 +363,41 @@ function createAssignedHierarchyWithoutVisibleDescendantsData(): AppData {
   }
 }
 
+function createEpicGroupedCreateData(): AppData {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    teams: [createTeam()],
+    teamMemberships: [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ],
+    workItems: [
+      {
+        ...createWorkItem(),
+        id: "epic-parent",
+        key: "TES-30",
+        type: "epic",
+        title: "Parent epic",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "feature-child",
+        key: "TES-31",
+        type: "feature",
+        title: "Grouped feature",
+        status: "in-progress",
+        parentId: "epic-parent",
+      },
+    ],
+  }
+}
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -474,7 +535,7 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
-  it("keeps list drag handles and makes board cards draggable from the full card surface", () => {
+  it("removes dedicated list drag handles and makes board cards draggable from the full card surface", () => {
     const data = createData()
     const { rerender } = render(
       <ListView
@@ -485,7 +546,7 @@ describe("ListView", () => {
       />
     )
 
-    expect(screen.getByLabelText("Drag Ship it")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Drag Ship it")).not.toBeInTheDocument()
 
     rerender(
       <BoardView
@@ -497,9 +558,88 @@ describe("ListView", () => {
     )
 
     expect(screen.queryByLabelText("Drag Ship it")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /ship it/i })).toHaveAttribute(
-      "aria-roledescription",
-      "draggable"
+    expect(
+      screen
+        .getByText("Ship it")
+        .closest('[aria-roledescription="draggable"]')
+    ).toBeTruthy()
+  })
+
+  it("opens inline property pickers from both board cards and list rows", async () => {
+    const data = createEditableData()
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["priority"])}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Medium" }))
+    expect(await screen.findByText("Urgent")).toBeInTheDocument()
+
+    rerender(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["priority"])}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Medium" }))
+    expect(await screen.findByText("Urgent")).toBeInTheDocument()
+  })
+
+  it("preserves grouped parent defaults when adding an item from epic lanes", () => {
+    const data = createEpicGroupedCreateData()
+    const groupedItems = data.workItems.filter((item) => item.id === "feature-child")
+    const view = createView("board", [], {
+      grouping: "epic",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: [],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={groupedItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={groupedItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
     )
   })
 

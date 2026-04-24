@@ -6,6 +6,11 @@ import { ArrowsClockwise, Check, CopySimple } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
+  getTextInputLimitState,
+  teamNameConstraints,
+  teamSummaryConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   getDefaultTeamIconForExperience,
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
@@ -20,6 +25,7 @@ import {
 } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -118,6 +124,11 @@ export function TeamEditorFields({
   joinCodeReadonlyLabel?: string
 }) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
+  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
+  const summaryLimitState = getTextInputLimitState(
+    summary,
+    teamSummaryConstraints
+  )
   const workCopy = getWorkSurfaceCopy(experience)
   const coreSurfaceItems = [
     { key: "issues", label: workCopy.surfaceLabel },
@@ -180,6 +191,11 @@ export function TeamEditorFields({
                     id="team-name"
                     value={name}
                     onChange={(event) => setName(event.target.value)}
+                    maxLength={teamNameConstraints.max}
+                  />
+                  <FieldCharacterLimit
+                    state={nameLimitState}
+                    limit={teamNameConstraints.max}
                   />
                 </FieldContent>
               </Field>
@@ -231,7 +247,12 @@ export function TeamEditorFields({
                   id="team-summary"
                   value={summary}
                   onChange={(event) => setSummary(event.target.value)}
+                  maxLength={teamSummaryConstraints.max}
                   className="min-h-24 resize-none"
+                />
+                <FieldCharacterLimit
+                  state={summaryLimitState}
+                  limit={teamSummaryConstraints.max}
                 />
               </FieldContent>
               <FieldDescription>

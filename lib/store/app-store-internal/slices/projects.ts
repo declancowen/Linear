@@ -17,7 +17,6 @@ import {
   projectNameMaxLength,
   projectNameMinLength,
   projectSchema,
-  templateMeta,
 } from "@/lib/domain/types"
 
 import { createId, getNow } from "../helpers"
@@ -103,7 +102,7 @@ export function createProjectSlice(
           templateType: parsed.data.templateType,
           name: parsed.data.name,
           summary: parsed.data.summary,
-          description: `${parsed.data.name} was created from the ${parsed.data.templateType} template with a ${templateMeta[parsed.data.templateType].label.toLowerCase()} setup.`,
+          description: "",
           leadId: resolvedLeadId,
           memberIds: resolvedMemberIds,
           health: "no-update" as const,

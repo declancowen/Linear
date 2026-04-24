@@ -357,6 +357,20 @@ export type CreateDialogState =
       defaultTeamId?: string | null
       defaultProjectId?: string | null
       initialType?: WorkItemType | null
+      defaultValues?: Partial<
+        Pick<
+          WorkItem,
+          | "status"
+          | "priority"
+          | "assigneeId"
+          | "primaryProjectId"
+          | "parentId"
+          | "labelIds"
+          | "startDate"
+          | "dueDate"
+          | "targetDate"
+        >
+      >
     }
   | {
       kind: "project"

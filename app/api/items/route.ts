@@ -52,6 +52,9 @@ export async function POST(request: NextRequest) {
     return jsonOk({
       ok: true,
       itemId: result?.itemId ?? null,
+      itemUpdatedAt: result?.itemUpdatedAt ?? null,
+      descriptionDocId: result?.descriptionDocId ?? null,
+      descriptionUpdatedAt: result?.descriptionUpdatedAt ?? null,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

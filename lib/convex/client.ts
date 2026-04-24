@@ -91,6 +91,7 @@ export {
   syncJoinTeamByCode,
   syncLeaveTeam,
   syncMarkNotificationRead,
+  syncMarkNotificationsRead,
   syncRegenerateTeamJoinCode,
   syncRenameProject,
   syncRenameView,

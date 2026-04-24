@@ -5,9 +5,12 @@ import { useState, type ReactNode } from "react"
 import { CSS } from "@dnd-kit/utilities"
 import {
   closestCorners,
+  pointerWithin,
   DndContext,
   DragOverlay,
   PointerSensor,
+  type Collision,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
   useDraggable,
@@ -18,33 +21,32 @@ import {
 import {
   CaretDown,
   CaretRight,
-  DotsSixVertical,
-  Flame,
-  FolderSimple,
+  Plus,
   TreeStructure,
 } from "@phosphor-icons/react"
 
 import {
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
-  getProject,
+  getGroupValue,
   getTeam,
   getUser,
+  getWorkItemDescendantIds,
   getWorkItemChildProgress,
 } from "@/lib/domain/selectors"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { getCalendarDateDayOffset } from "@/lib/date-input"
 import {
+  canParentWorkItemTypeAcceptChild,
   getDisplayLabelForWorkItemType,
   getDisplayPluralLabelForWorkItemType,
-  priorityMeta,
-  statusMeta,
   type AppData,
   type DisplayProperty,
   type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { StatusRing } from "@/components/ui/template-primitives"
 
 import {
@@ -54,8 +56,10 @@ import {
   stopDragPropagation,
 } from "./work-item-menus"
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
-import { getPatchForField } from "./shared"
+import { getPatchForField, LabelColorDot } from "./shared"
+import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { getContainerItemsForDisplay } from "./helpers"
+import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
   getGroupAccentVar,
   getGroupValueAdornment,
@@ -68,15 +72,8 @@ import {
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
 
-const priorityColorVar: Record<string, string> = {
-  urgent: "var(--priority-urgent)",
-  high: "var(--priority-high)",
-  medium: "var(--priority-medium)",
-  low: "var(--priority-low)",
-  none: "var(--text-4)",
-}
-const HOLD_TO_DRAG_DELAY_MS = 160
-const HOLD_TO_DRAG_TOLERANCE_PX = 8
+const DRAG_HOLD_DELAY_MS = 160
+const DRAG_HOLD_TOLERANCE_PX = 8
 const META_CHIP_CLASS =
   "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2"
 const META_TEXT_CLASS = "shrink-0 text-[11.5px] text-fg-3 tabular-nums"
@@ -85,8 +82,8 @@ function useHoldToDragSensors() {
   return useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        delay: HOLD_TO_DRAG_DELAY_MS,
-        tolerance: HOLD_TO_DRAG_TOLERANCE_PX,
+        delay: DRAG_HOLD_DELAY_MS,
+        tolerance: DRAG_HOLD_TOLERANCE_PX,
       },
     })
   )
@@ -133,6 +130,45 @@ function parseGroupDropTarget(id: string, scope: "board" | "list") {
   return null
 }
 
+function parseItemDropTarget(id: string, scope: "board" | "list") {
+  const [dropScope, itemId] = id.split("::")
+
+  if (dropScope === `${scope}-item` && itemId) {
+    return { itemId }
+  }
+
+  return null
+}
+
+function prioritizeItemDropTargets(
+  collisions: Collision[],
+  scope: "board" | "list"
+) {
+  const itemPrefix = `${scope}-item::`
+  const itemCollisions = collisions.filter((collision) =>
+    String(collision.id).startsWith(itemPrefix)
+  )
+
+  return itemCollisions.length > 0 ? itemCollisions : collisions
+}
+
+function createWorkSurfaceCollisionDetection(
+  scope: "board" | "list"
+): CollisionDetection {
+  return (args) => {
+    const pointerCollisions = pointerWithin(args)
+
+    if (pointerCollisions.length > 0) {
+      return prioritizeItemDropTargets(pointerCollisions, scope)
+    }
+
+    return prioritizeItemDropTargets(closestCorners(args), scope)
+  }
+}
+
+const boardCollisionDetection = createWorkSurfaceCollisionDetection("board")
+const listCollisionDetection = createWorkSurfaceCollisionDetection("list")
+
 function buildGroupedWorkItemPatch({
   data,
   items,
@@ -155,6 +191,37 @@ function buildGroupedWorkItemPatch({
     ...(subgroupValue === undefined
       ? {}
       : getPatchForField(data, item, view.subGrouping, subgroupValue)),
+  }
+}
+
+function buildCreateDefaultsForGroup({
+  data,
+  items,
+  view,
+  groupValue,
+  subgroupValue,
+}: {
+  data: AppData
+  items: WorkItem[]
+  view: Pick<ViewDefinition, "grouping" | "subGrouping">
+  groupValue: string
+  subgroupValue?: string
+}) {
+  const baseItem = items[0] ?? null
+  const groupedPatch = {
+    ...getPatchForField(data, baseItem, view.grouping, groupValue),
+    ...(subgroupValue === undefined
+      ? {}
+      : getPatchForField(data, baseItem, view.subGrouping, subgroupValue)),
+  }
+
+  return {
+    status: groupedPatch.status,
+    priority: groupedPatch.priority,
+    assigneeId: groupedPatch.assigneeId,
+    primaryProjectId: groupedPatch.primaryProjectId,
+    labelIds: groupedPatch.labelIds,
+    parentId: groupedPatch.parentId ?? null,
   }
 }
 
@@ -303,7 +370,6 @@ function renderWorkItemDisplayProperty({
   property,
   variant,
   childProgress,
-  assignee,
   dueDateLabel,
   isOverdue,
   isSoon,
@@ -313,7 +379,6 @@ function renderWorkItemDisplayProperty({
   property: DisplayProperty
   variant: "list" | "board"
   childProgress: ChildProgressRollup | null
-  assignee: ReturnType<typeof getUser> | null
   dueDateLabel: string | null
   isOverdue: boolean
   isSoon: boolean
@@ -328,10 +393,12 @@ function renderWorkItemDisplayProperty({
 
   if (property === "status") {
     return (
-      <span className={META_CHIP_CLASS}>
-        <StatusRing status={item.status} />
-        {statusMeta[item.status].label}
-      </span>
+      <InlineWorkItemPropertyControl
+        data={data}
+        item={item}
+        property="status"
+        variant="surface"
+      />
     )
   }
 
@@ -346,19 +413,13 @@ function renderWorkItemDisplayProperty({
   }
 
   if (property === "priority") {
-    if (item.priority === "none") {
-      return null
-    }
-
     return (
-      <span className={META_CHIP_CLASS}>
-        <Flame
-          className="size-3"
-          style={{ color: priorityColorVar[item.priority] }}
-          weight="fill"
-        />
-        {priorityMeta[item.priority].label}
-      </span>
+      <InlineWorkItemPropertyControl
+        data={data}
+        item={item}
+        property="priority"
+        variant="surface"
+      />
     )
   }
 
@@ -369,17 +430,13 @@ function renderWorkItemDisplayProperty({
   }
 
   if (property === "project") {
-    const project = getProject(data, item.primaryProjectId)
-
-    if (!project) {
-      return null
-    }
-
     return (
-      <span className={META_CHIP_CLASS}>
-        <FolderSimple className="size-[11px]" />
-        <span className="max-w-[120px] truncate">{project.name}</span>
-      </span>
+      <InlineWorkItemPropertyControl
+        data={data}
+        item={item}
+        property="project"
+        variant="surface"
+      />
     )
   }
 
@@ -411,11 +468,7 @@ function renderWorkItemDisplayProperty({
 
         return (
           <span key={labelId} className={META_CHIP_CLASS}>
-            <span
-              aria-hidden
-              className="size-[7px] rounded-full"
-              style={{ background: label.color }}
-            />
+            <LabelColorDot color={label.color} className="size-[7px]" />
             {label.name}
           </span>
         )
@@ -458,9 +511,14 @@ function renderWorkItemDisplayProperty({
   }
 
   if (property === "assignee") {
-    return assignee ? (
-      <WorkItemAssigneeAvatar user={assignee} size="xs" />
-    ) : null
+    return (
+      <InlineWorkItemPropertyControl
+        data={data}
+        item={item}
+        property="assignee"
+        variant="surface"
+      />
+    )
   }
 
   return null
@@ -472,7 +530,6 @@ function renderWorkItemDisplayProperties({
   displayProps,
   variant,
   childProgress,
-  assignee,
   dueDateLabel,
   isOverdue,
   isSoon,
@@ -482,7 +539,6 @@ function renderWorkItemDisplayProperties({
   displayProps: DisplayProperty[]
   variant: "list" | "board"
   childProgress: ChildProgressRollup | null
-  assignee: ReturnType<typeof getUser> | null
   dueDateLabel: string | null
   isOverdue: boolean
   isSoon: boolean
@@ -494,7 +550,6 @@ function renderWorkItemDisplayProperties({
       property,
       variant,
       childProgress,
-      assignee,
       dueDateLabel,
       isOverdue,
       isSoon,
@@ -532,8 +587,12 @@ export function BoardView({
     ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
   ]
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const [activeDragPreviewKind, setActiveDragPreviewKind] = useState<
+    "card" | "child" | null
+  >(null)
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
   const sensors = useHoldToDragSensors()
+  const itemPool = scopedItems ?? data.workItems
   const hiddenGroups = groups.filter(([groupName]) =>
     view.hiddenState.groups.includes(groupName)
   )
@@ -541,6 +600,8 @@ export function BoardView({
     ([groupName]) => !view.hiddenState.groups.includes(groupName)
   )
   const showChildItems = Boolean(view.showChildItems)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
 
   function toggleExpandedItem(itemId: string) {
     setExpandedItemIds((current) => {
@@ -558,16 +619,64 @@ export function BoardView({
 
   function handleDragStart(event: DragStartEvent) {
     setActiveItemId(String(event.active.id))
+    setActiveDragPreviewKind(
+      event.active.data.current?.previewKind === "child" ? "child" : "card"
+    )
   }
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveItemId(null)
+    setActiveDragPreviewKind(null)
 
     if (!editable || !event.over) {
       return
     }
 
-    const target = parseGroupDropTarget(String(event.over.id), "board")
+    const activeId = String(event.active.id)
+    const overId = String(event.over.id)
+    const activeItem = itemPool.find((entry) => entry.id === activeId) ?? null
+
+    if (!activeItem) {
+      return
+    }
+
+    const itemTarget = parseItemDropTarget(overId, "board")
+
+    if (itemTarget) {
+      const targetItem =
+        itemPool.find((entry) => entry.id === itemTarget.itemId) ?? null
+
+      if (
+        !targetItem ||
+        targetItem.id === activeItem.id ||
+        targetItem.teamId !== activeItem.teamId
+      ) {
+        return
+      }
+
+      const patch = buildGroupedWorkItemPatch({
+        data,
+        items: itemPool,
+        itemId: activeItem.id,
+        view,
+        groupValue: getGroupValue(data, targetItem, view.grouping),
+        subgroupValue: view.subGrouping
+          ? getGroupValue(data, targetItem, view.subGrouping)
+          : undefined,
+      })
+      const canNestOnTarget =
+        activeItem.parentId !== null &&
+        canParentWorkItemTypeAcceptChild(targetItem.type, activeItem.type) &&
+        !getWorkItemDescendantIds(data, activeItem.id).has(targetItem.id)
+
+      requestConfirmedWorkItemUpdate(activeItem.id, {
+        ...patch,
+        parentId: canNestOnTarget ? targetItem.id : null,
+      })
+      return
+    }
+
+    const target = parseGroupDropTarget(overId, "board")
 
     if (!target) {
       return
@@ -575,27 +684,59 @@ export function BoardView({
 
     const patch = buildGroupedWorkItemPatch({
       data,
-      items,
-      itemId: String(event.active.id),
+      items: itemPool,
+      itemId: activeItem.id,
       view,
       groupValue: target.groupValue,
       subgroupValue: target.subgroupValue,
     })
 
-    useAppStore.getState().updateWorkItem(String(event.active.id), patch)
+    requestConfirmedWorkItemUpdate(activeItem.id, {
+      ...patch,
+      parentId: null,
+    })
   }
 
-  const activeItem = items.find((item) => item.id === activeItemId) ?? null
+  function openCreateForGroup({
+    groupValue,
+    subgroupValue,
+    laneItems,
+  }: {
+    groupValue: string
+    subgroupValue?: string
+    laneItems: WorkItem[]
+  }) {
+    const defaultValues = buildCreateDefaultsForGroup({
+      data,
+      items: laneItems,
+      view,
+      groupValue,
+      subgroupValue,
+    })
+
+    openManagedCreateDialog({
+      kind: "workItem",
+      defaultTeamId:
+        laneItems[0]?.teamId ?? items[0]?.teamId ?? scopedItems?.[0]?.teamId ?? null,
+      defaultProjectId: defaultValues.primaryProjectId ?? null,
+      defaultValues,
+    })
+  }
+
+  const activeItem = itemPool.find((item) => item.id === activeItemId) ?? null
 
   return (
     <DndContext
-      collisionDetection={closestCorners}
+      collisionDetection={boardCollisionDetection}
       sensors={sensors}
       onDragStart={handleDragStart}
-      onDragCancel={() => setActiveItemId(null)}
+      onDragCancel={() => {
+        setActiveItemId(null)
+        setActiveDragPreviewKind(null)
+      }}
       onDragEnd={handleDragEnd}
     >
-      <ScrollArea className="w-full">
+      <ScrollArea className="h-full w-full">
         <div className="flex h-full min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
           {visibleGroups.map(([groupName, subgroups]) => {
             const groupItems = Array.from(subgroups.values()).flat()
@@ -675,6 +816,7 @@ export function BoardView({
                                         data={data}
                                         item={item}
                                         childItems={childItems}
+                                        editable={editable}
                                         expanded={expandedItemIds.has(item.id)}
                                         onToggle={() =>
                                           toggleExpandedItem(item.id)
@@ -685,6 +827,22 @@ export function BoardView({
                                 />
                               )
                             })}
+                            {editable ? (
+                              <button
+                                type="button"
+                                className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                                onClick={() =>
+                                  openCreateForGroup({
+                                    groupValue: groupName,
+                                    subgroupValue: subgroupName,
+                                    laneItems: subItems,
+                                  })
+                                }
+                              >
+                                <Plus className="size-3.5" />
+                                <span>Add item</span>
+                              </button>
+                            ) : null}
                           </BoardDropLane>
                         </div>
                       )
@@ -695,7 +853,21 @@ export function BoardView({
                       <BoardDropLane
                         id={`board::${groupName}`}
                         className="min-h-24 flex-1"
-                      />
+                      >
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                          onClick={() =>
+                            openCreateForGroup({
+                              groupValue: groupName,
+                              laneItems: groupItems,
+                            })
+                          }
+                        >
+                          <Plus className="size-3.5" />
+                          <span>Add item</span>
+                        </button>
+                      </BoardDropLane>
                     ) : (
                       <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
                         No items
@@ -707,6 +879,7 @@ export function BoardView({
             )
           })}
         </div>
+        <ScrollBar orientation="horizontal" />
       </ScrollArea>
 
       {hiddenGroups.length > 0 ? (
@@ -732,15 +905,31 @@ export function BoardView({
         </div>
       ) : null}
 
+      {confirmationDialog}
+
       <DragOverlay>
         {activeItem ? (
-          <div className="w-[280px]">
-            <BoardCardBody
-              data={data}
-              item={activeItem}
-              displayProps={view.displayProps}
-            />
-          </div>
+          activeDragPreviewKind === "child" ? (
+            <div className="w-[280px] rounded-md border border-line bg-surface shadow-sm">
+              <BoardChildItemRow
+                item={activeItem}
+                assignee={
+                  activeItem.assigneeId
+                    ? getUser(data, activeItem.assigneeId)
+                    : null
+                }
+                interactive={false}
+              />
+            </div>
+          ) : (
+            <div className="w-[280px]">
+              <BoardCardBody
+                data={data}
+                item={activeItem}
+                displayProps={view.displayProps}
+              />
+            </div>
+          )
         ) : null}
       </DragOverlay>
     </DndContext>
@@ -769,7 +958,10 @@ export function ListView({
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
   const sensors = useHoldToDragSensors()
+  const itemPool = scopedItems ?? data.workItems
   const showChildItems = Boolean(view.showChildItems)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
 
   function toggleGroup(groupName: string) {
     setCollapsedGroups((current) => {
@@ -808,7 +1000,51 @@ export function ListView({
       return
     }
 
-    const target = parseGroupDropTarget(String(event.over.id), "list")
+    const activeId = String(event.active.id)
+    const overId = String(event.over.id)
+    const activeItem = itemPool.find((entry) => entry.id === activeId) ?? null
+
+    if (!activeItem) {
+      return
+    }
+
+    const itemTarget = parseItemDropTarget(overId, "list")
+
+    if (itemTarget) {
+      const targetItem =
+        itemPool.find((entry) => entry.id === itemTarget.itemId) ?? null
+
+      if (
+        !targetItem ||
+        targetItem.id === activeItem.id ||
+        targetItem.teamId !== activeItem.teamId
+      ) {
+        return
+      }
+
+      const patch = buildGroupedWorkItemPatch({
+        data,
+        items: itemPool,
+        itemId: activeItem.id,
+        view,
+        groupValue: getGroupValue(data, targetItem, view.grouping),
+        subgroupValue: view.subGrouping
+          ? getGroupValue(data, targetItem, view.subGrouping)
+          : undefined,
+      })
+      const canNestOnTarget =
+        activeItem.parentId !== null &&
+        canParentWorkItemTypeAcceptChild(targetItem.type, activeItem.type) &&
+        !getWorkItemDescendantIds(data, activeItem.id).has(targetItem.id)
+
+      requestConfirmedWorkItemUpdate(activeItem.id, {
+        ...patch,
+        parentId: canNestOnTarget ? targetItem.id : null,
+      })
+      return
+    }
+
+    const target = parseGroupDropTarget(overId, "list")
 
     if (!target) {
       return
@@ -816,21 +1052,50 @@ export function ListView({
 
     const patch = buildGroupedWorkItemPatch({
       data,
-      items,
-      itemId: String(event.active.id),
+      items: itemPool,
+      itemId: activeItem.id,
       view,
       groupValue: target.groupValue,
       subgroupValue: target.subgroupValue,
     })
 
-    useAppStore.getState().updateWorkItem(String(event.active.id), patch)
+    requestConfirmedWorkItemUpdate(activeItem.id, {
+      ...patch,
+      parentId: null,
+    })
   }
 
-  const activeItem = items.find((item) => item.id === activeItemId) ?? null
+  function openCreateForGroup({
+    groupValue,
+    subgroupValue,
+    laneItems,
+  }: {
+    groupValue: string
+    subgroupValue?: string
+    laneItems: WorkItem[]
+  }) {
+    const defaultValues = buildCreateDefaultsForGroup({
+      data,
+      items: laneItems,
+      view,
+      groupValue,
+      subgroupValue,
+    })
+
+    openManagedCreateDialog({
+      kind: "workItem",
+      defaultTeamId:
+        laneItems[0]?.teamId ?? items[0]?.teamId ?? scopedItems?.[0]?.teamId ?? null,
+      defaultProjectId: defaultValues.primaryProjectId ?? null,
+      defaultValues,
+    })
+  }
+
+  const activeItem = itemPool.find((item) => item.id === activeItemId) ?? null
 
   return (
     <DndContext
-      collisionDetection={closestCorners}
+      collisionDetection={listCollisionDetection}
       sensors={sensors}
       onDragStart={handleDragStart}
       onDragCancel={() => setActiveItemId(null)}
@@ -955,16 +1220,42 @@ export function ListView({
                               return [
                                 parentRow,
                                 ...children.map((child) => (
-                                  <ListRow
-                                    key={child.id}
-                                    data={data}
-                                    item={child}
-                                    displayProps={view.displayProps}
-                                    depth={1}
-                                  />
+                                  editable ? (
+                                    <DraggableListRow
+                                      key={child.id}
+                                      data={data}
+                                      item={child}
+                                      displayProps={view.displayProps}
+                                      depth={1}
+                                    />
+                                  ) : (
+                                    <ListRow
+                                      key={child.id}
+                                      data={data}
+                                      item={child}
+                                      displayProps={view.displayProps}
+                                      depth={1}
+                                    />
+                                  )
                                 )),
                               ]
                             })}
+                            {editable ? (
+                              <button
+                                type="button"
+                                className="ml-[38px] flex items-center gap-2 px-2.5 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                                onClick={() =>
+                                  openCreateForGroup({
+                                    groupValue: groupName,
+                                    subgroupValue: subgroupName,
+                                    laneItems: subItems,
+                                  })
+                                }
+                              >
+                                <Plus className="size-3.5" />
+                                <span>Add item</span>
+                              </button>
+                            ) : null}
                           </ListDropLane>
                         </div>
                       )
@@ -975,7 +1266,21 @@ export function ListView({
                       <ListDropLane
                         id={`list::${groupName}`}
                         className="min-h-10"
-                      />
+                      >
+                        <button
+                          type="button"
+                          className="ml-[38px] flex items-center gap-2 px-2.5 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                          onClick={() =>
+                            openCreateForGroup({
+                              groupValue: groupName,
+                              laneItems: groupItems,
+                            })
+                          }
+                        >
+                          <Plus className="size-3.5" />
+                          <span>Add item</span>
+                        </button>
+                      </ListDropLane>
                     ) : (
                       <div className="px-11 py-3 text-xs text-muted-foreground">
                         No items
@@ -1011,6 +1316,8 @@ export function ListView({
           </div>
         ) : null}
       </div>
+
+      {confirmationDialog}
 
       <DragOverlay>
         {activeItem ? (
@@ -1053,7 +1360,7 @@ function ListGroupHeader({
   return (
     <div
       ref={setNodeRef}
-      className="sticky top-0 z-[2] bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)] backdrop-blur-[6px]"
+      className="sticky top-0 z-[2] bg-transparent"
     >
       <button
         type="button"
@@ -1130,7 +1437,9 @@ function ListRowBody({
   hasChildren = false,
   expanded = false,
   onToggleExpanded,
-  dragHandle,
+  isDropTarget = false,
+  dragAttributes,
+  dragListeners,
 }: {
   data: AppData
   item: WorkItem
@@ -1141,9 +1450,10 @@ function ListRowBody({
   hasChildren?: boolean
   expanded?: boolean
   onToggleExpanded?: () => void
-  dragHandle?: ReactNode
+  isDropTarget?: boolean
+  dragAttributes?: DraggableBindings["attributes"]
+  dragListeners?: DraggableBindings["listeners"]
 }) {
-  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDateLabel =
     displayProps.includes("dueDate") && item.dueDate
       ? formatWorkSurfaceDueDate(item.dueDate)
@@ -1161,7 +1471,6 @@ function ListRowBody({
     property: "id",
     variant: "list",
     childProgress,
-    assignee,
     dueDateLabel,
     isOverdue,
     isSoon,
@@ -1172,44 +1481,37 @@ function ListRowBody({
     displayProps: displayProps.filter((property) => property !== "id"),
     variant: "list",
     childProgress,
-    assignee,
     dueDateLabel,
     isOverdue,
     isSoon,
   })
   const disclosureSlotClass = depth === 0 ? "size-5" : "size-4"
 
-  const content = (
-    <>
-      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
-        {idProperty}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          <div className="truncate text-[13px] text-foreground">
-            {item.title}
-          </div>
-          <WorkItemChildCount count={subCount} />
-        </div>
-        {visibleProperties.length > 0 ? (
-          <div className="flex shrink-0 items-center gap-1.5 overflow-hidden">
-            {visibleProperties.map(({ key, node }) => (
-              <span key={key} className="contents">
-                {node}
-              </span>
-            ))}
-          </div>
-        ) : null}
+  const linkedContent = (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+      {idProperty}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+        <div className="truncate text-[13px] text-foreground">{item.title}</div>
+        <WorkItemChildCount count={subCount} />
       </div>
-    </>
+    </div>
   )
 
   const body = (
-    <div className="group/row relative transition-colors hover:bg-surface-2">
+    <div
+      className={cn(
+        "group/row relative transition-colors hover:bg-surface-2",
+        isDropTarget && "bg-surface-2"
+      )}
+      {...dragAttributes}
+      {...dragListeners}
+    >
       <div
         className="flex min-h-[34px] items-center gap-2.5 pr-5"
         style={{ paddingLeft: 14 + depth * 24 }}
       >
         <div className="flex items-center justify-center">
-          {dragHandle ?? <span aria-hidden className="size-4" />}
+          <span aria-hidden className="size-4" />
         </div>
         {hasChildren ? (
           <button
@@ -1233,12 +1535,28 @@ function ListRowBody({
           <span aria-hidden className={disclosureSlotClass} />
         )}
         {interactive ? (
-          <Link href={`/items/${item.id}`} className="contents">
-            {content}
+          <Link
+            href={`/items/${item.id}`}
+            className="flex min-w-0 flex-1 items-center overflow-hidden"
+          >
+            {linkedContent}
           </Link>
         ) : (
-          <>{content}</>
+          <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+            {linkedContent}
+          </div>
         )}
+        {visibleProperties.length > 0 ? (
+          <div className="flex shrink-0 items-center gap-1.5 overflow-hidden pr-10">
+            {visibleProperties.map(({ key, node }) => (
+              <span key={key} className="contents">
+                {node}
+              </span>
+            ))}
+          </div>
+        ) : interactive ? (
+          <div className="pr-10" />
+        ) : null}
         {interactive ? (
           <div className="absolute top-1/2 right-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100">
             <IssueActionMenu
@@ -1313,10 +1631,24 @@ function DraggableListRow({
   expanded?: boolean
   onToggleExpanded?: () => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDraggableNodeRef,
+    transform,
+    isDragging,
+  } =
     useDraggable({
       id: item.id,
     })
+  const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
+    id: `list-item::${item.id}`,
+  })
+
+  function setNodeRef(node: HTMLDivElement | null) {
+    setDraggableNodeRef(node)
+    setDroppableNodeRef(node)
+  }
 
   return (
     <div
@@ -1333,18 +1665,9 @@ function DraggableListRow({
         hasChildren={hasChildren}
         expanded={expanded}
         onToggleExpanded={onToggleExpanded}
-        dragHandle={
-          <button
-            type="button"
-            className="cursor-grab rounded-md p-0.5 text-fg-4 opacity-0 transition-all group-hover/row:opacity-100 hover:bg-surface-3 hover:text-foreground active:cursor-grabbing"
-            aria-label={`Drag ${item.title}`}
-            onClick={stopMenuEvent}
-            {...listeners}
-            {...attributes}
-          >
-            <DotsSixVertical className="size-3.5" />
-          </button>
-        }
+        isDropTarget={isOver && !isDragging}
+        dragAttributes={attributes}
+        dragListeners={listeners}
       />
     </div>
   )
@@ -1424,10 +1747,24 @@ function DraggableWorkCard({
   childCountOverride?: number
   details?: ReactNode
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDraggableNodeRef,
+    transform,
+    isDragging,
+  } =
     useDraggable({
       id: item.id,
     })
+  const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
+    id: `board-item::${item.id}`,
+  })
+
+  function setNodeRef(node: HTMLDivElement | null) {
+    setDraggableNodeRef(node)
+    setDroppableNodeRef(node)
+  }
 
   return (
     <div
@@ -1441,16 +1778,9 @@ function DraggableWorkCard({
         displayProps={displayProps}
         childCountOverride={childCountOverride}
         details={details}
+        isDropTarget={isOver && !isDragging}
         dragAttributes={attributes}
         dragListeners={listeners}
-        dragHandle={
-          <span
-            aria-hidden
-            className="inline-grid size-5 place-items-center rounded-sm text-fg-4"
-          >
-            <DotsSixVertical className="size-3.5" />
-          </span>
-        }
       />
     </div>
   )
@@ -1462,20 +1792,19 @@ function BoardCardBody({
   displayProps,
   childCountOverride,
   details,
+  isDropTarget = false,
   dragAttributes,
   dragListeners,
-  dragHandle,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   childCountOverride?: number
   details?: ReactNode
+  isDropTarget?: boolean
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
-  dragHandle?: ReactNode
 }) {
-  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const dueDateLabel =
     displayProps.includes("dueDate") && item.dueDate
       ? formatWorkSurfaceDueDate(item.dueDate)
@@ -1493,7 +1822,6 @@ function BoardCardBody({
     property: "id",
     variant: "board",
     childProgress,
-    assignee,
     dueDateLabel,
     isOverdue,
     isSoon,
@@ -1504,7 +1832,6 @@ function BoardCardBody({
     displayProps: displayProps.filter((property) => property !== "id"),
     variant: "board",
     childProgress,
-    assignee,
     dueDateLabel,
     isOverdue,
     isSoon,
@@ -1513,13 +1840,18 @@ function BoardCardBody({
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div className="group/card relative flex flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm">
+      <div
+        className={cn(
+          "group/card relative flex touch-none cursor-grab flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm active:cursor-grabbing",
+          isDropTarget && "border-fg-4 bg-surface-2"
+        )}
+        {...dragAttributes}
+        {...dragListeners}
+      >
         <Link
           href={itemHref}
           aria-label={`Open ${item.title}`}
           className="absolute inset-0 rounded-[8px] focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
-          {...dragAttributes}
-          {...dragListeners}
         />
         <div className="pointer-events-none relative z-10 flex items-start gap-2">
           <div className="min-w-0 flex-1">
@@ -1537,22 +1869,21 @@ function BoardCardBody({
             className="pointer-events-auto opacity-0 transition-opacity group-hover/card:opacity-100"
             onPointerDown={stopDragPropagation}
             onClick={stopMenuEvent}
-          >
-            <div className="flex items-center gap-1">
-              {dragHandle ?? null}
-              <IssueActionMenu
-                data={data}
-                item={item}
-                triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
-              />
-            </div>
+        >
+          <div className="flex items-center gap-1">
+            <IssueActionMenu
+              data={data}
+              item={item}
+              triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
+            />
           </div>
+        </div>
         </div>
         <div className="pointer-events-none relative z-10 flex min-w-0 flex-col gap-2">
           {visibleProperties.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-fg-3">
               {visibleProperties.map(({ key, node }) => (
-                <span key={key} className="contents">
+                <span key={key} className="pointer-events-auto contents">
                   {node}
                 </span>
               ))}
@@ -1577,12 +1908,14 @@ function WorkItemChildDisclosure({
   data,
   item,
   childItems,
+  editable,
   expanded,
   onToggle,
 }: {
   data: AppData
   item: WorkItem
   childItems: WorkItem[]
+  editable: boolean
   expanded: boolean
   onToggle: () => void
 }) {
@@ -1614,7 +1947,13 @@ function WorkItemChildDisclosure({
               ? getUser(data, child.assigneeId)
               : null
 
-            return (
+            return editable ? (
+              <DraggableBoardChildItem
+                key={child.id}
+                item={child}
+                assignee={childAssignee}
+              />
+            ) : (
               <Link
                 key={child.id}
                 href={`/items/${child.id}`}
@@ -1639,5 +1978,106 @@ function WorkItemChildDisclosure({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function DraggableBoardChildItem({
+  item,
+  assignee,
+}: {
+  item: WorkItem
+  assignee: ReturnType<typeof getUser> | null
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDraggableNodeRef,
+    transform,
+    isDragging,
+  } =
+    useDraggable({
+      id: item.id,
+      data: {
+        previewKind: "child",
+      },
+    })
+  const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
+    id: `board-item::${item.id}`,
+  })
+
+  function setNodeRef(node: HTMLDivElement | null) {
+    setDraggableNodeRef(node)
+    setDroppableNodeRef(node)
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={cn(isDragging && "opacity-60")}
+    >
+      <BoardChildItemRow
+        item={item}
+        assignee={assignee}
+        interactive
+        href={`/items/${item.id}`}
+        isDropTarget={isOver && !isDragging}
+        dragAttributes={attributes}
+        dragListeners={listeners}
+      />
+    </div>
+  )
+}
+
+function BoardChildItemRow({
+  item,
+  assignee,
+  interactive,
+  href,
+  isDropTarget = false,
+  dragAttributes,
+  dragListeners,
+}: {
+  item: WorkItem
+  assignee: ReturnType<typeof getUser> | null
+  interactive: boolean
+  href?: string
+  isDropTarget?: boolean
+  dragAttributes?: DraggableBindings["attributes"]
+  dragListeners?: DraggableBindings["listeners"]
+}) {
+  const className = cn(
+    "flex touch-none cursor-grab items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
+    isDropTarget && "bg-surface-3"
+  )
+
+  const content = (
+    <>
+      <StatusRing status={item.status} className="size-2.5" />
+      <span className="shrink-0 text-[11px] text-fg-3">{item.key}</span>
+      <span className="min-w-0 flex-1 truncate text-fg-2">{item.title}</span>
+      {assignee ? (
+        <WorkItemAssigneeAvatar user={assignee} className="size-4" />
+      ) : null}
+    </>
+  )
+
+  if (!interactive || !href) {
+    return (
+      <div className={className}>
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      href={href}
+      className={className}
+      {...dragAttributes}
+      {...dragListeners}
+    >
+      {content}
+    </Link>
   )
 }

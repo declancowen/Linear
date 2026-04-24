@@ -59,7 +59,7 @@ export default async function RootLayout({
           <ThemeProvider nonce={nonce}>
             <TooltipProvider>
               {children}
-              <Toaster richColors />
+              <Toaster />
             </TooltipProvider>
           </ThemeProvider>
         </AuthKitProvider>

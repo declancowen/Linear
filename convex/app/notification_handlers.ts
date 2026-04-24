@@ -19,6 +19,12 @@ type NotificationMutationArgs = ServerAccessArgs & {
   notificationId: string
 }
 
+type NotificationBulkMutationArgs = ServerAccessArgs & {
+  currentUserId: string
+  action: "archive" | "unarchive" | "markRead"
+  notificationIds: string[]
+}
+
 type MarkNotificationsEmailedArgs = ServerAccessArgs & {
   claimId?: string
   notificationIds: string[]
@@ -202,6 +208,51 @@ export async function markNotificationReadHandler(
   await ctx.db.patch(notification._id, {
     readAt: notification.readAt ?? getNow(),
   })
+}
+
+export async function updateNotificationsHandler(
+  ctx: MutationCtx,
+  args: NotificationBulkMutationArgs
+) {
+  assertServerToken(args.serverToken)
+  const notificationIds = [...new Set(args.notificationIds)]
+  const notifications = []
+
+  for (const notificationId of notificationIds) {
+    const notification = await getOwnedNotificationOrNull(
+      ctx,
+      notificationId,
+      args.currentUserId
+    )
+
+    if (!notification) {
+      throw new Error("Notification not found")
+    }
+
+    notifications.push(notification)
+  }
+
+  const now = getNow()
+
+  for (const notification of notifications) {
+    if (args.action === "archive") {
+      await ctx.db.patch(notification._id, {
+        archivedAt: notification.archivedAt ?? now,
+      })
+      continue
+    }
+
+    if (args.action === "unarchive") {
+      await ctx.db.patch(notification._id, {
+        archivedAt: null,
+      })
+      continue
+    }
+
+    await ctx.db.patch(notification._id, {
+      readAt: notification.readAt ?? now,
+    })
+  }
 }
 
 export async function markNotificationsEmailedHandler(

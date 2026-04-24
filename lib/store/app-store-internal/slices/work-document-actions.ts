@@ -21,6 +21,7 @@ import {
   getAttachmentTeamId,
   getNow,
 } from "../helpers"
+import { waitForPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   canEditWorkspaceDocuments,
   effectiveRole,
@@ -326,7 +327,17 @@ export function createWorkDocumentActions({
 
       runtime.queueRichTextSync(
         `item-description:${itemId}`,
-        (syncContext) => {
+        async (syncContext) => {
+          const pendingCreation = waitForPendingWorkItemCreation(itemId)
+
+          if (pendingCreation) {
+            const created = await pendingCreation
+
+            if (!created || !syncContext.isCurrent()) {
+              return
+            }
+          }
+
           const state = get()
           const item = state.workItems.find((entry) => entry.id === itemId)
 

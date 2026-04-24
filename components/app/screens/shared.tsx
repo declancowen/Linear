@@ -15,6 +15,10 @@ import { useShallow } from "zustand/react/shallow"
 
 import { getLabelsForTeamScope } from "@/lib/domain/selectors"
 import {
+  getTextInputLimitState,
+  labelNameConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   canParentWorkItemTypeAcceptChild,
   statusMeta,
   type AppData,
@@ -26,6 +30,7 @@ import {
   type WorkStatus,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,6 +56,22 @@ export const PROPERTY_SELECT_SEPARATOR_VALUE = "__separator__"
 
 export const SCREEN_HEADER_CLASS_NAME =
   "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
+
+export function LabelColorDot({
+  color,
+  className,
+}: {
+  color?: string | null
+  className?: string
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn("inline-block size-2.5 shrink-0 rounded-full", className)}
+      style={{ backgroundColor: color ?? "var(--fg-4)" }}
+    />
+  )
+}
 
 export function ScreenHeader({
   title,
@@ -278,6 +299,39 @@ export function PriorityIcon({ priority }: { priority: Priority }) {
       className="size-[14px] shrink-0"
       weight="fill"
       style={{ color: PRIORITY_ICON_TOKEN[priority] }}
+    />
+  )
+}
+
+export function WorkItemTypeIcon({
+  itemType,
+  className,
+}: {
+  itemType: WorkItem["type"]
+  className?: string
+}) {
+  if (itemType === "task" || itemType === "sub-task") {
+    return (
+      <CheckCircle
+        className={cn("size-[14px] shrink-0 text-fg-3", className)}
+        weight="fill"
+      />
+    )
+  }
+
+  if (itemType === "issue" || itemType === "sub-issue") {
+    return (
+      <Circle
+        className={cn("size-[14px] shrink-0 text-fg-3", className)}
+        weight="fill"
+      />
+    )
+  }
+
+  return (
+    <CodesandboxLogo
+      className={cn("size-[14px] shrink-0 text-fg-3", className)}
+      weight="fill"
     />
   )
 }
@@ -659,6 +713,10 @@ export function WorkItemLabelsEditor({
     )
   )
   const [newLabelName, setNewLabelName] = useState("")
+  const newLabelNameLimitState = getTextInputLimitState(
+    newLabelName,
+    labelNameConstraints
+  )
   const selectedLabels = availableLabels.filter((label) =>
     item.labelIds.includes(label.id)
   )
@@ -674,6 +732,10 @@ export function WorkItemLabelsEditor({
   }
 
   async function handleCreateLabel() {
+    if (!newLabelNameLimitState.canSubmit) {
+      return
+    }
+
     const created = await useAppStore
       .getState()
       .createLabel(newLabelName, itemWorkspaceId)
@@ -767,17 +829,23 @@ export function WorkItemLabelsEditor({
                   value={newLabelName}
                   onChange={(event) => setNewLabelName(event.target.value)}
                   placeholder="Add label"
+                  maxLength={labelNameConstraints.max}
                   disabled={!editable}
                   className="h-8"
                 />
                 <Button
                   size="sm"
-                  disabled={!editable || newLabelName.trim().length === 0}
+                  disabled={!editable || !newLabelNameLimitState.canSubmit}
                   onClick={() => void handleCreateLabel()}
                 >
                   Create
                 </Button>
               </div>
+              <FieldCharacterLimit
+                state={newLabelNameLimitState}
+                limit={labelNameConstraints.max}
+                className="mt-1"
+              />
             </div>
           </div>
         </PopoverContent>

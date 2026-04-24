@@ -16,6 +16,11 @@ import {
 
 import { getStatusOrderForTeam, getTeam, getUser } from "@/lib/domain/selectors"
 import {
+  commentContentConstraints,
+  getTextInputLimitState,
+  workItemTitleConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   getAllowedChildWorkItemTypesForItem,
   getAllowedWorkItemTypesForTemplate,
   getChildWorkItemCopy,
@@ -34,6 +39,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
@@ -57,7 +63,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 import { formatInlineDescriptionContent } from "./helpers"
 import { PriorityDot, PriorityIcon, StatusIcon } from "./shared"
-import { cn, getPlainTextContent, resolveImageAssetSource } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 export function WorkItemTypeBadge({
   data,
@@ -200,10 +206,16 @@ function CommentThreadItem({
   const [replyContent, setReplyContent] = useState("")
   const replyEditorRef = useRef<Editor | null>(null)
   const replies = repliesByParentId[comment.id] ?? []
-  const replyText = getPlainTextContent(replyContent)
+  const replyLimitState = getTextInputLimitState(
+    replyContent,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
 
   function handleReply() {
-    if (!replyText) {
+    if (!replyLimitState.canSubmit) {
       return
     }
 
@@ -300,12 +312,21 @@ function CommentThreadItem({
               placeholder="Reply to this thread..."
               editorInstanceRef={replyEditorRef}
               mentionCandidates={mentionCandidates}
+              minPlainTextCharacters={commentContentConstraints.min}
+              maxPlainTextCharacters={commentContentConstraints.max}
+              enforcePlainTextLimit
               onSubmitShortcut={handleReply}
               submitOnEnter
               className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
             />
           </div>
-          <div className="flex items-center justify-between gap-2">
+          <div>
+            <FieldCharacterLimit
+              state={replyLimitState}
+              limit={commentContentConstraints.max}
+              className="mt-0 mb-1.5"
+            />
+            <div className="flex items-center justify-between gap-2">
             <EmojiPickerPopover
               align="start"
               side="top"
@@ -341,9 +362,14 @@ function CommentThreadItem({
               >
                 Cancel
               </Button>
-              <Button size="sm" disabled={!replyText} onClick={handleReply}>
+              <Button
+                size="sm"
+                disabled={!replyLimitState.canSubmit}
+                onClick={handleReply}
+              >
                 Reply
               </Button>
+            </div>
             </div>
           </div>
         </div>
@@ -456,10 +482,16 @@ export function CommentsInline({
   )
   const [content, setContent] = useState("")
   const commentEditorRef = useRef<Editor | null>(null)
-  const contentText = getPlainTextContent(content)
+  const commentLimitState = getTextInputLimitState(
+    content,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
 
   function handleComment() {
-    if (!contentText) {
+    if (!commentLimitState.canSubmit) {
       return
     }
 
@@ -497,12 +529,21 @@ export function CommentsInline({
             placeholder="Leave a comment or mention a teammate with @handle..."
             editorInstanceRef={commentEditorRef}
             mentionCandidates={mentionCandidates}
+            minPlainTextCharacters={commentContentConstraints.min}
+            maxPlainTextCharacters={commentContentConstraints.max}
+            enforcePlainTextLimit
             onSubmitShortcut={handleComment}
             submitOnEnter
             className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
           />
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div>
+          <FieldCharacterLimit
+            state={commentLimitState}
+            limit={commentContentConstraints.max}
+            className="mt-0 mb-1.5"
+          />
+          <div className="flex items-center justify-between gap-2">
           <EmojiPickerPopover
             align="start"
             side="top"
@@ -529,11 +570,12 @@ export function CommentsInline({
           />
           <Button
             size="sm"
-            disabled={!editable || !contentText}
+            disabled={!editable || !commentLimitState.canSubmit}
             onClick={handleComment}
           >
             Comment
           </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -644,10 +686,17 @@ export function InlineChildIssueComposer({
       ? null
       : (teamMembers.find((user) => user.id === assigneeId) ?? null)
   const normalizedTitle = title.trim()
+  const titleLimitState = getTextInputLimitState(title, workItemTitleConstraints)
   const canCreate =
-    !disabled && normalizedTitle.length >= 2 && availableItemTypes.length > 0
+    !disabled &&
+    titleLimitState.canSubmit &&
+    availableItemTypes.length > 0
 
   function handleCreate() {
+    if (!titleLimitState.canSubmit) {
+      return
+    }
+
     const createdItemId = useAppStore.getState().createWorkItem({
       teamId,
       type: selectedType,
@@ -684,8 +733,14 @@ export function InlineChildIssueComposer({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={childCopy.titlePlaceholder}
+            maxLength={workItemTitleConstraints.max}
             className="h-auto border-none bg-transparent px-0 py-0 text-sm shadow-none placeholder:text-muted-foreground/40 focus-visible:ring-0 dark:bg-transparent"
             autoFocus
+          />
+          <FieldCharacterLimit
+            state={titleLimitState}
+            limit={workItemTitleConstraints.max}
+            className="mt-1"
           />
           <Textarea
             value={description}

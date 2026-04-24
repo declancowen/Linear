@@ -6,6 +6,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type UIEvent as ReactUIEvent,
 } from "react"
 import { CSS } from "@dnd-kit/utilities"
 import {
@@ -41,6 +42,13 @@ type TimelineRangeDraft = {
   startDate: Date
   endDate: Date
 }
+
+const TIMELINE_HEADER_TOP_ROW_HEIGHT = 32
+const TIMELINE_HEADER_BOTTOM_ROW_HEIGHT = 32
+const TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS = "h-8"
+const TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS = "h-8"
+const TIMELINE_GROUP_ROW_HEIGHT_CLASS = "h-10"
+const TIMELINE_ITEM_ROW_HEIGHT_CLASS = "h-9"
 
 function parseDateOnlyValue(value: string | null | undefined, fallback: Date) {
   if (!value) {
@@ -126,6 +134,7 @@ export function TimelineView({
     null
   )
   const resizingRef = useRef(false)
+  const timelineHeaderScrollRef = useRef<HTMLDivElement | null>(null)
   const resizeStartRef = useRef({ x: 0, width: 224 })
   const dragOffsetRef = useRef<{ itemId: string; offsetDays: number } | null>(
     null
@@ -332,6 +341,15 @@ export function TimelineView({
     document.addEventListener("mouseup", onMouseUp)
   }
 
+  function handleTimelineBodyHorizontalScroll(
+    event: ReactUIEvent<HTMLDivElement>
+  ) {
+    if (timelineHeaderScrollRef.current) {
+      timelineHeaderScrollRef.current.scrollLeft =
+        event.currentTarget.scrollLeft
+    }
+  }
+
   const dayColumnWidth = 56
   const timelineGridTemplateColumns = `repeat(${days.length}, ${dayColumnWidth}px)`
   const timelineCanvasWidth = dayColumnWidth * days.length
@@ -361,72 +379,60 @@ export function TimelineView({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] overflow-hidden">
+      <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
         <div
-          className="relative z-10 shrink-0 overflow-hidden border-r bg-background"
+          className="relative z-10 shrink-0 border-r bg-background"
           style={{ width: labelColWidth }}
         >
-          <div className="sticky top-0 z-30 bg-background">
-            <div className="relative flex h-10 items-end border-b px-3 py-2">
-              <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-                Items
-              </span>
-              <div
-                className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/40"
-                onMouseDown={handleResizeStart}
-              />
-            </div>
-            <div className="h-9 border-b bg-background" />
+          <div
+            className={cn(
+              "relative flex items-center border-b px-3 leading-none",
+              TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS
+            )}
+            style={{ height: TIMELINE_HEADER_TOP_ROW_HEIGHT }}
+          >
+            <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+              Items
+            </span>
+            <div
+              className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/40"
+              onMouseDown={handleResizeStart}
+            />
           </div>
-
-          {visibleGroups.map(([groupName, subgroups]) => {
-            const groupItems = Array.from(subgroups.values()).flat()
-            const groupLabel = getGroupValueLabel(view.grouping, groupName)
-            const groupAdornment = getGroupValueAdornment(
-              view.grouping,
-              groupName
-            )
-
-            return (
-              <div key={groupName}>
-                <div className="flex h-10 items-center gap-2 border-b bg-muted/30 px-3">
-                  {groupAdornment}
-                  <span className="text-xs font-medium">{groupLabel}</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {groupItems.length}
-                  </span>
-                </div>
-
-                {groupItems.map((item) => (
-                  <TimelineLabelRow key={item.id} data={data} item={item} />
-                ))}
-              </div>
-            )
-          })}
+          <div
+            className={cn(
+              "border-b bg-background",
+              TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS
+            )}
+            style={{ height: TIMELINE_HEADER_BOTTOM_ROW_HEIGHT }}
+          />
         </div>
 
-        <div className="min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain">
-          <div
-            className="relative min-w-max"
-            style={{ width: timelineCanvasWidth }}
-          >
-            <div className="sticky top-0 z-20 bg-background">
+        <div className="min-w-0 overflow-hidden bg-background">
+          <div ref={timelineHeaderScrollRef} className="overflow-hidden">
+            <div className="min-w-max" style={{ width: timelineCanvasWidth }}>
               <div
-                className="grid border-b"
+                className="grid"
                 style={{ gridTemplateColumns: timelineGridTemplateColumns }}
               >
                 {weeks.map((week, index) => (
                   <div
                     key={index}
-                    className="flex h-10 items-center justify-center border-r px-2 text-center text-[10px] font-medium text-muted-foreground"
-                    style={{ gridColumn: `span ${week.span}` }}
+                    className={cn(
+                      "flex items-center justify-center border-r border-b px-2 text-center text-[10px] leading-none font-medium whitespace-nowrap text-muted-foreground",
+                      TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS
+                    )}
+                    style={{
+                      gridColumn: `span ${week.span}`,
+                      height: TIMELINE_HEADER_TOP_ROW_HEIGHT,
+                    }}
                   >
                     {week.label}
                   </div>
                 ))}
               </div>
               <div
-                className="grid border-b"
+                className="grid"
                 style={{ gridTemplateColumns: timelineGridTemplateColumns }}
               >
                 {days.map((day) => {
@@ -436,13 +442,15 @@ export function TimelineView({
                     <div
                       key={day.toISOString()}
                       className={cn(
-                        "flex h-9 items-center justify-center border-r px-1 text-center text-[10px]",
+                        "flex items-center justify-center border-r border-b px-1 text-center text-[10px] leading-none whitespace-nowrap",
+                        TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS,
                         isToday
                           ? "bg-primary/10 font-semibold text-primary"
                           : isWeekend
                             ? "text-muted-foreground/50"
                             : "text-muted-foreground"
                       )}
+                      style={{ height: TIMELINE_HEADER_BOTTOM_ROW_HEIGHT }}
                     >
                       {format(day, "EEE")[0]} {format(day, "d")}
                     </div>
@@ -450,39 +458,95 @@ export function TimelineView({
                 })}
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="relative">
-              {todayIndex >= 0 && todayIndex < days.length ? (
-                <div
-                  className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
-                  style={{ left: (todayIndex + 0.5) * dayColumnWidth }}
-                />
-              ) : null}
-
+        <div className="col-span-2 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)]">
+            <div
+              className="shrink-0 border-r bg-background"
+              style={{ width: labelColWidth }}
+            >
               {visibleGroups.map(([groupName, subgroups]) => {
                 const groupItems = Array.from(subgroups.values()).flat()
+                const groupLabel = getGroupValueLabel(view.grouping, groupName)
+                const groupAdornment = getGroupValueAdornment(
+                  view.grouping,
+                  groupName
+                )
 
                 return (
                   <div key={groupName}>
-                    <div className="h-10 border-b bg-muted/30" />
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 border-b bg-muted/30 px-3",
+                        TIMELINE_GROUP_ROW_HEIGHT_CLASS
+                      )}
+                    >
+                      {groupAdornment}
+                      <span className="text-xs font-medium">{groupLabel}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {groupItems.length}
+                      </span>
+                    </div>
 
                     {groupItems.map((item) => (
-                      <TimelineGridRow
-                        key={item.id}
-                        data={data}
-                        days={days}
-                        gridTemplateColumns={timelineGridTemplateColumns}
-                        item={item}
-                        onCaptureDragOffset={captureDragOffset}
-                        onResizeStart={handleTimelineBarResizeStart}
-                        rangeOverride={
-                          resizeDraft?.itemId === item.id ? resizeDraft : null
-                        }
-                      />
+                      <TimelineLabelRow key={item.id} data={data} item={item} />
                     ))}
                   </div>
                 )
               })}
+            </div>
+
+            <div
+              className="min-w-0 overflow-x-auto overscroll-x-contain"
+              onScroll={handleTimelineBodyHorizontalScroll}
+            >
+              <div
+                className="relative min-w-max"
+                style={{ width: timelineCanvasWidth }}
+              >
+                <div className="relative">
+                  {todayIndex >= 0 && todayIndex < days.length ? (
+                    <div
+                      className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
+                      style={{ left: (todayIndex + 0.5) * dayColumnWidth }}
+                    />
+                  ) : null}
+
+                  {visibleGroups.map(([groupName, subgroups]) => {
+                    const groupItems = Array.from(subgroups.values()).flat()
+
+                    return (
+                      <div key={groupName}>
+                        <div
+                          className={cn(
+                            "border-b bg-muted/30",
+                            TIMELINE_GROUP_ROW_HEIGHT_CLASS
+                          )}
+                        />
+
+                        {groupItems.map((item) => (
+                          <TimelineGridRow
+                            key={item.id}
+                            data={data}
+                            days={days}
+                            gridTemplateColumns={timelineGridTemplateColumns}
+                            item={item}
+                            onCaptureDragOffset={captureDragOffset}
+                            onResizeStart={handleTimelineBarResizeStart}
+                            rangeOverride={
+                              resizeDraft?.itemId === item.id
+                                ? resizeDraft
+                                : null
+                            }
+                          />
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -507,7 +571,12 @@ function TimelineLabelRow({ data, item }: { data: AppData; item: WorkItem }) {
 
   return (
     <IssueContextMenu data={data} item={item}>
-      <div className="flex h-9 items-center gap-2.5 border-b bg-background px-3">
+      <div
+        className={cn(
+          "flex items-center gap-2.5 border-b bg-background px-3",
+          TIMELINE_ITEM_ROW_HEIGHT_CLASS
+        )}
+      >
         <div
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -577,7 +646,7 @@ function TimelineGridRow({
   const span = Math.max(1, differenceInCalendarDays(endDate, startDate) + 1)
 
   return (
-    <div className="relative h-9 border-b">
+    <div className={cn("relative border-b", TIMELINE_ITEM_ROW_HEIGHT_CLASS)}>
       <div className="grid h-full" style={{ gridTemplateColumns }}>
         {days.map((day) => (
           <TimelineDropCell
@@ -622,7 +691,8 @@ function TimelineDropCell({
     <div
       ref={setNodeRef}
       className={cn(
-        "h-9 border-r transition-colors",
+        "border-r transition-colors",
+        TIMELINE_ITEM_ROW_HEIGHT_CLASS,
         isWeekend && "bg-muted/20",
         isOver && "bg-primary/10"
       )}

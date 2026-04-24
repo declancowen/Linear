@@ -49,6 +49,7 @@ import {
   getInviteByTokenHandler,
   getSnapshotHandler,
   getSnapshotVersionHandler,
+  getWorkspaceMembershipBootstrapHandler,
   listWorkspacesForSyncHandler,
   lookupTeamByJoinCodeHandler,
 } from "./app/auth_bootstrap"
@@ -63,6 +64,7 @@ import {
   releaseNotificationDigestClaimHandler,
   toggleNotificationReadHandler,
   unarchiveNotificationHandler,
+  updateNotificationsHandler,
 } from "./app/notification_handlers"
 import {
   claimPendingEmailJobsHandler,
@@ -288,6 +290,16 @@ export const getSnapshotVersion = query({
   handler: getSnapshotVersionHandler,
 })
 
+export const getWorkspaceMembershipBootstrap = query({
+  args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    workspaceId: v.string(),
+  },
+  handler: getWorkspaceMembershipBootstrapHandler,
+})
+
 export const getScopedReadModelVersions = query({
   args: {
     ...serverAccessArgs,
@@ -451,6 +463,20 @@ export const markNotificationRead = mutation({
     notificationId: v.string(),
   },
   handler: markNotificationReadHandler,
+})
+
+export const updateNotifications = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    action: v.union(
+      v.literal("archive"),
+      v.literal("unarchive"),
+      v.literal("markRead")
+    ),
+    notificationIds: v.array(v.string()),
+  },
+  handler: updateNotificationsHandler,
 })
 
 export const markNotificationsEmailed = operationalMutation({
@@ -1309,6 +1335,8 @@ export const createWorkItem = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     origin: v.string(),
+    id: v.optional(v.string()),
+    descriptionDocId: v.optional(v.string()),
     teamId: v.string(),
     type: workItemTypeValidator,
     title: v.string(),

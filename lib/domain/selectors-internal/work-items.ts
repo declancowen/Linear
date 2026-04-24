@@ -603,11 +603,23 @@ export function buildItemGroupsWithEmptyGroups(
 ) {
   const groups = new Map(buildItemGroups(data, items, view))
   const statusOrder = getStatusOrderForItems(data, items)
-  const shouldIncludeEmptyGroups = !(
-    view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE) ?? false
-  )
+  const hasActiveFilters =
+    view.filters.status.length > 0 ||
+    view.filters.priority.length > 0 ||
+    view.filters.assigneeIds.length > 0 ||
+    view.filters.creatorIds.length > 0 ||
+    view.filters.leadIds.length > 0 ||
+    view.filters.health.length > 0 ||
+    view.filters.milestoneIds.length > 0 ||
+    view.filters.relationTypes.length > 0 ||
+    view.filters.projectIds.length > 0 ||
+    (view.filters.parentIds?.length ?? 0) > 0 ||
+    view.filters.itemTypes.length > 0 ||
+    view.filters.labelIds.length > 0 ||
+    view.filters.teamIds.length > 0 ||
+    !view.filters.showCompleted
 
-  if (shouldIncludeEmptyGroups) {
+  if (!hasActiveFilters) {
     getAvailableGroupKeysForItems(data, items, view.grouping).forEach(
       (groupKey) => {
         if (!groups.has(groupKey)) {

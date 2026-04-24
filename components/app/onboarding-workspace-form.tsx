@@ -4,6 +4,12 @@ import { ArrowRight, X } from "@phosphor-icons/react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import {
+  getTextInputLimitState,
+  workspaceDescriptionConstraints,
+  workspaceSetupNameConstraints,
+} from "@/lib/domain/input-constraints"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -81,6 +87,12 @@ export function OnboardingWorkspaceForm() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const nameFieldRef = useRef<HTMLDivElement | null>(null)
   const [avatarSize, setAvatarSize] = useState(DEFAULT_AVATAR_SIZE)
+  const nameLimitState = getTextInputLimitState(name, workspaceSetupNameConstraints)
+  const descriptionLimitState = getTextInputLimitState(
+    description,
+    workspaceDescriptionConstraints
+  )
+  const canSubmit = nameLimitState.canSubmit && descriptionLimitState.canSubmit
 
   useEffect(() => {
     if (!logoPreviewUrl?.startsWith("blob:")) {
@@ -122,6 +134,10 @@ export function OnboardingWorkspaceForm() {
   }, [])
 
   async function handleCreateWorkspace() {
+    if (!canSubmit) {
+      return
+    }
+
     const normalizedName = name.trim()
     const normalizedDescription = description.trim()
 
@@ -241,6 +257,11 @@ export function OnboardingWorkspaceForm() {
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder={DEFAULT_WORKSPACE_NAME}
+                  maxLength={workspaceSetupNameConstraints.max}
+                />
+                <FieldCharacterLimit
+                  state={nameLimitState}
+                  limit={workspaceSetupNameConstraints.max}
                 />
               </FieldContent>
             </Field>
@@ -254,8 +275,13 @@ export function OnboardingWorkspaceForm() {
               id="workspace-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
+              maxLength={workspaceDescriptionConstraints.max}
               className="min-h-24 resize-none"
               placeholder={DEFAULT_WORKSPACE_DESCRIPTION}
+            />
+            <FieldCharacterLimit
+              state={descriptionLimitState}
+              limit={workspaceDescriptionConstraints.max}
             />
           </FieldContent>
         </Field>
@@ -285,7 +311,7 @@ export function OnboardingWorkspaceForm() {
           </div>
 
           <Button
-            disabled={submitting}
+            disabled={submitting || !canSubmit}
             className="w-full sm:w-auto"
             onClick={() => void handleCreateWorkspace()}
           >

@@ -7,6 +7,12 @@ import { toast } from "sonner"
 
 import { submitLogoutForm } from "@/lib/browser/logout"
 import {
+  getTextInputLimitState,
+  profileAvatarFallbackConstraints,
+  profileNameConstraints,
+  profileTitleConstraints,
+} from "@/lib/domain/input-constraints"
+import {
   clearPendingThemePreference,
   setPendingThemePreference,
 } from "@/lib/browser/theme-preference-sync"
@@ -20,6 +26,7 @@ import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -331,6 +338,16 @@ export function UserSettingsScreen() {
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
+  const nameLimitState = getTextInputLimitState(name, profileNameConstraints)
+  const titleLimitState = getTextInputLimitState(title, profileTitleConstraints)
+  const avatarLimitState = getTextInputLimitState(
+    avatarUrl,
+    profileAvatarFallbackConstraints
+  )
+  const canSaveProfile =
+    nameLimitState.canSubmit &&
+    titleLimitState.canSubmit &&
+    avatarLimitState.canSubmit
   const deleteAccountBlockReason = useAppStore((state) => {
     if (
       state.workspaces.some(
@@ -735,7 +752,10 @@ export function UserSettingsScreen() {
         />
       }
       footer={
-        <Button disabled={saving} onClick={() => void handleSave()}>
+        <Button
+          disabled={saving || !canSaveProfile}
+          onClick={() => void handleSave()}
+        >
           {saving ? "Saving..." : "Save profile"}
         </Button>
       }
@@ -771,6 +791,11 @@ export function UserSettingsScreen() {
                   id="profile-name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
+                  maxLength={profileNameConstraints.max}
+                />
+                <FieldCharacterLimit
+                  state={nameLimitState}
+                  limit={profileNameConstraints.max}
                 />
               </FieldContent>
             </Field>
@@ -781,6 +806,11 @@ export function UserSettingsScreen() {
                   id="profile-title"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
+                  maxLength={profileTitleConstraints.max}
+                />
+                <FieldCharacterLimit
+                  state={titleLimitState}
+                  limit={profileTitleConstraints.max}
                 />
               </FieldContent>
             </Field>
@@ -791,6 +821,11 @@ export function UserSettingsScreen() {
                   id="profile-avatar"
                   value={avatarUrl}
                   onChange={(event) => setAvatarUrl(event.target.value)}
+                  maxLength={profileAvatarFallbackConstraints.max}
+                />
+                <FieldCharacterLimit
+                  state={avatarLimitState}
+                  limit={profileAvatarFallbackConstraints.max}
                 />
               </FieldContent>
               <FieldDescription>

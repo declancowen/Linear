@@ -2,11 +2,12 @@
 
 import { useState, type CSSProperties } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowSquareOut, Trash } from "@phosphor-icons/react"
+import { ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react"
 
 import type { AppData, Document, DocumentPresenceViewer } from "@/lib/domain/types"
 import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { useAppStore } from "@/lib/store/app-store"
+import { CreateDocumentDialog } from "@/components/app/screens/create-document-dialog"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   Avatar,
@@ -32,11 +33,15 @@ const COMPACT_DOCUMENT_PRESENCE_COUNT_CLASS_NAME = "size-[18px] text-[8px]"
 
 function DocumentActionMenuContent({
   document,
+  canRenameDocument,
   canDeleteDocument,
+  onRequestRename,
   onRequestDelete,
 }: {
   document: Document
+  canRenameDocument: boolean
   canDeleteDocument: boolean
+  onRequestRename: () => void
   onRequestDelete: () => void
 }) {
   const router = useRouter()
@@ -49,6 +54,16 @@ function DocumentActionMenuContent({
         <ArrowSquareOut className="size-4" />
         Open document
       </ContextMenuItem>
+      {canRenameDocument ? (
+        <ContextMenuItem
+          onSelect={() => {
+            onRequestRename()
+          }}
+        >
+          <PencilSimple className="size-4" />
+          Rename
+        </ContextMenuItem>
+      ) : null}
       {canDeleteDocument ? (
         <ContextMenuItem
           variant="destructive"
@@ -73,9 +88,11 @@ export function DocumentContextMenu({
   document: Document
   children: React.ReactNode
 }) {
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
-  const canDeleteDocument = canEditDocumentInUi(data, document)
+  const canEditDocument = canEditDocumentInUi(data, document)
+  const canDeleteDocument = canEditDocument
 
   async function handleDelete() {
     setDeletingDocument(true)
@@ -95,13 +112,25 @@ export function DocumentContextMenu({
         <ContextMenuContent className="w-56">
           <DocumentActionMenuContent
             document={document}
+            canRenameDocument={canEditDocument}
             canDeleteDocument={canDeleteDocument}
+            onRequestRename={() => {
+              setRenameDialogOpen(true)
+            }}
             onRequestDelete={() => {
               setDeleteDialogOpen(true)
             }}
           />
         </ContextMenuContent>
       </ContextMenu>
+      <CreateDocumentDialog
+        open={renameDialogOpen}
+        onOpenChange={setRenameDialogOpen}
+        mode="rename"
+        documentId={document.id}
+        initialTitle={document.title}
+        disabled={!canEditDocument}
+      />
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
