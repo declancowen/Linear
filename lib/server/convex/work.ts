@@ -83,6 +83,16 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     code: "WORK_ITEM_PARENT_CYCLE",
   },
   {
+    match: "Work item id already exists",
+    status: 409,
+    code: "WORK_ITEM_ID_CONFLICT",
+  },
+  {
+    match: "Description document id already exists",
+    status: 409,
+    code: "WORK_ITEM_DESCRIPTION_DOCUMENT_ID_CONFLICT",
+  },
+  {
     match: "Work item title must be between 2 and 96 characters",
     status: 400,
     code: "WORK_ITEM_TITLE_INVALID",

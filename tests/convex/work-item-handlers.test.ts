@@ -171,6 +171,50 @@ describe("work item handlers", () => {
     })
   })
 
+  it("rejects duplicate client-supplied work item ids before inserting", async () => {
+    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        id: "item_1",
+        teamId: "team_1",
+        type: "task",
+        title: "Launch task",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+      })
+    ).rejects.toThrow("Work item id already exists")
+
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("rejects duplicate client-supplied description document ids before inserting", async () => {
+    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        descriptionDocId: "doc_1",
+        teamId: "team_1",
+        type: "task",
+        title: "Launch task",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+      })
+    ).rejects.toThrow("Description document id already exists")
+
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("rejects invalid schedule strings on update before patching", async () => {
     const { updateWorkItemHandler } = await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()

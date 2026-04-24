@@ -64,7 +64,12 @@ vi.mock("@/components/ui/template-primitives", async (importOriginal) => {
   }
 })
 
+vi.mock("@/lib/browser/dialog-transitions", () => ({
+  openManagedCreateDialog: vi.fn(),
+}))
+
 import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
@@ -358,6 +363,41 @@ function createAssignedHierarchyWithoutVisibleDescendantsData(): AppData {
   }
 }
 
+function createEpicGroupedCreateData(): AppData {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    teams: [createTeam()],
+    teamMemberships: [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ],
+    workItems: [
+      {
+        ...createWorkItem(),
+        id: "epic-parent",
+        key: "TES-30",
+        type: "epic",
+        title: "Parent epic",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "feature-child",
+        key: "TES-31",
+        type: "feature",
+        title: "Grouped feature",
+        status: "in-progress",
+        parentId: "epic-parent",
+      },
+    ],
+  }
+}
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -550,6 +590,57 @@ describe("ListView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Medium" }))
     expect(await screen.findByText("Urgent")).toBeInTheDocument()
+  })
+
+  it("preserves grouped parent defaults when adding an item from epic lanes", () => {
+    const data = createEpicGroupedCreateData()
+    const groupedItems = data.workItems.filter((item) => item.id === "feature-child")
+    const view = createView("board", [], {
+      grouping: "epic",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: [],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={groupedItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={groupedItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
   })
 
   it("renders the lowest assigned descendant under the selected parent level in list mode", () => {

@@ -123,6 +123,8 @@ describe("convex work server wrappers", () => {
       .mockRejectedValueOnce(new Error("Parent item not found"))
       .mockRejectedValueOnce(new Error("Work item is not scheduled"))
       .mockRejectedValueOnce(new Error("Due date must be a valid calendar date"))
+      .mockRejectedValueOnce(new Error("Work item id already exists"))
+      .mockRejectedValueOnce(new Error("Description document id already exists"))
       .mockRejectedValueOnce(
         new Error("Work item title must be between 2 and 96 characters")
       )
@@ -172,6 +174,38 @@ describe("convex work server wrappers", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "WORK_ITEM_SCHEDULE_INVALID",
+    })
+
+    await expect(
+      createWorkItemServer({
+        currentUserId: "user_1",
+        id: "item_1",
+        teamId: "team_1",
+        type: "task",
+        title: "Launch task",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORK_ITEM_ID_CONFLICT",
+    })
+
+    await expect(
+      createWorkItemServer({
+        currentUserId: "user_1",
+        descriptionDocId: "doc_1",
+        teamId: "team_1",
+        type: "task",
+        title: "Launch task",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORK_ITEM_DESCRIPTION_DOCUMENT_ID_CONFLICT",
     })
 
     await expect(

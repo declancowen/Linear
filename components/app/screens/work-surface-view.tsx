@@ -219,7 +219,7 @@ function buildCreateDefaultsForGroup({
     assigneeId: groupedPatch.assigneeId,
     primaryProjectId: groupedPatch.primaryProjectId,
     labelIds: groupedPatch.labelIds,
-    parentId: null,
+    parentId: groupedPatch.parentId ?? null,
   }
 }
 

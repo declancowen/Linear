@@ -897,6 +897,25 @@ export async function createWorkItemHandler(
     }
   }
 
+  if (args.descriptionDocId) {
+    const existingDescriptionDocument = await getDocumentDoc(
+      ctx,
+      args.descriptionDocId
+    )
+
+    if (existingDescriptionDocument) {
+      throw new Error("Description document id already exists")
+    }
+  }
+
+  if (args.id) {
+    const existingWorkItem = await getWorkItemDoc(ctx, args.id)
+
+    if (existingWorkItem) {
+      throw new Error("Work item id already exists")
+    }
+  }
+
   const teamItems = await ctx.db
     .query("workItems")
     .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))

@@ -51,11 +51,11 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 15:50:45 BST` |
-| **Total turns** | `3` |
+| **Last reviewed** | `2026-04-24 16:11:31 BST` |
+| **Total turns** | `4` |
 | **Open findings** | `0` |
-| **Resolved findings** | `8` |
-| **Accepted findings** | `14` |
+| **Resolved findings** | `10` |
+| **Accepted findings** | `16` |
 
 ---
 
@@ -280,4 +280,59 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 - The `chat-thread.tsx` dead-code ternary is cleanup-only.
 - The `ConvexAppProvider` loading-contract observations are architectural notes, not blockers.
 - The `pending-work-item-creations.ts` and `pending view config reconciliation` notes are positive findings, not defects.
+- Top-level items still not becoming children via drag is intentional on this branch.
+
+---
+
+## Turn 4 — 2026-04-24 16:11:31 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `acab9af2d14f1c19ee7235dbb9eb78c3e5588be0` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the review loop on the new batch of findings and confirmed two real regressions. First, optimistic work-item creation was accepting caller-supplied work-item and description-document IDs without any server-side collision check, which could create duplicate domain IDs and break downstream `.unique()` reads. That family is now fixed end-to-end: the Convex handler rejects collisions, and the server wrapper maps those rejects to typed `409` application errors. Second, grouped `Add item` flows were discarding hierarchy-derived `parentId` defaults, so lanes grouped by epic/feature opened the create dialog detached from the selected parent. That is now fixed for both board and list entrypoints. The rest of the batch was either stale against the current tree, intentional product behavior, or architectural commentary rather than a live defect.
+
+**Outcome:** all clear
+**Risk score:** high — this turn touched the work-item creation contract and grouped create defaults in the main work-surface flow
+**Change archetypes:** optimistic-id-contract, grouped-create-defaults
+**Intended change:** close the remaining server-side collision and grouped-create regressions without widening scope into already triaged intentional UX behavior
+**Intent vs actual:** aligned after remediation; optimistic IDs remain supported for local reconciliation, but the server now rejects collisions instead of trusting them blindly, and grouped create flows preserve hierarchy-derived defaults
+**Confidence:** medium-high — current branch state was reassessed this turn, the new findings were validated against the live tree, sibling closure was completed for both bug families, and targeted verification was rerun across the handler, route, and UI entrypoints
+**Coverage note:** re-read `createWorkItemHandler`, the `/api/items` route contract, grouped create defaults in `work-surface-view`, and the current create-dialog defaulting behavior before applying fixes
+**Finding triage:** the repeated group-chat CTA report is still a false positive on the current tree because the CTA only renders once participants exist; the avatar/logo constraint regression is already fixed on this branch; the remaining repeated notes below remain intentional or non-blocking
+**Branch totality:** reassessed on the current working tree, not inherited from prior turns
+**Hotspot ledger:** revisited this turn; no open hotspot families remain
+**Sibling closure:** completed across both client-supplied ID surfaces inside work-item creation (`id` and `descriptionDocId`) and both grouped create entrypoints (`BoardView` and `ListView`)
+**Remediation impact surface:** checked the optimistic store path, Convex mutation handler, server wrapper error mapping, route-facing contract tests, and create-dialog default handling so the fix holds across UI and backend boundaries
+**Challenger pass:** completed — challenged the batch for stale/false-positive findings, then reran the creation path and grouped-create tests after the confirmed fixes landed
+**Weakest-evidence areas:** manual browser QA for drag/drop intent on extraction behavior remains the weakest evidence area, but no new code or test evidence indicates a correctness bug there
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm exec vitest run tests/convex/work-item-handlers.test.ts tests/components/work-surface-view.test.tsx` — passed (`2/2` files, `20/20` tests)
+- `pnpm exec vitest run tests/convex/work-item-handlers.test.ts tests/lib/server/convex-work.test.ts tests/components/work-surface-view.test.tsx tests/app/api/work-route-contracts.test.ts` — passed (`4/4` files, `44/44` tests)
+
+### Resolution ledger
+
+#### Resolved
+
+- `B4-01` — optimistic work-item creation no longer trusts caller-supplied IDs blindly. The server now rejects collisions for both `args.id` and `args.descriptionDocId` before inserting, and the server wrapper maps those failures to typed `409` application errors. This preserves the optimistic reconciliation contract without allowing duplicate domain IDs to corrupt `.unique()` reads later. Evidence: `convex/app/work_item_handlers.ts`, `lib/server/convex/work.ts`, `tests/convex/work-item-handlers.test.ts`, `tests/lib/server/convex-work.test.ts`.
+- `B4-02` — grouped `Add item` flows now preserve hierarchy-derived `parentId` defaults, so lanes grouped by epic/feature open the create dialog scoped to the selected parent instead of dropping the new item outside the group. Evidence: `components/app/screens/work-surface-view.tsx`, `tests/components/work-surface-view.test.tsx`.
+
+#### Accepted / non-blocking observations
+
+- `workspace-chat-ui.tsx` create-chat CTA gating report remains a false positive on the current tree because the footer CTA is not rendered until at least one participant is selected.
+- `team-settings-screen.tsx` summary min-length gating is stricter UX, but it matches the existing backend contract and now provides inline feedback instead of a save-time failure.
+- Empty-group synthesis suppression when filters are active remains an intentional UX tradeoff rather than a proven correctness bug.
+- Item-drop and lane-drop extraction behavior on the work surface remains intentional and should be validated in manual QA, but it is not a code defect relative to the requested behavior.
+- The `chat-thread.tsx` dead-code ternary is cleanup-only.
+- The Convex bootstrap/loading-contract notes are architectural observations, not blockers.
+- The `pending-work-item-creations.ts` and pending view reconciliation notes are positive findings, not defects.
+- The retained-team grace timeout behavior is intentional and now bounded.
 - Top-level items still not becoming children via drag is intentional on this branch.
