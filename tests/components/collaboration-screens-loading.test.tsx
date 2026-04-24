@@ -337,7 +337,7 @@ describe("collaboration screen loading", () => {
     expect(screen.queryByText("No posts yet")).not.toBeInTheDocument()
   })
 
-  it("orders workspace channel posts by creation date instead of reply activity", () => {
+  it("orders workspace channel posts by activity date", () => {
     useAppStore.setState({
       conversations: [
         {
@@ -398,6 +398,70 @@ describe("collaboration screen loading", () => {
 
     expect(
       screen.getAllByText(/Forum post/).map((node) => node.textContent)
-    ).toEqual(["Forum post newer-post", "Forum post older-post"])
+    ).toEqual(["Forum post older-post", "Forum post newer-post"])
+  })
+
+  it("orders team channel posts by activity date", () => {
+    useAppStore.setState({
+      conversations: [
+        {
+          id: "team_channel_1",
+          kind: "channel",
+          scopeType: "team",
+          scopeId: "team_1",
+          variant: "group",
+          title: "Announcements",
+          description: "",
+          participantIds: ["user_1"],
+          roomId: null,
+          roomName: null,
+          createdBy: "user_1",
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-22T00:00:00.000Z",
+          lastActivityAt: "2026-04-22T00:00:00.000Z",
+        },
+      ],
+      channelPosts: [
+        {
+          id: "older-post",
+          conversationId: "team_channel_1",
+          title: "Older",
+          content: "<p>Older</p>",
+          createdBy: "user_1",
+          mentionUserIds: [],
+          reactions: [],
+          createdAt: "2026-04-20T00:00:00.000Z",
+          updatedAt: "2026-04-24T00:00:00.000Z",
+        },
+        {
+          id: "newer-post",
+          conversationId: "team_channel_1",
+          title: "Newer",
+          content: "<p>Newer</p>",
+          createdBy: "user_1",
+          mentionUserIds: [],
+          reactions: [],
+          createdAt: "2026-04-23T00:00:00.000Z",
+          updatedAt: "2026-04-23T00:00:00.000Z",
+        },
+      ],
+    })
+    useScopedReadModelRefreshMock
+      .mockReturnValueOnce({
+        error: null,
+        hasLoadedOnce: true,
+        refreshing: false,
+      })
+      .mockReturnValueOnce({
+        error: null,
+        hasLoadedOnce: true,
+        refreshing: false,
+      })
+
+    render(<TeamChannelsScreen teamSlug="platform" />)
+
+    expect(
+      screen.getAllByText(/Forum post/).map((node) => node.textContent)
+    ).toEqual(["Forum post older-post", "Forum post newer-post"])
   })
 })

@@ -77,7 +77,7 @@ export function WorkspaceChannelsScreen() {
     useShallow((state) =>
       channels
         .flatMap((channel) => getChannelPosts(state, channel.id))
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     )
   )
   const members = useAppStore(
@@ -387,7 +387,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
     useShallow((state) =>
       channels
         .flatMap((channel) => getChannelPosts(state, channel.id))
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     )
   )
   const [sidebarOpen, setSidebarOpen] = useState(true)

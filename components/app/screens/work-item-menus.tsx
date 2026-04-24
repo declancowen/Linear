@@ -66,10 +66,14 @@ function IssueActionMenuContent({
   data,
   item,
   kind,
+  requestConfirmedWorkItemUpdate,
 }: {
   data: AppData
   item: WorkItem
   kind: "dropdown" | "context"
+  requestConfirmedWorkItemUpdate: ReturnType<
+    typeof useWorkItemProjectCascadeConfirmation
+  >["requestUpdate"]
 }) {
   const team = getTeam(data, item.teamId)
   const editable = team ? canEditTeam(data, team.id) : false
@@ -97,8 +101,6 @@ function IssueActionMenuContent({
   const MenuItem: ElementType =
     kind === "dropdown" ? DropdownMenuItem : ContextMenuItem
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
-    useWorkItemProjectCascadeConfirmation()
 
   async function handleDelete() {
     await useAppStore.getState().deleteWorkItem(item.id)
@@ -244,7 +246,6 @@ function IssueActionMenuContent({
         variant="destructive"
         onConfirm={() => void handleDelete()}
       />
-      {confirmationDialog}
     </>
   )
 }
@@ -258,22 +259,33 @@ export function IssueActionMenu({
   item: WorkItem
   triggerClassName?: string
 }) {
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={triggerClassName}
-          onPointerDown={stopDragPropagation}
-          onClick={stopMenuEvent}
-        >
-          <DotsThree className="size-4 text-muted-foreground" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <IssueActionMenuContent data={data} item={item} kind="dropdown" />
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={triggerClassName}
+            onPointerDown={stopDragPropagation}
+            onClick={stopMenuEvent}
+          >
+            <DotsThree className="size-4 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <IssueActionMenuContent
+            data={data}
+            item={item}
+            kind="dropdown"
+            requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {confirmationDialog}
+    </>
   )
 }
 
@@ -286,12 +298,23 @@ export function IssueContextMenu({
   item: WorkItem
   children: ReactNode
 }) {
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
+
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
-        <IssueActionMenuContent data={data} item={item} kind="context" />
-      </ContextMenuContent>
-    </ContextMenu>
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuContent className="w-56">
+          <IssueActionMenuContent
+            data={data}
+            item={item}
+            kind="context"
+            requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
+          />
+        </ContextMenuContent>
+      </ContextMenu>
+      {confirmationDialog}
+    </>
   )
 }

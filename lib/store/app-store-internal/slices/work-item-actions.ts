@@ -584,9 +584,9 @@ export function createWorkItemActions({
       }
 
       const createTask = syncCreateWorkItem(get().currentUserId, {
+        ...parsed.data,
         id: createdItemId,
         descriptionDocId: createdDescriptionDocId ?? undefined,
-        ...parsed.data,
         startDate: resolvedStartDate,
         dueDate: resolvedDueDate,
         targetDate: resolvedTargetDate,

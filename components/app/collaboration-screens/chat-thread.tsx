@@ -92,9 +92,7 @@ function ChatComposer({
       typingTimeoutRef.current = null
     }
     onTypingChange?.(false)
-    onSend(
-      typeof liveContent === "string" ? liveContent : editorInstanceRef.current?.getHTML() ?? content
-    )
+    onSend(liveContent)
     setContent(EMPTY_COMPOSER_CONTENT)
     setComposerKey((current) => current + 1)
   }

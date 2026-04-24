@@ -376,7 +376,7 @@ function ConvexStateSync({
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [authenticatedUser?.email])
+  }, [authenticatedUser?.email, initialWorkspaceId])
 
   return (
     <>

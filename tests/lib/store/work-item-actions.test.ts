@@ -848,6 +848,61 @@ describe("work item actions", () => {
     })
   })
 
+  it("keeps optimistic item and description ids when callers smuggle ids into the input", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const createdItemId = actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Smuggled ids",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      id: "caller-item-id",
+      descriptionDocId: "caller-doc-id",
+    } as never)
+
+    expect(createdItemId).toBeTruthy()
+    expect(syncCreateWorkItemMock).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        id: createdItemId,
+        descriptionDocId: state.workItems[0]?.descriptionDocId,
+      })
+    )
+    expect(syncCreateWorkItemMock).not.toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        id: "caller-item-id",
+        descriptionDocId: "caller-doc-id",
+      })
+    )
+  })
+
   it("rejects work item schedule ranges where the target date is before the start date", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"

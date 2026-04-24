@@ -363,7 +363,9 @@ export function CreateWorkspaceChatDialog({
               size="sm"
               className="h-7 gap-1 text-xs"
               onClick={handleCreate}
-              disabled={!groupNameLimitState.canSubmit}
+              disabled={
+                !groupNameLimitState.canSubmit || participantIds.length === 0
+              }
             >
               {isGroup ? "Create group" : "Start chat"}
               <ShortcutKeys

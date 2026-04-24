@@ -72,7 +72,8 @@ import {
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
 
-const DRAG_START_DISTANCE_PX = 6
+const DRAG_HOLD_DELAY_MS = 160
+const DRAG_HOLD_TOLERANCE_PX = 8
 const META_CHIP_CLASS =
   "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2"
 const META_TEXT_CLASS = "shrink-0 text-[11.5px] text-fg-3 tabular-nums"
@@ -81,7 +82,8 @@ function useHoldToDragSensors() {
   return useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: DRAG_START_DISTANCE_PX,
+        delay: DRAG_HOLD_DELAY_MS,
+        tolerance: DRAG_HOLD_TOLERANCE_PX,
       },
     })
   )
