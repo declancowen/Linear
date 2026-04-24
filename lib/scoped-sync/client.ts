@@ -11,11 +11,17 @@ export type ScopedInvalidationEnvelope = {
   versions: ScopedInvalidationEntry[]
 }
 
+export type ScopedInvalidationUnavailableEnvelope = {
+  code: string
+  message: string
+}
+
 type ScopedInvalidationSubscriber = {
   id: number
   scopeKeys: Set<string>
   onReady?: (envelope: ScopedInvalidationEnvelope) => void
   onInvalidate?: (envelope: ScopedInvalidationEnvelope) => void
+  onUnavailable?: (envelope: ScopedInvalidationUnavailableEnvelope) => void
   onError?: (error: Event) => void
 }
 
@@ -73,6 +79,12 @@ function dispatchInvalidate(envelope: ScopedInvalidationEnvelope) {
   }
 }
 
+function dispatchUnavailable(envelope: ScopedInvalidationUnavailableEnvelope) {
+  for (const subscriber of subscribers.values()) {
+    subscriber.onUnavailable?.(envelope)
+  }
+}
+
 function dispatchError(error: Event) {
   for (const subscriber of subscribers.values()) {
     subscriber.onError?.(error)
@@ -124,6 +136,15 @@ function rebuildScopedInvalidationStream() {
     } catch {}
   })
 
+  eventSource.addEventListener("unavailable", (event: MessageEvent<string>) => {
+    try {
+      const payload = JSON.parse(
+        event.data
+      ) as ScopedInvalidationUnavailableEnvelope
+      dispatchUnavailable(payload)
+    } catch {}
+  })
+
   eventSource.onerror = (event) => {
     dispatchError(event)
   }
@@ -149,6 +170,7 @@ export function openScopedInvalidationStream(input: {
   scopeKeys: string[]
   onReady?: (envelope: ScopedInvalidationEnvelope) => void
   onInvalidate?: (envelope: ScopedInvalidationEnvelope) => void
+  onUnavailable?: (envelope: ScopedInvalidationUnavailableEnvelope) => void
   onError?: (error: Event) => void
 }) {
   if (typeof EventSource === "undefined") {
@@ -160,6 +182,7 @@ export function openScopedInvalidationStream(input: {
     scopeKeys: new Set(normalizeScopeKeys(input.scopeKeys)),
     onReady: input.onReady,
     onInvalidate: input.onInvalidate,
+    onUnavailable: input.onUnavailable,
     onError: input.onError,
   }
 

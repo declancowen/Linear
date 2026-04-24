@@ -102,13 +102,9 @@ describe("convex auth server wrappers", () => {
       getScopedReadModelVersionsServer({
         scopeKeys: ["document-detail:doc_1", "document-detail:doc_1"],
       })
-    ).resolves.toEqual({
-      versions: [
-        {
-          scopeKey: "document-detail:doc_1",
-          version: 0,
-        },
-      ],
+    ).rejects.toMatchObject({
+      status: 503,
+      code: "SCOPED_READ_MODELS_UNAVAILABLE",
     })
 
     await expect(

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ApplicationError } from "@/lib/server/application-errors"
 
 const requireSessionMock = vi.fn()
 const requireConvexUserMock = vi.fn()
@@ -103,5 +104,48 @@ describe("scoped events route contracts", () => {
     expect(getScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
       scopeKeys: ["shell-context"],
     })
+  })
+
+  it("emits a healthy ready event with the default retry interval", async () => {
+    const { GET } = await import("@/app/api/events/scoped/route")
+    const requestAbortController = new AbortController()
+
+    const response = await GET(
+      new Request("http://localhost/api/events/scoped?scopeKey=shell-context", {
+        signal: requestAbortController.signal,
+      })
+    )
+
+    expect(response.status).toBe(200)
+    const reader = response.body?.getReader()
+    expect(reader).toBeDefined()
+
+    const firstChunk = await reader!.read()
+    const text = new TextDecoder().decode(firstChunk.value)
+
+    expect(text).toContain("retry: 3000")
+    expect(text).toContain("event: ready")
+
+    requestAbortController.abort()
+    await reader!.cancel()
+  })
+
+  it("emits an unavailable event when scoped read model versions are unavailable", async () => {
+    getScopedReadModelVersionsServerMock.mockRejectedValueOnce(
+      new ApplicationError("Scoped read model versions are unavailable", 503, {
+        code: "SCOPED_READ_MODELS_UNAVAILABLE",
+      })
+    )
+
+    const { GET } = await import("@/app/api/events/scoped/route")
+
+    const response = await GET(
+      new Request("http://localhost/api/events/scoped?scopeKey=shell-context")
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    expect(body).toContain("retry: 10000")
+    expect(body).toContain("event: unavailable")
   })
 })

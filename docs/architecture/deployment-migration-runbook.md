@@ -59,6 +59,14 @@ Rules:
 
 Use this sequence whenever a change affects Convex schema, generated bindings, migration-sensitive reads, or the hosted collaboration runtime.
 
+For collaboration/scoped-sync work, think in terms of three deployable layers:
+
+- web app (`Next.js` / Vercel)
+- PartyKit collaboration runtime
+- Convex backend functions/helpers
+
+If the change crosses those boundaries, the release is coordinated. Do not treat it as a single-service deploy.
+
 1. Run local verification:
    - `pnpm convex:codegen`
    - `pnpm check`
@@ -66,19 +74,25 @@ Use this sequence whenever a change affects Convex schema, generated bindings, m
    - no diff in `convex/_generated`
 3. Deploy to the intended non-prod environment first:
    - `pnpm convex:deploy`
-4. If the change depends on backfilled lookup fields, run:
+4. Deploy the web app to the same non-prod environment when route, UI, or browser contract changes are involved.
+5. If the change depends on backfilled lookup fields, run:
    - `pnpm maintenance:backfill-lookups`
-5. Verify post-deploy status:
+6. Verify post-deploy status:
    - backfill reports zero remaining when applicable
    - critical route/test smoke paths still pass
-6. If the change affects the hosted collaboration runtime, deploy PartyKit to the matching environment:
+7. If the change affects the hosted collaboration runtime, deploy PartyKit to the matching environment:
    - `pnpm partykit:deploy:dev`
-7. Tail hosted collaboration logs during smoke verification:
+8. Tail hosted collaboration logs during smoke verification:
    - `pnpm partykit:tail:dev`
-8. Repeat the same choreography for production:
+9. Repeat the same choreography for production:
    - `pnpm convex:deploy`
+   - deploy the matching web app build
    - `pnpm partykit:deploy:prod`
    - `pnpm partykit:tail:prod`
+
+### Collaboration-specific note
+
+If a release changes collaborative editor behavior, PartyKit session/bootstrap behavior, or scoped-sync freshness/error handling, assume `web + PartyKit + Convex` must be aligned unless the implementation is explicitly backward compatible across mixed versions.
 
 ## Backfill policy
 

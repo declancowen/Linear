@@ -44,6 +44,8 @@ function normalizeReadModelFetchResult(
   }
 }
 
+const SCOPED_DEGRADED_REFRESH_INTERVAL_MS = 5000
+
 export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +55,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const inFlightGenerationRef = useRef<number | null>(null)
   const queuedRef = useRef(false)
   const runGenerationRef = useRef(0)
+  const degradedIntervalIdRef = useRef<number | null>(null)
   const scopedSyncEnabled = isScopedSyncEnabled()
   const scopeKeySignature = normalizeScopeKeys(input.scopeKeys).join("|")
   const scopeKeys = useMemo(
@@ -140,11 +143,32 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }
   })
 
+  const stopDegradedRefresh = useEffectEvent(() => {
+    if (degradedIntervalIdRef.current === null) {
+      return
+    }
+
+    window.clearInterval(degradedIntervalIdRef.current)
+    degradedIntervalIdRef.current = null
+  })
+
+  const startDegradedRefresh = useEffectEvent(() => {
+    if (degradedIntervalIdRef.current !== null) {
+      return
+    }
+
+    void refresh()
+    degradedIntervalIdRef.current = window.setInterval(() => {
+      void refresh()
+    }, SCOPED_DEGRADED_REFRESH_INTERVAL_MS)
+  })
+
   useEffect(() => {
     if (!scopedSyncEnabled) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
+      stopDegradedRefresh()
       setRefreshing(false)
       setError(null)
       setLoadedScopeKeySignature("")
@@ -156,6 +180,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
+      stopDegradedRefresh()
       setRefreshing(false)
       setError(null)
       setLoadedScopeKeySignature("")
@@ -164,22 +189,36 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }
 
     runGenerationRef.current += 1
+    stopDegradedRefresh()
     setHasLoadedOnce(false)
     void refresh()
     let hasSeenReady = false
+    let hasEnteredDegradedMode = false
 
     const closeStream = openScopedInvalidationStream({
       scopeKeys,
       onReady() {
+        stopDegradedRefresh()
+
         if (hasSeenReady) {
+          hasEnteredDegradedMode = false
           void refresh()
           return
         }
 
         hasSeenReady = true
+
+        if (hasEnteredDegradedMode) {
+          hasEnteredDegradedMode = false
+          void refresh()
+        }
       },
       onInvalidate() {
         void refresh()
+      },
+      onUnavailable() {
+        hasEnteredDegradedMode = true
+        startDegradedRefresh()
       },
       onError() {
         // The scoped SSE route intentionally rolls connections periodically.
@@ -202,6 +241,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
+      stopDegradedRefresh()
       setRefreshing(false)
       closeStream()
       window.removeEventListener("focus", handleFocus)

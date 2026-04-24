@@ -9,7 +9,21 @@ Service topology:
 - `linear-collaboration-dev` -> Convex dev
 - `linear-collaboration-prod` -> Convex prod
 
-Convex remains canonical. PartyKit is transport plus awareness only.
+Convex remains canonical. PartyKit is the live collaboration room/runtime layer for shared editors.
+
+## Product Scope
+
+PartyKit is used for:
+
+- team and workspace documents
+- work-item descriptions that are collaborative
+
+PartyKit is not used for:
+
+- private documents
+- normal non-collaborative Convex-only editing paths
+
+Private documents should never enter a PartyKit session. If collaboration is unavailable or disabled, the app should fall back to the existing non-collaborative editor behavior instead of opening a room.
 
 ## Required Environment Variables
 
@@ -54,6 +68,26 @@ For each service, set:
 - `COLLABORATION_TOKEN_SECRET`
 
 Keep the app and the matching PartyKit service on the same collaboration token secret.
+
+## Release Coordination
+
+Treat collaboration releases as a multi-layer contract.
+
+Deploy all required layers together when a change touches any of:
+
+- PartyKit room/server behavior
+- collaboration session issuance
+- collaboration token semantics
+- collaborative editor boot or save lifecycle
+- Convex-backed collaboration helpers or scoped-sync freshness behavior
+
+Typical combinations:
+
+- PartyKit-only runtime change: PartyKit deploy only
+- app-only UI change: Vercel/web deploy only
+- collaboration contract change: Vercel + PartyKit + Convex together when applicable
+
+Do not assume a collaboration change is safe to roll out with only one layer updated unless the change has been explicitly designed to tolerate mixed versions.
 
 ## Deployment Commands
 
@@ -103,6 +137,7 @@ If a hosted collaboration deploy is unhealthy:
 - `NEXT_PUBLIC_PARTYKIT_URL` points at the dev PartyKit service
 - two clients can edit the same team/workspace document live
 - two clients can edit the same work-item description live
+- private documents remain Convex-only and do not request collaboration sessions
 - PartyKit dev logs show room bootstrap and persist activity against Convex dev
 
 ### Prod

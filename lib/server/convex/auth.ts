@@ -149,7 +149,7 @@ export async function getScopedReadModelVersionsServer(input: {
 
     if (applicationError?.code === "SCOPED_READ_MODELS_UNAVAILABLE") {
       warnScopedReadModelFallback(error)
-      return createZeroVersionEnvelope(input.scopeKeys)
+      throw applicationError
     }
 
     throw applicationError ?? error

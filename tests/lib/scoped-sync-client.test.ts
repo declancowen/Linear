@@ -91,4 +91,30 @@ describe("openScopedInvalidationStream", () => {
     closeFirst()
     closeSecond()
   })
+
+  it("dispatches unavailable events to subscribers", async () => {
+    const { openScopedInvalidationStream } = await import(
+      "@/lib/scoped-sync/client"
+    )
+    const onUnavailable = vi.fn()
+
+    openScopedInvalidationStream({
+      scopeKeys: ["scope:a"],
+      onUnavailable,
+    })
+
+    await Promise.resolve()
+
+    const connection = EventSourceMock.instances[0]
+
+    connection.emit("unavailable", {
+      code: "SCOPED_READ_MODELS_UNAVAILABLE",
+      message: "Scoped read model versions are unavailable",
+    })
+
+    expect(onUnavailable).toHaveBeenCalledWith({
+      code: "SCOPED_READ_MODELS_UNAVAILABLE",
+      message: "Scoped read model versions are unavailable",
+    })
+  })
 })

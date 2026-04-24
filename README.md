@@ -1,6 +1,6 @@
 # Linear
 
-Internal project workspace app built with `Next.js`, `Convex`, `WorkOS`, and an optional `Electron` desktop shell.
+Internal project workspace app built with `Next.js`, `Convex`, `WorkOS`, hosted `PartyKit` collaboration services, and an optional `Electron` desktop shell.
 
 This README is intended for contributors joining the repo so they can get the project running locally without needing existing team context.
 
@@ -8,6 +8,7 @@ This README is intended for contributors joining the repo so they can get the pr
 
 - `Next.js` App Router for the web app and API routes
 - `Convex` for app data, queries, mutations, and generated bindings
+- `PartyKit` + `Yjs` for live collaborative editing on shared documents and work-item descriptions
 - `WorkOS AuthKit` for authentication and organization membership
 - `Resend` for email delivery
 - `100ms` for video/call rooms
@@ -21,6 +22,7 @@ This README is intended for contributors joining the repo so they can get the pr
 - `convex/`: schema, functions, and generated Convex API bindings
 - `electron/`: desktop entrypoints
 - `lib/`: server helpers, auth helpers, Convex client code, and shared app logic
+- `services/partykit/`: hosted PartyKit collaboration runtime
 - `scripts/`: operational scripts for bootstrapping and maintenance
 
 ## Prerequisites
@@ -31,6 +33,7 @@ Before you start, make sure you have:
 - `pnpm` installed
 - Access to the required third-party services:
   - Convex
+  - PartyKit / Cloudflare
   - WorkOS
   - Resend
   - 100ms
@@ -62,6 +65,12 @@ unless the runtime actually reads them.
 - `CONVEX_SERVER_TOKEN`: shared server token used by Next.js routes and Convex functions for the active app environment
 - `CONVEX_DEPLOY_KEY`: Convex deploy key used for deployment/codegen workflows
 
+### Collaboration / PartyKit
+
+- `NEXT_PUBLIC_PARTYKIT_URL`: hosted PartyKit base URL for the active environment
+- `COLLABORATION_TOKEN_SECRET`: shared token secret used by the app and matching PartyKit service
+- `NEXT_PUBLIC_ENABLE_COLLABORATION`: optional feature flag for collaborative editors, defaults to enabled
+
 ### WorkOS
 
 - `WORKOS_CLIENT_ID`: WorkOS client ID
@@ -70,7 +79,7 @@ unless the runtime actually reads them.
 - `WORKOS_COOKIE_DOMAIN`: shared auth cookie domain, usually blank on localhost
 - `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: WorkOS callback URL
 
-### App URLs
+### Vercel / App hosting
 
 - `APP_URL`: base app URL used by the app and email links
 - `NEXT_PUBLIC_APP_URL`: public app origin fallback used by email and script helpers
@@ -129,6 +138,8 @@ pnpm dev
 
 5. Open `http://localhost:3000`.
 
+Local development uses the hosted dev PartyKit service. Do not start a separate local `partykit dev` process for normal app work.
+
 ## Common commands
 
 ```bash
@@ -139,6 +150,10 @@ pnpm lint
 pnpm typecheck
 pnpm convex:codegen
 pnpm convex:deploy
+pnpm partykit:deploy:dev
+pnpm partykit:deploy:prod
+pnpm partykit:tail:dev
+pnpm partykit:tail:prod
 pnpm desktop:dev
 pnpm desktop:start
 ```
@@ -154,6 +169,12 @@ These scripts require a correctly configured `.env.local` and usually talk to li
 - `pnpm sync:workos:workspaces`: sync Convex workspaces to WorkOS organizations
 
 Operational expectations for deploys, backfills, sync jobs, and desktop smoke checks are documented in [docs/architecture/deployment-migration-runbook.md](docs/architecture/deployment-migration-runbook.md).
+
+Collaboration-specific architecture and operations:
+
+- [docs/architecture/partykit-cloudflare-runbook.md](docs/architecture/partykit-cloudflare-runbook.md)
+- [docs/architecture/realtime-collaboration-rollout.md](docs/architecture/realtime-collaboration-rollout.md)
+- [docs/architecture/collaboration-production-assessment.md](docs/architecture/collaboration-production-assessment.md)
 
 ## Desktop app
 
