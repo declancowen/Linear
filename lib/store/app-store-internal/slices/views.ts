@@ -344,26 +344,45 @@ export function createViewSlice(
       }))
 
       runtime.syncInBackground(
-        Promise.resolve(syncUpdateViewConfig(viewId, patch)).catch((error) => {
-          set((state) => {
-            const pendingConfig = state.pendingViewConfigById?.[viewId]
+        Promise.resolve(syncUpdateViewConfig(viewId, patch))
+          .then(() => {
+            set((state) => {
+              const pendingConfig = state.pendingViewConfigById?.[viewId]
 
-            if (!pendingConfig || pendingConfig.token !== pendingToken) {
-              return state
-            }
+              if (!pendingConfig || pendingConfig.token !== pendingToken) {
+                return state
+              }
 
-            const nextPendingViewConfigById = {
-              ...(state.pendingViewConfigById ?? {}),
-            }
-            delete nextPendingViewConfigById[viewId]
+              const nextPendingViewConfigById = {
+                ...(state.pendingViewConfigById ?? {}),
+              }
+              delete nextPendingViewConfigById[viewId]
 
-            return {
-              pendingViewConfigById: nextPendingViewConfigById,
-            }
+              return {
+                pendingViewConfigById: nextPendingViewConfigById,
+              }
+            })
           })
+          .catch((error) => {
+            set((state) => {
+              const pendingConfig = state.pendingViewConfigById?.[viewId]
 
-          throw error
-        }),
+              if (!pendingConfig || pendingConfig.token !== pendingToken) {
+                return state
+              }
+
+              const nextPendingViewConfigById = {
+                ...(state.pendingViewConfigById ?? {}),
+              }
+              delete nextPendingViewConfigById[viewId]
+
+              return {
+                pendingViewConfigById: nextPendingViewConfigById,
+              }
+            })
+
+            throw error
+          }),
         "Failed to update view"
       )
     },

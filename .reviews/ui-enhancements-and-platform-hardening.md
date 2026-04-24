@@ -51,10 +51,10 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 18:58:59 BST` |
-| **Total turns** | `6` |
+| **Last reviewed** | `2026-04-24 19:13:19 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
-| **Resolved findings** | `13` |
+| **Resolved findings** | `14` |
 | **Accepted findings** | `19` |
 
 ---
@@ -437,3 +437,44 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 #### Accepted / non-blocking observations
 
 - The duplicate dnd-kit ID report for child items rendered both top-level and in disclosures is a false positive on the current tree. `getContainerItemsForDisplay()` already removes a child from the top-level render path whenever its parent is also visible, so the branch does not register the same draggable/droppable IDs twice in one `DndContext`. Evidence: `components/app/screens/helpers.ts`, `components/app/screens/work-surface-view.tsx`.
+
+---
+
+## Turn 7 — 2026-04-24 19:13:19 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `0cdf9e87c9a92165011e71382789dedf7915c10f` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the loop again because the newly supplied P1 on pending view overrides is real on the current tree. `updateViewConfig` was leaving `pendingViewConfigById` populated after successful mutation completion, so if the server later produced a different final view config than the optimistic patch, `reconcilePendingViews()` would keep re-applying stale local data indefinitely instead of converging. The shared view slice now clears the pending override on success as well as failure, guarded by the same pending token so newer in-flight edits are not disrupted.
+
+**Outcome:** all clear
+**Risk score:** medium-high — this turn touched the shared optimistic view-config reconciliation path
+**Change archetypes:** optimistic-state, convergence-contract
+**Intended change:** close the last confirmed stale-override bug without reopening already accepted UI/legacy observations
+**Intent vs actual:** aligned after remediation; optimistic view edits still apply immediately, but they no longer persist as immortal local overrides after a successful sync
+**Confidence:** medium-high — the new finding was validated directly against the current tree, fixed in the shared action boundary, and rerun through the existing reconciliation tests plus a new success-path regression
+**Coverage note:** re-read `updateViewConfig`, `reconcilePendingViews`, the pending-view tests, and the route/sync path before applying the fix
+**Finding triage:** the pending-view override report was confirmed and fixed; the repeated legacy snapshot, fallback badge, team-summary, drag-extraction, sticky-header, and dead-code notes remain previously accepted, stale, or intentional
+**Branch totality:** reassessed on the current working tree, not inherited from prior turns
+**Hotspot ledger:** revisited this turn; no open hotspot families remain
+**Sibling closure:** completed across both mutation outcomes for pending view config (`success` and `failure`) so the pending token lifecycle is now coherent
+**Remediation impact surface:** checked the shared view slice, the optimistic merge path, and the read-model reconciliation tests so the fix holds across local updates and incoming server state
+**Challenger pass:** completed — challenged the new batch by checking whether the route/sync layer guaranteed exact-match readback; it does not, so the shared store-level fix was necessary
+**Weakest-evidence areas:** manual browser QA remains weakest for pointer-driven work-surface changes, but no open code-level findings remain in the current review batch
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm exec vitest run tests/lib/store/view-slice.test.ts tests/lib/app-store-read-model-merge.test.ts` — passed (`2/2` files, `19/19` tests)
+
+### Resolution ledger
+
+#### Resolved
+
+- `B7-01` — pending optimistic view overrides are now cleared on successful `updateViewConfig` completion as well as on failure. This prevents `reconcilePendingViews()` from reapplying stale local patches forever when the eventual server state differs from the optimistic patch. The existing pending token guard still protects newer edits from older completions. Evidence: `lib/store/app-store-internal/slices/views.ts`, `tests/lib/store/view-slice.test.ts`, `tests/lib/app-store-read-model-merge.test.ts`.
