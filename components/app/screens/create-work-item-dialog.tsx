@@ -243,9 +243,14 @@ export function CreateWorkItemDialog({
         : (initialStatuses[0] ?? "backlog")
   const initialSelectedPriority =
     defaultValues?.priority ?? initialPriority
+  const initialTeamMemberIds = new Set(
+    teamMemberships
+      .filter((membership) => membership.teamId === initialTeamId)
+      .map((membership) => membership.userId)
+  )
   const initialAssigneeId =
     defaultValues?.assigneeId &&
-    users.some((user) => user.id === defaultValues.assigneeId)
+    initialTeamMemberIds.has(defaultValues.assigneeId)
       ? defaultValues.assigneeId
       : "none"
   const initialProjectId =
@@ -415,6 +420,15 @@ export function CreateWorkItemDialog({
         ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
   const teamDotColor = getTeamDotColor(team?.id ?? null)
+
+  useEffect(() => {
+    if (
+      assigneeId !== "none" &&
+      !teamMembers.some((member) => member.id === assigneeId)
+    ) {
+      setAssigneeId("none")
+    }
+  }, [assigneeId, teamMembers])
 
   function syncTeamSelection(nextTeamId: string) {
     const nextTeam =

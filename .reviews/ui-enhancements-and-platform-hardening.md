@@ -51,11 +51,11 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 16:31:16 BST` |
-| **Total turns** | `5` |
+| **Last reviewed** | `2026-04-24 18:58:59 BST` |
+| **Total turns** | `6` |
 | **Open findings** | `0` |
-| **Resolved findings** | `12` |
-| **Accepted findings** | `18` |
+| **Resolved findings** | `13` |
+| **Accepted findings** | `19` |
 
 ---
 
@@ -392,3 +392,48 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 - The `pending-work-item-creations.ts` and pending view reconciliation notes are positive findings, not defects.
 - The retained-team grace timeout behavior is intentional and bounded.
 - Top-level items still not becoming children via drag is intentional on this branch.
+
+---
+
+## Turn 6 — 2026-04-24 18:58:59 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `653aa3a3aaf07e87e0d5dfb8859c779c3155f235` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the review loop on the newest batch and confirmed one real create-dialog regression. `CreateWorkItemDialog` was accepting `defaultValues.assigneeId` whenever the user existed globally, even if that user was not a member of the selected team, which turned some grouped “Add item” flows into server-side failures with a hidden invalid assignee. That path is now fixed by validating prefilled assignees against the selected team membership set and clearing stale assignee state whenever the selected team changes. The other new high-signal report in this batch — duplicate dnd-kit IDs when child items are visible both top-level and inside disclosures — was a false positive on the current tree once traced through `getContainerItemsForDisplay`, which already suppresses top-level child rendering whenever the parent is visible.
+
+**Outcome:** all clear
+**Risk score:** medium-high — this turn touched the main work-item create dialog and revalidated the work-surface child-rendering path
+**Change archetypes:** dialog-default-validation, sibling-closure
+**Intended change:** close the latest create-flow regression without widening into already accepted work-surface UX tradeoffs
+**Intent vs actual:** aligned after remediation; grouped create flows still preserve useful defaults, but they no longer carry hidden invalid assignee IDs across team boundaries
+**Confidence:** medium-high — current branch state was reassessed this turn, the reported finding was validated against the live tree, the DnD report was disproved by tracing the actual render path, and targeted verification was rerun
+**Coverage note:** re-read `CreateWorkItemDialog` team/assignee defaulting, team-member option derivation, grouped create entrypoints, and the work-surface child-rendering helper before applying fixes
+**Finding triage:** the assignee/team-membership issue was confirmed and fixed; the duplicate DnD ID report was not live on the current tree because children with visible parents are already removed from the top-level render path; the remaining repeated notes in the external batch remain previously accepted, stale, or intentional
+**Branch totality:** reassessed on the current working tree, not inherited from prior turns
+**Hotspot ledger:** revisited this turn; no open hotspot families remain
+**Sibling closure:** completed across the create-dialog’s initial defaulting path and the runtime team-change path so hidden invalid assignees cannot survive either entrypoint
+**Remediation impact surface:** checked the grouped create entrypoints, the create dialog’s selected-team state, assignee option derivation, and submit payload so the fix holds across UI prefill and mutation boundaries
+**Challenger pass:** completed — challenged the batch by tracing the alleged duplicate-DnD family through the actual list/board container filtering logic before deciding not to keep that patch
+**Weakest-evidence areas:** manual browser QA for drag/drop intent and sticky-header presentation remains the weakest evidence area, but this turn did not surface a correctness bug there
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm exec vitest run tests/components/create-dialogs.test.tsx tests/components/work-surface-view.test.tsx` — passed (`2/2` files, `32/32` tests)
+
+### Resolution ledger
+
+#### Resolved
+
+- `B6-01` — `CreateWorkItemDialog` now validates `defaultValues.assigneeId` against the selected team’s membership set, not global user existence, and it clears stale assignee state if the current team no longer contains the selected user. This prevents grouped “Add item” flows from submitting a hidden cross-team assignee and failing server-side with “Assignee must belong to the selected team.” Evidence: `components/app/screens/create-work-item-dialog.tsx`, `tests/components/create-dialogs.test.tsx`.
+
+#### Accepted / non-blocking observations
+
+- The duplicate dnd-kit ID report for child items rendered both top-level and in disclosures is a false positive on the current tree. `getContainerItemsForDisplay()` already removes a child from the top-level render path whenever its parent is also visible, so the branch does not register the same draggable/droppable IDs twice in one `DndContext`. Evidence: `components/app/screens/helpers.ts`, `components/app/screens/work-surface-view.tsx`.
