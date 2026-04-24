@@ -262,6 +262,43 @@ export async function updateWorkItemServer(input: {
   }
 }
 
+export async function persistCollaborationWorkItemServer(input: {
+  currentUserId: string
+  itemId: string
+  patch: {
+    title?: string
+    description?: string
+    expectedUpdatedAt?: string
+    status?:
+      | "backlog"
+      | "todo"
+      | "in-progress"
+      | "done"
+      | "cancelled"
+      | "duplicate"
+    priority?: "none" | "low" | "medium" | "high" | "urgent"
+    assigneeId?: string | null
+    parentId?: string | null
+    primaryProjectId?: string | null
+    labelIds?: string[]
+    startDate?: string | null
+    dueDate?: string | null
+    targetDate?: string | null
+  }
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.persistCollaborationWorkItem,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
 export async function createLabelServer(input: {
   currentUserId: string
   workspaceId: string
@@ -494,6 +531,7 @@ export async function heartbeatWorkItemPresenceServer(input: {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   sessionId: string
 }): Promise<DocumentPresenceViewer[]> {
   try {

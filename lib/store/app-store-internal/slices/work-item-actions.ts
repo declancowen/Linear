@@ -113,24 +113,34 @@ export function createWorkItemActions({
       }
 
       const {
+        expectedUpdatedAt,
+        ...localPatch
+      } = patch
+
+      const {
         cascadeItemIds,
         resolvedPrimaryProjectId,
         shouldCascadeProjectLink,
-      } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+      } = getResolvedProjectLinkForWorkItemUpdate(state, existing, localPatch)
 
       const validationMessage = getWorkItemValidationMessage(state, {
         teamId: existing.teamId,
         type: existing.type,
-        title: patch.title ?? existing.title,
-        priority: patch.priority ?? existing.priority,
+        title: localPatch.title ?? existing.title,
+        priority: localPatch.priority ?? existing.priority,
         assigneeId:
-          patch.assigneeId === undefined
+          localPatch.assigneeId === undefined
             ? existing.assigneeId
-            : patch.assigneeId,
+            : localPatch.assigneeId,
         parentId:
-          patch.parentId === undefined ? existing.parentId : patch.parentId,
+          localPatch.parentId === undefined
+            ? existing.parentId
+            : localPatch.parentId,
         primaryProjectId: resolvedPrimaryProjectId,
-        labelIds: patch.labelIds === undefined ? existing.labelIds : patch.labelIds,
+        labelIds:
+          localPatch.labelIds === undefined
+            ? existing.labelIds
+            : localPatch.labelIds,
         currentItemId: existing.id,
       })
 
@@ -174,12 +184,16 @@ export function createWorkItemActions({
           cascadeItemIds,
           resolvedPrimaryProjectId,
           shouldCascadeProjectLink,
-        } = getResolvedProjectLinkForWorkItemUpdate(currentState, currentItem, patch)
+        } = getResolvedProjectLinkForWorkItemUpdate(
+          currentState,
+          currentItem,
+          localPatch
+        )
         const nextItems = currentState.workItems.map((item) => {
           if (item.id === itemId) {
             return {
               ...item,
-              ...patch,
+              ...localPatch,
               primaryProjectId: resolvedPrimaryProjectId,
               updatedAt: now,
             }
@@ -219,7 +233,7 @@ export function createWorkItemActions({
             })
           : currentState.documents
         const finalDocuments =
-          patch.title !== undefined
+          localPatch.title !== undefined
             ? nextDocuments.map((document) =>
                 document.id === currentItem.descriptionDocId
                   ? {
@@ -241,13 +255,13 @@ export function createWorkItemActions({
         )
 
         if (
-          patch.assigneeId !== undefined &&
-          patch.assigneeId &&
-          patch.assigneeId !== currentItem.assigneeId
+          localPatch.assigneeId !== undefined &&
+          localPatch.assigneeId &&
+          localPatch.assigneeId !== currentItem.assigneeId
         ) {
           notifications.unshift(
             createNotification(
-              patch.assigneeId,
+              localPatch.assigneeId,
               currentState.currentUserId,
               buildWorkItemAssignmentNotificationMessage(
                 actor?.name ?? "Someone",
@@ -262,11 +276,13 @@ export function createWorkItemActions({
         }
 
         const resolvedAssigneeId =
-          patch.assigneeId === undefined ? currentItem.assigneeId : patch.assigneeId
+          localPatch.assigneeId === undefined
+            ? currentItem.assigneeId
+            : localPatch.assigneeId
 
         if (
-          patch.status &&
-          patch.status !== currentItem.status &&
+          localPatch.status &&
+          localPatch.status !== currentItem.status &&
           resolvedAssigneeId
         ) {
           notifications.unshift(
@@ -276,7 +292,7 @@ export function createWorkItemActions({
               buildWorkItemStatusChangeNotificationMessage(
                 actor?.name ?? "Someone",
                 nextTitle,
-                statusMeta[patch.status].label,
+                statusMeta[localPatch.status].label,
                 team?.name
               ),
               "workItem",
@@ -295,7 +311,10 @@ export function createWorkItemActions({
       })
 
       runtime.syncInBackground(
-        syncUpdateWorkItem(get().currentUserId, itemId, patch),
+        syncUpdateWorkItem(get().currentUserId, itemId, {
+          ...localPatch,
+          ...(expectedUpdatedAt !== undefined ? { expectedUpdatedAt } : {}),
+        }),
         "Failed to update work item"
       )
     },

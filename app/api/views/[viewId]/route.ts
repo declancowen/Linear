@@ -11,6 +11,7 @@ import {
   workItemTypes,
 } from "@/lib/domain/types"
 import {
+  bumpScopedReadModelVersionsServer,
   clearViewFiltersServer,
   deleteViewServer,
   reorderViewDisplayPropertiesServer,
@@ -20,6 +21,7 @@ import {
   toggleViewHiddenValueServer,
   updateViewConfigServer,
 } from "@/lib/server/convex"
+import { resolveViewReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -109,6 +111,7 @@ export async function PATCH(
 
   try {
     const { viewId } = await params
+    const scopeKeys = await resolveViewReadModelScopeKeysServer(session, viewId)
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
@@ -168,6 +171,14 @@ export async function PATCH(
         break
     }
 
+    const nextScopeKeys = await resolveViewReadModelScopeKeysServer(
+      session,
+      viewId
+    )
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: [...new Set([...scopeKeys, ...nextScopeKeys])],
+    })
+
     return jsonOk({ ok: true })
   } catch (error) {
     if (isApplicationError(error)) {
@@ -197,6 +208,7 @@ export async function DELETE(
 
   try {
     const { viewId } = await params
+    const scopeKeys = await resolveViewReadModelScopeKeysServer(session, viewId)
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
@@ -206,6 +218,9 @@ export async function DELETE(
     await deleteViewServer({
       currentUserId: appContext.ensuredUser.userId,
       viewId,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({ ok: true })

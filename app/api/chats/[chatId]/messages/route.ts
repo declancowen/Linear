@@ -3,7 +3,11 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { chatMessageSchema } from "@/lib/domain/types"
-import { sendChatMessageServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  sendChatMessageServer,
+} from "@/lib/server/convex"
+import { resolveConversationReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -63,6 +67,12 @@ export async function POST(
       currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
       messageId: parsedBody.messageId,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: await resolveConversationReadModelScopeKeysServer(
+        session,
+        chatId
+      ),
     })
 
     return jsonOk({

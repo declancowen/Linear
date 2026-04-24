@@ -115,7 +115,10 @@ export function UserAvatar({
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
 
   return (
-    <Avatar size={size} className={className}>
+    <Avatar
+      size={size}
+      className={cn(showStatus && "overflow-visible", className)}
+    >
       {imageSrc ? <AvatarImage src={imageSrc} alt={name ?? "User"} /> : null}
       <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
       {showStatus ? (

@@ -23,6 +23,13 @@ const toggleViewFilterValueServerMock = vi.fn()
 const clearViewFiltersServerMock = vi.fn()
 const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
+const bumpWorkItemReadModelScopesServerMock = vi.fn()
+const bumpProjectIndexReadModelScopesServerMock = vi.fn()
+const bumpSearchSeedReadModelScopesServerMock = vi.fn()
+const resolveWorkItemReadModelScopeKeysServerMock = vi.fn()
+const resolveProjectReadModelScopeKeysServerMock = vi.fn()
+const resolveViewReadModelScopeKeysServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -48,6 +55,21 @@ vi.mock("@/lib/server/convex", () => ({
   toggleViewFilterValueServer: toggleViewFilterValueServerMock,
   clearViewFiltersServer: clearViewFiltersServerMock,
   enqueueEmailJobsServer: enqueueEmailJobsServerMock,
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
+}))
+
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpWorkItemReadModelScopesServer: bumpWorkItemReadModelScopesServerMock,
+  bumpProjectIndexReadModelScopesServer:
+    bumpProjectIndexReadModelScopesServerMock,
+  bumpSearchSeedReadModelScopesServer:
+    bumpSearchSeedReadModelScopesServerMock,
+  resolveWorkItemReadModelScopeKeysServer:
+    resolveWorkItemReadModelScopeKeysServerMock,
+  resolveProjectReadModelScopeKeysServer:
+    resolveProjectReadModelScopeKeysServerMock,
+  resolveViewReadModelScopeKeysServer:
+    resolveViewReadModelScopeKeysServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
@@ -83,6 +105,13 @@ describe("work route contracts", () => {
     clearViewFiltersServerMock.mockReset()
     enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockReset()
+    bumpWorkItemReadModelScopesServerMock.mockReset()
+    bumpProjectIndexReadModelScopesServerMock.mockReset()
+    bumpSearchSeedReadModelScopesServerMock.mockReset()
+    resolveWorkItemReadModelScopeKeysServerMock.mockReset()
+    resolveProjectReadModelScopeKeysServerMock.mockReset()
+    resolveViewReadModelScopeKeysServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -107,6 +136,19 @@ describe("work route contracts", () => {
     enqueueEmailJobsServerMock.mockResolvedValue({
       queued: 0,
     })
+    bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    bumpWorkItemReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpProjectIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
+    resolveWorkItemReadModelScopeKeysServerMock.mockResolvedValue([
+      "work-item-detail:item_1",
+    ])
+    resolveProjectReadModelScopeKeysServerMock.mockResolvedValue([
+      "project-detail:project_1",
+    ])
+    resolveViewReadModelScopeKeysServerMock.mockResolvedValue([
+      "view-detail:view_1",
+    ])
   })
 
   it("maps work-item creation failures to typed error responses", async () => {
@@ -415,6 +457,7 @@ describe("work route contracts", () => {
       name: "Alex",
       avatarUrl: "",
       avatarImageUrl: null,
+      activeBlockId: null,
       sessionId: "session_123",
     })
     expect(heartbeatResponse.status).toBe(200)
@@ -625,6 +668,52 @@ describe("work route contracts", () => {
       message: "Project not found",
       code: "PROJECT_NOT_FOUND",
     })
+  })
+
+  it("bumps project index and search scopes after project creation", async () => {
+    const { POST } = await import("@/app/api/projects/route")
+
+    createProjectServerMock.mockResolvedValue({
+      workspaceId: "workspace_2",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Launch",
+          summary: "Launch summary",
+          priority: "medium",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(createProjectServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      scopeType: "team",
+      scopeId: "team_1",
+      templateType: "software-delivery",
+      name: "Launch",
+      summary: "Launch summary",
+      priority: "medium",
+    })
+    expect(bumpProjectIndexReadModelScopesServerMock).toHaveBeenCalledWith(
+      "team",
+      "team_1"
+    )
+    expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_2"
+    )
   })
 
   it("rejects invalid project schedule values before calling the server", async () => {

@@ -4,7 +4,7 @@ import type { Editor } from "@tiptap/react"
 import { format, formatDistanceToNow } from "date-fns"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarBlank,
@@ -33,12 +33,17 @@ import {
   mergePendingDocumentMentions,
   type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
+import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
 import {
+  fetchWorkItemDetailReadModel,
   syncClearWorkItemPresence,
   syncHeartbeatWorkItemPresence,
   syncSendItemDescriptionMentionNotifications,
 } from "@/lib/convex/client"
 import { RouteMutationError } from "@/lib/convex/client/shared"
+import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { createWorkItemDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import {
   canEditTeam,
   getCommentsForTarget,
@@ -68,9 +73,6 @@ import {
   type Priority,
   type WorkItem,
 } from "@/lib/domain/types"
-import {
-  formatCalendarDateLabel,
-} from "@/lib/date-input"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -79,6 +81,13 @@ import { UserAvatar } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -115,27 +124,9 @@ import { formatWorkItemDetailDate } from "./date-presentation"
 import { cn, getPlainTextContent } from "@/lib/utils"
 
 const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
-
-function formatConcurrentEditorLabel(viewers: DocumentPresenceViewer[]) {
-  const names = viewers
-    .map((viewer) => viewer.name.trim())
-    .filter((name) => name.length > 0)
-
-  if (names.length === 0) {
-    return null
-  }
-
-  if (names.length === 1) {
-    return `${names[0]} is also editing this item`
-  }
-
-  if (names.length === 2) {
-    return `${names[0]} and ${names[1]} are also editing this item`
-  }
-
-  return `${names[0]} and ${names.length - 1} others are also editing this item`
-}
-
+const WORK_ITEM_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
+const ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX =
+  "linear:collaboration:item-description-sync-modal-seen:"
 function isAlreadyDeliveredMentionConflict(error: unknown) {
   return (
     error instanceof RouteMutationError &&
@@ -171,6 +162,29 @@ function isDescriptionPlaceholder(content: string) {
     normalized === "<p>Add a description…</p>" ||
     normalized === "<p>Add a description...</p>" ||
     normalized === "<p></p>"
+  )
+}
+
+function hasSeenInitialItemDescriptionSyncModal(itemId: string) {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  return (
+    window.sessionStorage.getItem(
+      `${ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX}${itemId}`
+    ) === "true"
+  )
+}
+
+function markInitialItemDescriptionSyncModalSeen(itemId: string) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  window.sessionStorage.setItem(
+    `${ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX}${itemId}`,
+    "true"
   )
 }
 
@@ -1325,6 +1339,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const router = useRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
+  const currentUser = getUser(data, currentUserId) ?? null
   const item = data.workItems.find((entry) => entry.id === itemId)
   const [deletingItem, setDeletingItem] = useState(false)
   const [projectConfirmOpen, setProjectConfirmOpen] = useState(false)
@@ -1336,6 +1351,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [mainEditing, setMainEditing] = useState(false)
+  const [hasSeenInitialDescriptionAttach, setHasSeenInitialDescriptionAttach] =
+    useState(() => hasSeenInitialItemDescriptionSyncModal(itemId))
   const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
   const [mainDraftUpdatedAt, setMainDraftUpdatedAt] = useState<string | null>(
     null
@@ -1350,14 +1367,170 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
+  const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
+    null
+  )
+  const legacyActiveBlockIdRef = useRef<string | null>(null)
+  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
+  const stableCollaborationUserRef = useRef<{
+    id: string
+    name: string
+    avatarUrl?: string | null
+    avatarImageUrl?: string | null
+  } | null>(null)
+  const previousItemIdRef = useRef(itemId)
   const description = item ? getDocument(data, item.descriptionDocId) : null
   const descriptionContent = description?.content ?? "<p>Add a description…</p>"
+  const activeDescriptionDocumentId = description?.id ?? null
+  const [stableDescriptionDocumentId, setStableDescriptionDocumentId] =
+    useState<string | null>(null)
   const activePresenceItemId = item?.id ?? null
   const isEditingCurrentItem =
     item !== undefined && mainEditing && mainDraftItemId === item.id
+  const collaborationCurrentUser =
+    currentUser ?? stableCollaborationUserRef.current ?? null
+  const {
+    bootstrapContent,
+    editorCollaboration,
+    collaboration,
+    flush: flushCollaboration,
+    hasAttachedOnce,
+    isAwaitingCollaboration,
+    lifecycle: collaborationLifecycle,
+    viewers: collaborationViewers,
+  } = useDocumentCollaboration({
+    documentId: stableDescriptionDocumentId,
+    currentUser: collaborationCurrentUser,
+    enabled: Boolean(stableDescriptionDocumentId),
+  })
+  const {
+    hasLoadedOnce: hasLoadedWorkItemReadModel,
+  } = useScopedReadModelRefresh({
+    enabled:
+      !item ||
+      collaborationLifecycle === "legacy" ||
+      collaborationLifecycle === "degraded",
+    scopeKeys: [createWorkItemDetailScopeKey(itemId)],
+    fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
+    notFoundResult: createMissingScopedReadModelResult([
+      {
+        kind: "work-item-detail",
+        itemId,
+      },
+    ]),
+  })
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
+    stableCollaborationUserRef.current = {
+      id: currentUserId,
+      name: currentUser.name,
+      avatarUrl: currentUser.avatarUrl,
+      avatarImageUrl: currentUser.avatarImageUrl ?? null,
+    }
+  }, [
+    currentUser,
+    currentUserId,
+  ])
 
   useEffect(() => {
-    if (!activePresenceItemId || !isEditingCurrentItem) {
+    if (previousItemIdRef.current === itemId) {
+      return
+    }
+
+    previousItemIdRef.current = itemId
+    setStableDescriptionDocumentId(null)
+    setHasSeenInitialDescriptionAttach(
+      hasSeenInitialItemDescriptionSyncModal(itemId)
+    )
+  }, [itemId])
+
+  useEffect(() => {
+    if (!description?.id) {
+      return
+    }
+
+    setStableDescriptionDocumentId(description.id)
+  }, [description?.id])
+
+  const isCollaborationAttached = collaborationLifecycle === "attached"
+  const isCollaborationBootstrapping =
+    collaborationLifecycle === "bootstrapping"
+  useEffect(() => {
+    if (!isCollaborationAttached) {
+      return
+    }
+
+    markInitialItemDescriptionSyncModalSeen(itemId)
+    setHasSeenInitialDescriptionAttach(true)
+  }, [isCollaborationAttached, itemId])
+  const showDescriptionBootPreview =
+    isCollaborationBootstrapping && !hasSeenInitialDescriptionAttach
+  const showDescriptionSyncDialog =
+    isEditingCurrentItem && showDescriptionBootPreview
+  const collaborationDescriptionContent = mainDraftDescription
+  const protectedDescriptionDocumentId =
+    activeDescriptionDocumentId ?? stableDescriptionDocumentId
+  const isProtectingDescriptionBody = Boolean(
+    protectedDescriptionDocumentId &&
+      (isEditingCurrentItem ||
+        isCollaborationBootstrapping ||
+        isCollaborationAttached)
+  )
+
+  useEffect(() => {
+    if (!protectedDescriptionDocumentId) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .setDocumentBodyProtection(
+        protectedDescriptionDocumentId,
+        isProtectingDescriptionBody
+      )
+
+    return () => {
+      useAppStore
+        .getState()
+        .setDocumentBodyProtection(protectedDescriptionDocumentId, false)
+    }
+  }, [protectedDescriptionDocumentId, isProtectingDescriptionBody])
+
+  useEffect(() => {
+    if (!activePresenceItemId) {
+      return
+    }
+
+    if (
+      collaborationLifecycle === "legacy" ||
+      collaborationLifecycle === "degraded"
+    ) {
+      return
+    }
+
+    useAppStore.getState().cancelItemDescriptionSync(activePresenceItemId)
+  }, [
+    activePresenceItemId,
+    collaborationLifecycle,
+  ])
+
+  useEffect(() => {
+    if (!activePresenceItemId) {
+      sendLegacyPresenceRef.current = null
+      setWorkItemPresenceViewers([])
+      setLegacyActiveBlockId(null)
+      legacyActiveBlockIdRef.current = null
+      return
+    }
+
+    if (
+      collaborationLifecycle === "bootstrapping" ||
+      collaborationLifecycle === "attached"
+    ) {
+      sendLegacyPresenceRef.current = null
       setWorkItemPresenceViewers([])
       return
     }
@@ -1403,7 +1576,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       try {
         const viewers = await syncHeartbeatWorkItemPresence(
           activeItemId,
-          sessionId
+          sessionId,
+          legacyActiveBlockIdRef.current
         )
 
         if (
@@ -1420,6 +1594,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       } finally {
         scheduleHeartbeat(WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS)
       }
+    }
+
+    sendLegacyPresenceRef.current = () => {
+      void sendHeartbeat()
     }
 
     function resumePresence() {
@@ -1488,20 +1666,85 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         handleVisibilityChange
       )
       window.removeEventListener("pagehide", handlePageHide)
+      sendLegacyPresenceRef.current = null
       void syncClearWorkItemPresence(activeItemId, sessionId, {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [activePresenceItemId, currentUserId, isEditingCurrentItem])
+  }, [
+    activePresenceItemId,
+    collaborationLifecycle,
+    currentUserId,
+  ])
 
   useEffect(() => {
     setMainChildComposerOpen(false)
     setSidebarChildComposerOpen(false)
   }, [itemId])
 
+  const hasLiveDescriptionPresence =
+    collaborationLifecycle === "attached"
+  const activeDescriptionViewers =
+    hasLiveDescriptionPresence
+      ? collaborationViewers
+      : currentUser
+        ? [
+            {
+              userId: currentUser.id,
+              name: currentUser.name,
+              avatarUrl: currentUser.avatarUrl,
+              avatarImageUrl: currentUser.avatarImageUrl ?? null,
+              activeBlockId: legacyActiveBlockId,
+              lastSeenAt: new Date().toISOString(),
+            },
+            ...workItemPresenceViewers,
+          ]
+        : workItemPresenceViewers
+  const otherDescriptionViewers = activeDescriptionViewers.filter(
+    (viewer) => viewer.userId !== currentUserId
+  )
+  const handleLegacyActiveBlockChange = useCallback(
+    (activeBlockId: string | null) => {
+      legacyActiveBlockIdRef.current = activeBlockId
+      setLegacyActiveBlockId(activeBlockId)
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (
+      hasLiveDescriptionPresence ||
+      !activePresenceItemId ||
+      !isEditingCurrentItem
+    ) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      sendLegacyPresenceRef.current?.()
+    }, WORK_ITEM_PRESENCE_BLOCK_CHANGE_DELAY_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    activePresenceItemId,
+    hasLiveDescriptionPresence,
+    isEditingCurrentItem,
+    legacyActiveBlockId,
+  ])
+
   if (!item) {
     if (deletingItem) {
       return null
+    }
+
+    if (!hasLoadedWorkItemReadModel) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Loading work item...
+        </div>
+      )
     }
 
     return <MissingState title="Work item not found" />
@@ -1598,11 +1841,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
       mainDraftDescription
     )
-  const otherWorkItemEditors = workItemPresenceViewers.filter(
-    (viewer) => viewer.userId !== currentUserId
-  )
-  const concurrentEditorLabel =
-    formatConcurrentEditorLabel(otherWorkItemEditors)
   const pendingMainMentionEntries = isMainEditing
     ? mergePendingDocumentMentions(
         activeMainPendingMentionRetryEntries,
@@ -1619,16 +1857,20 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     isMainEditing && mainDraftDescription !== descriptionContent
   const mainDirty = mainTitleDirty || mainDescriptionDirty
   const mainDraftStale =
+    !isCollaborationAttached &&
     isMainEditing &&
     Boolean(mainDraftUpdatedAt) &&
     mainDraftUpdatedAt !== currentItem.updatedAt
   const canSaveMainSection =
-    isMainEditing &&
-    normalizedMainDraftTitle.length >= 2 &&
-    normalizedMainDraftTitle.length <= 96 &&
-    (mainDirty || pendingMainMentionEntries.length > 0) &&
-    !savingMainSection &&
-    !mainDraftStale
+    isCollaborationAttached
+      ? isMainEditing && !savingMainSection
+      : !isAwaitingCollaboration &&
+          isMainEditing &&
+          normalizedMainDraftTitle.length >= 2 &&
+          normalizedMainDraftTitle.length <= 96 &&
+          (mainDirty || pendingMainMentionEntries.length > 0) &&
+          !savingMainSection &&
+          !mainDraftStale
 
   function buildEndDatePatch(nextEndDate: string | null) {
     return {
@@ -1698,7 +1940,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }
 
   function handleStartMainEdit() {
-    if (!editable) {
+    if (!editable || isCollaborationBootstrapping) {
       return
     }
 
@@ -1730,19 +1972,41 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
     setSavingMainSection(true)
     const savedItemId = currentItem.id
-    const savedDescription = mainDraftDescription
     const pendingMentionEntries = [...pendingMainMentionEntries]
 
-    const saved = await useAppStore.getState().saveWorkItemMainSection({
-      itemId: savedItemId,
-      title: normalizedMainDraftTitle,
-      description: savedDescription,
-      expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
-    })
+    if (isCollaborationAttached) {
+      try {
+        await flushCollaboration({
+          kind: "work-item-main",
+          ...(mainTitleDirty
+            ? {
+                workItemExpectedUpdatedAt:
+                  mainDraftUpdatedAt ?? currentItem.updatedAt,
+                workItemTitle: normalizedMainDraftTitle,
+              }
+            : {}),
+        })
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to persist the latest description changes"
+        )
+        setSavingMainSection(false)
+        return
+      }
+    } else {
+      const saved = await useAppStore.getState().saveWorkItemMainSection({
+        itemId: savedItemId,
+        title: normalizedMainDraftTitle,
+        description: mainDraftDescription,
+        expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
+      })
 
-    if (!saved) {
-      setSavingMainSection(false)
-      return
+      if (!saved) {
+        setSavingMainSection(false)
+        return
+      }
     }
 
     setMainDraftItemId(null)
@@ -1862,9 +2126,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           <div className="flex items-center gap-1">
             {editable ? (
               <>
-                {isMainEditing ? (
+                {otherDescriptionViewers.length > 0 ? (
                   <DocumentPresenceAvatarGroup
-                    viewers={workItemPresenceViewers}
+                    viewers={otherDescriptionViewers}
+                    compact
                   />
                 ) : null}
                 {isMainEditing ? (
@@ -1875,14 +2140,18 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                       disabled={savingMainSection}
                       onClick={handleCancelMainEdit}
                     >
-                      Cancel
+                      {isCollaborationAttached ? "Close" : "Cancel"}
                     </Button>
                     <Button
                       size="sm"
                       disabled={!canSaveMainSection}
                       onClick={() => void handleSaveMainEdit()}
                     >
-                      {savingMainSection ? "Saving..." : "Save"}
+                      {savingMainSection
+                        ? "Saving..."
+                        : isCollaborationAttached
+                          ? "Done"
+                          : "Save"}
                     </Button>
                   </>
                 ) : (
@@ -2028,35 +2297,54 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                   </Button>
                 </div>
               ) : null}
-              {isMainEditing && concurrentEditorLabel ? (
-                <div className="mt-5 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5">
-                  <div className="text-sm font-medium">
-                    {concurrentEditorLabel}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    You can keep editing, but you may need to reload before
-                    saving if they update the item first.
-                  </div>
-                </div>
-              ) : null}
-
               <section className="mt-7">
                 {isMainEditing ? (
                   <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
-                    <RichTextEditor
-                      content={mainDraftDescription}
-                      editable={editable}
-                      placeholder="Add a description…"
-                      mentionCandidates={
-                        team ? getTeamMembers(data, team.id) : data.users
-                      }
-                      onChange={setMainDraftDescription}
-                      onUploadAttachment={(file) =>
-                        useAppStore
-                          .getState()
-                          .uploadAttachment("workItem", currentItem.id, file)
-                      }
-                    />
+                    {showDescriptionBootPreview ? (
+                      <RichTextContent
+                        content={
+                          typeof bootstrapContent === "string"
+                            ? bootstrapContent
+                            : collaborationDescriptionContent
+                        }
+                        className="min-h-24 text-sm text-fg-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+                      />
+                    ) : (
+                      <RichTextEditor
+                        content={collaborationDescriptionContent}
+                        collaboration={
+                          isCollaborationAttached
+                            ? (editorCollaboration ?? collaboration ?? undefined)
+                            : undefined
+                        }
+                        currentPresenceUserId={currentUserId}
+                        editable={editable && !isCollaborationBootstrapping}
+                        placeholder="Add a description…"
+                        presenceViewers={otherDescriptionViewers}
+                        onActiveBlockChange={handleLegacyActiveBlockChange}
+                        mentionCandidates={
+                          team ? getTeamMembers(data, team.id) : data.users
+                        }
+                        onChange={(content) => {
+                          setMainDraftDescription(content)
+
+                          if (isCollaborationAttached) {
+                            useAppStore
+                              .getState()
+                              .applyItemDescriptionCollaborationContent(
+                                currentItem.id,
+                                content
+                              )
+                            return
+                          }
+                        }}
+                        onUploadAttachment={(file) =>
+                          useAppStore
+                            .getState()
+                            .uploadAttachment("workItem", currentItem.id, file)
+                        }
+                      />
+                    )}
                   </div>
                 ) : isDescriptionPlaceholder(descriptionContent) ? (
                   editable ? (
@@ -2636,6 +2924,28 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         variant="default"
         onConfirm={handleConfirmProjectChange}
       />
+      <Dialog open={showDescriptionSyncDialog}>
+        <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
+          <div className="px-5 py-5">
+            <DialogHeader className="p-0">
+              <DialogTitle className="text-base font-semibold">
+                Syncing latest changes
+              </DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Loading the latest description state. Editing will unlock
+                automatically in a moment.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <span
+                aria-hidden="true"
+                className="size-2 animate-pulse rounded-full bg-primary"
+              />
+              <span>Syncing latest changes…</span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

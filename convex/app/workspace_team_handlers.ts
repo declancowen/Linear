@@ -1289,6 +1289,7 @@ export async function updateTeamDetailsHandler(
 
   return {
     teamId: team.id,
+    workspaceId: team.workspaceId,
     joinCode: normalizedJoinCode,
     experience: args.experience,
     features: normalizedFeatures,
@@ -1330,6 +1331,7 @@ export async function regenerateTeamJoinCodeHandler(
 
   return {
     teamId: team.id,
+    workspaceId: team.workspaceId,
     joinCode: normalizedJoinCode,
   }
 }
@@ -1361,6 +1363,7 @@ export async function updateTeamWorkflowSettingsHandler(
 
   return {
     teamId: team.id,
+    workspaceId: team.workspaceId,
     workflow: args.workflow,
   }
 }
@@ -1416,6 +1419,7 @@ export async function updateTeamMemberRoleHandler(
 
   return {
     teamId: team.id,
+    workspaceId: team.workspaceId,
     userId: membership.userId,
     role: args.role,
   }

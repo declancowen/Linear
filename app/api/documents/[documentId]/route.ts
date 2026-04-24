@@ -2,7 +2,12 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import { deleteDocumentServer, updateDocumentServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  deleteDocumentServer,
+  updateDocumentServer,
+} from "@/lib/server/convex"
+import { resolveDocumentReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -20,6 +25,7 @@ const documentUpdateSchema = z
   .object({
     title: z.string().trim().min(2).max(80).optional(),
     content: z.string().trim().min(1).optional(),
+    expectedUpdatedAt: z.string().datetime().optional(),
   })
   .refine((value) => value.title !== undefined || value.content !== undefined, {
     message: "At least one document field is required",
@@ -53,15 +59,30 @@ export async function PATCH(
       return appContext
     }
 
-    await updateDocumentServer({
+    const scopeKeys = await resolveDocumentReadModelScopeKeysServer(
+      session,
+      documentId
+    )
+
+    const result = await updateDocumentServer({
       currentUserId: appContext.ensuredUser.userId,
       documentId,
       title: parsed.title,
       content: parsed.content,
+      expectedUpdatedAt: parsed.expectedUpdatedAt,
+    })
+
+    if (!result || typeof result.updatedAt !== "string") {
+      throw new Error("Document update did not return an updated timestamp")
+    }
+
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({
       ok: true,
+      updatedAt: result.updatedAt,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {
@@ -94,9 +115,17 @@ export async function DELETE(
       return appContext
     }
 
+    const scopeKeys = await resolveDocumentReadModelScopeKeysServer(
+      session,
+      documentId
+    )
+
     await deleteDocumentServer({
       currentUserId: appContext.ensuredUser.userId,
       documentId,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({

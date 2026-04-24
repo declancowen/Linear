@@ -8,6 +8,7 @@ import {
   setWorkspaceWorkosOrganizationServer,
   updateWorkspaceBrandingServer,
 } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import {
@@ -76,6 +77,9 @@ export async function PATCH(request: NextRequest) {
       workspaceId: authContext.currentWorkspace.id,
       workosOrganizationId: organization.id,
     })
+    await bumpWorkspaceMembershipReadModelScopesServer(
+      authContext.currentWorkspace.id
+    )
 
     return jsonOk({
       ok: true,
@@ -139,6 +143,9 @@ export async function DELETE() {
       label: "Failed to deactivate WorkOS membership after workspace deletion",
       memberships: result?.providerMemberships ?? [],
     })
+    await bumpWorkspaceMembershipReadModelScopesServer(
+      authContext.currentWorkspace.id
+    )
 
     return jsonOk({
       ok: true,

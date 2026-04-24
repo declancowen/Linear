@@ -23,6 +23,11 @@ const createDocumentServerMock = vi.fn()
 const enqueueEmailJobsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
+const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpPrivateDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpPrivateSearchSeedReadModelScopesServerMock = vi.fn()
+const bumpSearchSeedReadModelScopesServerMock = vi.fn()
+const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -63,6 +68,19 @@ vi.mock("@/lib/server/authenticated-app", () => ({
   reconcileAuthenticatedAppContext: reconcileAuthenticatedAppContextMock,
 }))
 
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpDocumentIndexReadModelScopesServer:
+    bumpDocumentIndexReadModelScopesServerMock,
+  bumpPrivateDocumentIndexReadModelScopesServer:
+    bumpPrivateDocumentIndexReadModelScopesServerMock,
+  bumpPrivateSearchSeedReadModelScopesServer:
+    bumpPrivateSearchSeedReadModelScopesServerMock,
+  bumpSearchSeedReadModelScopesServer:
+    bumpSearchSeedReadModelScopesServerMock,
+  bumpWorkspaceMembershipReadModelScopesServer:
+    bumpWorkspaceMembershipReadModelScopesServerMock,
+}))
+
 describe("asset, notification, invite, and document route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -86,6 +104,11 @@ describe("asset, notification, invite, and document route contracts", () => {
     enqueueEmailJobsServerMock.mockReset()
     logProviderErrorMock.mockReset()
     reconcileAuthenticatedAppContextMock.mockReset()
+    bumpDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpPrivateDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpPrivateSearchSeedReadModelScopesServerMock.mockReset()
+    bumpSearchSeedReadModelScopesServerMock.mockReset()
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -113,6 +136,11 @@ describe("asset, notification, invite, and document route contracts", () => {
       queued: 0,
     })
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
+    bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpPrivateDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpPrivateSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
 
   it("maps attachment and label failures to typed error responses", async () => {
@@ -325,6 +353,7 @@ describe("asset, notification, invite, and document route contracts", () => {
       inviteIds: ["invite_1", "invite_2"],
       batchId: "invite_batch_1",
       token: "token_1",
+      workspaceId: "workspace_1",
       invites: [
         {
           id: "invite_1",
@@ -343,6 +372,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     cancelInviteServerMock.mockResolvedValue({
       inviteId: "invite_1",
       cancelledInviteIds: ["invite_1", "invite_2"],
+      workspaceId: "workspace_1",
       teamName: "Core",
       workspaceName: "Recipe Room",
     })
@@ -413,6 +443,9 @@ describe("asset, notification, invite, and document route contracts", () => {
       email: "alex@example.com",
       role: "member",
     })
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
 
     const cancelResponse = await cancelRoute.DELETE(
       new Request("http://localhost/api/invites/invite_1", {
@@ -437,6 +470,9 @@ describe("asset, notification, invite, and document route contracts", () => {
       currentUserId: "user_1",
       inviteId: "invite_1",
     })
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
 
     const acceptResponse = await acceptRoute.POST(
       new Request("http://localhost/api/invites/accept", {
@@ -487,6 +523,72 @@ describe("asset, notification, invite, and document route contracts", () => {
       currentUserId: "user_1",
       token: "token_1",
     })
+  })
+
+  it("invalidates invite refresh scopes using the target workspace id", async () => {
+    const inviteRoute = await import("@/app/api/invites/route")
+    const cancelRoute = await import("@/app/api/invites/[inviteId]/route")
+
+    requireAppContextMock.mockResolvedValue({
+      ensuredUser: {
+        userId: "user_1",
+      },
+      authContext: {
+        currentWorkspace: {
+          id: "workspace_current",
+        },
+      },
+    })
+    createInviteServerMock.mockResolvedValue({
+      inviteIds: ["invite_1"],
+      batchId: "invite_batch_1",
+      token: "token_1",
+      workspaceId: "workspace_target",
+      invites: [
+        {
+          id: "invite_1",
+          batchId: "invite_batch_1",
+          teamId: "team_1",
+          token: "token_1",
+        },
+      ],
+    })
+    cancelInviteServerMock.mockResolvedValue({
+      inviteId: "invite_1",
+      cancelledInviteIds: ["invite_1"],
+      workspaceId: "workspace_target",
+      teamName: "Core",
+      workspaceName: "Recipe Room",
+    })
+
+    await inviteRoute.POST(
+      new Request("http://localhost/api/invites", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          teamIds: ["team_1"],
+          email: "alex@example.com",
+          role: "member",
+        }),
+      }) as never
+    )
+
+    await cancelRoute.DELETE(
+      new Request("http://localhost/api/invites/invite_1", {
+        method: "DELETE",
+      }) as never,
+      {
+        params: Promise.resolve({
+          inviteId: "invite_1",
+        }),
+      }
+    )
+
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock.mock.calls
+    ).toEqual([["workspace_target"], ["workspace_target"]])
   })
 
   it("maps notification failures to typed error responses", async () => {
@@ -596,6 +698,7 @@ describe("asset, notification, invite, and document route contracts", () => {
 
     createDocumentServerMock.mockResolvedValue({
       documentId: "document_new",
+      workspaceId: "workspace_1",
     })
 
     const response = await POST(
@@ -625,5 +728,113 @@ describe("asset, notification, invite, and document route contracts", () => {
       workspaceId: "workspace_1",
       title: "Launch doc",
     })
+    expect(bumpDocumentIndexReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace",
+      "workspace_1"
+    )
+    expect(
+      bumpPrivateDocumentIndexReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
+    expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
+    expect(
+      bumpPrivateSearchSeedReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
+  })
+
+  it("uses the created team document workspace for search invalidation", async () => {
+    const { POST } = await import("@/app/api/documents/route")
+
+    createDocumentServerMock.mockResolvedValue({
+      documentId: "document_new",
+      workspaceId: "workspace_2",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "document_new",
+          kind: "team-document",
+          teamId: "team_2",
+          title: "Launch doc",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      documentId: "document_new",
+    })
+    expect(createDocumentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      id: "document_new",
+      kind: "team-document",
+      teamId: "team_2",
+      title: "Launch doc",
+    })
+    expect(bumpDocumentIndexReadModelScopesServerMock).toHaveBeenCalledWith(
+      "team",
+      "team_2"
+    )
+    expect(
+      bumpPrivateDocumentIndexReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
+    expect(bumpSearchSeedReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_2"
+    )
+    expect(
+      bumpPrivateSearchSeedReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
+  })
+
+  it("scopes private document invalidations to the owner", async () => {
+    const { POST } = await import("@/app/api/documents/route")
+
+    createDocumentServerMock.mockResolvedValue({
+      documentId: "document_private",
+      workspaceId: "workspace_1",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "document_private",
+          kind: "private-document",
+          workspaceId: "workspace_1",
+          title: "Private notes",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      documentId: "document_private",
+    })
+    expect(createDocumentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      id: "document_private",
+      kind: "private-document",
+      workspaceId: "workspace_1",
+      title: "Private notes",
+    })
+    expect(
+      bumpPrivateDocumentIndexReadModelScopesServerMock
+    ).toHaveBeenCalledWith("workspace_1", "user_1")
+    expect(bumpDocumentIndexReadModelScopesServerMock).not.toHaveBeenCalled()
+    expect(
+      bumpPrivateSearchSeedReadModelScopesServerMock
+    ).toHaveBeenCalledWith("workspace_1", "user_1")
+    expect(bumpSearchSeedReadModelScopesServerMock).not.toHaveBeenCalled()
   })
 })

@@ -23,6 +23,7 @@ import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 const documentPresenceSchema = z.object({
   action: z.enum(["heartbeat", "leave"]),
   sessionId: z.string().trim().min(8).max(128),
+  activeBlockId: z.string().trim().min(1).max(256).nullable().optional(),
 })
 
 export async function POST(
@@ -78,6 +79,7 @@ export async function POST(
       name: authContext.currentUser.name,
       avatarUrl: authContext.currentUser.avatarUrl,
       avatarImageUrl: authContext.currentUser.avatarImageUrl ?? null,
+      activeBlockId: parsed.activeBlockId ?? null,
       sessionId: parsed.sessionId,
     })
 

@@ -688,11 +688,11 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   for (const comment of visibleComments) {
     visibleUserIds.add(comment.createdBy)
 
-    for (const mentionUserId of comment.mentionUserIds) {
+    for (const mentionUserId of comment.mentionUserIds ?? []) {
       visibleUserIds.add(mentionUserId)
     }
 
-    for (const reaction of comment.reactions) {
+    for (const reaction of comment.reactions ?? []) {
       for (const reactionUserId of reaction.userIds) {
         visibleUserIds.add(reactionUserId)
       }
@@ -739,11 +739,11 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   for (const message of visibleChatMessages) {
     visibleUserIds.add(message.createdBy)
 
-    for (const mentionUserId of message.mentionUserIds) {
+    for (const mentionUserId of message.mentionUserIds ?? []) {
       visibleUserIds.add(mentionUserId)
     }
 
-    for (const reaction of message.reactions) {
+    for (const reaction of message.reactions ?? []) {
       for (const reactionUserId of reaction.userIds) {
         visibleUserIds.add(reactionUserId)
       }
@@ -753,7 +753,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   for (const post of visibleChannelPosts) {
     visibleUserIds.add(post.createdBy)
 
-    for (const reaction of post.reactions) {
+    for (const reaction of post.reactions ?? []) {
       for (const reactionUserId of reaction.userIds) {
         visibleUserIds.add(reactionUserId)
       }
@@ -763,7 +763,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   for (const comment of visibleChannelPostComments) {
     visibleUserIds.add(comment.createdBy)
 
-    for (const mentionUserId of comment.mentionUserIds) {
+    for (const mentionUserId of comment.mentionUserIds ?? []) {
       visibleUserIds.add(mentionUserId)
     }
   }

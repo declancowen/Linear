@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type CSSProperties } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowSquareOut, Trash } from "@phosphor-icons/react"
 
 import type { AppData, Document, DocumentPresenceViewer } from "@/lib/domain/types"
+import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { useAppStore } from "@/lib/store/app-store"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -27,6 +28,7 @@ import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { canEditDocumentInUi, getUserInitials } from "./helpers"
 
 const MAX_VISIBLE_DOCUMENT_VIEWERS = 3
+const COMPACT_DOCUMENT_PRESENCE_COUNT_CLASS_NAME = "size-[18px] text-[8px]"
 
 function DocumentActionMenuContent({
   document,
@@ -119,57 +121,122 @@ export function DocumentAuthorAvatar({
   avatarUrl,
   name,
   className,
+  size = "sm",
   title,
+  ringColor,
 }: {
   avatarImageUrl?: string | null
   avatarUrl?: string | null
   name: string
   className?: string
+  size?: "xs" | "compact" | "sm"
   title?: string
+  ringColor?: string | null
 }) {
   const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
-
-  return (
-    <Avatar size="sm" className={cn("size-5", className)} title={title}>
+  const compactStyle =
+    size === "compact"
+      ? {
+          width: "18px",
+          height: "18px",
+          minWidth: "18px",
+          minHeight: "18px",
+          maxWidth: "18px",
+          maxHeight: "18px",
+          flexBasis: "18px",
+        }
+      : undefined
+  const avatarElement = (
+    <Avatar
+      size={size === "compact" ? "default" : size}
+      style={compactStyle}
+      className={cn(
+        size === "sm"
+          ? "size-5"
+          : size === "compact"
+            ? "size-[18px]"
+            : undefined,
+        ringColor ? "after:border-transparent" : undefined,
+        !ringColor ? className : undefined
+      )}
+      title={title}
+    >
       {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
-      <AvatarFallback className="text-[9px]">
+      <AvatarFallback className={size === "compact" ? "text-[8px]" : undefined}>
         {getUserInitials(name)}
       </AvatarFallback>
     </Avatar>
+  )
+
+  if (!ringColor) {
+    return avatarElement
+  }
+
+  const ringWrapperStyle = {
+    "--document-author-avatar-ring-color": ringColor,
+    boxShadow: "0 0 0 1.5px var(--document-author-avatar-ring-color)",
+  } as CSSProperties
+
+  return (
+    <span
+      data-slot="document-author-avatar-ring"
+      style={ringWrapperStyle}
+      className={cn(
+        "relative z-10 inline-flex shrink-0 rounded-full",
+        className
+      )}
+    >
+      {avatarElement}
+    </span>
   )
 }
 
 export function DocumentPresenceAvatarGroup({
   viewers,
+  compact = false,
+  className,
 }: {
   viewers: DocumentPresenceViewer[]
+  compact?: boolean
+  className?: string
 }) {
   if (viewers.length === 0) {
     return null
   }
 
-  const visibleViewers = viewers.slice(0, MAX_VISIBLE_DOCUMENT_VIEWERS)
-  const hiddenViewerCount = viewers.length - visibleViewers.length
-  const viewerNames = viewers.map((viewer) => viewer.name).join(", ")
+  const uniqueViewers = Array.from(
+    new Map(viewers.map((viewer) => [viewer.userId, viewer])).values()
+  )
+  const visibleViewers = uniqueViewers.slice(0, MAX_VISIBLE_DOCUMENT_VIEWERS)
+  const hiddenViewerCount = uniqueViewers.length - visibleViewers.length
+  const viewerNames = uniqueViewers.map((viewer) => viewer.name).join(", ")
 
   return (
     <div
-      className="flex items-center"
+      className={cn("flex items-center", className)}
       aria-label={`Also viewing: ${viewerNames}`}
       title={`Also viewing: ${viewerNames}`}
     >
-      <AvatarGroup className="*:data-[slot=avatar]:ring-1 *:data-[slot=avatar]:ring-background">
+      <AvatarGroup className="*:data-[slot=avatar]:ring-0">
         {visibleViewers.map((viewer) => (
           <DocumentAuthorAvatar
             key={viewer.userId}
             avatarImageUrl={viewer.avatarImageUrl}
             avatarUrl={viewer.avatarUrl}
             name={viewer.name}
+            size={compact ? "compact" : "sm"}
             title={viewer.name}
+            ringColor={getCollaborationUserColor(viewer.userId)}
           />
         ))}
         {hiddenViewerCount > 0 ? (
-          <AvatarGroupCount className="size-5 text-[9px]">
+          <AvatarGroupCount
+            className={
+              compact
+                ? COMPACT_DOCUMENT_PRESENCE_COUNT_CLASS_NAME
+                : "size-5 text-[9px]"
+            }
+          >
             +{hiddenViewerCount}
           </AvatarGroupCount>
         ) : null}

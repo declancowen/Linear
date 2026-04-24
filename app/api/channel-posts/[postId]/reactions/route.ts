@@ -2,7 +2,11 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { isApplicationError } from "@/lib/server/application-errors"
-import { toggleChannelPostReactionServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  toggleChannelPostReactionServer,
+} from "@/lib/server/convex"
+import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -52,6 +56,12 @@ export async function POST(
       currentUserId: appContext.ensuredUser.userId,
       postId,
       emoji: parsed.emoji,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: await resolveChannelPostReadModelScopeKeysServer(
+        session,
+        postId
+      ),
     })
 
     return jsonOk({

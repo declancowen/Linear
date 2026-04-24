@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { declineInviteServer, getInviteByTokenServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       token: parsed.token,
     })
+    if (invite.workspace?.id) {
+      await bumpWorkspaceMembershipReadModelScopesServer(invite.workspace.id)
+    }
 
     return jsonOk({
       ok: true,

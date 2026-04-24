@@ -4,6 +4,12 @@ import { ApplicationError } from "@/lib/server/application-errors"
 import { documentSchema } from "@/lib/domain/types"
 import { createDocumentServer } from "@/lib/server/convex"
 import {
+  bumpDocumentIndexReadModelScopesServer,
+  bumpPrivateDocumentIndexReadModelScopesServer,
+  bumpPrivateSearchSeedReadModelScopesServer,
+  bumpSearchSeedReadModelScopesServer,
+} from "@/lib/server/scoped-read-models"
+import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
@@ -44,6 +50,36 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
+    const documentScopeType =
+      parsed.kind === "team-document" ? "team" : "workspace"
+    const documentScopeId =
+      parsed.kind === "team-document" ? parsed.teamId : parsed.workspaceId
+    const searchWorkspaceId =
+      result?.workspaceId ??
+      (parsed.kind === "team-document"
+        ? appContext.authContext?.currentWorkspace?.id ?? null
+        : parsed.workspaceId)
+    if (parsed.kind === "private-document") {
+      await bumpPrivateDocumentIndexReadModelScopesServer(
+        documentScopeId,
+        appContext.ensuredUser.userId
+      )
+    } else {
+      await bumpDocumentIndexReadModelScopesServer(
+        documentScopeType,
+        documentScopeId
+      )
+    }
+    if (searchWorkspaceId) {
+      if (parsed.kind === "private-document") {
+        await bumpPrivateSearchSeedReadModelScopesServer(
+          searchWorkspaceId,
+          appContext.ensuredUser.userId
+        )
+      } else {
+        await bumpSearchSeedReadModelScopesServer(searchWorkspaceId)
+      }
+    }
 
     return jsonOk({
       ok: true,

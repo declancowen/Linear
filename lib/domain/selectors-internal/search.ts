@@ -354,7 +354,7 @@ export function getWorkspaceSearchIndex(data: AppData): WorkspaceSearchIndex {
           href: `/docs/${document.id}`,
           keywords: [
             document.id,
-            document.content,
+            document.previewText ?? document.content,
             accessibleTeamsById.get(document.teamId ?? "")?.slug ?? "",
             contextLabel.toLowerCase(),
           ],

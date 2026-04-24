@@ -27,6 +27,30 @@ export {
   syncUpdateWorkspaceBranding,
 } from "./client/core"
 export {
+  buildScopedInvalidationStreamUrl,
+  type DocumentCollaborationSessionPayload,
+  syncCreateDocumentCollaborationSession,
+} from "./client/document-collaboration"
+export {
+  type ChatPresenceSessionPayload,
+  syncCreateChatPresenceSession,
+} from "./client/chat-presence"
+export {
+  fetchChannelFeedReadModel,
+  fetchConversationListReadModel,
+  fetchConversationThreadReadModel,
+  fetchDocumentDetailReadModel,
+  fetchDocumentIndexReadModel,
+  fetchNotificationInboxReadModel,
+  fetchProjectIndexReadModel,
+  fetchProjectDetailReadModel,
+  fetchSearchSeedReadModel,
+  fetchViewCatalogReadModel,
+  fetchWorkIndexReadModel,
+  fetchWorkItemDetailReadModel,
+  fetchWorkspaceMembershipReadModel,
+} from "./client/read-models"
+export {
   type StartConversationCallResult,
   syncAddChannelPostComment,
   syncCreateChannel,

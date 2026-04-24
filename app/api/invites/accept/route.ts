@@ -6,6 +6,7 @@ import {
   acceptInviteServer,
   getInviteByTokenServer,
 } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   reconcileAuthenticatedAppContext,
 } from "@/lib/server/authenticated-app"
@@ -69,6 +70,9 @@ export async function POST(request: NextRequest) {
       token: parsed.token,
     })
     await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    if (invite.workspace?.id) {
+      await bumpWorkspaceMembershipReadModelScopesServer(invite.workspace.id)
+    }
 
     return jsonOk({
       ok: true,

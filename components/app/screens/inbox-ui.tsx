@@ -52,6 +52,43 @@ const ENTITY_LABEL: Record<NotificationEntityType, string> = {
   workspace: "Workspace",
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+export function buildInboxNotificationSubtitle(
+  notification: Pick<Notification, "message">,
+  actorName?: string | null
+) {
+  const message = notification.message.trim()
+
+  if (!message) {
+    return ""
+  }
+
+  const normalizedActorName = actorName?.trim()
+  let subtitle = message
+
+  if (normalizedActorName) {
+    subtitle = subtitle.replace(
+      new RegExp(`^${escapeRegExp(normalizedActorName)}(?:\\s+|$)`, "i"),
+      ""
+    )
+  }
+
+  subtitle = subtitle
+    .replace(/^mentioned you (\d+ times? in\b)/i, "mentioned $1")
+    .replace(/^mentioned you in\b/i, "mentioned in")
+    .replace(/^assigned you\b/i, "assigned")
+    .trim()
+
+  if (!subtitle) {
+    return message
+  }
+
+  return `${subtitle.charAt(0).toUpperCase()}${subtitle.slice(1)}`
+}
+
 function renderEntityIcon(
   entityType: NotificationEntityType,
   className?: string
@@ -211,6 +248,7 @@ function InboxRow({
   const { notification, actor } = entry
   const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
+  const subtitle = buildInboxNotificationSubtitle(notification, actorName)
   const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
 
   return (
@@ -265,7 +303,7 @@ function InboxRow({
               unread ? "text-foreground/85" : "text-muted-foreground"
             )}
           >
-            {notification.message}
+            {subtitle}
           </span>
         </div>
       </button>

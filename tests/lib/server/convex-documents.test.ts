@@ -77,14 +77,21 @@ describe("convex document server wrappers", () => {
     const { updateDocumentServer } =
       await import("@/lib/server/convex/documents")
 
-    mutationMock.mockResolvedValue({})
+    mutationMock.mockResolvedValue({
+      updatedAt: "2026-04-18T10:00:00.000Z",
+    })
 
-    await updateDocumentServer({
-      currentUserId: "user_1",
-      documentId: "document_1",
-      title: "Launch plan",
-      content:
-        '<p><a href="/api/calls/join?callId=call_1" target="_blank">Join</a><script>alert(1)</script></p>',
+    await expect(
+      updateDocumentServer({
+        currentUserId: "user_1",
+        documentId: "document_1",
+        title: "Launch plan",
+        content:
+          '<p><a href="/api/calls/join?callId=call_1" target="_blank">Join</a><script>alert(1)</script></p>',
+        expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+      })
+    ).resolves.toEqual({
+      updatedAt: "2026-04-18T10:00:00.000Z",
     })
 
     expect(mutationMock).toHaveBeenCalledTimes(1)
@@ -94,10 +101,46 @@ describe("convex document server wrappers", () => {
         currentUserId: "user_1",
         documentId: "document_1",
         title: "Launch plan",
+        expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
         content:
           '<p><a href="/api/calls/join?callId=call_1" target="_blank" rel="noopener noreferrer">Join</a></p>',
       })
     )
+  })
+
+  it("maps document and item-description edit conflicts to application errors", async () => {
+    const { updateDocumentServer, updateItemDescriptionServer } =
+      await import("@/lib/server/convex/documents")
+
+    mutationMock
+      .mockRejectedValueOnce(new Error("Document changed while you were editing"))
+      .mockRejectedValueOnce(
+        new Error("Work item description changed while you were editing")
+      )
+
+    await expect(
+      updateDocumentServer({
+        currentUserId: "user_1",
+        documentId: "document_1",
+        title: "Launch plan",
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 409,
+      code: "DOCUMENT_EDIT_CONFLICT",
+    })
+
+    await expect(
+      updateItemDescriptionServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        content: "<p>Updated</p>",
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 409,
+      code: "ITEM_DESCRIPTION_EDIT_CONFLICT",
+    })
   })
 
   it("maps document and comment domain failures to application errors", async () => {

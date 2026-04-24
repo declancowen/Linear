@@ -25,7 +25,10 @@ export default async function WorkspaceLayout({
   }
 
   return (
-    <AuthenticatedWorkspaceClient authenticatedUser={authenticatedUser}>
+    <AuthenticatedWorkspaceClient
+      authenticatedUser={authenticatedUser}
+      initialWorkspaceId={authContext.currentWorkspace.id}
+    >
       {children}
     </AuthenticatedWorkspaceClient>
   )

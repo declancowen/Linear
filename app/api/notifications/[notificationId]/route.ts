@@ -9,6 +9,7 @@ import {
   toggleNotificationReadServer,
   unarchiveNotificationServer,
 } from "@/lib/server/convex"
+import { bumpNotificationInboxReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -88,6 +89,7 @@ export async function PATCH(
         notificationId,
       })
     }
+    await bumpNotificationInboxReadModelScopesServer([currentUserId])
 
     return jsonOk({ ok: true })
   } catch (error) {
@@ -128,6 +130,9 @@ export async function DELETE(
       currentUserId: authContext.currentUser.id,
       notificationId,
     })
+    await bumpNotificationInboxReadModelScopesServer([
+      authContext.currentUser.id,
+    ])
 
     return jsonOk({ ok: true })
   } catch (error) {

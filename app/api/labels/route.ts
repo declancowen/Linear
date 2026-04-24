@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { labelCreateSchema } from "@/lib/domain/types"
 import { createLabelServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
       workspaceId,
       ...parsed,
     })
+    await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
 
     return jsonOk({
       ok: true,

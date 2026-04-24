@@ -320,6 +320,7 @@ describe("workspace and profile route contracts", () => {
       name: "Alex Stored",
       avatarUrl: "AS",
       avatarImageUrl: "https://example.com/convex-avatar.png",
+      activeBlockId: null,
       sessionId: "session_12345",
     })
   })

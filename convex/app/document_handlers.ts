@@ -45,6 +45,7 @@ type UpdateDocumentContentArgs = ServerAccessArgs & {
   currentUserId: string
   documentId: string
   content: string
+  expectedUpdatedAt?: string
 }
 
 type UpdateDocumentArgs = ServerAccessArgs & {
@@ -52,6 +53,7 @@ type UpdateDocumentArgs = ServerAccessArgs & {
   documentId: string
   title?: string
   content?: string
+  expectedUpdatedAt?: string
 }
 
 type SendDocumentMentionNotificationsArgs = ServerAccessArgs & {
@@ -72,6 +74,7 @@ type DocumentPresenceArgs = ServerAccessArgs & {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   sessionId: string
 }
 
@@ -97,6 +100,7 @@ type UpdateItemDescriptionArgs = ServerAccessArgs & {
   currentUserId: string
   itemId: string
   content: string
+  expectedUpdatedAt?: string
 }
 
 type SendItemDescriptionMentionNotificationsArgs = ServerAccessArgs & {
@@ -158,15 +162,28 @@ export async function updateDocumentContentHandler(
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
 
+  if (
+    args.expectedUpdatedAt !== undefined &&
+    document.updatedAt !== args.expectedUpdatedAt
+  ) {
+    throw new Error("Document changed while you were editing")
+  }
+
+  const updatedAt = getNow()
+
   await ctx.db.patch(document._id, {
     content: args.content,
     notifiedMentionCounts: getClampedNotifiedMentionCounts(
       args.content,
       document.notifiedMentionCounts
     ),
-    updatedAt: getNow(),
+    updatedAt,
     updatedBy: args.currentUserId,
   })
+
+  return {
+    updatedAt,
+  }
 }
 
 export async function updateDocumentHandler(
@@ -187,6 +204,15 @@ export async function updateDocumentHandler(
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
 
+  if (
+    args.expectedUpdatedAt !== undefined &&
+    document.updatedAt !== args.expectedUpdatedAt
+  ) {
+    throw new Error("Document changed while you were editing")
+  }
+
+  const updatedAt = getNow()
+
   await ctx.db.patch(document._id, {
     ...(args.title !== undefined ? { title: args.title } : {}),
     ...(args.content !== undefined
@@ -198,9 +224,13 @@ export async function updateDocumentHandler(
           ),
         }
       : {}),
-    updatedAt: getNow(),
+    updatedAt,
     updatedBy: args.currentUserId,
   })
+
+  return {
+    updatedAt,
+  }
 }
 
 function normalizeMentionNotificationCount(count: number) {
@@ -704,6 +734,7 @@ export async function heartbeatDocumentPresenceHandler(
 
   if (existingPresence) {
     await ctx.db.patch(existingPresence._id, {
+      activeBlockId: args.activeBlockId ?? null,
       avatarUrl: args.avatarUrl,
       avatarImageUrl: args.avatarImageUrl ?? null,
       documentId: args.documentId,
@@ -726,6 +757,7 @@ export async function heartbeatDocumentPresenceHandler(
     }
   } else {
     await ctx.db.insert("documentPresence", {
+      activeBlockId: args.activeBlockId ?? null,
       avatarUrl: args.avatarUrl,
       avatarImageUrl: args.avatarImageUrl ?? null,
       documentId: args.documentId,
@@ -844,19 +876,32 @@ export async function updateItemDescriptionHandler(
     throw new Error("Work item description document not found")
   }
 
+  if (
+    args.expectedUpdatedAt !== undefined &&
+    descriptionDocument.updatedAt !== args.expectedUpdatedAt
+  ) {
+    throw new Error("Work item description changed while you were editing")
+  }
+
+  const updatedAt = getNow()
+
   await ctx.db.patch(descriptionDocument._id, {
     content: args.content,
     notifiedMentionCounts: getClampedNotifiedMentionCounts(
       args.content,
       descriptionDocument.notifiedMentionCounts
     ),
-    updatedAt: getNow(),
+    updatedAt,
     updatedBy: args.currentUserId,
   })
 
   await ctx.db.patch(item._id, {
-    updatedAt: getNow(),
+    updatedAt,
   })
+
+  return {
+    updatedAt,
+  }
 }
 
 export async function generateAttachmentUploadUrlHandler(
@@ -1051,5 +1096,6 @@ export async function createDocumentHandler(
 
   return {
     documentId,
+    workspaceId,
   }
 }

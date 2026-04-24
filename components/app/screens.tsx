@@ -54,6 +54,19 @@ import {
   isSystemView,
 } from "@/lib/domain/default-views"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
+import {
+  fetchDocumentIndexReadModel,
+  fetchProjectIndexReadModel,
+  fetchViewCatalogReadModel,
+  fetchWorkIndexReadModel,
+} from "@/lib/convex/client/read-models"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import {
+  getDocumentIndexScopeKeys,
+  getProjectIndexScopeKeys,
+  getViewCatalogScopeKeys,
+  getWorkIndexScopeKeys,
+} from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import {
@@ -111,6 +124,14 @@ import {
 import { cn } from "@/lib/utils"
 export { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
 export { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
+
+function ScopedScreenLoading({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+      {label}
+    </div>
+  )
+}
 
 function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
   const selectedView = useAppStore((state) => getViewByRoute(state, routeKey))
@@ -1001,6 +1022,12 @@ function SavedViewCard({
 
 export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   const team = useAppStore((state) => getTeamBySlug(state, teamSlug))
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(team?.id),
+    scopeKeys: team ? getWorkIndexScopeKeys("team", team.id) : [],
+    fetchLatest: () =>
+      fetchWorkIndexReadModel("team", team?.id ?? ""),
+  })
   const views = useAppStore(
     useShallow((state) =>
       team ? getViewsForScope(state, "team", team.id, "items") : []
@@ -1030,6 +1057,8 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
       items={items}
       team={team}
       emptyLabel={workCopy.emptyLabel}
+      isLoading={!hasLoadedOnce && items.length === 0}
+      loadingLabel={`Loading ${workCopy.surfaceLabel.toLowerCase()}...`}
     />
   )
 }
@@ -1042,6 +1071,14 @@ export function AssignedScreen() {
     }))
   )
   const team = useAppStore((state) => getTeam(state, activeTeamId))
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId
+      ? getWorkIndexScopeKeys("personal", currentUserId)
+      : [],
+    fetchLatest: () =>
+      fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+  })
   const assignedViewExperience = useAppStore((state) => {
     return getSharedTeamExperience(
       getAccessibleTeams(state).map(
@@ -1089,7 +1126,10 @@ export function AssignedScreen() {
       filterItems={assignedItems}
       team={team}
       groupingExperience={assignedViewExperience}
+      createTeamId={activeTeamId}
       emptyLabel="Nothing is assigned right now"
+      isLoading={!hasLoadedOnce && items.length === 0}
+      loadingLabel="Loading items..."
       childDisplayMode="assigned-descendants"
       allowCreateViews={false}
     />
@@ -1109,6 +1149,11 @@ export function ProjectsScreen({
   description?: string
 }) {
   const data = useAppStore((state) => state)
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(scopeId),
+    scopeKeys: getProjectIndexScopeKeys(scopeType, scopeId),
+    fetchLatest: () => fetchProjectIndexReadModel(scopeType, scopeId),
+  })
   const projects = useAppStore(
     useShallow((state) => getProjectsForScope(state, scopeType, scopeId))
   )
@@ -1435,7 +1480,9 @@ export function ProjectsScreen({
         </Viewbar>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {visibleProjects.length === 0 ? (
+        {!hasLoadedOnce && visibleProjects.length === 0 ? (
+          <ScopedScreenLoading label="Loading projects..." />
+        ) : visibleProjects.length === 0 ? (
           <MissingState title={emptyProjectsLabel} />
         ) : (
           <>
@@ -1544,6 +1591,11 @@ export function ViewsScreen({
   title: string
   description?: string
 }) {
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(scopeId),
+    scopeKeys: getViewCatalogScopeKeys(scopeType, scopeId),
+    fetchLatest: () => fetchViewCatalogReadModel(scopeType, scopeId),
+  })
   const views = useAppStore(
     useShallow((state) =>
       scopeType === "workspace"
@@ -1759,7 +1811,9 @@ export function ViewsScreen({
         </div>
       </Viewbar>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {orderedViews.length === 0 ? (
+        {!hasLoadedOnce && orderedViews.length === 0 ? (
+          <ScopedScreenLoading label="Loading views..." />
+        ) : orderedViews.length === 0 ? (
           <MissingState title={emptyTitle} />
         ) : (
           <>
@@ -1903,6 +1957,12 @@ export function DocsScreen({
   description?: string
 }) {
   const data = useAppStore((state) => state)
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(scopeId),
+    scopeKeys: getDocumentIndexScopeKeys(scopeType, scopeId, currentUserId),
+    fetchLatest: () => fetchDocumentIndexReadModel(scopeType, scopeId),
+  })
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
   const teamDocViews = useAppStore(
     useShallow((state) =>
@@ -2027,7 +2087,9 @@ export function DocsScreen({
         disabled={!editable}
       />
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {documents.length === 0 ? (
+        {!hasLoadedOnce && documents.length === 0 ? (
+          <ScopedScreenLoading label="Loading documents..." />
+        ) : documents.length === 0 ? (
           <MissingState icon={FileText} title={emptyTitle} />
         ) : layout === "board" ? (
           <DocumentBoard data={data} documents={documents} />

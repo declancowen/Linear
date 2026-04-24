@@ -3,7 +3,11 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { channelPostCommentSchema } from "@/lib/domain/types"
-import { addChannelPostCommentServer } from "@/lib/server/convex"
+import {
+  addChannelPostCommentServer,
+  bumpScopedReadModelVersionsServer,
+} from "@/lib/server/convex"
+import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -61,6 +65,12 @@ export async function POST(
     const result = await addChannelPostCommentServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed.data,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: await resolveChannelPostReadModelScopeKeysServer(
+        session,
+        postId
+      ),
     })
 
     return jsonOk({

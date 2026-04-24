@@ -320,7 +320,8 @@ export function syncUpdateWorkItem(
 
 export async function syncHeartbeatWorkItemPresence(
   itemId: string,
-  sessionId: string
+  sessionId: string,
+  activeBlockId?: string | null
 ) {
   const payload = await runRouteMutation<{
     viewers: DocumentPresenceViewer[]
@@ -332,6 +333,7 @@ export async function syncHeartbeatWorkItemPresence(
     body: JSON.stringify({
       action: "heartbeat",
       sessionId,
+      activeBlockId: activeBlockId ?? null,
     }),
   })
 
@@ -387,10 +389,12 @@ export function syncShiftTimelineItem(itemId: string, nextStartDate: string) {
 export function syncUpdateDocumentContent(
   _currentUserId: string,
   documentId: string,
-  content: string
+  content: string,
+  expectedUpdatedAt?: string
 ) {
   return syncUpdateDocument(documentId, {
     content,
+    expectedUpdatedAt,
   })
 }
 
@@ -399,9 +403,13 @@ export function syncUpdateDocument(
   patch: {
     title?: string
     content?: string
+    expectedUpdatedAt?: string
   }
 ) {
-  return runRouteMutation(`/api/documents/${documentId}`, {
+  return runRouteMutation<{
+    ok: true
+    updatedAt: string
+  }>(`/api/documents/${documentId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -463,25 +471,32 @@ export function syncDeleteDocument(documentId: string) {
 export function syncRenameDocument(
   _currentUserId: string,
   documentId: string,
-  title: string
+  title: string,
+  expectedUpdatedAt?: string
 ) {
   return syncUpdateDocument(documentId, {
     title,
+    expectedUpdatedAt,
   })
 }
 
 export function syncUpdateItemDescription(
   _currentUserId: string,
   itemId: string,
-  content: string
+  content: string,
+  expectedUpdatedAt?: string
 ) {
-  return runRouteMutation(`/api/items/${itemId}/description`, {
+  return runRouteMutation<{
+    ok: true
+    updatedAt: string
+  }>(`/api/items/${itemId}/description`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       content,
+      expectedUpdatedAt,
     }),
   })
 }

@@ -169,6 +169,7 @@ export interface Document {
   teamId: string | null
   title: string
   content: string
+  previewText?: string
   notifiedMentionCounts?: Record<string, number>
   linkedProjectIds: string[]
   linkedWorkItemIds: string[]
@@ -183,6 +184,7 @@ export interface DocumentPresenceViewer {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   lastSeenAt: string
 }
 

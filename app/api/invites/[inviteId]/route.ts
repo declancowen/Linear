@@ -1,5 +1,6 @@
 import { ApplicationError } from "@/lib/server/application-errors"
 import { cancelInviteServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -38,6 +39,14 @@ export async function DELETE(
       currentUserId: appContext.ensuredUser.userId,
       inviteId,
     })
+    const workspaceId =
+      cancelled.workspaceId ??
+      appContext.authContext?.currentWorkspace?.id ??
+      null
+
+    if (workspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
+    }
 
     return jsonOk({
       ok: true,
