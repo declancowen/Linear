@@ -252,6 +252,33 @@ describe("team and collaboration route contracts", () => {
     })
   })
 
+  it("rejects empty join codes before they reach the team join and lookup providers", async () => {
+    const joinRoute = await import("@/app/api/teams/join/route")
+    const lookupRoute = await import("@/app/api/teams/lookup/route")
+
+    const joinResponse = await joinRoute.POST(
+      new Request("http://localhost/api/teams/join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          code: "",
+        }),
+      }) as never
+    )
+
+    expect(joinResponse.status).toBe(400)
+    expect(joinTeamByCodeServerMock).not.toHaveBeenCalled()
+
+    const lookupResponse = await lookupRoute.GET(
+      new NextRequest("http://localhost/api/teams/lookup?code=") as never
+    )
+
+    expect(lookupResponse.status).toBe(400)
+    expect(lookupTeamByJoinCodeServerMock).not.toHaveBeenCalled()
+  })
+
   it("maps team lookup failures without provider-error noise", async () => {
     const { GET } = await import("@/app/api/teams/lookup/route")
 

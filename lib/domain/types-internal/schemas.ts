@@ -19,6 +19,7 @@ import {
   profileStatusMessageConstraints,
   profileTitleConstraints,
   projectSummaryConstraints,
+  requiredTeamJoinCodeConstraints,
   teamJoinCodeConstraints,
   teamNameConstraints,
   teamSummaryConstraints,
@@ -132,7 +133,7 @@ export const inviteSchema = z.object({
 })
 
 export const joinCodeSchema = z.object({
-  code: boundedTrimmedStringSchema(teamJoinCodeConstraints),
+  code: boundedTrimmedStringSchema(requiredTeamJoinCodeConstraints),
 })
 
 export const workspaceBrandingSchema = z.object({

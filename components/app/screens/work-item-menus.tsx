@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { getTeamProjectOptions } from "./helpers"
 import { PriorityIcon, StatusIcon } from "./shared"
+import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import { WorkItemAssigneeAvatar } from "./work-item-ui"
 
 export function stopMenuEvent(event: SyntheticEvent) {
@@ -96,6 +97,8 @@ function IssueActionMenuContent({
   const MenuItem: ElementType =
     kind === "dropdown" ? DropdownMenuItem : ContextMenuItem
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
 
   async function handleDelete() {
     await useAppStore.getState().deleteWorkItem(item.id)
@@ -191,7 +194,7 @@ function IssueActionMenuContent({
         <MenuSubContent>
           <MenuItem
             onSelect={() =>
-              useAppStore.getState().updateWorkItem(item.id, {
+              requestConfirmedWorkItemUpdate(item.id, {
                 primaryProjectId: null,
               })
             }
@@ -203,7 +206,7 @@ function IssueActionMenuContent({
             <MenuItem
               key={`${item.id}-${project.id}`}
               onSelect={() =>
-                useAppStore.getState().updateWorkItem(item.id, {
+                requestConfirmedWorkItemUpdate(item.id, {
                   primaryProjectId: project.id,
                 })
               }
@@ -241,6 +244,7 @@ function IssueActionMenuContent({
         variant="destructive"
         onConfirm={() => void handleDelete()}
       />
+      {confirmationDialog}
     </>
   )
 }

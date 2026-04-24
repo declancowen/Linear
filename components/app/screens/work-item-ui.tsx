@@ -63,7 +63,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 import { formatInlineDescriptionContent } from "./helpers"
 import { PriorityDot, PriorityIcon, StatusIcon } from "./shared"
-import { cn, getPlainTextContent, resolveImageAssetSource } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 export function WorkItemTypeBadge({
   data,
@@ -206,10 +206,16 @@ function CommentThreadItem({
   const [replyContent, setReplyContent] = useState("")
   const replyEditorRef = useRef<Editor | null>(null)
   const replies = repliesByParentId[comment.id] ?? []
-  const replyText = getPlainTextContent(replyContent)
+  const replyLimitState = getTextInputLimitState(
+    replyContent,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
 
   function handleReply() {
-    if (!replyText) {
+    if (!replyLimitState.canSubmit) {
       return
     }
 
@@ -314,7 +320,13 @@ function CommentThreadItem({
               className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
             />
           </div>
-          <div className="flex items-center justify-between gap-2">
+          <div>
+            <FieldCharacterLimit
+              state={replyLimitState}
+              limit={commentContentConstraints.max}
+              className="mt-0 mb-1.5"
+            />
+            <div className="flex items-center justify-between gap-2">
             <EmojiPickerPopover
               align="start"
               side="top"
@@ -350,9 +362,14 @@ function CommentThreadItem({
               >
                 Cancel
               </Button>
-              <Button size="sm" disabled={!replyText} onClick={handleReply}>
+              <Button
+                size="sm"
+                disabled={!replyLimitState.canSubmit}
+                onClick={handleReply}
+              >
                 Reply
               </Button>
+            </div>
             </div>
           </div>
         </div>
@@ -465,10 +482,16 @@ export function CommentsInline({
   )
   const [content, setContent] = useState("")
   const commentEditorRef = useRef<Editor | null>(null)
-  const contentText = getPlainTextContent(content)
+  const commentLimitState = getTextInputLimitState(
+    content,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
 
   function handleComment() {
-    if (!contentText) {
+    if (!commentLimitState.canSubmit) {
       return
     }
 
@@ -514,7 +537,13 @@ export function CommentsInline({
             className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
           />
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div>
+          <FieldCharacterLimit
+            state={commentLimitState}
+            limit={commentContentConstraints.max}
+            className="mt-0 mb-1.5"
+          />
+          <div className="flex items-center justify-between gap-2">
           <EmojiPickerPopover
             align="start"
             side="top"
@@ -541,11 +570,12 @@ export function CommentsInline({
           />
           <Button
             size="sm"
-            disabled={!editable || !contentText}
+            disabled={!editable || !commentLimitState.canSubmit}
             onClick={handleComment}
           >
             Comment
           </Button>
+          </div>
         </div>
       </div>
     </div>

@@ -59,6 +59,7 @@ import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import { getPatchForField, LabelColorDot } from "./shared"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { getContainerItemsForDisplay } from "./helpers"
+import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
   getGroupAccentVar,
   getGroupValueAdornment,
@@ -597,6 +598,8 @@ export function BoardView({
     ([groupName]) => !view.hiddenState.groups.includes(groupName)
   )
   const showChildItems = Boolean(view.showChildItems)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
 
   function toggleExpandedItem(itemId: string) {
     setExpandedItemIds((current) => {
@@ -664,7 +667,7 @@ export function BoardView({
         canParentWorkItemTypeAcceptChild(targetItem.type, activeItem.type) &&
         !getWorkItemDescendantIds(data, activeItem.id).has(targetItem.id)
 
-      useAppStore.getState().updateWorkItem(activeItem.id, {
+      requestConfirmedWorkItemUpdate(activeItem.id, {
         ...patch,
         parentId: canNestOnTarget ? targetItem.id : null,
       })
@@ -686,7 +689,7 @@ export function BoardView({
       subgroupValue: target.subgroupValue,
     })
 
-    useAppStore.getState().updateWorkItem(activeItem.id, {
+    requestConfirmedWorkItemUpdate(activeItem.id, {
       ...patch,
       parentId: null,
     })
@@ -900,6 +903,8 @@ export function BoardView({
         </div>
       ) : null}
 
+      {confirmationDialog}
+
       <DragOverlay>
         {activeItem ? (
           activeDragPreviewKind === "child" ? (
@@ -953,6 +958,8 @@ export function ListView({
   const sensors = useHoldToDragSensors()
   const itemPool = scopedItems ?? data.workItems
   const showChildItems = Boolean(view.showChildItems)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
 
   function toggleGroup(groupName: string) {
     setCollapsedGroups((current) => {
@@ -1028,7 +1035,7 @@ export function ListView({
         canParentWorkItemTypeAcceptChild(targetItem.type, activeItem.type) &&
         !getWorkItemDescendantIds(data, activeItem.id).has(targetItem.id)
 
-      useAppStore.getState().updateWorkItem(activeItem.id, {
+      requestConfirmedWorkItemUpdate(activeItem.id, {
         ...patch,
         parentId: canNestOnTarget ? targetItem.id : null,
       })
@@ -1050,7 +1057,7 @@ export function ListView({
       subgroupValue: target.subgroupValue,
     })
 
-    useAppStore.getState().updateWorkItem(activeItem.id, {
+    requestConfirmedWorkItemUpdate(activeItem.id, {
       ...patch,
       parentId: null,
     })
@@ -1307,6 +1314,8 @@ export function ListView({
           </div>
         ) : null}
       </div>
+
+      {confirmationDialog}
 
       <DragOverlay>
         {activeItem ? (
@@ -1994,7 +2003,7 @@ function DraggableBoardChildItem({
     id: `board-item::${item.id}`,
   })
 
-  function setNodeRef(node: HTMLAnchorElement | null) {
+  function setNodeRef(node: HTMLDivElement | null) {
     setDraggableNodeRef(node)
     setDroppableNodeRef(node)
   }

@@ -35,6 +35,7 @@ import {
 import { registerPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   effectiveRole,
+  getProjectCascadeConfirmationForWorkItemUpdate,
   getProjectsForTeamScope,
   getResolvedProjectLinkForWorkItemUpdate,
   getWorkItemCascadeDeletePlan,
@@ -105,12 +106,14 @@ export function createWorkItemActions({
         return null
       }
     },
-    updateWorkItem(itemId, patch) {
+    updateWorkItem(itemId, patch, options) {
       const state = get()
       const existing = state.workItems.find((item) => item.id === itemId)
 
       if (!existing) {
-        return
+        return {
+          status: "missing-item",
+        }
       }
 
       const {
@@ -147,7 +150,10 @@ export function createWorkItemActions({
 
       if (validationMessage) {
         toast.error(validationMessage)
-        return
+        return {
+          status: "validation-error",
+          message: validationMessage,
+        }
       }
 
       if (resolvedPrimaryProjectId && shouldCascadeProjectLink) {
@@ -169,7 +175,28 @@ export function createWorkItemActions({
           toast.error(
             "A work item type in this hierarchy is not allowed for the selected project template"
           )
-          return
+          return {
+            status: "validation-error",
+            message:
+              "A work item type in this hierarchy is not allowed for the selected project template",
+          }
+        }
+      }
+
+      const projectCascadeConfirmation =
+        getProjectCascadeConfirmationForWorkItemUpdate(
+          state,
+          existing,
+          localPatch
+        )
+
+      if (
+        projectCascadeConfirmation.requiresConfirmation &&
+        !options?.confirmProjectCascade
+      ) {
+        return {
+          status: "project-confirmation-required",
+          cascadeItemCount: projectCascadeConfirmation.cascadeItemCount,
         }
       }
 
@@ -318,6 +345,10 @@ export function createWorkItemActions({
         }),
         "Failed to update work item"
       )
+
+      return {
+        status: "updated",
+      }
     },
     async deleteWorkItem(itemId) {
       const state = get()

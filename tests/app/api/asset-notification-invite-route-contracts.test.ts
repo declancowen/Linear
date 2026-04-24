@@ -14,8 +14,7 @@ const cancelInviteServerMock = vi.fn()
 const getInviteByTokenServerMock = vi.fn()
 const acceptInviteServerMock = vi.fn()
 const declineInviteServerMock = vi.fn()
-const archiveNotificationServerMock = vi.fn()
-const unarchiveNotificationServerMock = vi.fn()
+const updateNotificationsServerMock = vi.fn()
 const markNotificationReadServerMock = vi.fn()
 const toggleNotificationReadServerMock = vi.fn()
 const deleteNotificationServerMock = vi.fn()
@@ -45,8 +44,7 @@ vi.mock("@/lib/server/convex", () => ({
   getInviteByTokenServer: getInviteByTokenServerMock,
   acceptInviteServer: acceptInviteServerMock,
   declineInviteServer: declineInviteServerMock,
-  archiveNotificationServer: archiveNotificationServerMock,
-  unarchiveNotificationServer: unarchiveNotificationServerMock,
+  updateNotificationsServer: updateNotificationsServerMock,
   markNotificationReadServer: markNotificationReadServerMock,
   toggleNotificationReadServer: toggleNotificationReadServerMock,
   deleteNotificationServer: deleteNotificationServerMock,
@@ -95,8 +93,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     getInviteByTokenServerMock.mockReset()
     acceptInviteServerMock.mockReset()
     declineInviteServerMock.mockReset()
-    archiveNotificationServerMock.mockReset()
-    unarchiveNotificationServerMock.mockReset()
+    updateNotificationsServerMock.mockReset()
     markNotificationReadServerMock.mockReset()
     toggleNotificationReadServerMock.mockReset()
     deleteNotificationServerMock.mockReset()
@@ -596,7 +593,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     const notificationRoute =
       await import("@/app/api/notifications/[notificationId]/route")
 
-    archiveNotificationServerMock.mockRejectedValue(
+    updateNotificationsServerMock.mockRejectedValue(
       new ApplicationError("Notification not found", 404, {
         code: "NOTIFICATION_NOT_FOUND",
       })

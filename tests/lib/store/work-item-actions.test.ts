@@ -188,6 +188,228 @@ describe("work item actions", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("requires confirmation before cascading an explicit project change across a hierarchy", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    state.projects = [
+      {
+        id: "project_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "project-management",
+        name: "Platform roadmap",
+        summary: "",
+        description: "",
+        leadId: "user_1",
+        memberIds: [],
+        health: "on-track",
+        priority: "medium",
+        status: "backlog",
+        startDate: null,
+        targetDate: null,
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const result = actions.updateWorkItem("parent", {
+      primaryProjectId: "project_1",
+    })
+
+    expect(result).toEqual({
+      status: "project-confirmation-required",
+      cascadeItemCount: 2,
+    })
+    expect(state.workItems.map((item) => item.primaryProjectId)).toEqual([
+      null,
+      null,
+    ])
+    expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
+    expect(syncInBackgroundMock).not.toHaveBeenCalled()
+  })
+
+  it("applies the project cascade after confirmation", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    state.projects = [
+      {
+        id: "project_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "project-management",
+        name: "Platform roadmap",
+        summary: "",
+        description: "",
+        leadId: "user_1",
+        memberIds: [],
+        health: "on-track",
+        priority: "medium",
+        status: "backlog",
+        startDate: null,
+        targetDate: null,
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const result = actions.updateWorkItem(
+      "parent",
+      {
+        primaryProjectId: "project_1",
+      },
+      {
+        confirmProjectCascade: true,
+      }
+    )
+
+    expect(result).toEqual({
+      status: "updated",
+    })
+    expect(state.workItems.map((item) => item.primaryProjectId)).toEqual([
+      "project_1",
+      "project_1",
+    ])
+    expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "parent", {
+      primaryProjectId: "project_1",
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("requires confirmation before reparenting a hierarchy into a different project", async () => {
+    const { createWorkItemActions } = await import(
+      "@/lib/store/app-store-internal/slices/work-item-actions"
+    )
+
+    let state = createState()
+    state.projects = [
+      {
+        id: "project_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "software-delivery",
+        name: "Platform roadmap",
+        summary: "",
+        description: "",
+        leadId: "user_1",
+        memberIds: [],
+        health: "on-track",
+        priority: "medium",
+        status: "backlog",
+        startDate: null,
+        targetDate: null,
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+    state.workItems = [
+      createItem("feature-parent", {
+        type: "feature",
+        title: "Feature",
+      }),
+      createItem("requirement-middle", {
+        type: "requirement",
+        title: "Requirement",
+        parentId: "feature-parent",
+      }),
+      createItem("story-child", {
+        type: "story",
+        title: "Story",
+        parentId: "requirement-middle",
+      }),
+      createItem("new-feature", {
+        type: "feature",
+        title: "New feature",
+        primaryProjectId: "project_1",
+      }),
+    ]
+    const syncInBackgroundMock = vi.fn()
+    const setState = (update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      state = {
+        ...state,
+        ...(patch as object),
+      }
+    }
+
+    const actions = createWorkItemActions({
+      get: () => state as never,
+      runtime: {
+        syncInBackground: syncInBackgroundMock,
+      } as never,
+      set: setState as never,
+    })
+
+    const result = actions.updateWorkItem("requirement-middle", {
+      parentId: "new-feature",
+    })
+
+    expect(result).toEqual({
+      status: "project-confirmation-required",
+      cascadeItemCount: 3,
+    })
+    expect(state.workItems.find((item) => item.id === "requirement-middle")?.parentId).toBe(
+      "feature-parent"
+    )
+    expect(state.workItems.map((item) => item.primaryProjectId)).toEqual([
+      null,
+      null,
+      null,
+      "project_1",
+    ])
+    expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
+    expect(syncInBackgroundMock).not.toHaveBeenCalled()
+  })
+
   it("passes expectedUpdatedAt through sync without storing it on the item", async () => {
     const { createWorkItemActions } = await import(
       "@/lib/store/app-store-internal/slices/work-item-actions"

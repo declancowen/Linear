@@ -47,6 +47,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 import { getTeamProjectOptions } from "./helpers"
+import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
   buildPropertyStatusOptions,
   PriorityIcon,
@@ -158,6 +159,8 @@ export function InlineWorkItemPropertyControl({
   const [assigneeQuery, setAssigneeQuery] = useState("")
   const [projectOpen, setProjectOpen] = useState(false)
   const [projectQuery, setProjectQuery] = useState("")
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
 
   if (property === "status") {
     const triggerClassName = getTriggerClassName(variant)
@@ -489,7 +492,7 @@ export function InlineWorkItemPropertyControl({
           <PropertyPopoverItem
             selected={currentProject === null}
             onClick={() => {
-              useAppStore.getState().updateWorkItem(item.id, {
+              requestConfirmedWorkItemUpdate(item.id, {
                 primaryProjectId: null,
               })
               setProjectOpen(false)
@@ -508,7 +511,7 @@ export function InlineWorkItemPropertyControl({
               key={project.id}
               selected={project.id === item.primaryProjectId}
               onClick={() => {
-                useAppStore.getState().updateWorkItem(item.id, {
+                requestConfirmedWorkItemUpdate(item.id, {
                   primaryProjectId: project.id,
                 })
                 setProjectOpen(false)
@@ -528,6 +531,7 @@ export function InlineWorkItemPropertyControl({
           ))}
         </PropertyPopoverList>
       </PopoverContent>
+      {confirmationDialog}
     </Popover>
   )
 }

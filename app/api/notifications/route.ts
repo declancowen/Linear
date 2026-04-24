@@ -3,9 +3,7 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
-  archiveNotificationServer,
-  markNotificationReadServer,
-  unarchiveNotificationServer,
+  updateNotificationsServer,
 } from "@/lib/server/convex"
 import { bumpNotificationInboxReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
@@ -62,28 +60,11 @@ export async function PATCH(request: NextRequest) {
 
     const currentUserId = authContext.currentUser.id
 
-    await Promise.all(
-      parsed.notificationIds.map((notificationId) => {
-        if (parsed.action === "archive") {
-          return archiveNotificationServer({
-            currentUserId,
-            notificationId,
-          })
-        }
-
-        if (parsed.action === "unarchive") {
-          return unarchiveNotificationServer({
-            currentUserId,
-            notificationId,
-          })
-        }
-
-        return markNotificationReadServer({
-          currentUserId,
-          notificationId,
-        })
-      })
-    )
+    await updateNotificationsServer({
+      currentUserId,
+      action: parsed.action,
+      notificationIds: parsed.notificationIds,
+    })
     await bumpNotificationInboxReadModelScopesServer([currentUserId])
 
     return jsonOk({ ok: true })

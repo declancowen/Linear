@@ -42,6 +42,26 @@ export type WorkItemPatch = {
   targetDate?: string | null
 }
 
+export type WorkItemUpdateOptions = {
+  confirmProjectCascade?: boolean
+}
+
+export type WorkItemUpdateResult =
+  | {
+      status: "updated"
+    }
+  | {
+      status: "missing-item"
+    }
+  | {
+      status: "validation-error"
+      message: string
+    }
+  | {
+      status: "project-confirmation-required"
+      cascadeItemCount: number
+    }
+
 export type CreateProjectInput = {
   scopeType: ScopeType
   scopeId: string
@@ -324,7 +344,11 @@ export type AppStore = AppData & {
     name: string,
     workspaceId?: string | null
   ) => Promise<Label | null>
-  updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
+  updateWorkItem: (
+    itemId: string,
+    patch: WorkItemPatch,
+    options?: WorkItemUpdateOptions
+  ) => WorkItemUpdateResult
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void

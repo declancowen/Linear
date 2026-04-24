@@ -64,7 +64,6 @@ import {
   getWorkItemChildProgress,
   getWorkItem,
   getWorkItemDescendantIds,
-  getWorkItemHierarchyIds,
   sortItems,
 } from "@/lib/domain/selectors"
 import {
@@ -129,8 +128,9 @@ import {
   WorkItemAssigneeAvatar,
   InlineChildIssueComposer,
 } from "./work-item-ui"
+import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import { formatWorkItemDetailDate } from "./date-presentation"
-import { cn, getPlainTextContent } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 
 const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
 const WORK_ITEM_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
@@ -790,13 +790,19 @@ function DetailSidebarActivity({
   const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
   const [content, setContent] = useState("")
   const commentEditorRef = useRef<Editor | null>(null)
-  const contentText = getPlainTextContent(content)
+  const commentLimitState = getTextInputLimitState(
+    content,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
   const mentionCandidates = getTeamMembers(data, item.teamId).filter(
     (candidate) => candidate.id !== currentUserId
   )
 
   function handleComment() {
-    if (!contentText) {
+    if (!commentLimitState.canSubmit) {
       return
     }
 
@@ -884,19 +890,26 @@ function DetailSidebarActivity({
           submitOnEnter
           className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
         />
-        <div className="mt-1.5 flex items-center justify-end gap-2 border-t border-dashed border-line pt-1.5">
+        <div className="mt-1.5 border-t border-dashed border-line pt-1.5">
+          <FieldCharacterLimit
+            state={commentLimitState}
+            limit={commentContentConstraints.max}
+            className="mt-0 mb-1.5"
+          />
+          <div className="flex items-center justify-end gap-2">
           <ShortcutKeys
             keys={["Enter"]}
             keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
           />
           <Button
             size="sm"
-            disabled={!editable || contentText.length === 0}
+            disabled={!editable || !commentLimitState.canSubmit}
             onClick={handleComment}
           >
             <PaperPlaneTilt className="size-3.5" />
             Comment
           </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -993,10 +1006,16 @@ function MainActivityCommentCard({
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyContent, setReplyContent] = useState("")
   const replyEditorRef = useRef<Editor | null>(null)
-  const replyText = getPlainTextContent(replyContent)
+  const replyLimitState = getTextInputLimitState(
+    replyContent,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
 
   function handleReply() {
-    if (!replyText) {
+    if (!replyLimitState.canSubmit) {
       return
     }
 
@@ -1137,7 +1156,13 @@ function MainActivityCommentCard({
                 className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
               />
             </div>
-            <div className="flex items-center justify-between gap-2 border-t border-dashed border-line px-3 py-1.5">
+            <div className="border-t border-dashed border-line px-3 py-1.5">
+              <FieldCharacterLimit
+                state={replyLimitState}
+                limit={commentContentConstraints.max}
+                className="mt-0 mb-1.5"
+              />
+              <div className="flex items-center justify-between gap-2">
               <EmojiPickerPopover
                 align="start"
                 side="top"
@@ -1172,9 +1197,14 @@ function MainActivityCommentCard({
                 >
                   Cancel
                 </Button>
-                <Button size="sm" disabled={!replyText} onClick={handleReply}>
+                <Button
+                  size="sm"
+                  disabled={!replyLimitState.canSubmit}
+                  onClick={handleReply}
+                >
                   Reply
                 </Button>
+              </div>
               </div>
             </div>
           </div>
@@ -1221,10 +1251,16 @@ function MainActivityTimeline({
   )
   const [content, setContent] = useState("")
   const commentEditorRef = useRef<Editor | null>(null)
-  const contentText = getPlainTextContent(content)
+  const commentLimitState = getTextInputLimitState(
+    content,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
 
   function handleComment() {
-    if (!contentText) {
+    if (!commentLimitState.canSubmit) {
       return
     }
 
@@ -1378,12 +1414,21 @@ function MainActivityTimeline({
               placeholder="Leave a comment or mention a teammate with @handle…"
               editorInstanceRef={commentEditorRef}
               mentionCandidates={mentionCandidates}
+              minPlainTextCharacters={commentContentConstraints.min}
+              maxPlainTextCharacters={commentContentConstraints.max}
+              enforcePlainTextLimit
               onSubmitShortcut={handleComment}
               submitOnEnter
               className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
             />
           </div>
-          <div className="flex items-center justify-between gap-2 border-t border-dashed border-line px-3 py-1.5">
+          <div className="border-t border-dashed border-line px-3 py-1.5">
+            <FieldCharacterLimit
+              state={commentLimitState}
+              limit={commentContentConstraints.max}
+              className="mt-0 mb-1.5"
+            />
+            <div className="flex items-center justify-between gap-2">
             <EmojiPickerPopover
               align="start"
               side="top"
@@ -1411,12 +1456,13 @@ function MainActivityTimeline({
               />
               <Button
                 size="sm"
-                disabled={!editable || contentText.length === 0}
+                disabled={!editable || !commentLimitState.canSubmit}
                 onClick={handleComment}
               >
                 <PaperPlaneTilt className="size-3.5" />
                 Comment
               </Button>
+            </div>
             </div>
           </div>
         </div>
@@ -1432,8 +1478,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const currentUser = getUser(data, currentUserId) ?? null
   const item = data.workItems.find((entry) => entry.id === itemId)
   const [deletingItem, setDeletingItem] = useState(false)
-  const [projectConfirmOpen, setProjectConfirmOpen] = useState(false)
-  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [mainChildComposerOpen, setMainChildComposerOpen] = useState(false)
   const [sidebarChildComposerOpen, setSidebarChildComposerOpen] =
@@ -1448,6 +1492,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     null
   )
   const [mainDraftTitle, setMainDraftTitle] = useState("")
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
   const [mainDraftDescription, setMainDraftDescription] = useState("")
   const [
     mainPendingMentionRetryEntriesByItemId,
@@ -1889,7 +1935,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   )
   const canCreateChildItem = editable && allowedChildTypes.length > 0
   const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
-  const hierarchySize = getWorkItemHierarchyIds(data, currentItem.id).size
   const itemLabel = getDisplayLabelForWorkItemType(
     currentItem.type,
     team?.settings.experience
@@ -2001,14 +2046,20 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       return
     }
 
-    if (hierarchySize > 1) {
-      setPendingProjectId(nextProjectId)
-      setProjectConfirmOpen(true)
+    requestConfirmedWorkItemUpdate(currentItem.id, {
+      primaryProjectId: nextProjectId,
+    })
+  }
+
+  function handleParentChange(value: string) {
+    const nextParentId = value === "none" ? null : value
+
+    if (nextParentId === currentItem.parentId) {
       return
     }
 
-    useAppStore.getState().updateWorkItem(currentItem.id, {
-      primaryProjectId: nextProjectId,
+    requestConfirmedWorkItemUpdate(currentItem.id, {
+      parentId: nextParentId,
     })
   }
 
@@ -2168,22 +2219,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
     setDeleteDialogOpen(false)
     router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
-  }
-
-  function handleProjectConfirmOpenChange(open: boolean) {
-    setProjectConfirmOpen(open)
-
-    if (!open) {
-      setPendingProjectId(null)
-    }
-  }
-
-  function handleConfirmProjectChange() {
-    useAppStore.getState().updateWorkItem(currentItem.id, {
-      primaryProjectId: pendingProjectId,
-    })
-    setProjectConfirmOpen(false)
-    setPendingProjectId(null)
   }
 
   async function handleCopyItemLink() {
@@ -2822,11 +2857,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                         <span className="truncate">{optionLabel}</span>
                       )
                     }
-                    onValueChange={(value) =>
-                      useAppStore.getState().updateWorkItem(currentItem.id, {
-                        parentId: value === "none" ? null : value,
-                      })
-                    }
+                    onValueChange={handleParentChange}
                   />
                 ) : null}
               </dl>
@@ -2972,15 +3003,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           </CollapsibleRightSidebar>
         </div>
       </div>
-      <ConfirmDialog
-        open={projectConfirmOpen}
-        onOpenChange={handleProjectConfirmOpenChange}
-        title="Update project for hierarchy"
-        description="Changing the project for this item will also update all parent and child items in this hierarchy."
-        confirmLabel="Update"
-        variant="default"
-        onConfirm={handleConfirmProjectChange}
-      />
+      {confirmationDialog}
       <Dialog open={showDescriptionSyncDialog}>
         <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
           <div className="px-5 py-5">

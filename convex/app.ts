@@ -64,6 +64,7 @@ import {
   releaseNotificationDigestClaimHandler,
   toggleNotificationReadHandler,
   unarchiveNotificationHandler,
+  updateNotificationsHandler,
 } from "./app/notification_handlers"
 import {
   claimPendingEmailJobsHandler,
@@ -462,6 +463,20 @@ export const markNotificationRead = mutation({
     notificationId: v.string(),
   },
   handler: markNotificationReadHandler,
+})
+
+export const updateNotifications = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    action: v.union(
+      v.literal("archive"),
+      v.literal("unarchive"),
+      v.literal("markRead")
+    ),
+    notificationIds: v.array(v.string()),
+  },
+  handler: updateNotificationsHandler,
 })
 
 export const markNotificationsEmailed = operationalMutation({

@@ -1142,6 +1142,41 @@ describe("work item detail screen", () => {
     expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
   })
 
+  it("keeps activity comment submit disabled until the shared minimum plain-text length is met", () => {
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const commentEditors = screen.getAllByLabelText(
+      "Leave a comment or mention a teammate with @handle..."
+    )
+    const commentButtons = screen.getAllByRole("button", { name: "Comment" })
+    const commentEditor = commentEditors.at(-1)
+    const commentButton = commentButtons.at(-1)
+
+    expect(commentEditor).toBeDefined()
+    expect(commentButton).toBeDefined()
+
+    act(() => {
+      fireEvent.change(commentEditor!, {
+        target: {
+          value: "a",
+        },
+      })
+    })
+
+    expect(commentButton!).toBeDisabled()
+    expect(screen.getAllByText("Enter at least 2 characters").length).toBeGreaterThan(0)
+
+    act(() => {
+      fireEvent.change(commentEditor!, {
+        target: {
+          value: "ab",
+        },
+      })
+    })
+
+    expect(commentButton!).toBeEnabled()
+  })
+
   it("posts activity comments on Enter and preserves mentions", () => {
     act(() => {
       useAppStore.setState((state) => ({

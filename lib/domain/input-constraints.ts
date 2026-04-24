@@ -77,6 +77,12 @@ export const teamJoinCodeConstraints = {
   allowEmpty: true,
 } satisfies TextInputConstraint
 
+export const requiredTeamJoinCodeConstraints = {
+  min: 4,
+  max: 24,
+  trim: true,
+} satisfies TextInputConstraint
+
 export const profileNameConstraints = {
   min: 2,
   max: 48,
@@ -87,6 +93,7 @@ export const profileTitleConstraints = {
   min: 2,
   max: 72,
   trim: true,
+  allowEmpty: true,
 } satisfies TextInputConstraint
 
 export const profileAvatarFallbackConstraints = {
@@ -185,6 +192,7 @@ export const inputConstraints = {
   teamName: teamNameConstraints,
   teamSummary: teamSummaryConstraints,
   teamJoinCode: teamJoinCodeConstraints,
+  requiredTeamJoinCode: requiredTeamJoinCodeConstraints,
   profileName: profileNameConstraints,
   profileTitle: profileTitleConstraints,
   profileAvatarFallback: profileAvatarFallbackConstraints,
