@@ -51,11 +51,11 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 16:11:31 BST` |
-| **Total turns** | `4` |
+| **Last reviewed** | `2026-04-24 16:31:16 BST` |
+| **Total turns** | `5` |
 | **Open findings** | `0` |
-| **Resolved findings** | `10` |
-| **Accepted findings** | `16` |
+| **Resolved findings** | `12` |
+| **Accepted findings** | `18` |
 
 ---
 
@@ -335,4 +335,60 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 - The Convex bootstrap/loading-contract notes are architectural observations, not blockers.
 - The `pending-work-item-creations.ts` and pending view reconciliation notes are positive findings, not defects.
 - The retained-team grace timeout behavior is intentional and now bounded.
+- Top-level items still not becoming children via drag is intentional on this branch.
+
+---
+
+## Turn 5 — 2026-04-24 16:31:16 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `d441d75fd9acbd5700ce2d55df73d255b127da71` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the review loop on the latest batch and found one real shell-state regression plus one cheap contract drift worth closing while the code was open. The shell was retaining stale workspace context indefinitely when the live workspace disappeared; that is now fixed with a bounded retention hook that expires retained values after a short grace period and clears immediately when the retention key changes. I also aligned the create-work-item dialog with the existing dialog-state model by honoring `defaultValues.dueDate` instead of silently dropping it. The rest of the batch was either already fixed on the current branch, intentional product behavior, or architectural commentary rather than a live defect.
+
+**Outcome:** all clear
+**Risk score:** medium-high — this turn touched shared shell retention behavior and the work-item create-dialog contract
+**Change archetypes:** shell-retention, dialog-contract-alignment
+**Intended change:** close the remaining stale shell-context bug and eliminate a small create-dialog contract mismatch without widening back into already triaged intentional behavior
+**Intent vs actual:** aligned after remediation; transient shell retention remains in place to avoid flicker, but stale workspace/user context can no longer persist indefinitely, and dialog defaults now match the typed contract they advertise
+**Confidence:** medium-high — current branch state was reassessed this turn, the live shell finding was validated against the code, sibling closure was completed for both workspace and current-user shell retention, and targeted verification was rerun on the new hook and dialog path
+**Coverage note:** re-read `AppShell`, the retained shell-context usage, the create-dialog state model, and the `CreateWorkItemDialog` submit path before applying fixes
+**Finding triage:** the repeated avatar/logo compatibility issue and the repeated empty-profile-title issue are already fixed on the current branch; the remaining drag/bootstrap/empty-group notes below remain intentional or non-blocking
+**Branch totality:** reassessed on the current working tree, not inherited from prior turns
+**Hotspot ledger:** revisited this turn; no open hotspot families remain
+**Sibling closure:** completed across both shell-retained values (`currentUser` and `workspace`) and the create-dialog default-value contract (`CreateDialogState` and `CreateWorkItemDialog`)
+**Remediation impact surface:** checked the shell fallback rendering path, the new retained-value hook behavior, the dialog-state model, and the work-item create submit path so the fixes hold across UI state and dialog boundaries
+**Challenger pass:** completed — challenged the new batch for already-fixed and non-live reports, then reran the focused proof set after the confirmed fixes landed
+**Weakest-evidence areas:** there is still no dedicated `AppShell` component test harness, so the shell fix is verified through the extracted retention hook rather than a full shell integration test
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm exec vitest run tests/lib/use-expiring-retained-value.test.tsx tests/components/create-dialogs.test.tsx` — passed (`2/2` files, `21/21` tests)
+
+### Resolution ledger
+
+#### Resolved
+
+- `B5-01` — stale shell context can no longer persist indefinitely when the live workspace or current user disappears. `AppShell` now uses a bounded retained-value hook that preserves transient values briefly for flicker resistance, expires them after a grace window, and clears immediately when the active workspace/user key changes. Evidence: `hooks/use-expiring-retained-value.ts`, `components/app/shell.tsx`, `tests/lib/use-expiring-retained-value.test.tsx`.
+- `B5-02` — the create-work-item dialog now honors `defaultValues.dueDate`, so its runtime behavior matches the wider `CreateDialogState` contract instead of silently dropping the field. Evidence: `components/app/screens/create-work-item-dialog.tsx`, `lib/store/app-store-internal/types.ts`, `tests/components/create-dialogs.test.tsx`.
+
+#### Accepted / non-blocking observations
+
+- The repeated `workspaceFallbackBadgeConstraints` / `profileTitleConstraints` reports are stale; both were fixed in earlier turns and remain covered by tests on the current branch.
+- `team-settings-screen.tsx` summary min-length gating is stricter UX, but it matches the existing backend contract and now provides inline feedback instead of a save-time failure.
+- Empty-group synthesis suppression when filters are active remains an intentional UX tradeoff rather than a proven correctness bug.
+- Item-drop and lane-drop extraction behavior on the work surface remains intentional and should be validated in manual QA, but it is not a code defect relative to the requested behavior.
+- The `chat-thread.tsx` dead-code ternary is cleanup-only.
+- `getInitialShellSeedSignature` serializing the full seed is a potential performance footgun to watch, but it is not a proven blocker on the current branch and the broader stale-seed correctness bug was already fixed.
+- The Convex bootstrap/loading-contract and legacy-sync notes are architectural observations, not blockers.
+- Empty epic/feature lanes still cannot derive `parentId` defaults without a child-type context; that remains a known design limitation rather than a correctness bug.
+- The `pending-work-item-creations.ts` and pending view reconciliation notes are positive findings, not defects.
+- The retained-team grace timeout behavior is intentional and bounded.
 - Top-level items still not becoming children via drag is intentional on this branch.

@@ -61,6 +61,7 @@ import {
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
 import { blurActiveElement } from "@/lib/browser/focus"
+import { useExpiringRetainedValue } from "@/hooks/use-expiring-retained-value"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import {
   createShellContextScopeKey,
@@ -117,6 +118,8 @@ import {
 type AppShellProps = {
   children: ReactNode
 }
+
+const SHELL_CONTEXT_GRACE_PERIOD_MS = 1000
 
 function SidebarInsetResizeHandle() {
   const {
@@ -257,13 +260,6 @@ export function AppShell({ children }: AppShellProps) {
   )
   const workspace = useAppStore(getCurrentWorkspace)
   const currentUser = useAppStore(getCurrentUser)
-  const retainedShellContextRef = useRef<{
-    currentUser: UserProfile | null
-    workspace: Workspace | null
-  }>({
-    currentUser: null,
-    workspace: null,
-  })
   const pendingInviteCount = useAppStore((state) => {
     const user = getCurrentUser(state)
 
@@ -295,19 +291,16 @@ export function AppShell({ children }: AppShellProps) {
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
   const activeCreateDialog = useAppStore((state) => state.ui.activeCreateDialog)
-
-  if (currentUser) {
-    retainedShellContextRef.current.currentUser = currentUser
-  }
-
-  if (workspace) {
-    retainedShellContextRef.current.workspace = workspace
-  }
-
-  const renderedCurrentUser =
-    currentUser ?? retainedShellContextRef.current.currentUser
-  const renderedWorkspace =
-    workspace ?? retainedShellContextRef.current.workspace
+  const renderedCurrentUser = useExpiringRetainedValue({
+    value: currentUser,
+    retentionKey: currentUserId ?? null,
+    gracePeriodMs: SHELL_CONTEXT_GRACE_PERIOD_MS,
+  })
+  const renderedWorkspace = useExpiringRetainedValue({
+    value: workspace,
+    retentionKey: currentWorkspaceId ?? null,
+    gracePeriodMs: SHELL_CONTEXT_GRACE_PERIOD_MS,
+  })
 
   useScopedReadModelRefresh({
     enabled: Boolean(currentUserId) && Boolean(currentWorkspaceId),

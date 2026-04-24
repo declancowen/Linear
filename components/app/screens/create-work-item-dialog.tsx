@@ -183,6 +183,7 @@ export function CreateWorkItemDialog({
     parentId: string | null
     labelIds: string[]
     startDate: string | null
+    dueDate: string | null
     targetDate: string | null
   }>
 }) {
@@ -322,6 +323,9 @@ export function CreateWorkItemDialog({
   const [startDate, setStartDate] = useState<string | null>(
     defaultValues?.startDate ?? null
   )
+  const [dueDate, setDueDate] = useState<string | null>(
+    defaultValues?.dueDate ?? null
+  )
   const [targetDate, setTargetDate] = useState<string | null>(
     defaultValues?.targetDate ?? null
   )
@@ -447,6 +451,7 @@ export function CreateWorkItemDialog({
     setPriority(nextPriority)
     setAssigneeId("none")
     setStartDate(null)
+    setDueDate(null)
     setTargetDate(null)
     setProjectId(
       defaultProjectId &&
@@ -507,6 +512,7 @@ export function CreateWorkItemDialog({
       assigneeId: assigneeId === "none" ? null : assigneeId,
       primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
       startDate,
+      dueDate,
       targetDate,
     })
 

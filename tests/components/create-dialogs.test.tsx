@@ -304,6 +304,41 @@ describe("create dialogs", () => {
     expect(screen.getByPlaceholderText("Epic title")).toBeInTheDocument()
   })
 
+  it("forwards dueDate default values when creating a work item", async () => {
+    const createWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "createWorkItem")
+      .mockReturnValue("item_new")
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+          defaultValues={{
+            dueDate: "2026-05-01",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Launch task" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            dueDate: "2026-05-01",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
   it("renders the project create dialog without recursive store updates", () => {
     render(
       <CreateProjectDialog

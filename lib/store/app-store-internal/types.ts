@@ -122,6 +122,7 @@ export type CreateWorkItemInput = {
   priority: Priority
   labelIds?: string[]
   startDate?: string | null
+  dueDate?: string | null
   targetDate?: string | null
 }
 
