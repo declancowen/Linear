@@ -40,8 +40,8 @@ import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
-import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { RichTextContent } from "@/components/app/rich-text-content"
+import { RichTextEditor } from "@/components/app/rich-text-editor"
 import {
   FullPageRichTextShell,
   useFullPageCanvasWidthPreference,
@@ -64,6 +64,8 @@ import { MissingState } from "./shared"
 
 const DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
 const DOCUMENT_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
+const DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX =
+  "linear:collaboration:document-sync-modal-seen:"
 
 type DocumentMentionNotificationsResponse = {
   ok: boolean
@@ -87,6 +89,29 @@ function formatMentionCountLabel(count: number) {
 
 function formatRecipientCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`
+}
+
+function hasSeenInitialDocumentSyncModal(documentId: string) {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  return (
+    window.sessionStorage.getItem(
+      `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`
+    ) === "true"
+  )
+}
+
+function markInitialDocumentSyncModalSeen(documentId: string) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  window.sessionStorage.setItem(
+    `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`,
+    "true"
+  )
 }
 
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
@@ -150,7 +175,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
-  const { fullPageCanvasWidth } = useFullPageCanvasWidthPreference(true)
+  const [hasSeenInitialCollaborationAttach, setHasSeenInitialCollaborationAttach] =
+    useState(() => hasSeenInitialDocumentSyncModal(documentId))
   const titleInputRef = useRef<HTMLInputElement>(null)
   const editorInstanceRef = useRef<Editor | null>(null)
   const legacyActiveBlockIdRef = useRef<string | null>(null)
@@ -159,21 +185,34 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const currentRouteHrefRef = useRef<string | null>(null)
   const currentRouteStateRef = useRef<unknown>(null)
   const previousDocumentIdRef = useRef<string | null>(null)
+  const previousRouteDocumentIdRef = useRef(documentId)
+  const stableCollaborationUserRef = useRef<{
+    id: string
+    name: string
+    avatarUrl?: string | null
+    avatarImageUrl?: string | null
+  } | null>(null)
   const currentDocumentContentRef = useRef("")
   const currentDocumentId = document?.id ?? null
   const resolvedDocumentKind = document?.kind ?? null
   const documentTitle = document?.title ?? ""
+  const [stableCollaborativeDocumentId, setStableCollaborativeDocumentId] =
+    useState<string | null>(null)
+  const { fullPageCanvasWidth } = useFullPageCanvasWidthPreference(true)
+  const collaborationCurrentUser =
+    currentUser ?? stableCollaborationUserRef.current ?? null
   const {
+    bootstrapContent,
+    editorCollaboration,
     collaboration,
     flush: flushCollaboration,
+    hasAttachedOnce,
     lifecycle: collaborationLifecycle,
     viewers: collaborationViewers,
   } = useDocumentCollaboration({
-    documentId: currentDocumentId,
-    currentUser,
-    enabled:
-      resolvedDocumentKind !== "item-description" &&
-      resolvedDocumentKind !== "private-document",
+    documentId: stableCollaborativeDocumentId,
+    currentUser: collaborationCurrentUser,
+    enabled: Boolean(stableCollaborativeDocumentId),
   })
   const {
     hasLoadedOnce: hasLoadedDocumentReadModel,
@@ -190,14 +229,68 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         ])
       : undefined,
   })
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
+    stableCollaborationUserRef.current = {
+      id: currentUserId,
+      name: currentUser.name,
+      avatarUrl: currentUser.avatarUrl,
+      avatarImageUrl: currentUser.avatarImageUrl ?? null,
+    }
+  }, [
+    currentUser,
+    currentUserId,
+  ])
+
+  useEffect(() => {
+    if (previousRouteDocumentIdRef.current === documentId) {
+      return
+    }
+
+    previousRouteDocumentIdRef.current = documentId
+    setStableCollaborativeDocumentId(null)
+    setHasSeenInitialCollaborationAttach(hasSeenInitialDocumentSyncModal(documentId))
+  }, [documentId])
+
+  useEffect(() => {
+    if (!document) {
+      return
+    }
+
+    if (
+      document.kind === "private-document" ||
+      document.kind === "item-description"
+    ) {
+      setStableCollaborativeDocumentId(null)
+      return
+    }
+
+    setStableCollaborativeDocumentId(document.id)
+  }, [document])
+
+  const protectedDocumentId =
+    currentDocumentId ?? stableCollaborativeDocumentId
   const isProtectingDocumentBody = Boolean(
-    currentDocumentId &&
+    protectedDocumentId &&
       (collaborationLifecycle === "bootstrapping" ||
         collaborationLifecycle === "attached")
   )
   const isCollaborationAttached = collaborationLifecycle === "attached"
   const isCollaborationBootstrapping =
     collaborationLifecycle === "bootstrapping"
+  const collaborationEditorContent = editorContent
+
+  useEffect(() => {
+    if (!isCollaborationAttached) {
+      return
+    }
+
+    markInitialDocumentSyncModalSeen(documentId)
+    setHasSeenInitialCollaborationAttach(true)
+  }, [documentId, isCollaborationAttached])
 
   currentDocumentContentRef.current = editorContent
 
@@ -214,22 +307,22 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }, [currentDocumentId, document?.content, isProtectingDocumentBody])
 
   useEffect(() => {
-    if (!currentDocumentId) {
+    if (!protectedDocumentId) {
       return
     }
 
     const state = useAppStore.getState()
 
     if (isProtectingDocumentBody) {
-      state.cancelDocumentSync(currentDocumentId)
+      state.cancelDocumentSync(protectedDocumentId)
     }
 
-    state.setDocumentBodyProtection(currentDocumentId, isProtectingDocumentBody)
+    state.setDocumentBodyProtection(protectedDocumentId, isProtectingDocumentBody)
 
     return () => {
-      useAppStore.getState().setDocumentBodyProtection(currentDocumentId, false)
+      useAppStore.getState().setDocumentBodyProtection(protectedDocumentId, false)
     }
-  }, [currentDocumentId, isProtectingDocumentBody])
+  }, [protectedDocumentId, isProtectingDocumentBody])
 
   useEffect(() => {
     if (previousDocumentIdRef.current === currentDocumentId) {
@@ -298,6 +391,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     if (
+      collaborationLifecycle === "bootstrapping" ||
       collaborationLifecycle === "attached"
     ) {
       sendLegacyPresenceRef.current = null
@@ -655,6 +749,19 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }, [hasPendingMentionNotifications])
 
   const loadedDocument = document
+  const showCollaborationBootPreview =
+    Boolean(
+      loadedDocument &&
+        loadedDocument.kind !== "item-description" &&
+        loadedDocument.kind !== "private-document" &&
+        isCollaborationBootstrapping &&
+        !hasSeenInitialCollaborationAttach
+    )
+  const collaborationPreviewContent =
+    typeof bootstrapContent === "string"
+      ? bootstrapContent
+      : loadedDocument?.content ?? editorContent
+
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
   const loadedDocumentId = loadedDocument?.id ?? documentId
 
@@ -903,22 +1010,26 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         </div>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {isCollaborationBootstrapping ? (
+          {showCollaborationBootPreview ? (
             <FullPageRichTextShell
               canvasWidth={fullPageCanvasWidth}
-              reserveToolbarSpace={editable}
+              reserveToolbarSpace
             >
               <RichTextContent
-                content={editorContent}
-                className="min-h-[calc(100svh-12rem)] text-base [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3"
+                content={collaborationPreviewContent}
+                className="text-base text-fg-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
               />
             </FullPageRichTextShell>
           ) : (
             <RichTextEditor
-              content={editorContent}
-              collaboration={collaboration ?? undefined}
+              content={collaborationEditorContent}
+              collaboration={
+                isCollaborationAttached
+                  ? (editorCollaboration ?? collaboration ?? undefined)
+                  : undefined
+              }
               currentPresenceUserId={currentUserId}
-              editable={editable}
+              editable={editable && !isCollaborationBootstrapping}
               editorInstanceRef={editorInstanceRef}
               fullPage
               showStats={false}
@@ -1021,6 +1132,29 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
                 ? "Sending..."
                 : "Send notifications"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCollaborationBootPreview}>
+        <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
+          <div className="px-5 py-5">
+            <DialogHeader className="p-0">
+              <DialogTitle className="text-base font-semibold">
+                Syncing latest changes
+              </DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Loading the latest document state. Editing will unlock
+                automatically in a moment.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <span
+                aria-hidden="true"
+                className="size-2 animate-pulse rounded-full bg-primary"
+              />
+              <span>Syncing latest changes…</span>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

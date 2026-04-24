@@ -23,6 +23,20 @@ describe("collaboration client session helpers", () => {
       role: "editor" as const,
       sessionId: "session_1",
       expiresAt: 200,
+      contentJson: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "Hello",
+              },
+            ],
+          },
+        ],
+      },
       contentHtml: "<p>Hello</p>",
     }
     const session = {

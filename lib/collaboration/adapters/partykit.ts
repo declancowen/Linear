@@ -251,6 +251,13 @@ function buildFlushRequestBody(
     }
   }
 
+  if (input?.kind === "teardown-content") {
+    return {
+      kind: "teardown-content" as const,
+      contentJson,
+    }
+  }
+
   return {
     kind: "content" as const,
     contentJson,

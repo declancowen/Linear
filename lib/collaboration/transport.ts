@@ -4,6 +4,7 @@ import {
   isChatCollaborationRoomId,
   isDocumentCollaborationRoomId,
 } from "./rooms"
+import type { JSONContent } from "@tiptap/core"
 
 export type CollaborationSessionRole = "viewer" | "editor"
 export type CollaborationConnectionState =
@@ -46,6 +47,7 @@ export type CollaborationSessionBootstrap = {
   token: string
   serviceUrl: string
   role: CollaborationSessionRole
+  contentJson?: JSONContent
   contentHtml?: string
   expiresAt?: number
   getFreshBootstrap?: () => Promise<CollaborationSessionBootstrap>
@@ -76,10 +78,15 @@ export type CollaborationWorkItemMainFlushInput = {
   workItemTitle?: string
 }
 
+export type CollaborationTeardownContentFlushInput = {
+  kind: "teardown-content"
+}
+
 export type CollaborationFlushInput =
   | CollaborationContentFlushInput
   | CollaborationDocumentTitleFlushInput
   | CollaborationWorkItemMainFlushInput
+  | CollaborationTeardownContentFlushInput
 
 export interface CollaborationTransportSession<
   TAwarenessState,
@@ -329,6 +336,7 @@ export function createDocumentSessionBootstrap(input: {
   token: string
   serviceUrl: string
   role: CollaborationSessionRole
+  contentJson?: JSONContent
   contentHtml?: string
 }) {
   return {
@@ -337,6 +345,7 @@ export function createDocumentSessionBootstrap(input: {
     token: input.token,
     serviceUrl: input.serviceUrl,
     role: input.role,
+    contentJson: input.contentJson,
     contentHtml: input.contentHtml,
   } satisfies CollaborationSessionBootstrap
 }

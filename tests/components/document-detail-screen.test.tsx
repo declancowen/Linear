@@ -19,6 +19,8 @@ const {
   syncHeartbeatDocumentPresenceMock,
   syncUpdateDocumentMock,
   syncSendDocumentMentionNotificationsMock,
+  richTextContentRenderMock,
+  richTextEditorRenderMock,
   useDocumentCollaborationMock,
 } = vi.hoisted(() => ({
   applyDocumentCollaborationTitleMock: vi.fn(),
@@ -33,6 +35,8 @@ const {
   syncHeartbeatDocumentPresenceMock: vi.fn(),
   syncUpdateDocumentMock: vi.fn(),
   syncSendDocumentMentionNotificationsMock: vi.fn(),
+  richTextContentRenderMock: vi.fn(),
+  richTextEditorRenderMock: vi.fn(),
   useDocumentCollaborationMock: vi.fn(),
 }))
 
@@ -85,11 +89,15 @@ vi.mock("@/hooks/use-document-collaboration", () => ({
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
+    collaboration,
+    editable,
     editorInstanceRef,
     onChange,
     onMentionCountsChange,
   }: {
-    content: string
+    content: string | Record<string, unknown>
+    collaboration?: unknown
+    editable?: boolean
     editorInstanceRef?: { current: unknown }
     onChange: (content: string) => void
     onMentionCountsChange?: (
@@ -97,6 +105,12 @@ vi.mock("@/components/app/rich-text-editor", () => ({
       source: "initial" | "local" | "external"
     ) => void
   }) => {
+    richTextEditorRenderMock({
+      collaboration,
+      content,
+      editable,
+    })
+
     if (editorInstanceRef) {
       editorInstanceRef.current = {
         chain() {
@@ -134,7 +148,11 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     }
 
     return (
-      <>
+      <div
+        data-testid="rich-text-editor"
+        data-collaboration={String(Boolean(collaboration))}
+        data-editable={String(Boolean(editable))}
+      >
         <button
           type="button"
           onClick={() => {
@@ -169,8 +187,15 @@ vi.mock("@/components/app/rich-text-editor", () => ({
         >
           Clear mentions
         </button>
-      </>
+      </div>
     )
+  },
+}))
+
+vi.mock("@/components/app/rich-text-content", () => ({
+  RichTextContent: (props: { content: string | Record<string, unknown> }) => {
+    richTextContentRenderMock(props)
+    return <div data-testid="rich-text-content" />
   },
 }))
 
@@ -288,6 +313,7 @@ describe("DocumentDetailScreen", () => {
   })
 
   beforeEach(() => {
+    window.sessionStorage.clear()
     collaborationEditorRunMock.mockReset()
     collaborationEditorRunMock.mockReturnValue(true)
     fetchDocumentDetailReadModelMock.mockReset()
@@ -313,8 +339,12 @@ describe("DocumentDetailScreen", () => {
       recipientCount: 1,
       mentionCount: 1,
     })
+    richTextContentRenderMock.mockReset()
+    richTextEditorRenderMock.mockReset()
     useDocumentCollaborationMock.mockReset()
     useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: null,
       collaboration: null,
       flush: flushCollaborationMock,
       lifecycle: "legacy",
@@ -382,6 +412,8 @@ describe("DocumentDetailScreen", () => {
   it("falls back to collaboration title persistence when collaborative title updates cannot update an h1 heading", async () => {
     collaborationEditorRunMock.mockReturnValue(false)
     useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: {} as never,
       collaboration: {} as never,
       flush: flushCollaborationMock,
       lifecycle: "attached",
@@ -411,6 +443,66 @@ describe("DocumentDetailScreen", () => {
       documentTitle: "Renamed without heading",
     })
     expect(renameDocumentMock).not.toHaveBeenCalled()
+  })
+
+  it("locks collaborative documents into a stable preview shell while bootstrapping", async () => {
+    const bootstrapContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Boot content",
+            },
+          ],
+        },
+      ],
+    }
+
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent,
+      editorCollaboration: {
+        binding: {
+          doc: {},
+          provider: {},
+        },
+        localUser: {
+          userId: "user_1",
+          sessionId: "session_1",
+          name: "Alex",
+          avatarUrl: null,
+          color: "#000000",
+          typing: false,
+          activeBlockId: null,
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      },
+      collaboration: null,
+      flush: flushCollaborationMock,
+      lifecycle: "bootstrapping",
+      viewers: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    expect(useDocumentCollaborationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: "doc_1",
+      })
+    )
+    expect(screen.queryByTestId("rich-text-editor")).toBeNull()
+    expect(screen.getByTestId("rich-text-content")).toBeInTheDocument()
+    expect(richTextEditorRenderMock).not.toHaveBeenCalled()
+    expect(richTextContentRenderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content:
+          "<p><span class=\"editor-mention\" data-type=\"mention\" data-id=\"user_2\">@sam</span></p>",
+      })
+    )
   })
 
   it("starts and clears document presence for editable documents", async () => {

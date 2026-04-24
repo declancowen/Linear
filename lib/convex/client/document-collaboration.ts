@@ -1,5 +1,7 @@
 "use client"
 
+import type { JSONContent } from "@tiptap/core"
+
 import type { CollaborationSessionRole } from "@/lib/collaboration/transport"
 
 import { runRouteMutation } from "./shared"
@@ -12,6 +14,7 @@ export type DocumentCollaborationSessionPayload = {
   role: CollaborationSessionRole
   sessionId: string
   expiresAt: number
+  contentJson?: JSONContent
   contentHtml?: string
 }
 

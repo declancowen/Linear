@@ -260,7 +260,7 @@ describe("PartyKit collaboration adapter", () => {
     expect(statuses).toEqual(["connecting", "connecting"])
   })
 
-  it("does not mutate the synced document from canonical bootstrap content", async () => {
+  it("does not pre-seed the collaboration doc from bootstrap content before sync", async () => {
     const { createPartyKitCollaborationAdapter } = await import(
       "@/lib/collaboration/adapters/partykit"
     )
@@ -272,6 +272,20 @@ describe("PartyKit collaboration adapter", () => {
       token: "token_1",
       serviceUrl: "http://127.0.0.1:1999",
       role: "editor",
+      contentJson: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "Hello",
+              },
+            ],
+          },
+        ],
+      },
       contentHtml: "<p>Hello</p>",
     })
 

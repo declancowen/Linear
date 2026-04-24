@@ -91,6 +91,10 @@ type CollaborationFlushRequest =
       contentJson: JSONContent
     }
   | {
+      kind: "teardown-content"
+      contentJson: JSONContent
+    }
+  | {
       kind: "document-title"
       documentTitle: string
     }
@@ -617,6 +621,17 @@ async function parseFlushRequest(
     }
   }
 
+  if (parsed.kind === "teardown-content") {
+    if (!isRecord(parsed.contentJson)) {
+      throw new Error("Invalid collaboration flush request")
+    }
+
+    return {
+      kind: "teardown-content",
+      contentJson: parsed.contentJson as JSONContent,
+    }
+  }
+
   if (parsed.kind === "work-item-main") {
     if (!isRecord(parsed.contentJson)) {
       throw new Error("Invalid collaboration flush request")
@@ -1077,9 +1092,6 @@ async function ensureCanonicalDocumentSeeded(
     }
 
     markRoomCanonical(yDoc, contentJson)
-  } else if (!roomMeta.dirty && !areDocumentJsonEqual(currentJson, contentJson)) {
-    replaceCollaborationDocFromJson(yDoc, contentJson)
-    markRoomCanonical(yDoc, contentJson)
   } else if (!isEmptyDocumentJson(contentJson) && isCollaborationDocEmpty(yDoc)) {
     replaceCollaborationDocFromJson(yDoc, contentJson)
     markRoomCanonical(yDoc, contentJson)
@@ -1280,32 +1292,25 @@ const collaboration = {
 
       if (flushRequest.kind === "document-title") {
         await persistDocumentTitle(room, flushRequest.documentTitle)
-      } else {
-        const nextContentJson = normalizeCollaborationDocumentJson(
-          flushRequest.contentJson
-        )
-        const currentContentJson = normalizeCollaborationDocumentJson(
-          yDocToProsemirrorJSON(yDoc, COLLABORATION_XML_FRAGMENT)
-        )
+      } else if (flushRequest.kind === "teardown-content") {
         const hasOtherActiveConnections =
           countOtherActiveDocumentConnections(room, claims.sessionId) > 0
 
-        if (
-          !hasOtherActiveConnections ||
-          areDocumentJsonEqual(currentContentJson, nextContentJson)
-        ) {
-          applyFlushContentJson(yDoc, nextContentJson)
-        } else {
+        if (hasOtherActiveConnections) {
           console.warn(
-            "[collaboration] ignored divergent manual flush payload from closing session",
+            "[collaboration] skipped teardown flush because other editors remain",
             {
               roomId: room.id,
               documentId: claims.documentId,
               sessionId: claims.sessionId,
             }
           )
+        } else {
+          applyFlushContentJson(yDoc, flushRequest.contentJson)
+          await persistCanonicalDocument(room, yDoc, "manual")
         }
-
+      } else {
+        applyFlushContentJson(yDoc, flushRequest.contentJson)
         await persistCanonicalDocument(room, yDoc, "manual", {
           ...(flushRequest.kind === "work-item-main"
             ? {

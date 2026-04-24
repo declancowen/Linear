@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createCanonicalContentJson } from "@/lib/collaboration/canonical-content"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { verifySignedCollaborationToken } from "@/lib/server/collaboration-token"
 
@@ -81,6 +82,7 @@ describe("document collaboration session route contracts", () => {
       documentId: "doc_1",
       serviceUrl: "https://partykit.example.com",
       role: "editor",
+      contentJson: createCanonicalContentJson("<p>Hello</p>"),
       contentHtml: "<p>Hello</p>",
     })
 

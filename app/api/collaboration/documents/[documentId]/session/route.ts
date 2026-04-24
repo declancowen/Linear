@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { resolveCollaborationServiceUrl } from "@/lib/collaboration/config"
+import { createCanonicalContentJson } from "@/lib/collaboration/canonical-content"
 import { createDocumentCollaborationRoomId } from "@/lib/collaboration/rooms"
 import { createSignedCollaborationToken } from "@/lib/server/collaboration-token"
 import { getCollaborationDocumentServer } from "@/lib/server/convex"
@@ -116,6 +117,7 @@ export async function POST(
       role,
       sessionId,
       expiresAt,
+      contentJson: createCanonicalContentJson(collaborationDocument.content),
       contentHtml: collaborationDocument.content,
     })
   } catch (error) {

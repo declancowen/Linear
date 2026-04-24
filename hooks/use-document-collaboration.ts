@@ -1,10 +1,12 @@
 "use client"
 
+import type { JSONContent } from "@tiptap/core"
 import {
   useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState,
 } from "react"
 
@@ -68,23 +70,29 @@ const COLLABORATION_CONNECT_RETRY_BASE_DELAY_MS = 500
 type ActiveDocumentCollaborationState = {
   documentId: string | null
   error: string | null
+  hasAttachedOnce: boolean
   role: CollaborationSessionRole | null
   connectionState: CollaborationConnectionState
   session: CollaborationTransportSession<
     CollaborationAwarenessState,
     PartyKitDocumentCollaborationBinding
   > | null
+  editorCollaboration: DocumentCollaborationState | null
   collaboration: DocumentCollaborationState | null
+  bootstrapContent: JSONContent | string | null
   viewers: DocumentPresenceViewer[]
 }
 
 const EMPTY_COLLABORATION_STATE: ActiveDocumentCollaborationState = {
   documentId: null,
   error: null,
+  hasAttachedOnce: false,
   role: null,
   connectionState: "idle",
   session: null,
+  editorCollaboration: null,
   collaboration: null,
+  bootstrapContent: null,
   viewers: EMPTY_VIEWERS,
 }
 
@@ -140,15 +148,15 @@ export function useDocumentCollaboration(input: {
     [currentUserAvatarImageUrl, currentUserAvatarUrl]
   )
   const collaborationEnabled = isCollaborationEnabled()
+  const wantsCollaboration = Boolean(
+    collaborationEnabled && input.enabled && input.documentId
+  )
+  const lastKnownDocumentIdRef = useRef<string | null>(null)
   const [state, setState] = useState<ActiveDocumentCollaborationState>(
     EMPTY_COLLABORATION_STATE
   )
   const isEnabled = Boolean(
-    collaborationEnabled &&
-      input.enabled &&
-      input.documentId &&
-      currentUserId &&
-      currentUserName
+    wantsCollaboration && currentUserId && currentUserName
   )
   const activeSessionKey =
     isEnabled && input.documentId && currentUserId
@@ -158,6 +166,15 @@ export function useDocumentCollaboration(input: {
   useEffect(() => {
     setState(EMPTY_COLLABORATION_STATE)
   }, [activeSessionKey])
+
+  useEffect(() => {
+    if (!input.documentId || input.documentId === lastKnownDocumentIdRef.current) {
+      return
+    }
+
+    lastKnownDocumentIdRef.current = input.documentId
+    setState(EMPTY_COLLABORATION_STATE)
+  }, [input.documentId])
 
   const handleStatusChange = useEffectEvent(
     (nextState: CollaborationConnectionState) => {
@@ -227,6 +244,7 @@ export function useDocumentCollaboration(input: {
           > | null = null
           let localUser: CollaborationAwarenessState | null = null
           let collaborationState: DocumentCollaborationState | null = null
+          let bootstrapContent: JSONContent | string | null = null
 
           try {
             const opened = await openDocumentCollaborationSession({
@@ -258,6 +276,8 @@ export function useDocumentCollaboration(input: {
               binding: activeOpenedSession.binding,
               localUser: activeLocalUser,
             }
+            bootstrapContent =
+              activeBootstrap.contentJson ?? activeBootstrap.contentHtml ?? null
 
             attemptDisposeStatus = activeOpenedSession.onStatusChange(({ state }) => {
               handleStatusChange(state)
@@ -277,9 +297,14 @@ export function useDocumentCollaboration(input: {
                   ? {
                       ...current,
                       error: null,
+                      hasAttachedOnce: true,
                       role: activeBootstrap.role,
+                      editorCollaboration:
+                        current.editorCollaboration ?? collaborationState,
                       collaboration:
                         current.collaboration ?? collaborationState,
+                      bootstrapContent:
+                        current.bootstrapContent ?? bootstrapContent,
                     }
                   : current
               )
@@ -297,10 +322,13 @@ export function useDocumentCollaboration(input: {
             setState({
               documentId: input.documentId,
               error: null,
+              hasAttachedOnce: false,
               role: activeBootstrap.role,
               connectionState: "connecting",
               session: activeOpenedSession,
+              editorCollaboration: collaborationState,
               collaboration: null,
+              bootstrapContent,
               viewers: EMPTY_VIEWERS,
             })
 
@@ -315,14 +343,19 @@ export function useDocumentCollaboration(input: {
               ...current,
               documentId: input.documentId,
               error: null,
+              hasAttachedOnce: true,
               role: activeBootstrap.role,
               connectionState:
                 activeOpenedSession.binding.provider.wsconnected
                   ? "connected"
                   : "connecting",
               session: activeOpenedSession,
+              editorCollaboration:
+                current.editorCollaboration ?? collaborationState,
               collaboration:
                 current.collaboration ?? collaborationState,
+              bootstrapContent:
+                current.bootstrapContent ?? bootstrapContent,
             }))
             reportCollaborationSessionDiagnostic({
               documentId: localDocumentId,
@@ -347,13 +380,16 @@ export function useDocumentCollaboration(input: {
                   ? {
                       ...current,
                       error: null,
+                      hasAttachedOnce: current.hasAttachedOnce,
                       role: activeBootstrap.role,
                       connectionState:
                         activeOpenedSession.binding.provider.wsconnected
                           ? "connected"
                           : "connecting",
-                      collaboration:
-                        current.collaboration ?? collaborationState,
+                      editorCollaboration:
+                        current.editorCollaboration ?? collaborationState,
+                      bootstrapContent:
+                        current.bootstrapContent ?? bootstrapContent,
                     }
                   : current
               )
@@ -415,10 +451,13 @@ export function useDocumentCollaboration(input: {
             nextError instanceof Error
               ? nextError.message
               : "Failed to open collaboration session",
+          hasAttachedOnce: false,
           role: null,
           connectionState: "errored",
           session: null,
+          editorCollaboration: null,
           collaboration: null,
+          bootstrapContent: null,
           viewers: EMPTY_VIEWERS,
         })
       }
@@ -438,7 +477,7 @@ export function useDocumentCollaboration(input: {
 
       if (sessionToClose && roleToClose === "editor") {
         void sessionToClose
-          .flush()
+          .flush({ kind: "teardown-content" })
           .catch((error) => {
             console.error("Failed to flush collaboration session on unmount", error)
           })
@@ -458,24 +497,37 @@ export function useDocumentCollaboration(input: {
   ])
 
   const isActiveDocument =
-    isEnabled && state.documentId === input.documentId && input.documentId !== null
+    wantsCollaboration &&
+    state.documentId === input.documentId &&
+    input.documentId !== null
   const connectionState = isActiveDocument
     ? state.connectionState
-    : isEnabled
+    : wantsCollaboration
       ? "connecting"
       : "idle"
   const isSessionAttached =
     isActiveDocument &&
     state.collaboration !== null &&
     state.session !== null &&
+    connectionState === "connected"
+  const hasActiveEditorSession =
+    isActiveDocument &&
+    state.editorCollaboration !== null &&
+    state.session !== null &&
     (connectionState === "connected" || connectionState === "connecting")
+  const editorCollaboration = hasActiveEditorSession
+    ? state.editorCollaboration
+    : null
   const collaboration = isSessionAttached ? state.collaboration : null
   const session = isSessionAttached ? state.session : null
   const role = isSessionAttached ? state.role : null
   const error = isActiveDocument ? state.error : null
-  const viewers = isSessionAttached ? state.viewers : EMPTY_VIEWERS
+  const bootstrapContent = isActiveDocument ? state.bootstrapContent : null
+  const hasAttachedOnce =
+    isActiveDocument && (state.hasAttachedOnce || state.collaboration !== null)
+  const viewers = hasActiveEditorSession ? state.viewers : EMPTY_VIEWERS
   const lifecycle: CollaborationLifecycleState =
-    !isEnabled || input.documentId === null
+    !wantsCollaboration || input.documentId === null
       ? "legacy"
       : isSessionAttached
         ? "attached"
@@ -491,14 +543,14 @@ export function useDocumentCollaboration(input: {
     if (
       !isActiveDocument ||
       !state.session ||
-      !state.collaboration ||
+      !state.editorCollaboration ||
       !currentUserId ||
       !currentUserName
     ) {
       return
     }
 
-    const currentLocalUser = state.collaboration.localUser
+    const currentLocalUser = state.editorCollaboration.localUser
     const nextLocalUser = createCollaborationAwarenessState({
       ...currentLocalUser,
       userId: currentUserId,
@@ -515,11 +567,15 @@ export function useDocumentCollaboration(input: {
 
     state.session.updateLocalAwareness(nextLocalUser)
     setState((current) =>
-      current.session === state.session && current.collaboration
+      current.session === state.session && current.editorCollaboration
         ? {
             ...current,
+            editorCollaboration: {
+              ...current.editorCollaboration,
+              localUser: nextLocalUser,
+            },
             collaboration: {
-              ...current.collaboration,
+              ...(current.collaboration ?? current.editorCollaboration),
               localUser: nextLocalUser,
             },
           }
@@ -530,7 +586,7 @@ export function useDocumentCollaboration(input: {
     currentUserName,
     currentUserResolvedAvatarUrl,
     isActiveDocument,
-    state.collaboration,
+    state.editorCollaboration,
     state.session,
   ])
 
@@ -551,7 +607,7 @@ export function useDocumentCollaboration(input: {
     }
 
     const handlePageHide = () => {
-      void session.flush().catch((error) => {
+      void session.flush({ kind: "teardown-content" }).catch((error) => {
         console.error("Failed to flush collaboration session on page hide", error)
       })
     }
@@ -573,7 +629,10 @@ export function useDocumentCollaboration(input: {
     error,
     role,
     connectionState,
+    editorCollaboration,
     collaboration,
+    bootstrapContent,
+    hasAttachedOnce,
     isAwaitingCollaboration,
     viewers,
     flush,

@@ -17,6 +17,8 @@ import { useAppStore } from "@/lib/store/app-store"
 
 const {
   fetchWorkItemDetailReadModelMock,
+  richTextContentRenderMock,
+  richTextEditorRenderMock,
   routerReplaceMock,
   syncAddCommentMock,
   syncClearWorkItemPresenceMock,
@@ -24,8 +26,11 @@ const {
   syncSendItemDescriptionMentionNotificationsMock,
   syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
+  useDocumentCollaborationMock,
 } = vi.hoisted(() => ({
   fetchWorkItemDetailReadModelMock: vi.fn(),
+  richTextContentRenderMock: vi.fn(),
+  richTextEditorRenderMock: vi.fn(),
   routerReplaceMock: vi.fn(),
   syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
@@ -33,6 +38,7 @@ const {
   syncSendItemDescriptionMentionNotificationsMock: vi.fn(),
   syncToggleCommentReactionMock: vi.fn(),
   syncUpdateWorkItemMock: vi.fn(),
+  useDocumentCollaborationMock: vi.fn(),
 }))
 
 vi.mock("next/link", () => ({
@@ -79,36 +85,63 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
+vi.mock("@/hooks/use-document-collaboration", () => ({
+  useDocumentCollaboration: useDocumentCollaborationMock,
+}))
+
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
+    collaboration,
+    editable,
     onChange,
     placeholder,
     onSubmitShortcut,
     submitOnEnter,
   }: {
-    content: string
+    content: string | Record<string, unknown>
+    collaboration?: unknown
+    editable?: boolean
     onChange: (value: string) => void
     placeholder?: string
     onSubmitShortcut?: () => void
     submitOnEnter?: boolean
-  }) => (
-    <textarea
-      aria-label={
-        placeholder === "Add a description…"
-          ? "Description editor"
-          : (placeholder ?? "Rich text editor")
-      }
-      value={content}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault()
-          onSubmitShortcut?.()
+  }) => {
+    richTextEditorRenderMock({
+      collaboration,
+      content,
+      editable,
+      placeholder,
+    })
+
+    return (
+      <textarea
+        aria-label={
+          placeholder === "Add a description…"
+            ? "Description editor"
+            : (placeholder ?? "Rich text editor")
         }
-      }}
-    />
-  ),
+        data-testid="rich-text-editor"
+        data-collaboration={String(Boolean(collaboration))}
+        data-editable={String(Boolean(editable))}
+        value={typeof content === "string" ? content : JSON.stringify(content)}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault()
+            onSubmitShortcut?.()
+          }
+        }}
+      />
+    )
+  },
+}))
+
+vi.mock("@/components/app/rich-text-content", () => ({
+  RichTextContent: (props: { content: string | Record<string, unknown> }) => {
+    richTextContentRenderMock(props)
+    return <div data-testid="rich-text-content" />
+  },
 }))
 
 vi.mock("@/components/app/screens/document-ui", () => ({
@@ -440,7 +473,10 @@ function seedState() {
 
 describe("work item detail screen", () => {
   beforeEach(() => {
+    window.sessionStorage.clear()
     fetchWorkItemDetailReadModelMock.mockReset()
+    richTextContentRenderMock.mockReset()
+    richTextEditorRenderMock.mockReset()
     fetchWorkItemDetailReadModelMock.mockResolvedValue({})
     syncClearWorkItemPresenceMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockReset()
@@ -449,6 +485,16 @@ describe("work item detail screen", () => {
     syncHeartbeatWorkItemPresenceMock.mockResolvedValue([])
     syncClearWorkItemPresenceMock.mockResolvedValue({ ok: true })
     syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
+    useDocumentCollaborationMock.mockReset()
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: null,
+      collaboration: null,
+      flush: vi.fn(),
+      isAwaitingCollaboration: false,
+      lifecycle: "legacy",
+      viewers: [],
+    })
     seedState()
   })
 
@@ -504,6 +550,94 @@ describe("work item detail screen", () => {
     expect(screen.getByDisplayValue("Plan launch remote")).toBeInTheDocument()
   })
 
+  it("shows a stable description preview while collaboration bootstraps", async () => {
+    const flushMock = vi.fn().mockResolvedValue(undefined)
+    const bootstrapContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Boot description",
+            },
+          ],
+        },
+      ],
+    }
+    let collaborationState: ReturnType<typeof useDocumentCollaborationMock> = {
+      bootstrapContent: null,
+      editorCollaboration: null,
+      collaboration: null,
+      flush: flushMock,
+      isAwaitingCollaboration: false,
+      lifecycle: "legacy" as const,
+      viewers: [],
+    }
+
+    useDocumentCollaborationMock.mockImplementation(() => collaborationState)
+
+    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    })
+
+    await waitFor(() => {
+      expect(richTextEditorRenderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collaboration: undefined,
+          content: "<p>Initial description</p>",
+          editable: true,
+          placeholder: "Add a description…",
+        })
+      )
+    })
+
+    collaborationState = {
+      bootstrapContent,
+      editorCollaboration: {
+        binding: {
+          doc: {},
+          provider: {},
+        },
+        localUser: {
+          userId: "user_1",
+          sessionId: "session_1",
+          name: "Alex",
+          avatarUrl: null,
+          color: "#000000",
+          typing: false,
+          activeBlockId: null,
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      },
+      collaboration: null,
+      flush: flushMock,
+      isAwaitingCollaboration: true,
+      lifecycle: "bootstrapping",
+      viewers: [],
+    }
+
+    rerender(<WorkItemDetailScreen itemId="item_1" />)
+
+    await waitFor(() => {
+      expect(richTextContentRenderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: "<p>Initial description</p>",
+        })
+      )
+    })
+    expect(richTextContentRenderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "<p>Initial description</p>",
+      })
+    )
+  })
+
   it("surfaces when other people are editing the same item", async () => {
     syncHeartbeatWorkItemPresenceMock.mockResolvedValue([
       {
@@ -526,14 +660,10 @@ describe("work item detail screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }))
 
+    expect(await screen.findByText("Taylor")).toBeInTheDocument()
     expect(
-      await screen.findByText("Taylor is also editing this item")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "You can keep editing, but you may need to reload before saving if they update the item first."
-      )
-    ).toBeInTheDocument()
+      screen.queryByText("Taylor is also editing this item")
+    ).toBeNull()
   })
 
   it("closes edit mode even when mention delivery fails after save", async () => {
