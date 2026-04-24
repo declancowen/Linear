@@ -164,7 +164,7 @@ describe("useScopedReadModelRefresh", () => {
       await Promise.resolve()
     })
 
-    expect(fetchLatestMock).toHaveBeenCalledTimes(3)
+    expect(fetchLatestMock).toHaveBeenCalledTimes(4)
     expect(degradedRefreshCallback).not.toBeNull()
     expect(setIntervalSpy).toHaveBeenCalled()
     expect(clearIntervalSpy).toHaveBeenCalled()

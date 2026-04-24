@@ -193,6 +193,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     setHasLoadedOnce(false)
     void refresh()
     let hasSeenReady = false
+    let hasEnteredDegradedMode = false
 
     const closeStream = openScopedInvalidationStream({
       scopeKeys,
@@ -200,16 +201,23 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
         stopDegradedRefresh()
 
         if (hasSeenReady) {
+          hasEnteredDegradedMode = false
           void refresh()
           return
         }
 
         hasSeenReady = true
+
+        if (hasEnteredDegradedMode) {
+          hasEnteredDegradedMode = false
+          void refresh()
+        }
       },
       onInvalidate() {
         void refresh()
       },
       onUnavailable() {
+        hasEnteredDegradedMode = true
         startDegradedRefresh()
       },
       onError() {
