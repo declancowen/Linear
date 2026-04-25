@@ -9,6 +9,7 @@ import {
   getTextInputLimitState,
   teamNameConstraints,
   teamSummaryConstraints,
+  type TextInputConstraint,
 } from "@/lib/domain/input-constraints"
 import {
   getDefaultTeamIconForExperience,
@@ -92,6 +93,7 @@ export function TeamEditorFields({
   setSummary,
   setFeatures,
   savedFeatures,
+  summaryConstraints = teamSummaryConstraints,
   surfaceDisableReasons,
   disabled = false,
   canChangeExperience = false,
@@ -115,6 +117,7 @@ export function TeamEditorFields({
       | ((current: TeamFeatureSettings) => TeamFeatureSettings)
   ) => void
   savedFeatures: TeamFeatureSettings
+  summaryConstraints?: TextInputConstraint
   surfaceDisableReasons: TeamSurfaceDisableReasons
   disabled?: boolean
   canChangeExperience?: boolean
@@ -127,7 +130,7 @@ export function TeamEditorFields({
   const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
   const summaryLimitState = getTextInputLimitState(
     summary,
-    teamSummaryConstraints
+    summaryConstraints
   )
   const workCopy = getWorkSurfaceCopy(experience)
   const coreSurfaceItems = [
@@ -247,12 +250,12 @@ export function TeamEditorFields({
                   id="team-summary"
                   value={summary}
                   onChange={(event) => setSummary(event.target.value)}
-                  maxLength={teamSummaryConstraints.max}
+                  maxLength={summaryConstraints.max}
                   className="min-h-24 resize-none"
                 />
                 <FieldCharacterLimit
                   state={summaryLimitState}
-                  limit={teamSummaryConstraints.max}
+                  limit={summaryConstraints.max}
                 />
               </FieldContent>
               <FieldDescription>

@@ -14,6 +14,7 @@ const generateSettingsImageUploadUrlServerMock = vi.fn()
 const heartbeatDocumentPresenceServerMock = vi.fn()
 const clearDocumentPresenceServerMock = vi.fn()
 const bumpUserWorkspaceMembershipReadModelScopesServerMock = vi.fn()
+const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 const ensureWorkspaceOrganizationMock = vi.fn()
 const syncUserProfileToWorkOSMock = vi.fn()
 const toAuthenticatedAppUserMock = vi.fn()
@@ -42,6 +43,8 @@ vi.mock("@/lib/server/workos", () => ({
 }))
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpWorkspaceMembershipReadModelScopesServer:
+    bumpWorkspaceMembershipReadModelScopesServerMock,
   bumpUserWorkspaceMembershipReadModelScopesServer:
     bumpUserWorkspaceMembershipReadModelScopesServerMock,
 }))
@@ -70,6 +73,7 @@ describe("workspace and profile route contracts", () => {
     heartbeatDocumentPresenceServerMock.mockReset()
     clearDocumentPresenceServerMock.mockReset()
     bumpUserWorkspaceMembershipReadModelScopesServerMock.mockReset()
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
     ensureWorkspaceOrganizationMock.mockReset()
     syncUserProfileToWorkOSMock.mockReset()
     toAuthenticatedAppUserMock.mockReset()
@@ -158,6 +162,49 @@ describe("workspace and profile route contracts", () => {
       code: "WORKSPACE_NOT_FOUND",
     })
     expect(ensureWorkspaceOrganizationMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts an empty workspace description for branding updates", async () => {
+    const { PATCH } = await import("@/app/api/workspace/current/route")
+
+    const response = await PATCH(
+      new Request("http://localhost/api/workspace/current", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Acme 2",
+          logoUrl: "https://example.com/logo-2.png",
+          accent: "green",
+          description: "",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      workspace: {
+        id: "workspace_1",
+        slug: "acme",
+        name: "Acme 2",
+        logoUrl: "https://example.com/logo-2.png",
+        workosOrganizationId: "org_new",
+        settings: {
+          accent: "green",
+          description: "",
+        },
+      },
+    })
+    expect(updateWorkspaceBrandingServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      workspaceId: "workspace_1",
+      name: "Acme 2",
+      logoUrl: "https://example.com/logo-2.png",
+      accent: "green",
+      description: "",
+    })
   })
 
   it("maps workspace creation failures without provider-error noise", async () => {

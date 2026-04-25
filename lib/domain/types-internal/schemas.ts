@@ -14,6 +14,7 @@ import {
   getRichTextMarkupSafetyCap,
   isLegacyImageSourceValue,
   labelNameConstraints,
+  optionalTeamSummaryConstraints,
   optionalWorkspaceDescriptionConstraints,
   profileAvatarFallbackConstraints,
   profileNameConstraints,
@@ -155,7 +156,9 @@ export const workspaceBrandingSchema = z.object({
   logoImageStorageId: z.string().trim().min(1).optional(),
   clearLogoImage: z.boolean().optional(),
   accent: boundedTrimmedStringSchema(workspaceAccentConstraints),
-  description: boundedTrimmedStringSchema(workspaceDescriptionConstraints),
+  description: boundedTrimmedStringSchema(
+    optionalWorkspaceDescriptionConstraints
+  ),
 })
 
 export const workspaceSetupSchema = z.object({
@@ -170,6 +173,37 @@ export const teamDetailsSchema = z
     name: boundedTrimmedStringSchema(teamNameConstraints),
     icon: z.enum(teamIconTokens),
     summary: boundedTrimmedStringSchema(teamSummaryConstraints),
+    joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
+    experience: z.enum(teamExperienceTypes),
+    features: z.object({
+      issues: z.boolean(),
+      projects: z.boolean(),
+      views: z.boolean(),
+      docs: z.boolean(),
+      chat: z.boolean(),
+      channels: z.boolean(),
+    }),
+  })
+  .superRefine((value, ctx) => {
+    const validationMessage = getTeamFeatureValidationMessage(
+      value.experience,
+      value.features
+    )
+
+    if (validationMessage) {
+      ctx.addIssue({
+        code: "custom",
+        message: validationMessage,
+        path: ["features"],
+      })
+    }
+  })
+
+export const teamDetailsUpdateSchema = z
+  .object({
+    name: boundedTrimmedStringSchema(teamNameConstraints),
+    icon: z.enum(teamIconTokens),
+    summary: boundedTrimmedStringSchema(optionalTeamSummaryConstraints),
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
     features: z.object({

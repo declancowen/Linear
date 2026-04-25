@@ -408,6 +408,202 @@ describe("create dialogs", () => {
     }
   })
 
+  it("keeps explicit lane project defaults while preserving the preselected parent", async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      projects: [
+        {
+          id: "project_parent",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Parent project",
+          summary: "",
+          description: "",
+          status: "backlog",
+          health: "no-update",
+          priority: "medium",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          targetDate: null,
+          startDate: null,
+          createdAt: "2026-04-20T12:00:00.000Z",
+          updatedAt: "2026-04-20T12:00:00.000Z",
+        },
+        {
+          id: "project_lane",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Lane project",
+          summary: "",
+          description: "",
+          status: "backlog",
+          health: "no-update",
+          priority: "medium",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          targetDate: null,
+          startDate: null,
+          createdAt: "2026-04-20T12:00:00.000Z",
+          updatedAt: "2026-04-20T12:00:00.000Z",
+        },
+      ],
+      workItems: [
+        {
+          id: "feature_parent",
+          key: "FEAT-1",
+          teamId: "team_1",
+          type: "feature",
+          title: "Feature parent",
+          descriptionDocId: "",
+          status: "todo",
+          priority: "medium",
+          assigneeId: null,
+          creatorId: "user_1",
+          parentId: null,
+          primaryProjectId: "project_parent",
+          linkedProjectIds: [],
+          linkedDocumentIds: [],
+          labelIds: [],
+          milestoneId: null,
+          startDate: null,
+          dueDate: null,
+          targetDate: null,
+          subscriberIds: [],
+          createdAt: "2026-04-20T12:00:00.000Z",
+          updatedAt: "2026-04-20T12:00:00.000Z",
+        },
+      ],
+    }))
+
+    const createWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "createWorkItem")
+      .mockReturnValue("item_new")
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+          defaultProjectId="project_lane"
+          initialType="requirement"
+          defaultValues={{
+            parentId: "feature_parent",
+            primaryProjectId: "project_lane",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Lane child" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "requirement",
+            parentId: "feature_parent",
+            primaryProjectId: "project_lane",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
+  it("still inherits the parent project when no explicit lane project default is provided", async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      projects: [
+        {
+          id: "project_parent",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "software-delivery",
+          name: "Parent project",
+          summary: "",
+          description: "",
+          status: "backlog",
+          health: "no-update",
+          priority: "medium",
+          leadId: "user_1",
+          memberIds: ["user_1"],
+          targetDate: null,
+          startDate: null,
+          createdAt: "2026-04-20T12:00:00.000Z",
+          updatedAt: "2026-04-20T12:00:00.000Z",
+        },
+      ],
+      workItems: [
+        {
+          id: "feature_parent",
+          key: "FEAT-1",
+          teamId: "team_1",
+          type: "feature",
+          title: "Feature parent",
+          descriptionDocId: "",
+          status: "todo",
+          priority: "medium",
+          assigneeId: null,
+          creatorId: "user_1",
+          parentId: null,
+          primaryProjectId: "project_parent",
+          linkedProjectIds: [],
+          linkedDocumentIds: [],
+          labelIds: [],
+          milestoneId: null,
+          startDate: null,
+          dueDate: null,
+          targetDate: null,
+          subscriberIds: [],
+          createdAt: "2026-04-20T12:00:00.000Z",
+          updatedAt: "2026-04-20T12:00:00.000Z",
+        },
+      ],
+    }))
+
+    const createWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "createWorkItem")
+      .mockReturnValue("item_new")
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+          initialType="requirement"
+          defaultValues={{
+            parentId: "feature_parent",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Inherited child" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "requirement",
+            parentId: "feature_parent",
+            primaryProjectId: "project_parent",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
   it("renders the project create dialog without recursive store updates", () => {
     render(
       <CreateProjectDialog

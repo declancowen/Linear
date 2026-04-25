@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import { teamDetailsSchema } from "@/lib/domain/types"
+import { teamDetailsUpdateSchema } from "@/lib/domain/types"
 import { deleteTeamServer, updateTeamDetailsServer } from "@/lib/server/convex"
 import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
@@ -29,7 +29,7 @@ export async function PATCH(
 
   const parsed = await parseJsonBody(
     request,
-    teamDetailsSchema,
+    teamDetailsUpdateSchema,
     "Invalid team details payload"
   )
 

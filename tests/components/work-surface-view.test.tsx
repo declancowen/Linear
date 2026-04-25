@@ -535,6 +535,42 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
+  it("hides empty assignee and project pills on editable list rows and board cards", () => {
+    const data = createEditableData()
+
+    const { rerender } = render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["assignee", "project"])}
+        editable
+      />
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Assignee" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Project" })
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["assignee", "project"])}
+        editable
+      />
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Assignee" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Project" })
+    ).not.toBeInTheDocument()
+  })
+
   it("removes dedicated list drag handles and makes board cards draggable from the full card surface", () => {
     const data = createData()
     const { rerender } = render(
@@ -615,6 +651,8 @@ describe("ListView", () => {
 
     expect(openManagedCreateDialog).toHaveBeenCalledWith(
       expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
         defaultValues: expect.objectContaining({
           parentId: "epic-parent",
         }),
@@ -636,8 +674,120 @@ describe("ListView", () => {
 
     expect(openManagedCreateDialog).toHaveBeenCalledWith(
       expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
         defaultValues: expect.objectContaining({
           parentId: "epic-parent",
+        }),
+      })
+    )
+  })
+
+  it("derives parent defaults from the epic lane even when only the parent row is visible", () => {
+    const data = createEpicGroupedCreateData()
+    const laneItems = data.workItems.filter((item) => item.id === "epic-parent")
+    const view = createView("board", [], {
+      grouping: "epic",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: [],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={laneItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={laneItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
+  })
+
+  it("prefers the more specific parent subgroup when opening create from nested parent lanes", () => {
+    const data = createEpicGroupedCreateData()
+    const view = createView("board", [], {
+      grouping: "epic",
+      subGrouping: "feature",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: ["No feature"],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "requirement",
+        defaultValues: expect.objectContaining({
+          parentId: "feature-child",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "requirement",
+        defaultValues: expect.objectContaining({
+          parentId: "feature-child",
         }),
       })
     )

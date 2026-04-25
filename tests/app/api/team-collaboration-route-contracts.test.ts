@@ -438,6 +438,65 @@ describe("team and collaboration route contracts", () => {
     )
   })
 
+  it("accepts an empty team summary for detail updates", async () => {
+    const route = await import("@/app/api/teams/[teamId]/details/route")
+
+    updateTeamDetailsServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+    })
+
+    const patchResponse = await route.PATCH(
+      new Request("http://localhost/api/teams/team_1/details", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Launch",
+          icon: "robot",
+          summary: "",
+          experience: "software-development",
+          features: {
+            issues: true,
+            projects: true,
+            views: true,
+            docs: true,
+            chat: true,
+            channels: true,
+          },
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+        }),
+      }
+    )
+
+    expect(patchResponse.status).toBe(200)
+    await expect(patchResponse.json()).resolves.toEqual({
+      ok: true,
+      teamId: "team_1",
+    })
+    expect(updateTeamDetailsServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      teamId: "team_1",
+      name: "Launch",
+      icon: "robot",
+      summary: "",
+      experience: "software-development",
+      features: {
+        issues: true,
+        projects: true,
+        views: true,
+        docs: true,
+        chat: true,
+        channels: true,
+      },
+    })
+  })
+
   it("invalidates the mutated team's workspace for settings and member mutations", async () => {
     const settingsRoute = await import("@/app/api/teams/[teamId]/settings/route")
     const membersRoute = await import(

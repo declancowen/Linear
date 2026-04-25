@@ -13,21 +13,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={resolvedTheme as ToasterProps["theme"]}
       className="toaster group"
       icons={{
-        success: (
-          <CheckCircleIcon className="size-4" />
-        ),
-        info: (
-          <InfoIcon className="size-4" />
-        ),
-        warning: (
-          <WarningIcon className="size-4" />
-        ),
-        error: (
-          <XCircleIcon className="size-4" />
-        ),
-        loading: (
-          <SpinnerIcon className="size-4 animate-spin" />
-        ),
+        success: <CheckCircleIcon weight="fill" className="size-[15px]" />,
+        info: <InfoIcon weight="fill" className="size-[15px]" />,
+        warning: <WarningIcon weight="fill" className="size-[15px]" />,
+        error: <XCircleIcon weight="fill" className="size-[15px]" />,
+        loading: <SpinnerIcon className="size-[15px] animate-spin" />,
       }}
       style={
         {
@@ -40,20 +30,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "cn-toast group group-[.toaster]:rounded-[20px] group-[.toaster]:border group-[.toaster]:border-line/80 group-[.toaster]:bg-background/95 group-[.toaster]:px-0 group-[.toaster]:py-0 group-[.toaster]:text-foreground group-[.toaster]:shadow-[inset_4px_0_0_0_var(--toast-accent),0_24px_54px_-30px_rgba(15,23,42,0.48)] group-[.toaster]:backdrop-blur-xl group-[.toaster]:[--toast-accent:var(--text-4)]",
-          content:
-            "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 px-4 py-4",
-          title:
-            "pt-0.5 text-[13px] font-semibold leading-5 tracking-[0.01em] text-foreground",
-          description: "text-[12px] leading-5 text-fg-3",
-          icon:
-            "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl border border-line bg-background/90 text-[color:var(--toast-accent)] shadow-[0_12px_28px_-22px_var(--toast-accent)]",
+            "cn-toast group group-[.toaster]:rounded-lg group-[.toaster]:border group-[.toaster]:border-line/60 group-[.toaster]:bg-background/95 group-[.toaster]:px-3.5 group-[.toaster]:py-2.5 group-[.toaster]:text-foreground group-[.toaster]:shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] group-[.toaster]:backdrop-blur-xl group-[.toaster]:[--toast-accent:var(--text-4)]",
+          content: "flex items-center gap-2.5",
+          title: "text-[13px] font-medium leading-5 text-foreground",
+          description: "text-[12px] leading-4 text-fg-3",
+          icon: "flex size-4 shrink-0 items-center justify-center text-[color:var(--toast-accent)]",
           closeButton:
-            "rounded-full border border-line bg-background/90 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+            "rounded-md border border-line/60 bg-surface/90 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
           actionButton:
-            "rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-opacity hover:opacity-90",
+            "rounded-md bg-foreground px-2.5 py-1 text-[12px] font-medium text-background transition-opacity hover:opacity-90",
           cancelButton:
-            "rounded-md border border-line bg-background/90 px-3 py-1.5 text-[12px] font-medium text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
+            "rounded-md border border-line/60 bg-surface/90 px-2.5 py-1 text-[12px] font-medium text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
           success: "group-[.toaster]:[--toast-accent:var(--status-done)]",
           error: "group-[.toaster]:[--toast-accent:var(--priority-urgent)]",
           warning: "group-[.toaster]:[--toast-accent:var(--priority-high)]",

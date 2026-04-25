@@ -56,7 +56,11 @@ import {
   stopDragPropagation,
 } from "./work-item-menus"
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
-import { getPatchForField, LabelColorDot } from "./shared"
+import {
+  getCreateDefaultsForField,
+  getPatchForField,
+  LabelColorDot,
+} from "./shared"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { getContainerItemsForDisplay } from "./helpers"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
@@ -208,20 +212,42 @@ function buildCreateDefaultsForGroup({
   subgroupValue?: string
 }) {
   const baseItem = items[0] ?? null
+  const groupDefaults = getCreateDefaultsForField(
+    data,
+    baseItem,
+    view.grouping,
+    groupValue
+  )
+  const subgroupDefaults =
+    subgroupValue === undefined
+      ? null
+      : getCreateDefaultsForField(
+          data,
+          baseItem,
+          view.subGrouping,
+          subgroupValue
+        )
   const groupedPatch = {
-    ...getPatchForField(data, baseItem, view.grouping, groupValue),
-    ...(subgroupValue === undefined
-      ? {}
-      : getPatchForField(data, baseItem, view.subGrouping, subgroupValue)),
+    ...groupDefaults.patch,
+    ...(subgroupDefaults?.patch ?? {}),
   }
 
   return {
-    status: groupedPatch.status,
-    priority: groupedPatch.priority,
-    assigneeId: groupedPatch.assigneeId,
-    primaryProjectId: groupedPatch.primaryProjectId,
-    labelIds: groupedPatch.labelIds,
-    parentId: groupedPatch.parentId ?? null,
+    defaultTeamId:
+      subgroupDefaults?.defaultTeamId ??
+      groupDefaults.defaultTeamId ??
+      baseItem?.teamId ??
+      null,
+    initialType:
+      subgroupDefaults?.initialType ?? groupDefaults.initialType ?? null,
+    defaultValues: {
+      status: groupedPatch.status,
+      priority: groupedPatch.priority,
+      assigneeId: groupedPatch.assigneeId,
+      primaryProjectId: groupedPatch.primaryProjectId,
+      labelIds: groupedPatch.labelIds,
+      parentId: groupedPatch.parentId ?? null,
+    },
   }
 }
 
@@ -706,7 +732,7 @@ export function BoardView({
     subgroupValue?: string
     laneItems: WorkItem[]
   }) {
-    const defaultValues = buildCreateDefaultsForGroup({
+    const createDefaults = buildCreateDefaultsForGroup({
       data,
       items: laneItems,
       view,
@@ -717,9 +743,14 @@ export function BoardView({
     openManagedCreateDialog({
       kind: "workItem",
       defaultTeamId:
-        laneItems[0]?.teamId ?? items[0]?.teamId ?? scopedItems?.[0]?.teamId ?? null,
-      defaultProjectId: defaultValues.primaryProjectId ?? null,
-      defaultValues,
+        createDefaults.defaultTeamId ??
+        laneItems[0]?.teamId ??
+        items[0]?.teamId ??
+        scopedItems?.[0]?.teamId ??
+        null,
+      defaultProjectId: createDefaults.defaultValues.primaryProjectId,
+      initialType: createDefaults.initialType,
+      defaultValues: createDefaults.defaultValues,
     })
   }
 
@@ -1074,7 +1105,7 @@ export function ListView({
     subgroupValue?: string
     laneItems: WorkItem[]
   }) {
-    const defaultValues = buildCreateDefaultsForGroup({
+    const createDefaults = buildCreateDefaultsForGroup({
       data,
       items: laneItems,
       view,
@@ -1085,9 +1116,14 @@ export function ListView({
     openManagedCreateDialog({
       kind: "workItem",
       defaultTeamId:
-        laneItems[0]?.teamId ?? items[0]?.teamId ?? scopedItems?.[0]?.teamId ?? null,
-      defaultProjectId: defaultValues.primaryProjectId ?? null,
-      defaultValues,
+        createDefaults.defaultTeamId ??
+        laneItems[0]?.teamId ??
+        items[0]?.teamId ??
+        scopedItems?.[0]?.teamId ??
+        null,
+      defaultProjectId: createDefaults.defaultValues.primaryProjectId,
+      initialType: createDefaults.initialType,
+      defaultValues: createDefaults.defaultValues,
     })
   }
 
@@ -1360,7 +1396,7 @@ function ListGroupHeader({
   return (
     <div
       ref={setNodeRef}
-      className="sticky top-0 z-[2] bg-transparent"
+      className="sticky top-0 z-[2] bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)] backdrop-blur-[6px]"
     >
       <button
         type="button"

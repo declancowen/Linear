@@ -73,6 +73,11 @@ export const teamSummaryConstraints = {
   trim: true,
 } satisfies TextInputConstraint
 
+export const optionalTeamSummaryConstraints = {
+  ...teamSummaryConstraints,
+  allowEmpty: true,
+} satisfies TextInputConstraint
+
 export const teamJoinCodeConstraints = {
   min: 4,
   max: 24,

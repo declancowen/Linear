@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain/input-constraints"
 import {
   canParentWorkItemTypeAcceptChild,
+  getSingleChildWorkItemType,
   statusMeta,
   type AppData,
   type Document,
@@ -1101,4 +1102,57 @@ export function getPatchForField(
     return { parentId: parent.id }
   }
   return {}
+}
+
+export function getCreateDefaultsForField(
+  data: AppData,
+  item: WorkItem | null,
+  field: GroupField | null,
+  value: string
+): {
+  patch: Partial<
+    Pick<
+      WorkItem,
+      | "status"
+      | "priority"
+      | "assigneeId"
+      | "primaryProjectId"
+      | "labelIds"
+      | "parentId"
+    >
+  >
+  defaultTeamId?: string | null
+  initialType?: WorkItem["type"] | null
+} {
+  if (field === "epic" || field === "feature") {
+    const emptyValue = `No ${field}`
+
+    if (value === emptyValue) {
+      return { patch: {} }
+    }
+
+    const parent = data.workItems.find(
+      (entry) =>
+        entry.type === field && `${entry.key} · ${entry.title}` === value
+    )
+
+    if (!parent) {
+      return { patch: {} }
+    }
+
+    const candidateType =
+      item && canParentWorkItemTypeAcceptChild(parent.type, item.type)
+        ? item.type
+        : getSingleChildWorkItemType(parent.type)
+
+    return {
+      patch: { parentId: parent.id },
+      defaultTeamId: parent.teamId,
+      initialType: candidateType,
+    }
+  }
+
+  return {
+    patch: getPatchForField(data, item, field, value),
+  }
 }
