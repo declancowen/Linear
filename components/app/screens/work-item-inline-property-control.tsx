@@ -330,7 +330,7 @@ export function InlineWorkItemPropertyControl({
 
   if (property === "assignee") {
     const empty = !currentAssignee
-    if (empty) {
+    if (empty && (!editable || variant === "surface")) {
       return null
     }
 
@@ -434,7 +434,7 @@ export function InlineWorkItemPropertyControl({
   }
 
   const empty = !currentProject
-  if (empty) {
+  if (empty && (!editable || variant === "surface")) {
     return null
   }
 

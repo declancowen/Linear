@@ -48,6 +48,20 @@ Verification rerun:
 - `pnpm exec tsc --noEmit --pretty false`
 - `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/components/create-dialogs.test.tsx tests/app/api/workspace-profile-route-contracts.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/lib/store/workspace-slice.test.ts`
 
+### Turn 4
+
+Re-reviewed the inline property control family after the child-row regression report.
+
+Resolved:
+
+- empty assignee/project controls remain hidden on list and board surface rows
+- editable child rows now keep the dashed empty assignee/project controls so users can set those properties inline from the work item detail surface
+
+Verification rerun:
+
+- `pnpm exec tsc --noEmit --pretty false`
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/components/work-surface-view.test.tsx tests/components/create-dialogs.test.tsx tests/app/api/workspace-profile-route-contracts.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/lib/store/workspace-slice.test.ts`
+
 ## Verification
 
 - `pnpm exec tsc --noEmit --pretty false`
