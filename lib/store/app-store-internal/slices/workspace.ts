@@ -25,6 +25,7 @@ import {
   profileSchema,
   teamMembershipRoleSchema,
   teamDetailsSchema,
+  teamDetailsUpdateSchema,
   workspaceBrandingSchema,
 } from "@/lib/domain/types"
 
@@ -433,7 +434,7 @@ export function createWorkspaceSlice(
       }
     },
     async updateTeamDetails(teamId, input) {
-      const parsed = teamDetailsSchema.safeParse({
+      const parsed = teamDetailsUpdateSchema.safeParse({
         ...input,
         icon: normalizeTeamIconToken(input.icon, input.experience),
       })

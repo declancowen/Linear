@@ -82,22 +82,28 @@ import {
   type WorkItem,
 } from "@/lib/domain/types"
 
-function createTeam(): Team {
+function createTeam(overrides?: Partial<Team>): Team {
+  const baseSettings: Team["settings"] = {
+    joinCode: "JOIN1234",
+    summary: "",
+    guestProjectIds: [],
+    guestDocumentIds: [],
+    guestWorkItemIds: [],
+    experience: "software-development",
+    features: createDefaultTeamFeatureSettings("software-development"),
+    workflow: createDefaultTeamWorkflowSettings("software-development"),
+  }
+
   return {
     id: "team_1",
     workspaceId: "workspace_1",
     slug: "platform",
     name: "Platform",
     icon: "rocket",
+    ...overrides,
     settings: {
-      joinCode: "JOIN1234",
-      summary: "",
-      guestProjectIds: [],
-      guestDocumentIds: [],
-      guestWorkItemIds: [],
-      experience: "software-development",
-      features: createDefaultTeamFeatureSettings("software-development"),
-      workflow: createDefaultTeamWorkflowSettings("software-development"),
+      ...baseSettings,
+      ...overrides?.settings,
     },
   }
 }
@@ -398,6 +404,64 @@ function createEpicGroupedCreateData(): AppData {
   }
 }
 
+function createCrossTeamEpicGroupedCreateData(): AppData {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    teams: [
+      createTeam(),
+      createTeam({
+        id: "team_2",
+        slug: "ops",
+        name: "Ops",
+      }),
+    ],
+    teamMemberships: [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "admin",
+      },
+      {
+        teamId: "team_2",
+        userId: "user_1",
+        role: "admin",
+      },
+    ],
+    workItems: [
+      {
+        ...createWorkItem(),
+        id: "epic-parent-team-2",
+        teamId: "team_2",
+        key: "TES-30",
+        type: "epic",
+        title: "Parent epic",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "epic-parent-team-1",
+        teamId: "team_1",
+        key: "TES-30",
+        type: "epic",
+        title: "Parent epic",
+        status: "todo",
+      },
+      {
+        ...createWorkItem(),
+        id: "feature-child-team-1",
+        teamId: "team_1",
+        key: "TES-31",
+        type: "feature",
+        title: "Grouped feature",
+        status: "in-progress",
+        parentId: "epic-parent-team-1",
+      },
+    ],
+  }
+}
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -535,6 +599,42 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
+  it("hides empty assignee and project pills on editable list rows and board cards", () => {
+    const data = createEditableData()
+
+    const { rerender } = render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["assignee", "project"])}
+        editable
+      />
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Assignee" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Project" })
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["assignee", "project"])}
+        editable
+      />
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Assignee" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Project" })
+    ).not.toBeInTheDocument()
+  })
+
   it("removes dedicated list drag handles and makes board cards draggable from the full card surface", () => {
     const data = createData()
     const { rerender } = render(
@@ -615,6 +715,8 @@ describe("ListView", () => {
 
     expect(openManagedCreateDialog).toHaveBeenCalledWith(
       expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
         defaultValues: expect.objectContaining({
           parentId: "epic-parent",
         }),
@@ -636,8 +738,175 @@ describe("ListView", () => {
 
     expect(openManagedCreateDialog).toHaveBeenCalledWith(
       expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
         defaultValues: expect.objectContaining({
           parentId: "epic-parent",
+        }),
+      })
+    )
+  })
+
+  it("derives parent defaults from the epic lane even when only the parent row is visible", () => {
+    const data = createEpicGroupedCreateData()
+    const laneItems = data.workItems.filter((item) => item.id === "epic-parent")
+    const view = createView("board", [], {
+      grouping: "epic",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: [],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={laneItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={laneItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "feature",
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent",
+        }),
+      })
+    )
+  })
+
+  it("prefers the more specific parent subgroup when opening create from nested parent lanes", () => {
+    const data = createEpicGroupedCreateData()
+    const view = createView("board", [], {
+      grouping: "epic",
+      subGrouping: "feature",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: ["No feature"],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "requirement",
+        defaultValues: expect.objectContaining({
+          parentId: "feature-child",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        initialType: "requirement",
+        defaultValues: expect.objectContaining({
+          parentId: "feature-child",
+        }),
+      })
+    )
+  })
+
+  it("scopes parent lane defaults to the active team when duplicate parent labels exist", () => {
+    const data = createCrossTeamEpicGroupedCreateData()
+    const groupedItems = data.workItems.filter(
+      (item) => item.id === "feature-child-team-1"
+    )
+    const view = createView("board", [], {
+      grouping: "epic",
+      hiddenState: {
+        groups: ["No epic"],
+        subgroups: [],
+      },
+    })
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={groupedItems}
+        view={view}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent-team-1",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={groupedItems}
+        view={{ ...view, layout: "list" }}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultValues: expect.objectContaining({
+          parentId: "epic-parent-team-1",
         }),
       })
     )

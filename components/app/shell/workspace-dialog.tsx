@@ -4,10 +4,10 @@ import { useState } from "react"
 
 import {
   getTextInputLimitState,
+  optionalWorkspaceDescriptionConstraints,
   workspaceAccentConstraints,
   workspaceFallbackBadgeConstraints,
   workspaceBrandingNameConstraints,
-  workspaceDescriptionConstraints,
 } from "@/lib/domain/input-constraints"
 import { getCurrentWorkspace } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
@@ -60,7 +60,7 @@ export function WorkspaceDialog({
   const accentLimitState = getTextInputLimitState(accent, workspaceAccentConstraints)
   const descriptionLimitState = getTextInputLimitState(
     description,
-    workspaceDescriptionConstraints
+    optionalWorkspaceDescriptionConstraints
   )
   const canSave =
     nameLimitState.canSubmit &&
@@ -137,13 +137,13 @@ export function WorkspaceDialog({
               id="workspace-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              maxLength={workspaceDescriptionConstraints.max}
+              maxLength={optionalWorkspaceDescriptionConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
           <FieldCharacterLimit
             state={descriptionLimitState}
-            limit={workspaceDescriptionConstraints.max}
+            limit={optionalWorkspaceDescriptionConstraints.max}
           />
         </div>
 

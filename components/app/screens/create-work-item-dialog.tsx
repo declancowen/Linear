@@ -263,6 +263,9 @@ export function CreateWorkItemDialog({
           initialTeamProjects.some((project) => project.id === defaultProjectId)
         ? defaultProjectId
         : "none"
+  const hasExplicitProjectDefault =
+    defaultValues?.primaryProjectId !== undefined ||
+    defaultProjectId !== undefined
   const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
   const [teamPickerOpen, setTeamPickerOpen] = useState(false)
   const [teamQuery, setTeamQuery] = useState("")
@@ -374,7 +377,10 @@ export function CreateWorkItemDialog({
               canParentWorkItemTypeAcceptChild(item.type, selectedType)
           )
           .filter((item) =>
-            scopedProjectId ? item.primaryProjectId === scopedProjectId : true
+            scopedProjectId
+              ? item.primaryProjectId === scopedProjectId ||
+                item.id === selectedParentId
+              : true
           )
           .sort((left, right) =>
             left.key.localeCompare(right.key, undefined, { numeric: true })
@@ -383,7 +389,9 @@ export function CreateWorkItemDialog({
     selectedParentId === "none"
       ? null
       : (parentOptions.find((item) => item.id === selectedParentId) ?? null)
-  const effectiveProjectId = selectedParentItem?.primaryProjectId ?? projectId
+  const effectiveProjectId = hasExplicitProjectDefault
+    ? projectId
+    : (selectedParentItem?.primaryProjectId ?? projectId)
   const selectedLabels = availableLabels.filter((label) =>
     selectedLabelIds.includes(label.id)
   )

@@ -1035,6 +1035,67 @@ describe("work item detail screen", () => {
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
   })
 
+  it("keeps empty child-row assignee and project controls editable", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        documents: [
+          ...state.documents,
+          {
+            id: "document_3",
+            kind: "item-description",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            title: "Unassigned child",
+            content: "<p>Child description</p>",
+            linkedProjectIds: [],
+            linkedWorkItemIds: ["item_3"],
+            createdBy: "user_1",
+            updatedBy: "user_1",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+        workItems: [
+          ...state.workItems,
+          {
+            id: "item_3",
+            key: "PLA-3",
+            teamId: "team_1",
+            type: "sub-task",
+            title: "Unassigned child",
+            descriptionDocId: "document_3",
+            status: "todo",
+            priority: "medium",
+            assigneeId: null,
+            creatorId: "user_1",
+            parentId: "item_1",
+            primaryProjectId: null,
+            linkedProjectIds: [],
+            linkedDocumentIds: [],
+            labelIds: [],
+            milestoneId: null,
+            startDate: null,
+            dueDate: null,
+            targetDate: null,
+            subscriberIds: [],
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    expect(
+      screen.getAllByRole("button", { name: "Assignee" }).length
+    ).toBeGreaterThan(1)
+    expect(
+      screen.getAllByRole("button", { name: "Project" }).length
+    ).toBeGreaterThan(1)
+  })
+
   it("shows sidebar subtask progress above the child list", () => {
     act(() => {
       useAppStore.setState((state) => ({

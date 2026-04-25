@@ -6,8 +6,8 @@ import { useShallow } from "zustand/react/shallow"
 
 import {
   getTextInputLimitState,
+  optionalTeamSummaryConstraints,
   teamNameConstraints,
-  teamSummaryConstraints,
 } from "@/lib/domain/input-constraints"
 import {
   canAdminTeam,
@@ -156,7 +156,10 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   )
   const [summary, setSummary] = useState(team?.settings.summary ?? "")
   const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
-  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const summaryLimitState = getTextInputLimitState(
+    summary,
+    optionalTeamSummaryConstraints
+  )
   const canSaveTeam = nameLimitState.canSubmit && summaryLimitState.canSubmit
   const [features, setFeatures] = useState<TeamFeatureSettings>(
     team?.settings.features ?? getTeamFeatureSettings(team)
@@ -378,6 +381,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
             setName={setName}
             setSummary={setSummary}
             summary={summary}
+            summaryConstraints={optionalTeamSummaryConstraints}
             surfaceDisableReasons={surfaceDisableReasons}
           />
 

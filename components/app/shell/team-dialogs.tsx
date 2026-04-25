@@ -7,6 +7,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import {
   getTextInputLimitState,
+  optionalTeamSummaryConstraints,
   teamNameConstraints,
   teamSummaryConstraints,
 } from "@/lib/domain/input-constraints"
@@ -199,7 +200,10 @@ export function TeamDetailsDialog({
   )
   const [saving, setSaving] = useState(false)
   const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
-  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const summaryLimitState = getTextInputLimitState(
+    summary,
+    optionalTeamSummaryConstraints
+  )
   const canSubmit = nameLimitState.canSubmit && summaryLimitState.canSubmit
 
   if (!team) {
@@ -226,6 +230,7 @@ export function TeamDetailsDialog({
             name={name}
             icon={icon}
             summary={summary}
+            summaryConstraints={optionalTeamSummaryConstraints}
             joinCode={team.settings.joinCode}
             experience={experience}
             features={features}

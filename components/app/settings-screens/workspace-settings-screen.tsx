@@ -9,9 +9,9 @@ import { useShallow } from "zustand/react/shallow"
 import { syncUpdateWorkspaceBranding } from "@/lib/convex/client"
 import {
   getTextInputLimitState,
+  optionalWorkspaceDescriptionConstraints,
   workspaceAccentConstraints,
   workspaceBrandingNameConstraints,
-  workspaceDescriptionConstraints,
   workspaceFallbackBadgeConstraints,
 } from "@/lib/domain/input-constraints"
 import { getCurrentWorkspace, isWorkspaceOwner } from "@/lib/domain/selectors"
@@ -279,7 +279,7 @@ export function WorkspaceSettingsScreen() {
   const accentLimitState = getTextInputLimitState(accent, workspaceAccentConstraints)
   const descriptionLimitState = getTextInputLimitState(
     description,
-    workspaceDescriptionConstraints
+    optionalWorkspaceDescriptionConstraints
   )
   const canSaveWorkspace =
     nameLimitState.canSubmit &&
@@ -613,11 +613,11 @@ export function WorkspaceSettingsScreen() {
                       disabled={!canManageWorkspace}
                       value={description}
                       onChange={(event) => setDescription(event.target.value)}
-                      maxLength={workspaceDescriptionConstraints.max}
+                      maxLength={optionalWorkspaceDescriptionConstraints.max}
                     />
                     <FieldCharacterLimit
                       state={descriptionLimitState}
-                      limit={workspaceDescriptionConstraints.max}
+                      limit={optionalWorkspaceDescriptionConstraints.max}
                     />
                   </FieldContent>
                   <FieldDescription>
