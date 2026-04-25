@@ -10,6 +10,11 @@ import {
 import { toast } from "sonner"
 
 import {
+  getTextInputLimitState,
+  teamSummaryConstraints,
+  type TextInputConstraint,
+} from "@/lib/domain/input-constraints"
+import {
   getDefaultTeamIconForExperience,
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
@@ -25,6 +30,7 @@ import {
 } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -73,6 +79,7 @@ type TeamEditorFieldsProps = {
       | ((current: TeamFeatureSettings) => TeamFeatureSettings)
   ) => void
   savedFeatures: TeamFeatureSettings
+  summaryConstraints?: TextInputConstraint
   surfaceDisableReasons: TeamSurfaceDisableReasons
   canChangeExperience?: boolean
   disabled?: boolean
@@ -94,6 +101,7 @@ export function TeamEditorFields({
   setSummary,
   setFeatures,
   savedFeatures,
+  summaryConstraints = teamSummaryConstraints,
   surfaceDisableReasons,
   canChangeExperience = false,
   disabled = false,
@@ -103,6 +111,7 @@ export function TeamEditorFields({
   joinCodeReadonlyLabel = "Generated automatically after creation.",
 }: TeamEditorFieldsProps) {
   const selectedIcon = normalizeTeamIconToken(icon, experience)
+  const summaryLimitState = getTextInputLimitState(summary, summaryConstraints)
   const workCopy = getWorkSurfaceCopy(experience)
   const coreSurfaceItems: Array<{
     key: "issues" | "projects" | "views"
@@ -247,6 +256,11 @@ export function TeamEditorFields({
                 disabled={disabled}
                 value={summary}
                 onChange={(event) => setSummary(event.target.value)}
+                maxLength={summaryConstraints.max}
+              />
+              <FieldCharacterLimit
+                state={summaryLimitState}
+                limit={summaryConstraints.max}
               />
             </FieldContent>
             <FieldDescription>

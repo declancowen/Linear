@@ -212,11 +212,13 @@ function buildCreateDefaultsForGroup({
   subgroupValue?: string
 }) {
   const baseItem = items[0] ?? null
+  const teamId = baseItem?.teamId ?? null
   const groupDefaults = getCreateDefaultsForField(
     data,
     baseItem,
     view.grouping,
-    groupValue
+    groupValue,
+    { teamId }
   )
   const subgroupDefaults =
     subgroupValue === undefined
@@ -225,7 +227,8 @@ function buildCreateDefaultsForGroup({
           data,
           baseItem,
           view.subGrouping,
-          subgroupValue
+          subgroupValue,
+          { teamId }
         )
   const groupedPatch = {
     ...groupDefaults.patch,

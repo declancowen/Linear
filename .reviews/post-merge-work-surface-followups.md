@@ -34,6 +34,20 @@ Resolved:
 - parent options now preserve the preselected parent even when the explicit lane project differs from the parent project
 - non-project lane flows still inherit the parent project when no explicit lane project default is present
 
+### Turn 3
+
+Re-reviewed the branch after the next diff-review / architecture pass.
+
+Resolved:
+
+- team settings now passes relaxed edit-time summary constraints through the settings-screen `TeamEditorFields`, so the field-level validation UI matches the save guard
+- parent-lane default resolution is now scoped to the active team, preventing duplicate `key · title` parents from another team from hijacking create defaults
+
+Verification rerun:
+
+- `pnpm exec tsc --noEmit --pretty false`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/components/create-dialogs.test.tsx tests/app/api/workspace-profile-route-contracts.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/lib/store/workspace-slice.test.ts`
+
 ## Verification
 
 - `pnpm exec tsc --noEmit --pretty false`

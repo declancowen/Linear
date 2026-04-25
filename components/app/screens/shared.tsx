@@ -1108,7 +1108,10 @@ export function getCreateDefaultsForField(
   data: AppData,
   item: WorkItem | null,
   field: GroupField | null,
-  value: string
+  value: string,
+  options?: {
+    teamId?: string | null
+  }
 ): {
   patch: Partial<
     Pick<
@@ -1131,9 +1134,17 @@ export function getCreateDefaultsForField(
       return { patch: {} }
     }
 
+    const scopedTeamId = options?.teamId ?? item?.teamId ?? null
+
+    if (!scopedTeamId) {
+      return { patch: {} }
+    }
+
     const parent = data.workItems.find(
       (entry) =>
-        entry.type === field && `${entry.key} · ${entry.title}` === value
+        entry.teamId === scopedTeamId &&
+        entry.type === field &&
+        `${entry.key} · ${entry.title}` === value
     )
 
     if (!parent) {

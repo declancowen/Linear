@@ -381,6 +381,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
             setName={setName}
             setSummary={setSummary}
             summary={summary}
+            summaryConstraints={optionalTeamSummaryConstraints}
             surfaceDisableReasons={surfaceDisableReasons}
           />
 
