@@ -26,9 +26,11 @@ import type {
   WorkItemType,
   WorkStatus,
 } from "@/lib/domain/types"
+import type { ScopedReadModelReplaceInstruction } from "@/lib/scoped-sync/read-models"
 
 export type WorkItemPatch = {
   title?: string
+  expectedUpdatedAt?: string
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
@@ -39,6 +41,26 @@ export type WorkItemPatch = {
   dueDate?: string | null
   targetDate?: string | null
 }
+
+export type WorkItemUpdateOptions = {
+  confirmProjectCascade?: boolean
+}
+
+export type WorkItemUpdateResult =
+  | {
+      status: "updated"
+    }
+  | {
+      status: "missing-item"
+    }
+  | {
+      status: "validation-error"
+      message: string
+    }
+  | {
+      status: "project-confirmation-required"
+      cascadeItemCount: number
+    }
 
 export type CreateProjectInput = {
   scopeType: ScopeType
@@ -100,6 +122,7 @@ export type CreateWorkItemInput = {
   priority: Priority
   labelIds?: string[]
   startDate?: string | null
+  dueDate?: string | null
   targetDate?: string | null
 }
 
@@ -219,14 +242,39 @@ export type AddChannelPostCommentInput = {
   content: string
 }
 
+export type ViewConfigPatch = Partial<{
+  layout: "list" | "board" | "timeline"
+  grouping: GroupField
+  subGrouping: GroupField | null
+  ordering: OrderingField
+  itemLevel: WorkItemType | null
+  showChildItems: boolean
+  showCompleted: boolean
+}>
+
+export type PendingViewConfig = {
+  token: string
+  patch: ViewConfigPatch
+}
+
 export type AppStore = AppData & {
+  protectedDocumentIds: string[]
+  pendingViewConfigById: Record<string, PendingViewConfig>
   replaceDomainData: (data: AppSnapshot) => void
+  mergeReadModelData: (
+    data: Partial<AppSnapshot>,
+    options?: {
+      replace?: ScopedReadModelReplaceInstruction[]
+    }
+  ) => void
+  setDocumentBodyProtection: (documentId: string, protectedState: boolean) => void
   setActiveTeam: (teamId: string) => void
   openCreateDialog: (dialog: CreateDialogState) => void
   closeCreateDialog: () => void
   setSelectedView: (route: string, viewId: string) => void
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
+  markNotificationsRead: (notificationIds: string[]) => void
   toggleNotificationRead: (notificationId: string) => void
   archiveNotification: (notificationId: string) => void
   archiveNotifications: (notificationIds: string[]) => void
@@ -260,15 +308,7 @@ export type AppStore = AppData & {
   clearCurrentUserStatus: () => void
   updateViewConfig: (
     viewId: string,
-    patch: Partial<{
-      layout: "list" | "board" | "timeline"
-      grouping: GroupField
-      subGrouping: GroupField | null
-      ordering: OrderingField
-      itemLevel: WorkItemType | null
-      showChildItems: boolean
-      showCompleted: boolean
-    }>
+    patch: ViewConfigPatch
   ) => void
   renameView: (viewId: string, name: string) => Promise<boolean>
   deleteView: (viewId: string) => Promise<boolean>
@@ -305,14 +345,32 @@ export type AppStore = AppData & {
     name: string,
     workspaceId?: string | null
   ) => Promise<Label | null>
-  updateWorkItem: (itemId: string, patch: WorkItemPatch) => void
+  updateWorkItem: (
+    itemId: string,
+    patch: WorkItemPatch,
+    options?: WorkItemUpdateOptions
+  ) => WorkItemUpdateResult
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
+  cancelDocumentSync: (documentId: string) => void
+  applyDocumentCollaborationContent: (
+    documentId: string,
+    content: string
+  ) => void
+  applyDocumentCollaborationTitle: (
+    documentId: string,
+    title: string
+  ) => void
   flushDocumentSync: (documentId: string) => Promise<void>
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>
   updateItemDescription: (itemId: string, content: string) => void
+  cancelItemDescriptionSync: (itemId: string) => void
+  applyItemDescriptionCollaborationContent: (
+    itemId: string,
+    content: string
+  ) => void
   saveWorkItemMainSection: (input: {
     itemId: string
     title: string
@@ -358,7 +416,14 @@ export type AppStoreGet = StoreApi<AppStore>["getState"]
 
 export type AppStoreSlice<T> = (set: AppStoreSet, get: AppStoreGet) => T
 
-export type RichTextSyncTask = () => Promise<unknown> | null
+export type RichTextSyncContext = {
+  generation: number
+  isCurrent: () => boolean
+}
+
+export type RichTextSyncTask = (
+  context: RichTextSyncContext
+) => Promise<unknown> | null
 
 export type ConversationAudienceState = Pick<
   AppData,

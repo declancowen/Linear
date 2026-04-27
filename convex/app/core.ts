@@ -5,17 +5,20 @@ import {
   type Role,
   type TeamExperienceType,
 } from "../../lib/domain/types"
+import {
+  defaultUserPreferences,
+  defaultUserStatus,
+  defaultUserStatusMessage,
+} from "../../lib/domain/user-defaults"
 import { mergeRole } from "../../lib/domain/roles"
 
-export const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
-export const defaultUserPreferences = {
-  emailMentions: true,
-  emailAssignments: true,
-  emailDigest: true,
-  theme: "light" as const,
+export {
+  defaultUserPreferences,
+  defaultUserStatus,
+  defaultUserStatusMessage,
 }
-export const defaultUserStatus = "offline" as const
-export const defaultUserStatusMessage = ""
+
+export const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
 
 const labelColors = [
   "blue",

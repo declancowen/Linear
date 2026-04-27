@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server"
 
 import { isApplicationError } from "@/lib/server/application-errors"
-import { deleteChannelPostServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  deleteChannelPostServer,
+} from "@/lib/server/convex"
+import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -26,6 +30,10 @@ export async function DELETE(
 
   try {
     const { postId } = await params
+    const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
+      session,
+      postId
+    )
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
@@ -35,6 +43,9 @@ export async function DELETE(
     await deleteChannelPostServer({
       currentUserId: appContext.ensuredUser.userId,
       postId,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({

@@ -7,9 +7,17 @@ import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
 import { syncUpdateWorkspaceBranding } from "@/lib/convex/client"
+import {
+  getTextInputLimitState,
+  optionalWorkspaceDescriptionConstraints,
+  workspaceAccentConstraints,
+  workspaceBrandingNameConstraints,
+  workspaceFallbackBadgeConstraints,
+} from "@/lib/domain/input-constraints"
 import { getCurrentWorkspace, isWorkspaceOwner } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -263,6 +271,21 @@ export function WorkspaceSettingsScreen() {
   const [description, setDescription] = useState(
     workspace?.settings.description ?? ""
   )
+  const nameLimitState = getTextInputLimitState(name, workspaceBrandingNameConstraints)
+  const logoLimitState = getTextInputLimitState(
+    logoUrl,
+    workspaceFallbackBadgeConstraints
+  )
+  const accentLimitState = getTextInputLimitState(accent, workspaceAccentConstraints)
+  const descriptionLimitState = getTextInputLimitState(
+    description,
+    optionalWorkspaceDescriptionConstraints
+  )
+  const canSaveWorkspace =
+    nameLimitState.canSubmit &&
+    logoLimitState.canSubmit &&
+    accentLimitState.canSubmit &&
+    descriptionLimitState.canSubmit
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -493,7 +516,7 @@ export function WorkspaceSettingsScreen() {
       footer={
         activeTab === "workspace" ? (
           <Button
-            disabled={!canManageWorkspace || saving}
+            disabled={!canManageWorkspace || saving || !canSaveWorkspace}
             onClick={() => void handleSave()}
           >
             {saving ? "Saving..." : "Save workspace"}
@@ -550,6 +573,11 @@ export function WorkspaceSettingsScreen() {
                       disabled={!canManageWorkspace}
                       value={name}
                       onChange={(event) => setName(event.target.value)}
+                      maxLength={workspaceBrandingNameConstraints.max}
+                    />
+                    <FieldCharacterLimit
+                      state={nameLimitState}
+                      limit={workspaceBrandingNameConstraints.max}
                     />
                   </FieldContent>
                 </Field>
@@ -563,6 +591,11 @@ export function WorkspaceSettingsScreen() {
                       disabled={!canManageWorkspace}
                       value={logoUrl}
                       onChange={(event) => setLogoUrl(event.target.value)}
+                      maxLength={workspaceFallbackBadgeConstraints.max}
+                    />
+                    <FieldCharacterLimit
+                      state={logoLimitState}
+                      limit={workspaceFallbackBadgeConstraints.max}
                     />
                   </FieldContent>
                   <FieldDescription>
@@ -580,6 +613,11 @@ export function WorkspaceSettingsScreen() {
                       disabled={!canManageWorkspace}
                       value={description}
                       onChange={(event) => setDescription(event.target.value)}
+                      maxLength={optionalWorkspaceDescriptionConstraints.max}
+                    />
+                    <FieldCharacterLimit
+                      state={descriptionLimitState}
+                      limit={optionalWorkspaceDescriptionConstraints.max}
                     />
                   </FieldContent>
                   <FieldDescription>

@@ -3,6 +3,11 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 
+import {
+  getTextInputLimitState,
+  teamNameConstraints,
+  teamSummaryConstraints,
+} from "@/lib/domain/input-constraints"
 import { canAdminWorkspace, getCurrentWorkspace } from "@/lib/domain/selectors"
 import {
   createDefaultTeamFeatureSettings,
@@ -49,6 +54,9 @@ export function CreateTeamScreen() {
     createDefaultTeamFeatureSettings("software-development")
   )
   const [saving, setSaving] = useState(false)
+  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
+  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const canSubmit = nameLimitState.canSubmit && summaryLimitState.canSubmit
 
   if (!workspace) {
     return (
@@ -74,7 +82,7 @@ export function CreateTeamScreen() {
       subtitle=""
       footer={
         <Button
-          disabled={!canCreateTeam || saving}
+          disabled={!canCreateTeam || saving || !canSubmit}
           onClick={async () => {
             setSaving(true)
             const created = await useAppStore.getState().createTeam({

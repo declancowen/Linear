@@ -2,7 +2,11 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import { updateItemDescriptionServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  updateItemDescriptionServer,
+} from "@/lib/server/convex"
+import { resolveWorkItemReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -18,6 +22,7 @@ import {
 
 const itemDescriptionSchema = z.object({
   content: z.string().trim().min(1),
+  expectedUpdatedAt: z.string().datetime().optional(),
 })
 
 export async function PATCH(
@@ -42,20 +47,34 @@ export async function PATCH(
   }
 
   try {
+    const scopeKeys = await resolveWorkItemReadModelScopeKeysServer(
+      session,
+      itemId
+    )
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
       return appContext
     }
 
-    await updateItemDescriptionServer({
+    const result = await updateItemDescriptionServer({
       currentUserId: appContext.ensuredUser.userId,
       itemId,
       content: parsed.content,
+      expectedUpdatedAt: parsed.expectedUpdatedAt,
+    })
+
+    if (!result || typeof result.updatedAt !== "string") {
+      throw new Error("Item description update did not return an updated timestamp")
+    }
+
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({
       ok: true,
+      updatedAt: result.updatedAt,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

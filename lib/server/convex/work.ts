@@ -83,6 +83,16 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     code: "WORK_ITEM_PARENT_CYCLE",
   },
   {
+    match: "Work item id already exists",
+    status: 409,
+    code: "WORK_ITEM_ID_CONFLICT",
+  },
+  {
+    match: "Description document id already exists",
+    status: 409,
+    code: "WORK_ITEM_DESCRIPTION_DOCUMENT_ID_CONFLICT",
+  },
+  {
     match: "Work item title must be between 2 and 96 characters",
     status: 400,
     code: "WORK_ITEM_TITLE_INVALID",
@@ -253,6 +263,43 @@ export async function updateWorkItemServer(input: {
         ...input,
         origin,
       })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function persistCollaborationWorkItemServer(input: {
+  currentUserId: string
+  itemId: string
+  patch: {
+    title?: string
+    description?: string
+    expectedUpdatedAt?: string
+    status?:
+      | "backlog"
+      | "todo"
+      | "in-progress"
+      | "done"
+      | "cancelled"
+      | "duplicate"
+    priority?: "none" | "low" | "medium" | "high" | "urgent"
+    assigneeId?: string | null
+    parentId?: string | null
+    primaryProjectId?: string | null
+    labelIds?: string[]
+    startDate?: string | null
+    dueDate?: string | null
+    targetDate?: string | null
+  }
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.persistCollaborationWorkItem,
+      withServerToken(input)
     )
   } catch (error) {
     throw (
@@ -494,6 +541,7 @@ export async function heartbeatWorkItemPresenceServer(input: {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   sessionId: string
 }): Promise<DocumentPresenceViewer[]> {
   try {
@@ -530,6 +578,8 @@ export async function clearWorkItemPresenceServer(input: {
 
 export async function createWorkItemServer(input: {
   currentUserId: string
+  id?: string
+  descriptionDocId?: string
   teamId: string
   type: WorkItemType
   title: string

@@ -32,8 +32,10 @@ import {
   getNow,
   toTeamKeyPrefix,
 } from "../helpers"
+import { registerPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   effectiveRole,
+  getProjectCascadeConfirmationForWorkItemUpdate,
   getProjectsForTeamScope,
   getResolvedProjectLinkForWorkItemUpdate,
   getWorkItemCascadeDeletePlan,
@@ -104,39 +106,54 @@ export function createWorkItemActions({
         return null
       }
     },
-    updateWorkItem(itemId, patch) {
+    updateWorkItem(itemId, patch, options) {
       const state = get()
       const existing = state.workItems.find((item) => item.id === itemId)
 
       if (!existing) {
-        return
+        return {
+          status: "missing-item",
+        }
       }
+
+      const {
+        expectedUpdatedAt,
+        ...localPatch
+      } = patch
 
       const {
         cascadeItemIds,
         resolvedPrimaryProjectId,
         shouldCascadeProjectLink,
-      } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+      } = getResolvedProjectLinkForWorkItemUpdate(state, existing, localPatch)
 
       const validationMessage = getWorkItemValidationMessage(state, {
         teamId: existing.teamId,
         type: existing.type,
-        title: patch.title ?? existing.title,
-        priority: patch.priority ?? existing.priority,
+        title: localPatch.title ?? existing.title,
+        priority: localPatch.priority ?? existing.priority,
         assigneeId:
-          patch.assigneeId === undefined
+          localPatch.assigneeId === undefined
             ? existing.assigneeId
-            : patch.assigneeId,
+            : localPatch.assigneeId,
         parentId:
-          patch.parentId === undefined ? existing.parentId : patch.parentId,
+          localPatch.parentId === undefined
+            ? existing.parentId
+            : localPatch.parentId,
         primaryProjectId: resolvedPrimaryProjectId,
-        labelIds: patch.labelIds === undefined ? existing.labelIds : patch.labelIds,
+        labelIds:
+          localPatch.labelIds === undefined
+            ? existing.labelIds
+            : localPatch.labelIds,
         currentItemId: existing.id,
       })
 
       if (validationMessage) {
         toast.error(validationMessage)
-        return
+        return {
+          status: "validation-error",
+          message: validationMessage,
+        }
       }
 
       if (resolvedPrimaryProjectId && shouldCascadeProjectLink) {
@@ -158,7 +175,28 @@ export function createWorkItemActions({
           toast.error(
             "A work item type in this hierarchy is not allowed for the selected project template"
           )
-          return
+          return {
+            status: "validation-error",
+            message:
+              "A work item type in this hierarchy is not allowed for the selected project template",
+          }
+        }
+      }
+
+      const projectCascadeConfirmation =
+        getProjectCascadeConfirmationForWorkItemUpdate(
+          state,
+          existing,
+          localPatch
+        )
+
+      if (
+        projectCascadeConfirmation.requiresConfirmation &&
+        !options?.confirmProjectCascade
+      ) {
+        return {
+          status: "project-confirmation-required",
+          cascadeItemCount: projectCascadeConfirmation.cascadeItemCount,
         }
       }
 
@@ -174,12 +212,16 @@ export function createWorkItemActions({
           cascadeItemIds,
           resolvedPrimaryProjectId,
           shouldCascadeProjectLink,
-        } = getResolvedProjectLinkForWorkItemUpdate(currentState, currentItem, patch)
+        } = getResolvedProjectLinkForWorkItemUpdate(
+          currentState,
+          currentItem,
+          localPatch
+        )
         const nextItems = currentState.workItems.map((item) => {
           if (item.id === itemId) {
             return {
               ...item,
-              ...patch,
+              ...localPatch,
               primaryProjectId: resolvedPrimaryProjectId,
               updatedAt: now,
             }
@@ -219,7 +261,7 @@ export function createWorkItemActions({
             })
           : currentState.documents
         const finalDocuments =
-          patch.title !== undefined
+          localPatch.title !== undefined
             ? nextDocuments.map((document) =>
                 document.id === currentItem.descriptionDocId
                   ? {
@@ -241,13 +283,13 @@ export function createWorkItemActions({
         )
 
         if (
-          patch.assigneeId !== undefined &&
-          patch.assigneeId &&
-          patch.assigneeId !== currentItem.assigneeId
+          localPatch.assigneeId !== undefined &&
+          localPatch.assigneeId &&
+          localPatch.assigneeId !== currentItem.assigneeId
         ) {
           notifications.unshift(
             createNotification(
-              patch.assigneeId,
+              localPatch.assigneeId,
               currentState.currentUserId,
               buildWorkItemAssignmentNotificationMessage(
                 actor?.name ?? "Someone",
@@ -262,11 +304,13 @@ export function createWorkItemActions({
         }
 
         const resolvedAssigneeId =
-          patch.assigneeId === undefined ? currentItem.assigneeId : patch.assigneeId
+          localPatch.assigneeId === undefined
+            ? currentItem.assigneeId
+            : localPatch.assigneeId
 
         if (
-          patch.status &&
-          patch.status !== currentItem.status &&
+          localPatch.status &&
+          localPatch.status !== currentItem.status &&
           resolvedAssigneeId
         ) {
           notifications.unshift(
@@ -276,7 +320,7 @@ export function createWorkItemActions({
               buildWorkItemStatusChangeNotificationMessage(
                 actor?.name ?? "Someone",
                 nextTitle,
-                statusMeta[patch.status].label,
+                statusMeta[localPatch.status].label,
                 team?.name
               ),
               "workItem",
@@ -295,9 +339,16 @@ export function createWorkItemActions({
       })
 
       runtime.syncInBackground(
-        syncUpdateWorkItem(get().currentUserId, itemId, patch),
+        syncUpdateWorkItem(get().currentUserId, itemId, {
+          ...localPatch,
+          ...(expectedUpdatedAt !== undefined ? { expectedUpdatedAt } : {}),
+        }),
         "Failed to update work item"
       )
+
+      return {
+        status: "updated",
+      }
     },
     async deleteWorkItem(itemId) {
       const state = get()
@@ -423,6 +474,7 @@ export function createWorkItemActions({
       }
 
       let createdItemId: string | null = null
+      let createdDescriptionDocId: string | null = null
       const resolvedStartDate =
         parsed.data.startDate ?? formatLocalCalendarDate()
       const resolvedDueDate = parsed.data.dueDate ?? addLocalCalendarDays(7)
@@ -517,6 +569,7 @@ export function createWorkItemActions({
             : state.notifications
 
         createdItemId = workItem.id
+        createdDescriptionDocId = descriptionDocId
 
         return {
           ...state,
@@ -530,15 +583,53 @@ export function createWorkItemActions({
         return null
       }
 
-      runtime.syncInBackground(
-        syncCreateWorkItem(get().currentUserId, {
-          ...parsed.data,
-          startDate: resolvedStartDate,
-          dueDate: resolvedDueDate,
-          targetDate: resolvedTargetDate,
-        }),
-        "Failed to create work item"
-      )
+      const createTask = syncCreateWorkItem(get().currentUserId, {
+        ...parsed.data,
+        id: createdItemId,
+        descriptionDocId: createdDescriptionDocId ?? undefined,
+        startDate: resolvedStartDate,
+        dueDate: resolvedDueDate,
+        targetDate: resolvedTargetDate,
+      }).then((result) => {
+        if (!createdItemId) {
+          return result
+        }
+
+        set((state) => {
+          const nextDescriptionDocId =
+            result?.descriptionDocId ?? createdDescriptionDocId ?? null
+
+          return {
+            ...state,
+            documents: state.documents.map((document) =>
+              document.id === createdDescriptionDocId ||
+              document.id === nextDescriptionDocId
+                ? {
+                    ...document,
+                    id: nextDescriptionDocId ?? document.id,
+                    updatedAt:
+                      result?.descriptionUpdatedAt ?? document.updatedAt,
+                    updatedBy: state.currentUserId,
+                  }
+                : document
+            ),
+            workItems: state.workItems.map((item) =>
+              item.id === createdItemId
+                ? {
+                    ...item,
+                    descriptionDocId: nextDescriptionDocId ?? item.descriptionDocId,
+                    updatedAt: result?.itemUpdatedAt ?? item.updatedAt,
+                  }
+                : item
+            ),
+          }
+        })
+
+        return result
+      })
+
+      registerPendingWorkItemCreation(createdItemId, createTask)
+      runtime.syncInBackground(createTask, "Failed to create work item")
 
       toast.success("Work item created")
       return createdItemId

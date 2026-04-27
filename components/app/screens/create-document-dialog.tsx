@@ -2,8 +2,13 @@
 
 import { useEffect, useRef, useState } from "react"
 
+import {
+  documentTitleConstraints,
+  getTextInputLimitState,
+} from "@/lib/domain/input-constraints"
 import { getTeam } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
   ShortcutKeys,
   useCommandEnterSubmit,
@@ -24,38 +29,55 @@ export function CreateDocumentDialog({
   onOpenChange,
   input,
   disabled,
+  mode = "create",
+  documentId,
+  initialTitle = "",
+  dialogTitle,
+  dialogDescription,
+  submitLabel,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  input:
+  input?:
     | { kind: "team-document"; teamId: string }
     | { kind: "workspace-document" | "private-document"; workspaceId: string }
   disabled: boolean
+  mode?: "create" | "rename"
+  documentId?: string
+  initialTitle?: string
+  dialogTitle?: string
+  dialogDescription?: string
+  submitLabel?: string
 }) {
   const team = useAppStore((state) =>
-    input.kind === "team-document" ? getTeam(state, input.teamId) : null
+    input?.kind === "team-document" ? getTeam(state, input.teamId) : null
   )
   const contextLabel =
-    input.kind === "private-document"
+    input?.kind === "private-document"
       ? "Private document"
-      : input.kind === "workspace-document"
+      : input?.kind === "workspace-document"
         ? "Workspace document"
         : team
           ? `Team document · ${team.name}`
           : "Team document"
-  const [title, setTitle] = useState("")
+  const [title, setTitle] = useState(initialTitle)
   const [creating, setCreating] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const shortcutModifierLabel = useShortcutModifierLabel()
+  const titleConstraint = {
+    ...documentTitleConstraints,
+    allowEmpty: mode === "create",
+  }
+  const titleLimitState = getTextInputLimitState(title, titleConstraint)
 
   useEffect(() => {
     if (open) {
       queueMicrotask(() => {
-        setTitle("")
+        setTitle(initialTitle)
         setCreating(false)
       })
     }
-  }, [input.kind, open])
+  }, [initialTitle, input?.kind, open])
 
   function handleClose() {
     titleInputRef.current?.blur()
@@ -63,19 +85,34 @@ export function CreateDocumentDialog({
   }
 
   async function handleCreate() {
-    if (creating || disabled) {
+    if (creating || disabled || !titleLimitState.canSubmit) {
       return
     }
 
     setCreating(true)
 
     try {
-      const documentId = await useAppStore.getState().createDocument({
+      if (mode === "rename") {
+        if (!documentId) {
+          return
+        }
+
+        await useAppStore.getState().renameDocument(documentId, title.trim())
+        handleClose()
+
+        return
+      }
+
+      if (!input) {
+        return
+      }
+
+      const nextDocumentId = await useAppStore.getState().createDocument({
         ...input,
         title: title.trim() || "Untitled document",
       })
 
-      if (documentId) {
+      if (nextDocumentId) {
         handleClose()
       }
     } finally {
@@ -106,15 +143,29 @@ export function CreateDocumentDialog({
       <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
         <div className="px-5 pt-5 pb-4">
           <DialogHeader className="items-start gap-1 p-0">
-            <DialogTitle className="text-base">New document</DialogTitle>
+            <DialogTitle className="text-base">
+              {dialogTitle ?? (mode === "rename" ? "Rename document" : "New document")}
+            </DialogTitle>
             <DialogDescription className="space-y-1">
-              <span className="block text-xs text-muted-foreground">
-                {contextLabel}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                Create the document first, then start editing once the server
-                write succeeds.
-              </span>
+              {dialogDescription ? (
+                <span className="block text-xs text-muted-foreground">
+                  {dialogDescription}
+                </span>
+              ) : mode === "rename" ? (
+                <span className="block text-xs text-muted-foreground">
+                  Update the document title.
+                </span>
+              ) : (
+                <>
+                  <span className="block text-xs text-muted-foreground">
+                    {contextLabel}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Create the document first, then start editing once the server
+                    write succeeds.
+                  </span>
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -124,6 +175,11 @@ export function CreateDocumentDialog({
             placeholder="Untitled document"
             className="mt-3"
             autoFocus
+            maxLength={documentTitleConstraints.max}
+          />
+          <FieldCharacterLimit
+            state={titleLimitState}
+            limit={documentTitleConstraints.max}
           />
         </div>
 
@@ -143,11 +199,15 @@ export function CreateDocumentDialog({
           </Button>
           <Button
             size="sm"
-            disabled={disabled || creating}
+            disabled={disabled || creating || !titleLimitState.canSubmit}
             onClick={() => void handleCreate()}
             className="gap-1"
           >
-            {creating ? "Creating..." : "Create document"}
+            {creating
+              ? mode === "rename"
+                ? "Renaming..."
+                : "Creating..."
+              : submitLabel ?? (mode === "rename" ? "Rename document" : "Create document")}
             {!creating ? (
               <ShortcutKeys
                 keys={[shortcutModifierLabel, "Enter"]}

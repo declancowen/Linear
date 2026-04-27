@@ -11,6 +11,12 @@ import {
 
 import { useAppStore } from "@/lib/store/app-store"
 import {
+  getTextInputLimitState,
+  projectNameConstraints,
+  viewNameConstraints,
+} from "@/lib/domain/input-constraints"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import {
   canMutateProject,
   canMutateView,
   getProjectHref,
@@ -44,6 +50,8 @@ function RenameDialog({
   description,
   initialValue,
   confirmLabel,
+  minLength,
+  maxLength,
   onConfirm,
 }: {
   open: boolean
@@ -52,15 +60,22 @@ function RenameDialog({
   description: string
   initialValue: string
   confirmLabel: string
+  minLength: number
+  maxLength: number
   onConfirm: (value: string) => Promise<boolean> | boolean
 }) {
   const [value, setValue] = useState(initialValue)
   const [submitting, setSubmitting] = useState(false)
+  const limitState = getTextInputLimitState(value, {
+    min: minLength,
+    max: maxLength,
+    trim: true,
+  })
 
   async function handleConfirm() {
     const trimmedValue = value.trim()
 
-    if (!trimmedValue || submitting) {
+    if (!trimmedValue || submitting || !limitState.canSubmit) {
       return
     }
 
@@ -110,7 +125,9 @@ function RenameDialog({
             autoFocus
             value={value}
             onChange={(event) => setValue(event.target.value)}
+            maxLength={maxLength}
           />
+          <FieldCharacterLimit state={limitState} limit={maxLength} />
         </div>
         <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
           <Button
@@ -122,7 +139,7 @@ function RenameDialog({
           </Button>
           <Button
             size="sm"
-            disabled={submitting || value.trim().length === 0}
+            disabled={submitting || !limitState.canSubmit}
             onClick={() => void handleConfirm()}
           >
             {confirmLabel}
@@ -194,6 +211,8 @@ export function ViewContextMenu({
         description="Update the saved view name."
         initialValue={view.name}
         confirmLabel="Rename"
+        minLength={viewNameConstraints.min ?? 1}
+        maxLength={viewNameConstraints.max}
         onConfirm={(value) => renameView(view.id, value)}
       />
       <ConfirmDialog
@@ -276,6 +295,8 @@ export function ProjectContextMenu({
         description="Update the project name."
         initialValue={project.name}
         confirmLabel="Rename"
+        minLength={projectNameConstraints.min ?? 1}
+        maxLength={projectNameConstraints.max}
         onConfirm={(value) => renameProject(project.id, value)}
       />
       <ConfirmDialog

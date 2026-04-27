@@ -7,6 +7,7 @@ const requireAppContextMock = vi.fn()
 const withGeneratedJoinCodeMock = vi.fn()
 const regenerateTeamJoinCodeServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
+const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -27,6 +28,11 @@ vi.mock("@/lib/server/provider-errors", () => ({
   logProviderError: logProviderErrorMock,
 }))
 
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpWorkspaceMembershipReadModelScopesServer:
+    bumpWorkspaceMembershipReadModelScopesServerMock,
+}))
+
 describe("team join-code route", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -34,11 +40,13 @@ describe("team join-code route", () => {
     withGeneratedJoinCodeMock.mockReset()
     regenerateTeamJoinCodeServerMock.mockReset()
     logProviderErrorMock.mockReset()
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
 
     withGeneratedJoinCodeMock.mockImplementation(
       async (task: (joinCode: string) => Promise<unknown>) =>
         task("ABC123DEF456")
     )
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
   })
 
   it("regenerates join codes through the narrow command path", async () => {
@@ -55,9 +63,15 @@ describe("team join-code route", () => {
       ensuredUser: {
         userId: "user_1",
       },
+      authContext: {
+        currentWorkspace: {
+          id: "workspace_1",
+        },
+      },
     })
     regenerateTeamJoinCodeServerMock.mockResolvedValue({
       teamId: "team_1",
+      workspaceId: "workspace_1",
       joinCode: "ABC123DEF456",
     })
 
@@ -80,6 +94,9 @@ describe("team join-code route", () => {
       teamId: "team_1",
       joinCode: "ABC123DEF456",
     })
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_1"
+    )
   })
 
   it("maps typed join-code failures onto stable route responses", async () => {
@@ -95,6 +112,11 @@ describe("team join-code route", () => {
     requireAppContextMock.mockResolvedValue({
       ensuredUser: {
         userId: "user_1",
+      },
+      authContext: {
+        currentWorkspace: {
+          id: "workspace_1",
+        },
       },
     })
     regenerateTeamJoinCodeServerMock.mockRejectedValue(
@@ -118,5 +140,46 @@ describe("team join-code route", () => {
       message: "Only team admins can regenerate join codes",
       code: "TEAM_JOIN_CODE_ADMIN_REQUIRED",
     })
+  })
+
+  it("invalidates membership scopes using the mutated team workspace", async () => {
+    const { POST } = await import("@/app/api/teams/[teamId]/join-code/route")
+
+    requireSessionMock.mockResolvedValue({
+      user: {
+        id: "workos_1",
+        email: "alex@example.com",
+      },
+      organizationId: "org_1",
+    })
+    requireAppContextMock.mockResolvedValue({
+      ensuredUser: {
+        userId: "user_1",
+      },
+      authContext: {
+        currentWorkspace: {
+          id: "workspace_current",
+        },
+      },
+    })
+    regenerateTeamJoinCodeServerMock.mockResolvedValue({
+      teamId: "team_1",
+      workspaceId: "workspace_target",
+      joinCode: "ABC123DEF456",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/teams/team_1/join-code") as never,
+      {
+        params: Promise.resolve({
+          teamId: "team_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenCalledWith(
+      "workspace_target"
+    )
   })
 })

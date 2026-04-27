@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react"
-import { act, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { CommentsInline } from "@/components/app/screens/work-item-ui"
@@ -194,5 +194,31 @@ describe("CommentsInline", () => {
       "The result of getSnapshot should be cached"
     )
     expect(errorMessages).not.toContain("Maximum update depth exceeded")
+  })
+
+  it("disables comment submit until the shared minimum plain-text length is met", () => {
+    render(<CommentsInline targetType="workItem" targetId="item_1" editable />)
+
+    const editor = screen.getByLabelText(
+      "Leave a comment or mention a teammate with @handle..."
+    )
+    const button = screen.getByRole("button", { name: "Comment" })
+
+    fireEvent.change(editor, {
+      target: {
+        value: "a",
+      },
+    })
+
+    expect(button).toBeDisabled()
+    expect(screen.getByText("Enter at least 2 characters")).toBeInTheDocument()
+
+    fireEvent.change(editor, {
+      target: {
+        value: "ab",
+      },
+    })
+
+    expect(button).toBeEnabled()
   })
 })

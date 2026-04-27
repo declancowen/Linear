@@ -17,6 +17,9 @@ import {
   queryWorkspaceSearchIndex,
   type GlobalSearchResult,
 } from "@/lib/domain/selectors"
+import { fetchSearchSeedReadModel } from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { getSearchSeedScopeKeys } from "@/lib/scoped-sync/read-models"
 import { statusMeta, type WorkStatus, workStatuses } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
@@ -92,6 +95,15 @@ export function WorkspaceSearchScreen({
 }: {
   initialQuery?: string
 }) {
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  useScopedReadModelRefresh({
+    enabled: Boolean(currentWorkspaceId),
+    scopeKeys: currentWorkspaceId
+      ? getSearchSeedScopeKeys(currentWorkspaceId, currentUserId)
+      : [],
+    fetchLatest: () => fetchSearchSeedReadModel(currentWorkspaceId),
+  })
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState(initialQuery)
   const [kind, setKind] = useState<SearchKindFilter>("all")

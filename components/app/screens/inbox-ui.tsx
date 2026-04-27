@@ -52,6 +52,43 @@ const ENTITY_LABEL: Record<NotificationEntityType, string> = {
   workspace: "Workspace",
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+export function buildInboxNotificationSubtitle(
+  notification: Pick<Notification, "message">,
+  actorName?: string | null
+) {
+  const message = notification.message.trim()
+
+  if (!message) {
+    return ""
+  }
+
+  const normalizedActorName = actorName?.trim()
+  let subtitle = message
+
+  if (normalizedActorName) {
+    subtitle = subtitle.replace(
+      new RegExp(`^${escapeRegExp(normalizedActorName)}(?:\\s+|$)`, "i"),
+      ""
+    )
+  }
+
+  subtitle = subtitle
+    .replace(/^mentioned you (\d+ times? in\b)/i, "mentioned $1")
+    .replace(/^mentioned you in\b/i, "mentioned in")
+    .replace(/^assigned you\b/i, "assigned")
+    .trim()
+
+  if (!subtitle) {
+    return message
+  }
+
+  return `${subtitle.charAt(0).toUpperCase()}${subtitle.slice(1)}`
+}
+
 function renderEntityIcon(
   entityType: NotificationEntityType,
   className?: string
@@ -211,6 +248,7 @@ function InboxRow({
   const { notification, actor } = entry
   const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
+  const subtitle = buildInboxNotificationSubtitle(notification, actorName)
   const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
 
   return (
@@ -265,7 +303,7 @@ function InboxRow({
               unread ? "text-foreground/85" : "text-muted-foreground"
             )}
           >
-            {notification.message}
+            {subtitle}
           </span>
         </div>
       </button>
@@ -323,6 +361,7 @@ export function InboxListPane({
   unreadCount,
   archivedCount,
   onTabChange,
+  onMarkAllRead,
   onMoveAll,
   onSelectNotification,
   onToggleArchive,
@@ -337,6 +376,7 @@ export function InboxListPane({
   unreadCount: number
   archivedCount: number
   onTabChange: (tab: InboxTab) => void
+  onMarkAllRead: () => void
   onMoveAll: () => void
   onSelectNotification: (notificationId: string) => void
   onToggleArchive: (notification: Notification) => void
@@ -397,29 +437,50 @@ export function InboxListPane({
             )
           })}
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={onMoveAll}
-              disabled={entries.length === 0}
-              aria-label={
-                inboxTab === "inbox" ? "Archive all" : "Unarchive all"
-              }
-            >
-              {inboxTab === "inbox" ? (
-                <Archive className="size-3.5" />
-              ) : (
-                <ArrowCounterClockwise className="size-3.5" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent sideOffset={6}>
-            {inboxTab === "inbox" ? "Archive all" : "Unarchive all"}
-          </TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-0.5">
+          {inboxTab === "inbox" ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={onMarkAllRead}
+                  disabled={
+                    !entries.some((entry) => entry.notification.readAt == null)
+                  }
+                  aria-label="Mark all as read"
+                >
+                  <CheckCircle className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent sideOffset={6}>Mark all read</TooltipContent>
+            </Tooltip>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={onMoveAll}
+                disabled={entries.length === 0}
+                aria-label={
+                  inboxTab === "inbox" ? "Archive all" : "Unarchive all"
+                }
+              >
+                {inboxTab === "inbox" ? (
+                  <Archive className="size-3.5" />
+                ) : (
+                  <ArrowCounterClockwise className="size-3.5" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={6}>
+              {inboxTab === "inbox" ? "Archive all" : "Unarchive all"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         {grouped.length === 0 ? (

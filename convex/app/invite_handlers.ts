@@ -370,6 +370,7 @@ export async function createInviteHandler(
     token: batchToken,
     inviteIds: createdInvites.map((invite) => invite.id),
     invites: createdInvites,
+    workspaceId: primaryTeam.workspaceId,
     workspaceName: workspace?.name ?? "Workspace",
   }
 }
@@ -438,6 +439,7 @@ export async function cancelInviteHandler(
   return {
     inviteId: invite.id,
     cancelledInviteIds: pendingInvites.map((entry) => entry.id),
+    workspaceId: invite.workspaceId,
     teamName: team?.name ?? null,
     workspaceName: workspace?.name ?? null,
   }

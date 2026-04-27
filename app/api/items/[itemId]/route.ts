@@ -3,7 +3,12 @@ import { z } from "zod"
 
 import { nullableCalendarDateSchema } from "@/lib/domain/types"
 import { ApplicationError } from "@/lib/server/application-errors"
-import { deleteWorkItemServer, updateWorkItemServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  deleteWorkItemServer,
+  updateWorkItemServer,
+} from "@/lib/server/convex"
+import { resolveWorkItemReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -70,6 +75,10 @@ export async function PATCH(
   }
 
   try {
+    const scopeKeys = await resolveWorkItemReadModelScopeKeysServer(
+      session,
+      itemId
+    )
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
@@ -80,6 +89,13 @@ export async function PATCH(
       currentUserId: appContext.ensuredUser.userId,
       itemId,
       patch: parsed,
+    })
+    const nextScopeKeys = await resolveWorkItemReadModelScopeKeysServer(
+      session,
+      itemId
+    )
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: [...new Set([...scopeKeys, ...nextScopeKeys])],
     })
 
     return jsonOk({
@@ -113,6 +129,10 @@ export async function DELETE(
 
   try {
     const { itemId } = await params
+    const scopeKeys = await resolveWorkItemReadModelScopeKeysServer(
+      session,
+      itemId
+    )
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
@@ -122,6 +142,9 @@ export async function DELETE(
     const result = await deleteWorkItemServer({
       currentUserId: appContext.ensuredUser.userId,
       itemId,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({

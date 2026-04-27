@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { attachmentSchema } from "@/lib/domain/types"
+import { bumpAttachmentTargetReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import { createAttachmentServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
@@ -43,6 +44,10 @@ export async function POST(request: NextRequest) {
     const result = await createAttachmentServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
+    })
+    await bumpAttachmentTargetReadModelScopesServer(session, {
+      targetType: parsed.targetType,
+      targetId: parsed.targetId,
     })
 
     return jsonOk(result)

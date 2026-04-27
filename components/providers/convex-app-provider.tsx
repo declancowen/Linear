@@ -1,68 +1,124 @@
 "use client"
 
-import { useEffect, useEffectEvent, useState } from "react"
+import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react"
 import { useTheme } from "next-themes"
 
+import {
+  reportBootstrapModeDiagnostic,
+  reportSnapshotApplyDiagnostic,
+  reportSnapshotFetchDiagnostic,
+  reportSnapshotStreamReconnectDiagnostic,
+} from "@/lib/browser/snapshot-diagnostics"
+import { redirectToExpiredSessionLogin } from "@/lib/browser/session-redirect"
 import { resolveSnapshotThemePreference } from "@/lib/browser/theme-preference-sync"
 import {
   fetchSnapshotState,
   fetchSnapshotVersion,
   RouteMutationError,
 } from "@/lib/convex/client"
-import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
-import {
-  reportSnapshotApplyDiagnostic,
-  reportSnapshotFetchDiagnostic,
-  reportSnapshotStreamReconnectDiagnostic,
-} from "@/lib/browser/snapshot-diagnostics"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import type { AppSnapshot } from "@/lib/domain/types"
+import { shouldUseLegacySnapshotSync } from "@/lib/realtime/feature-flags"
 import { useAppStore } from "@/lib/store/app-store"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
 
 type ConvexAppProviderProps = {
   children: React.ReactNode
   authenticatedUser?: AuthenticatedAppUser | null
+  initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>>
+  initialWorkspaceId: string
+}
+
+type InitialShellSeedHydratorProps = {
+  initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>>
+  initialWorkspaceId: string
+  applyReadModelData: (patch: ReadModelFetchResult<Partial<AppSnapshot>>) => void
 }
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_DELAY_MS = 15000
-const INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS = 2000
-const INITIAL_SNAPSHOT_RETRY_MAX_DELAY_MS = 15000
+const INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS = 2000
+const INITIAL_BOOTSTRAP_RETRY_MAX_DELAY_MS = 15000
+
+function getInitialShellSeedSignature(
+  initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>>,
+  initialWorkspaceId: string
+) {
+  return JSON.stringify({
+    initialWorkspaceId,
+    currentUserId: initialShellSeed.data.currentUserId ?? "",
+    currentWorkspaceId:
+      initialShellSeed.data.currentWorkspaceId ?? initialWorkspaceId,
+    replace: initialShellSeed.replace ?? [],
+    data: initialShellSeed.data,
+  })
+}
+
+function InitialShellSeedHydrator({
+  initialShellSeed,
+  initialWorkspaceId,
+  applyReadModelData,
+}: InitialShellSeedHydratorProps) {
+  const appliedSeedSignatureRef = useRef("")
+  const seedSignature = getInitialShellSeedSignature(
+    initialShellSeed,
+    initialWorkspaceId
+  )
+
+  useLayoutEffect(() => {
+    if (appliedSeedSignatureRef.current === seedSignature) {
+      return
+    }
+
+    applyReadModelData(initialShellSeed)
+    appliedSeedSignatureRef.current = seedSignature
+  }, [applyReadModelData, initialShellSeed, seedSignature])
+
+  return null
+}
 
 function ConvexStateSync({
   children,
   authenticatedUser,
+  initialShellSeed,
+  initialWorkspaceId,
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
+  const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
   const { setTheme } = useTheme()
-  const [ready, setReady] = useState(false)
-  const applySnapshot = useEffectEvent((snapshot: AppSnapshot) => {
-    replaceDomainData(snapshot)
-    const currentUser = (snapshot.users ?? []).find(
-      (user) => user.id === snapshot.currentUserId
-    )
+  const applyThemeFromSnapshotData = useEffectEvent(
+    (data: Partial<AppSnapshot>) => {
+      const currentUserId = data.currentUserId ?? null
+      const currentUser =
+        currentUserId && data.users
+          ? data.users.find((user) => user.id === currentUserId) ?? null
+          : null
 
-    if (currentUser?.preferences.theme) {
-      const nextThemePreference = resolveSnapshotThemePreference(
-        currentUser.preferences.theme
-      )
+      if (currentUser?.preferences.theme) {
+        const nextThemePreference = resolveSnapshotThemePreference(
+          currentUser.preferences.theme
+        )
 
-      if (nextThemePreference) {
-        setTheme(nextThemePreference)
+        if (nextThemePreference) {
+          setTheme(nextThemePreference)
+        }
       }
     }
+  )
+  const applySnapshotData = useEffectEvent((data: AppSnapshot) => {
+    replaceDomainData(data)
+    applyThemeFromSnapshotData(data)
   })
-  const redirectToLogin = useEffectEvent(() => {
-    const nextPath = normalizeAuthNextPath(
-      `${window.location.pathname}${window.location.search}${window.location.hash}`
-    )
-
-    window.location.assign(
-      buildAuthPageHref("login", {
-        nextPath,
-        notice: "Your session expired. Sign in again to continue.",
+  const applyReadModelData = useEffectEvent(
+    (patch: ReadModelFetchResult<Partial<AppSnapshot>>) => {
+      mergeReadModelData(patch.data, {
+        replace: patch.replace,
       })
-    )
+      applyThemeFromSnapshotData(patch.data)
+    }
+  )
+  const redirectToLogin = useEffectEvent(() => {
+    redirectToExpiredSessionLogin()
   })
 
   useEffect(() => {
@@ -72,10 +128,19 @@ function ConvexStateSync({
     let stream: EventSource | null = null
     let streamReconnectDelay = STREAM_RECONNECT_BASE_DELAY_MS
     let streamReconnectTimeoutId: number | null = null
-    let initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
-    let initialSnapshotRetryTimeoutId: number | null = null
+    let bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
+    let bootstrapRetryTimeoutId: number | null = null
     let appliedSnapshotVersion: number | null = null
-    let hasLoadedInitialSnapshot = false
+    let hasLoadedInitialState = false
+
+    if (!shouldUseLegacySnapshotSync()) {
+      reportBootstrapModeDiagnostic("server-seeded-shell")
+      return () => {
+        cancelled = true
+      }
+    }
+
+    reportBootstrapModeDiagnostic("legacy-snapshot-stream")
 
     function clearStreamReconnectTimeout() {
       if (streamReconnectTimeoutId !== null) {
@@ -84,10 +149,10 @@ function ConvexStateSync({
       }
     }
 
-    function clearInitialSnapshotRetryTimeout() {
-      if (initialSnapshotRetryTimeoutId !== null) {
-        window.clearTimeout(initialSnapshotRetryTimeoutId)
-        initialSnapshotRetryTimeoutId = null
+    function clearBootstrapRetryTimeout() {
+      if (bootstrapRetryTimeoutId !== null) {
+        window.clearTimeout(bootstrapRetryTimeoutId)
+        bootstrapRetryTimeoutId = null
       }
     }
 
@@ -100,30 +165,58 @@ function ConvexStateSync({
       }
     }
 
-    function scheduleInitialSnapshotRetry() {
-      clearInitialSnapshotRetryTimeout()
+    function scheduleBootstrapRetry() {
+      clearBootstrapRetryTimeout()
 
       if (
         cancelled ||
-        hasLoadedInitialSnapshot ||
+        hasLoadedInitialState ||
         document.visibilityState !== "visible"
       ) {
         return
       }
 
-      initialSnapshotRetryTimeoutId = window.setTimeout(() => {
-        if (!cancelled && !hasLoadedInitialSnapshot) {
-          void syncSnapshot()
+      bootstrapRetryTimeoutId = window.setTimeout(() => {
+        if (!cancelled && !hasLoadedInitialState) {
+          void syncState()
         }
-      }, initialSnapshotRetryDelay)
+      }, bootstrapRetryDelay)
 
-      initialSnapshotRetryDelay = Math.min(
-        initialSnapshotRetryDelay * 2,
-        INITIAL_SNAPSHOT_RETRY_MAX_DELAY_MS
+      bootstrapRetryDelay = Math.min(
+        bootstrapRetryDelay * 2,
+        INITIAL_BOOTSTRAP_RETRY_MAX_DELAY_MS
       )
     }
 
-    async function syncSnapshot() {
+    async function syncSnapshotState() {
+      const fetchStartedAt = window.performance.now()
+      const snapshotState = await fetchSnapshotState()
+      const fetchDurationMs = window.performance.now() - fetchStartedAt
+
+      if (cancelled) {
+        return true
+      }
+
+      reportSnapshotFetchDiagnostic({
+        durationMs: fetchDurationMs,
+        version: snapshotState.version,
+        snapshot: snapshotState.snapshot,
+      })
+
+      const applyStartedAt = window.performance.now()
+      applySnapshotData(snapshotState.snapshot)
+      reportSnapshotApplyDiagnostic({
+        durationMs: window.performance.now() - applyStartedAt,
+        version: snapshotState.version,
+      })
+      appliedSnapshotVersion = snapshotState.version
+      hasLoadedInitialState = true
+      bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
+      clearBootstrapRetryTimeout()
+      return true
+    }
+
+    async function syncState() {
       if (cancelled) {
         return
       }
@@ -136,31 +229,7 @@ function ConvexStateSync({
       syncInFlight = true
 
       try {
-        const fetchStartedAt = window.performance.now()
-        const snapshotState = await fetchSnapshotState()
-        const fetchDurationMs = window.performance.now() - fetchStartedAt
-
-        if (cancelled) {
-          return
-        }
-
-        reportSnapshotFetchDiagnostic({
-          durationMs: fetchDurationMs,
-          version: snapshotState.version,
-          snapshot: snapshotState.snapshot,
-        })
-
-        const applyStartedAt = window.performance.now()
-        applySnapshot(snapshotState.snapshot)
-        reportSnapshotApplyDiagnostic({
-          durationMs: window.performance.now() - applyStartedAt,
-          version: snapshotState.version,
-        })
-        appliedSnapshotVersion = snapshotState.version
-        hasLoadedInitialSnapshot = true
-        initialSnapshotRetryDelay = INITIAL_SNAPSHOT_RETRY_BASE_DELAY_MS
-        clearInitialSnapshotRetryTimeout()
-        setReady(true)
+        await syncSnapshotState()
       } catch (error) {
         if (error instanceof RouteMutationError && error.status === 401) {
           cancelled = true
@@ -170,13 +239,13 @@ function ConvexStateSync({
         }
 
         console.error("Failed to refresh app snapshot", error)
-        scheduleInitialSnapshotRetry()
+        scheduleBootstrapRetry()
       } finally {
         syncInFlight = false
 
         if (syncQueued && !cancelled) {
           syncQueued = false
-          void syncSnapshot()
+          void syncState()
         }
       }
     }
@@ -221,13 +290,17 @@ function ConvexStateSync({
         return
       }
 
-      void syncSnapshot()
+      void syncState()
     }
 
     function openStream() {
       closeStream()
 
       if (cancelled || document.visibilityState !== "visible") {
+        return
+      }
+
+      if (typeof EventSource !== "function") {
         return
       }
 
@@ -267,27 +340,27 @@ function ConvexStateSync({
       }
     }
 
-    void syncSnapshot().then(() => {
+    void syncState().then(() => {
       if (!cancelled) {
         openStream()
       }
     })
 
     const handleFocus = () => {
-      void syncSnapshot()
+      void syncState()
     }
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void syncSnapshot()
+        void syncState()
         openStream()
         return
       }
 
-      clearInitialSnapshotRetryTimeout()
+      clearBootstrapRetryTimeout()
       closeStream()
     }
     const handleOnline = () => {
-      void syncSnapshot()
+      void syncState()
       openStream()
     }
 
@@ -297,31 +370,38 @@ function ConvexStateSync({
 
     return () => {
       cancelled = true
-      clearInitialSnapshotRetryTimeout()
+      clearBootstrapRetryTimeout()
       closeStream()
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [authenticatedUser?.email])
+  }, [authenticatedUser?.email, initialWorkspaceId])
 
-  if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading workspace...
-      </div>
-    )
-  }
-
-  return <>{children}</>
+  return (
+    <>
+      <InitialShellSeedHydrator
+        applyReadModelData={applyReadModelData}
+        initialShellSeed={initialShellSeed}
+        initialWorkspaceId={initialWorkspaceId}
+      />
+      {children}
+    </>
+  )
 }
 
 export function ConvexAppProvider({
   children,
   authenticatedUser,
+  initialShellSeed,
+  initialWorkspaceId,
 }: ConvexAppProviderProps) {
   return (
-    <ConvexStateSync authenticatedUser={authenticatedUser}>
+    <ConvexStateSync
+      authenticatedUser={authenticatedUser}
+      initialShellSeed={initialShellSeed}
+      initialWorkspaceId={initialWorkspaceId}
+    >
       {children}
     </ConvexStateSync>
   )

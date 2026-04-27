@@ -44,6 +44,7 @@ import {
   TreeStructure,
 } from "@phosphor-icons/react"
 
+import { ProjectTemplateGlyph, TeamIconGlyph } from "@/components/app/entity-icons"
 import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
   EMPTY_PARENT_FILTER_VALUE,
@@ -85,7 +86,14 @@ import {
 } from "@/components/ui/template-primitives"
 
 import { isPersistedViewFilterKey, type ViewFilterKey } from "./helpers"
-import { ConfigSelect, PriorityIcon, StatusIcon } from "./shared"
+import { WorkItemAssigneeAvatar } from "./work-item-ui"
+import {
+  ConfigSelect,
+  LabelColorDot,
+  PriorityIcon,
+  StatusIcon,
+  WorkItemTypeIcon,
+} from "./shared"
 import { cn } from "@/lib/utils"
 
 const HEALTH_COLOR: Record<keyof typeof projectHealthMeta, string> = {
@@ -287,6 +295,7 @@ export function FilterPopover({
   items,
   onToggleFilterValue,
   onClearFilters,
+  hiddenFilters = [],
   variant = "icon",
   chipTone = "adaptive",
   label = "Filter",
@@ -296,6 +305,7 @@ export function FilterPopover({
   items: WorkItem[]
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
   onClearFilters?: () => void
+  hiddenFilters?: ViewFilterKey[]
   variant?: "icon" | "chip"
   chipTone?: ChipTone | "adaptive"
   label?: string
@@ -303,11 +313,23 @@ export function FilterPopover({
 }) {
   const [query, setQuery] = useState("")
   const scopedItems = useMemo(
-    () =>
-      view.itemLevel
-        ? items.filter((item) => item.type === view.itemLevel)
-        : items,
-    [items, view.itemLevel]
+    () => {
+      if (!view.itemLevel) {
+        return items
+      }
+
+      const visibleTypes = new Set<WorkItemType>([view.itemLevel])
+      const childType = view.showChildItems
+        ? getChildWorkItemCopy(view.itemLevel, null).childType
+        : null
+
+      if (childType) {
+        visibleTypes.add(childType)
+      }
+
+      return items.filter((item) => visibleTypes.has(item.type))
+    },
+    [items, view.itemLevel, view.showChildItems]
   )
   const teamIds = useMemo(
     () => [...new Set(scopedItems.map((item) => item.teamId))],
@@ -375,6 +397,10 @@ export function FilterPopover({
     scopedItems.some((item) => item.type === itemType)
   )
   const statusOptions = getStatusOrderForTeam(singleTeam)
+  const hiddenFilterSet = useMemo(
+    () => new Set(hiddenFilters),
+    [hiddenFilters]
+  )
 
   const activeCount =
     view.filters.status.length +
@@ -475,39 +501,43 @@ export function FilterPopover({
           onChange={setQuery}
         />
         <div className="flex max-h-[360px] flex-col overflow-y-auto">
-          <FilterSection
-            label="Status"
-            activeCount={view.filters.status.length}
-          >
-            {statusOptions
-              .filter((status) => matchesQuery(statusMeta[status].label, query))
-              .map((status) => (
-                <FilterRow
-                  key={status}
-                  icon={<StatusIcon status={status} />}
-                  label={statusMeta[status].label}
-                  active={view.filters.status.includes(status)}
-                  onClick={() => handleToggleFilterValue("status", status)}
-                />
-              ))}
-          </FilterSection>
-          <FilterSection
-            label="Priority"
-            activeCount={view.filters.priority.length}
-          >
-            {Object.entries(priorityMeta)
-              .filter(([, meta]) => matchesQuery(meta.label, query))
-              .map(([priority, meta]) => (
-                <FilterRow
-                  key={priority}
-                  icon={<PriorityIcon priority={priority as Priority} />}
-                  label={meta.label}
-                  active={view.filters.priority.includes(priority as Priority)}
-                  onClick={() => handleToggleFilterValue("priority", priority)}
-                />
-              ))}
-          </FilterSection>
-          {itemTypes.length > 0 ? (
+          {!hiddenFilterSet.has("status") ? (
+            <FilterSection
+              label="Status"
+              activeCount={view.filters.status.length}
+            >
+              {statusOptions
+                .filter((status) => matchesQuery(statusMeta[status].label, query))
+                .map((status) => (
+                  <FilterRow
+                    key={status}
+                    icon={<StatusIcon status={status} />}
+                    label={statusMeta[status].label}
+                    active={view.filters.status.includes(status)}
+                    onClick={() => handleToggleFilterValue("status", status)}
+                  />
+                ))}
+            </FilterSection>
+          ) : null}
+          {!hiddenFilterSet.has("priority") ? (
+            <FilterSection
+              label="Priority"
+              activeCount={view.filters.priority.length}
+            >
+              {Object.entries(priorityMeta)
+                .filter(([, meta]) => matchesQuery(meta.label, query))
+                .map(([priority, meta]) => (
+                  <FilterRow
+                    key={priority}
+                    icon={<PriorityIcon priority={priority as Priority} />}
+                    label={meta.label}
+                    active={view.filters.priority.includes(priority as Priority)}
+                    onClick={() => handleToggleFilterValue("priority", priority)}
+                  />
+                ))}
+            </FilterSection>
+          ) : null}
+          {!hiddenFilterSet.has("itemTypes") && itemTypes.length > 1 ? (
             <FilterSection
               label="Type"
               activeCount={view.filters.itemTypes.length}
@@ -525,7 +555,9 @@ export function FilterPopover({
                 .map((itemType) => (
                   <FilterRow
                     key={itemType}
-                    icon={<ColorDot />}
+                    icon={
+                      <WorkItemTypeIcon itemType={itemType as WorkItemType} />
+                    }
                     label={getDisplayLabelForWorkItemType(
                       itemType as WorkItemType,
                       null
@@ -535,10 +567,10 @@ export function FilterPopover({
                       handleToggleFilterValue("itemTypes", itemType)
                     }
                   />
-                ))}
+              ))}
             </FilterSection>
           ) : null}
-          {assignees.length > 0 ? (
+          {!hiddenFilterSet.has("assigneeIds") && assignees.length > 0 ? (
             <FilterSection
               label="Assignee"
               activeCount={view.filters.assigneeIds.length}
@@ -548,17 +580,22 @@ export function FilterPopover({
                 .map((assignee) => (
                   <FilterRow
                     key={assignee.id}
-                    icon={<InitialAvatar name={assignee.name} />}
+                    icon={
+                      <WorkItemAssigneeAvatar
+                        user={assignee}
+                        className="size-4 data-[size=sm]:size-4"
+                      />
+                    }
                     label={assignee.name}
                     active={view.filters.assigneeIds.includes(assignee.id)}
                     onClick={() =>
                       handleToggleFilterValue("assigneeIds", assignee.id)
                     }
                   />
-                ))}
+              ))}
             </FilterSection>
           ) : null}
-          {filteredProjects.length > 0 ? (
+          {!hiddenFilterSet.has("projectIds") && filteredProjects.length > 0 ? (
             <FilterSection
               label="Project"
               activeCount={view.filters.projectIds.length}
@@ -568,37 +605,44 @@ export function FilterPopover({
                 .map((project) => (
                   <FilterRow
                     key={project.id}
-                    icon={<InitialAvatar name={project.name} />}
+                    icon={
+                      <ProjectTemplateGlyph
+                        templateType={project.templateType}
+                        className="size-[13px] text-fg-3"
+                      />
+                    }
                     label={project.name}
                     active={view.filters.projectIds.includes(project.id)}
                     onClick={() =>
                       handleToggleFilterValue("projectIds", project.id)
                     }
                   />
-                ))}
+              ))}
             </FilterSection>
           ) : null}
-          <FilterSection
-            label="Under"
-            activeCount={view.filters.parentIds?.length ?? 0}
-          >
-            {matchesQuery("Is empty", query) ? (
-              <FilterRow
-                icon={<TreeStructure className="size-3" />}
-                label="Is empty"
-                active={Boolean(
-                  view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
-                )}
-                onClick={() =>
-                  handleToggleFilterValue(
-                    "parentIds",
-                    EMPTY_PARENT_FILTER_VALUE
-                  )
-                }
-              />
-            ) : null}
-          </FilterSection>
-          {filteredLabels.length > 0 ? (
+          {!hiddenFilterSet.has("parentIds") ? (
+            <FilterSection
+              label="Parent"
+              activeCount={view.filters.parentIds?.length ?? 0}
+            >
+              {matchesQuery("Is empty", query) ? (
+                <FilterRow
+                  icon={<TreeStructure className="size-3" />}
+                  label="Is empty"
+                  active={Boolean(
+                    view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
+                  )}
+                  onClick={() =>
+                    handleToggleFilterValue(
+                      "parentIds",
+                      EMPTY_PARENT_FILTER_VALUE
+                    )
+                  }
+                />
+              ) : null}
+            </FilterSection>
+          ) : null}
+          {!hiddenFilterSet.has("labelIds") && filteredLabels.length > 0 ? (
             <FilterSection
               label="Labels"
               activeCount={view.filters.labelIds.length}
@@ -608,7 +652,7 @@ export function FilterPopover({
                 .map((label) => (
                   <FilterRow
                     key={label.id}
-                    icon={<ColorDot color={label.color} />}
+                    icon={<LabelColorDot color={label.color} />}
                     label={label.name}
                     active={view.filters.labelIds.includes(label.id)}
                     onClick={() =>
@@ -677,21 +721,6 @@ function FilterRow({
       </span>
       <span className="truncate">{label}</span>
     </PropertyPopoverItem>
-  )
-}
-
-function InitialAvatar({ name, color }: { name: string; color?: string }) {
-  const initial = name.trim().charAt(0).toUpperCase() || "?"
-  return (
-    <span
-      aria-hidden
-      className="flex size-[14px] shrink-0 items-center justify-center rounded-full text-[8.5px] font-semibold text-foreground"
-      style={{
-        background: color ?? "var(--surface-3)",
-      }}
-    >
-      {initial}
-    </span>
   )
 }
 
@@ -1121,7 +1150,12 @@ export function ProjectFilterPopover({
                 .map((lead) => (
                   <FilterRow
                     key={lead.id}
-                    icon={<InitialAvatar name={lead.name} />}
+                    icon={
+                      <WorkItemAssigneeAvatar
+                        user={lead}
+                        className="size-4 data-[size=sm]:size-4"
+                      />
+                    }
                     label={lead.name}
                     active={view.filters.leadIds.includes(lead.id)}
                     onClick={() => handleToggleFilterValue("leadIds", lead.id)}
@@ -1139,7 +1173,12 @@ export function ProjectFilterPopover({
                 .map((team) => (
                   <FilterRow
                     key={team.id}
-                    icon={<InitialAvatar name={team.name} />}
+                    icon={
+                      <TeamIconGlyph
+                        icon={team.icon}
+                        className="size-[13px] text-fg-3"
+                      />
+                    }
                     label={team.name}
                     active={view.filters.teamIds.includes(team.id)}
                     onClick={() => handleToggleFilterValue("teamIds", team.id)}
@@ -1801,8 +1840,6 @@ export function PropertiesChipPopover({
   getPropertyLabel?: (property: DisplayProperty) => string
 }) {
   const [query, setQuery] = useState("")
-  const [activeDragProperty, setActiveDragProperty] =
-    useState<DisplayProperty | null>(null)
   const skipTogglePropertyRef = useRef<DisplayProperty | null>(null)
   const skipToggleResetTimeoutRef = useRef<number | null>(null)
   const resolvePropertyLabel =
@@ -1884,7 +1921,6 @@ export function PropertiesChipPopover({
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
 
-    setActiveDragProperty(null)
     suppressNextToggle(active.id as DisplayProperty)
 
     if (!over || active.id === over.id) {
@@ -1904,8 +1940,6 @@ export function PropertiesChipPopover({
   }
 
   function handleDragCancel() {
-    setActiveDragProperty(null)
-
     if (skipToggleResetTimeoutRef.current !== null) {
       window.clearTimeout(skipToggleResetTimeoutRef.current)
       skipToggleResetTimeoutRef.current = null
@@ -1962,7 +1996,6 @@ export function PropertiesChipPopover({
                 modifiers={[restrictToVerticalAxis, restrictToParentElement]}
                 onDragStart={(event) => {
                   const property = event.active.id as DisplayProperty
-                  setActiveDragProperty(property)
                   suppressNextToggle(property)
                 }}
                 onDragCancel={handleDragCancel}
@@ -1978,7 +2011,6 @@ export function PropertiesChipPopover({
                         key={property}
                         property={property}
                         label={resolvePropertyLabel(property)}
-                        isDragActive={activeDragProperty === property}
                         onToggle={() => handleToggleDisplayProperty(property)}
                       />
                     ))}
@@ -2035,12 +2067,10 @@ export function PropertiesChipPopover({
 function SortableDisplayPropertyRow({
   property,
   label,
-  isDragActive,
   onToggle,
 }: {
   property: DisplayProperty
   label: string
-  isDragActive: boolean
   onToggle: () => void
 }) {
   const {

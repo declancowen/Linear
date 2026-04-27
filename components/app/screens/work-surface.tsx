@@ -124,10 +124,14 @@ export function WorkSurface({
   items,
   filterItems,
   team,
+  createTeamId,
   groupingExperience,
   emptyLabel,
+  isLoading = false,
+  loadingLabel = "Loading items...",
   childDisplayMode = "direct",
   allowCreateViews = true,
+  hiddenFilters = [],
 }: {
   title: string
   routeKey: string
@@ -136,16 +140,20 @@ export function WorkSurface({
   items: WorkItem[]
   filterItems?: WorkItem[]
   team: Team | null
+  createTeamId?: string | null
   groupingExperience?: TeamExperienceType | null
   emptyLabel: string
+  isLoading?: boolean
+  loadingLabel?: string
   childDisplayMode?: WorkSurfaceChildDisplayMode
   allowCreateViews?: boolean
+  hiddenFilters?: ViewFilterKey[]
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const searchParams = useSearchParams()
   const requestedViewId = searchParams.get("view")
   const editable = team ? canEditTeam(data, team.id) : false
-  const createTeamId = team?.id ?? data.ui.activeTeamId
+  const resolvedCreateTeamId = createTeamId ?? team?.id ?? null
   const [localFallbackViews, setLocalFallbackViews] = useState(() =>
     fallbackViews.map(cloneFallbackView)
   )
@@ -370,13 +378,13 @@ export function WorkSurface({
   }
 
   function handleCreateWorkItem() {
-    if (!createTeamId) {
+    if (!resolvedCreateTeamId) {
       return
     }
 
     openManagedCreateDialog({
       kind: "workItem",
-      defaultTeamId: createTeamId,
+      defaultTeamId: resolvedCreateTeamId,
     })
   }
 
@@ -466,6 +474,7 @@ export function WorkSurface({
           <FilterPopover
             view={compatibleActiveView}
             items={filterPopoverItems}
+            hiddenFilters={hiddenFilters}
             variant="chip"
             onToggleFilterValue={
               usingFallbackViews ? toggleLocalActiveViewFilterValue : undefined
@@ -521,8 +530,21 @@ export function WorkSurface({
         </Viewbar>
       ) : null}
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
-        {compatibleActiveView ? (
+      <div
+        className={cn(
+          "min-h-0 min-w-0 flex-1 overscroll-contain",
+          compatibleActiveView?.layout === "board"
+            ? "overflow-hidden"
+            : compatibleActiveView?.layout === "timeline"
+              ? "overflow-hidden"
+              : "overflow-x-hidden overflow-y-auto"
+        )}
+      >
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+            {loadingLabel}
+          </div>
+        ) : compatibleActiveView ? (
           <>
             {compatibleActiveView.layout === "board" ? (
               <BoardView
@@ -556,7 +578,7 @@ export function WorkSurface({
         ) : (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-muted-foreground">
             <div>{emptyLabel}</div>
-            {createTeamId ? (
+            {resolvedCreateTeamId ? (
               <Button
                 size="sm"
                 variant="outline"

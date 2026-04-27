@@ -169,6 +169,7 @@ export interface Document {
   teamId: string | null
   title: string
   content: string
+  previewText?: string
   notifiedMentionCounts?: Record<string, number>
   linkedProjectIds: string[]
   linkedWorkItemIds: string[]
@@ -183,6 +184,7 @@ export interface DocumentPresenceViewer {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   lastSeenAt: string
 }
 
@@ -355,6 +357,20 @@ export type CreateDialogState =
       defaultTeamId?: string | null
       defaultProjectId?: string | null
       initialType?: WorkItemType | null
+      defaultValues?: Partial<
+        Pick<
+          WorkItem,
+          | "status"
+          | "priority"
+          | "assigneeId"
+          | "primaryProjectId"
+          | "parentId"
+          | "labelIds"
+          | "startDate"
+          | "dueDate"
+          | "targetDate"
+        >
+      >
     }
   | {
       kind: "project"

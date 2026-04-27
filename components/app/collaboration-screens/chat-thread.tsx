@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
@@ -18,8 +24,10 @@ import {
   getUser,
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
+import { chatMessageContentConstraints } from "@/lib/domain/input-constraints"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
+import { useChatPresence } from "@/hooks/use-chat-presence"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { RichTextContent } from "@/components/app/rich-text-content"
@@ -44,22 +52,24 @@ function ChatComposer({
   onSend,
   mentionCandidates,
   currentUserId,
-  action,
   editable = true,
   disabledReason,
+  onTypingChange,
 }: {
   placeholder?: string
   onSend: (content: string) => void
   mentionCandidates: ReturnType<typeof getConversationParticipants>
   currentUserId: string
-  action?: ReactNode
   editable?: boolean
   disabledReason?: string | null
+  onTypingChange?: (typing: boolean) => void
 }) {
-  const [content, setContent] = useState("")
+  const EMPTY_COMPOSER_CONTENT = "<p></p>"
+  const [content, setContent] = useState(EMPTY_COMPOSER_CONTENT)
   const [composerKey, setComposerKey] = useState(0)
   const editorInstanceRef = useRef<Editor | null>(null)
-  const contentText = getPlainTextContent(content)
+  const typingTimeoutRef = useRef<number | null>(null)
+  const contentText = getPlainTextContent(content).trim()
   const filteredMentionCandidates = useMemo(
     () =>
       mentionCandidates.filter((candidate) => candidate.id !== currentUserId),
@@ -67,14 +77,65 @@ function ChatComposer({
   )
 
   const handleSend = () => {
-    if (!editable || !contentText) return
-    onSend(content)
-    setContent("")
+    const liveContent =
+      editorInstanceRef.current?.getHTML() ??
+      editorInstanceRef.current?.getText() ??
+      content
+    const livePlainText = getPlainTextContent(liveContent).trim()
+
+    if (!editable || livePlainText.length === 0) {
+      return
+    }
+
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
+    }
+    onTypingChange?.(false)
+    onSend(liveContent)
+    setContent(EMPTY_COMPOSER_CONTENT)
     setComposerKey((current) => current + 1)
   }
 
   const handleInsertEmoji = (emoji: string) => {
     editorInstanceRef.current?.chain().focus().insertContent(emoji).run()
+  }
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current !== null) {
+        window.clearTimeout(typingTimeoutRef.current)
+      }
+
+      onTypingChange?.(false)
+    }
+  }, [onTypingChange])
+
+  const handleChange = (nextContent: string) => {
+    setContent(nextContent)
+
+    if (!editable) {
+      return
+    }
+
+    const nextText = getPlainTextContent(nextContent)
+    const isTyping = nextText.trim().length > 0
+
+    onTypingChange?.(isTyping)
+
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
+    }
+
+    if (!isTyping) {
+      return
+    }
+
+    typingTimeoutRef.current = window.setTimeout(() => {
+      typingTimeoutRef.current = null
+      onTypingChange?.(false)
+    }, 2_500)
   }
 
   return (
@@ -83,7 +144,7 @@ function ChatComposer({
         <RichTextEditor
           key={composerKey}
           content={content}
-          onChange={setContent}
+          onChange={handleChange}
           editable={editable}
           compact
           allowSlashCommands={false}
@@ -94,9 +155,12 @@ function ChatComposer({
           editorInstanceRef={editorInstanceRef}
           mentionMenuPlacement="above"
           mentionCandidates={filteredMentionCandidates}
+          minPlainTextCharacters={chatMessageContentConstraints.min}
+          maxPlainTextCharacters={chatMessageContentConstraints.max}
+          enforcePlainTextLimit
           onSubmitShortcut={handleSend}
           submitOnEnter
-          className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
+          className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.55em] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
         />
         <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
           <EmojiPickerPopover
@@ -115,7 +179,6 @@ function ChatComposer({
             }
           />
           <span className="flex-1" />
-          {action ? <span className="shrink-0">{action}</span> : null}
           <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
             ⏎
           </kbd>
@@ -140,11 +203,32 @@ function ChatComposer({
   )
 }
 
+function formatTypingIndicatorLabel(names: string[]) {
+  if (names.length === 0) {
+    return ""
+  }
+
+  if (names.length === 1) {
+    return `${names[0]} is typing`
+  }
+
+  if (names.length === 2) {
+    return `${names[0]} & ${names[1]} are typing`
+  }
+
+  if (names.length === 3) {
+    return `${names[0]}, ${names[1]} and ${names[2]} are typing`
+  }
+
+  return "Several people are typing"
+}
+
 export function ChatThread({
   conversationId,
   title,
   description,
   members,
+  loaded = true,
   showHeader = true,
   videoAction,
   detailsAction,
@@ -154,6 +238,7 @@ export function ChatThread({
   title: string
   description: string
   members: ReturnType<typeof getConversationParticipants>
+  loaded?: boolean
   showHeader?: boolean
   videoAction?: ReactNode
   detailsAction?: ReactNode
@@ -219,8 +304,14 @@ export function ChatThread({
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
+  const { participants: chatPresenceParticipants, setTyping } = useChatPresence({
+    conversationId,
+    currentUserId,
+    enabled: true,
+  })
   const scrollRef = useRef<HTMLDivElement>(null)
-  const hasHeaderActions = detailsAction != null
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const hasHeaderActions = videoAction != null || detailsAction != null
   const showWelcomeIntro =
     welcomeParticipant && messages.length > 0 && messages.length < 5
   const messageableMembers = useMemo(
@@ -339,6 +430,45 @@ export function ChatThread({
     workspaces,
     workspaceMemberships,
   ])
+  const typingUsers = useMemo(() => {
+    const uniqueTypingUsers = new Map<
+      string,
+      {
+        id: string
+        name: string
+        avatarImageUrl?: string | null
+        avatarUrl?: string | null
+      }
+    >()
+
+    for (const participant of chatPresenceParticipants) {
+      if (
+        !participant.typing ||
+        participant.userId === currentUserId ||
+        uniqueTypingUsers.has(participant.userId)
+      ) {
+        continue
+      }
+
+      const user =
+        usersById.get(participant.userId) ??
+        members.find((member) => member.id === participant.userId)
+
+      uniqueTypingUsers.set(participant.userId, {
+        id: participant.userId,
+        name: user?.name ?? "Someone",
+        avatarImageUrl: user?.avatarImageUrl ?? null,
+        avatarUrl: user?.avatarUrl ?? null,
+      })
+    }
+
+    return [...uniqueTypingUsers.values()]
+  }, [chatPresenceParticipants, currentUserId, members, usersById])
+  const typingIndicatorLabel = useMemo(
+    () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
+    [typingUsers]
+  )
+  const latestMessageId = messages[messages.length - 1]?.id ?? null
 
   function getWorkspaceMembershipState(userId: string | null | undefined) {
     if (!userId || !currentWorkspaceId) {
@@ -350,13 +480,34 @@ export function ChatThread({
 
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [messages.length])
+    const messagesEnd = messagesEndRef.current
+
+    if (!el || !messagesEnd) {
+      return
+    }
+
+    const scrollToBottom = () => {
+      if (typeof messagesEnd.scrollIntoView === "function") {
+        messagesEnd.scrollIntoView({ block: "end" })
+      }
+      el.scrollTop = el.scrollHeight
+    }
+
+    scrollToBottom()
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollToBottom()
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [latestMessageId])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {showHeader ? (
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-medium">{title}</span>
             {description ? (
@@ -370,7 +521,10 @@ export function ChatThread({
           </div>
           {hasHeaderActions ? (
             <div className="flex items-center gap-1.5">
-              <ChatHeaderActions detailsAction={detailsAction} />
+              <ChatHeaderActions
+                videoAction={videoAction}
+                detailsAction={detailsAction}
+              />
             </div>
           ) : null}
         </div>
@@ -380,7 +534,13 @@ export function ChatThread({
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
-        {messages.length === 0 ? (
+        {!loaded && messages.length === 0 ? (
+          <div className="mt-auto px-4 py-3">
+            <div className="flex justify-center py-6 text-sm text-muted-foreground">
+              Loading messages...
+            </div>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="mt-auto px-4 py-3">
             <EmptyState
               title="No messages yet"
@@ -623,25 +783,57 @@ export function ChatThread({
                 )
               })}
             </div>
+            <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
           </>
         )}
       </div>
 
+      {typingUsers.length > 0 ? (
+        <div className="shrink-0 border-t border-line-soft bg-background px-4 py-2">
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <div className="flex -space-x-1">
+              {typingUsers.slice(0, 3).map((user) => (
+                <UserAvatar
+                  key={user.id}
+                  name={user.name}
+                  avatarImageUrl={user.avatarImageUrl}
+                  avatarUrl={user.avatarUrl}
+                  size="xs"
+                  showStatus={false}
+                  className="ring-2 ring-background"
+                />
+              ))}
+            </div>
+            <span>{typingIndicatorLabel}</span>
+          </div>
+        </div>
+      ) : null}
+
       {hideComposer ? (
         messages.length > 0 && composerDisabledReason ? (
-          <div className="shrink-0 border-t bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur">
+          <div
+            className={cn(
+              "shrink-0 bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur",
+              typingUsers.length > 0 ? "" : "border-t"
+            )}
+          >
             {composerDisabledReason}
           </div>
         ) : null
       ) : (
-        <div className="shrink-0 border-t border-line-soft bg-background">
+        <div
+          className={cn(
+            "shrink-0 bg-background",
+            typingUsers.length > 0 ? "" : "border-t border-line-soft"
+          )}
+        >
           <ChatComposer
             placeholder={`Message ${title}…`}
             mentionCandidates={messageableMembers}
             currentUserId={currentUserId}
-            action={videoAction}
             editable={composerEditable}
             disabledReason={composerDisabledReason}
+            onTypingChange={setTyping}
             onSend={(content) => {
               useAppStore
                 .getState()

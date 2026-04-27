@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { teamWorkflowSettingsSchema } from "@/lib/domain/types"
 import { updateTeamWorkflowSettingsServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -44,11 +45,20 @@ export async function PATCH(
       return appContext
     }
 
-    await updateTeamWorkflowSettingsServer({
+    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+
+    const result = await updateTeamWorkflowSettingsServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
       workflow: parsed,
     })
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
+    }
 
     return jsonOk({ ok: true })
   } catch (error) {

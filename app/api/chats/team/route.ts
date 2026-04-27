@@ -2,7 +2,11 @@ import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { teamChatSchema } from "@/lib/domain/types"
-import { ensureTeamChatServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  ensureTeamChatServer,
+} from "@/lib/server/convex"
+import { resolveConversationReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -44,6 +48,14 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
+    if (result?.conversationId) {
+      await bumpScopedReadModelVersionsServer({
+        scopeKeys: await resolveConversationReadModelScopeKeysServer(
+          session,
+          result.conversationId
+        ),
+      })
+    }
 
     return jsonOk({
       ok: true,

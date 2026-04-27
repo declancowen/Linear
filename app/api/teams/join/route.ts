@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { joinCodeSchema } from "@/lib/domain/types"
 import { joinTeamByCodeServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   reconcileAuthenticatedAppContext,
 } from "@/lib/server/authenticated-app"
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     await reconcileAuthenticatedAppContext(session.user, session.organizationId)
+    await bumpWorkspaceMembershipReadModelScopesServer(joined.workspaceId)
 
     return jsonOk({
       ok: true,

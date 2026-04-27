@@ -2,8 +2,16 @@
 
 import { useState } from "react"
 
+import {
+  getTextInputLimitState,
+  optionalWorkspaceDescriptionConstraints,
+  workspaceAccentConstraints,
+  workspaceFallbackBadgeConstraints,
+  workspaceBrandingNameConstraints,
+} from "@/lib/domain/input-constraints"
 import { getCurrentWorkspace } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -44,6 +52,21 @@ export function WorkspaceDialog({
   const [description, setDescription] = useState(
     workspace?.settings.description ?? ""
   )
+  const nameLimitState = getTextInputLimitState(name, workspaceBrandingNameConstraints)
+  const logoLimitState = getTextInputLimitState(
+    logoUrl,
+    workspaceFallbackBadgeConstraints
+  )
+  const accentLimitState = getTextInputLimitState(accent, workspaceAccentConstraints)
+  const descriptionLimitState = getTextInputLimitState(
+    description,
+    optionalWorkspaceDescriptionConstraints
+  )
+  const canSave =
+    nameLimitState.canSubmit &&
+    logoLimitState.canSubmit &&
+    accentLimitState.canSubmit &&
+    descriptionLimitState.canSubmit
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -67,9 +90,14 @@ export function WorkspaceDialog({
               id="workspace-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
+              maxLength={workspaceBrandingNameConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
+          <FieldCharacterLimit
+            state={nameLimitState}
+            limit={workspaceBrandingNameConstraints.max}
+          />
           <div className="flex items-center justify-between py-1.5">
             <span className="text-xs text-muted-foreground">
               Logo / initials
@@ -78,9 +106,14 @@ export function WorkspaceDialog({
               id="workspace-logo"
               value={logoUrl}
               onChange={(event) => setLogoUrl(event.target.value)}
+              maxLength={workspaceFallbackBadgeConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
+          <FieldCharacterLimit
+            state={logoLimitState}
+            limit={workspaceFallbackBadgeConstraints.max}
+          />
           <div className="flex items-center justify-between py-1.5">
             <span className="text-xs text-muted-foreground">Accent</span>
             <Select value={accent} onValueChange={setAccent}>
@@ -104,9 +137,14 @@ export function WorkspaceDialog({
               id="workspace-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
+              maxLength={optionalWorkspaceDescriptionConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
+          <FieldCharacterLimit
+            state={descriptionLimitState}
+            limit={optionalWorkspaceDescriptionConstraints.max}
+          />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
@@ -115,6 +153,7 @@ export function WorkspaceDialog({
           </Button>
           <Button
             size="sm"
+            disabled={!canSave}
             onClick={() => {
               useAppStore.getState().updateWorkspaceBranding({
                 name,

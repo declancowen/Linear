@@ -19,6 +19,15 @@ import {
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
+import {
+  fetchConversationListReadModel,
+  fetchConversationThreadReadModel,
+} from "@/lib/convex/client"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import {
+  getConversationListScopeKeys,
+  getConversationThreadScopeKeys,
+} from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
@@ -189,6 +198,18 @@ export function WorkspaceChatsScreen() {
     selectedChatId && chats.some((chat) => chat.id === selectedChatId)
       ? selectedChatId
       : (chats[0]?.id ?? null)
+  const { hasLoadedOnce: hasLoadedConversationList } =
+    useScopedReadModelRefresh({
+      enabled: Boolean(currentUserId),
+      scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
+      fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+    })
+  const { hasLoadedOnce: hasLoadedConversationThread } =
+    useScopedReadModelRefresh({
+    enabled: Boolean(activeChatId),
+    scopeKeys: activeChatId ? getConversationThreadScopeKeys(activeChatId) : [],
+    fetchLatest: () => fetchConversationThreadReadModel(activeChatId ?? ""),
+    })
   const activeChat =
     chats.find((chat) => chat.id === activeChatId) ?? chats[0] ?? null
   const members = useAppStore(
@@ -344,7 +365,11 @@ export function WorkspaceChatsScreen() {
           router.replace(`/chats?chatId=${id}`, { scroll: false })
         }
       />
-      {chats.length === 0 ? (
+      {!hasLoadedConversationList && chats.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+          Loading chats...
+        </div>
+      ) : chats.length === 0 ? (
         <EmptyState
           title="No chats yet"
           description="Create a direct or group chat with people in the workspace."
@@ -444,6 +469,7 @@ export function WorkspaceChatsScreen() {
                 title={activeChat.title}
                 description=""
                 members={members}
+                loaded={hasLoadedConversationThread}
                 videoAction={
                   <CallInviteLauncher conversationId={activeChat.id} />
                 }

@@ -16,6 +16,9 @@ import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  fetchWorkItemDetailReadModelMock,
+  richTextContentRenderMock,
+  richTextEditorRenderMock,
   routerReplaceMock,
   syncAddCommentMock,
   syncClearWorkItemPresenceMock,
@@ -23,7 +26,11 @@ const {
   syncSendItemDescriptionMentionNotificationsMock,
   syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
+  useDocumentCollaborationMock,
 } = vi.hoisted(() => ({
+  fetchWorkItemDetailReadModelMock: vi.fn(),
+  richTextContentRenderMock: vi.fn(),
+  richTextEditorRenderMock: vi.fn(),
   routerReplaceMock: vi.fn(),
   syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
@@ -31,6 +38,7 @@ const {
   syncSendItemDescriptionMentionNotificationsMock: vi.fn(),
   syncToggleCommentReactionMock: vi.fn(),
   syncUpdateWorkItemMock: vi.fn(),
+  useDocumentCollaborationMock: vi.fn(),
 }))
 
 vi.mock("next/link", () => ({
@@ -61,7 +69,13 @@ vi.mock("sonner", () => ({
   },
 }))
 
+vi.mock("@/lib/realtime/feature-flags", () => ({
+  isCollaborationEnabled: () => false,
+  isScopedSyncEnabled: () => true,
+}))
+
 vi.mock("@/lib/convex/client", () => ({
+  fetchWorkItemDetailReadModel: fetchWorkItemDetailReadModelMock,
   syncAddComment: syncAddCommentMock,
   syncClearWorkItemPresence: syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresence: syncHeartbeatWorkItemPresenceMock,
@@ -71,36 +85,63 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
+vi.mock("@/hooks/use-document-collaboration", () => ({
+  useDocumentCollaboration: useDocumentCollaborationMock,
+}))
+
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
+    collaboration,
+    editable,
     onChange,
     placeholder,
     onSubmitShortcut,
     submitOnEnter,
   }: {
-    content: string
+    content: string | Record<string, unknown>
+    collaboration?: unknown
+    editable?: boolean
     onChange: (value: string) => void
     placeholder?: string
     onSubmitShortcut?: () => void
     submitOnEnter?: boolean
-  }) => (
-    <textarea
-      aria-label={
-        placeholder === "Add a description…"
-          ? "Description editor"
-          : (placeholder ?? "Rich text editor")
-      }
-      value={content}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault()
-          onSubmitShortcut?.()
+  }) => {
+    richTextEditorRenderMock({
+      collaboration,
+      content,
+      editable,
+      placeholder,
+    })
+
+    return (
+      <textarea
+        aria-label={
+          placeholder === "Add a description…"
+            ? "Description editor"
+            : (placeholder ?? "Rich text editor")
         }
-      }}
-    />
-  ),
+        data-testid="rich-text-editor"
+        data-collaboration={String(Boolean(collaboration))}
+        data-editable={String(Boolean(editable))}
+        value={typeof content === "string" ? content : JSON.stringify(content)}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault()
+            onSubmitShortcut?.()
+          }
+        }}
+      />
+    )
+  },
+}))
+
+vi.mock("@/components/app/rich-text-content", () => ({
+  RichTextContent: (props: { content: string | Record<string, unknown> }) => {
+    richTextContentRenderMock(props)
+    return <div data-testid="rich-text-content" />
+  },
 }))
 
 vi.mock("@/components/app/screens/document-ui", () => ({
@@ -251,24 +292,29 @@ vi.mock("@/components/ui/separator", () => ({
   Separator: () => null,
 }))
 
-vi.mock("@phosphor-icons/react", () => ({
-  CalendarBlank: () => null,
-  CaretDown: () => null,
-  CaretRight: () => null,
-  Clock: () => null,
-  DotsThree: () => null,
-  Flag: () => null,
-  FolderSimple: () => null,
-  LinkSimple: () => null,
-  NotePencil: () => null,
-  PaperPlaneTilt: () => null,
-  Plus: () => null,
-  SidebarSimple: () => null,
-  Smiley: () => null,
-  Tag: () => null,
-  Trash: () => null,
-  X: () => null,
-}))
+vi.mock("@phosphor-icons/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
+
+  return {
+    ...actual,
+    CalendarBlank: () => null,
+    CaretDown: () => null,
+    CaretRight: () => null,
+    Clock: () => null,
+    DotsThree: () => null,
+    Flag: () => null,
+    FolderSimple: () => null,
+    LinkSimple: () => null,
+    NotePencil: () => null,
+    PaperPlaneTilt: () => null,
+    Plus: () => null,
+    SidebarSimple: () => null,
+    Smiley: () => null,
+    Tag: () => null,
+    Trash: () => null,
+    X: () => null,
+  }
+})
 
 function seedState() {
   useAppStore.setState({
@@ -432,6 +478,11 @@ function seedState() {
 
 describe("work item detail screen", () => {
   beforeEach(() => {
+    window.sessionStorage.clear()
+    fetchWorkItemDetailReadModelMock.mockReset()
+    richTextContentRenderMock.mockReset()
+    richTextEditorRenderMock.mockReset()
+    fetchWorkItemDetailReadModelMock.mockResolvedValue({})
     syncClearWorkItemPresenceMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockReset()
     syncSendItemDescriptionMentionNotificationsMock.mockReset()
@@ -439,6 +490,16 @@ describe("work item detail screen", () => {
     syncHeartbeatWorkItemPresenceMock.mockResolvedValue([])
     syncClearWorkItemPresenceMock.mockResolvedValue({ ok: true })
     syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
+    useDocumentCollaborationMock.mockReset()
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: null,
+      collaboration: null,
+      flush: vi.fn(),
+      isAwaitingCollaboration: false,
+      lifecycle: "legacy",
+      viewers: [],
+    })
     seedState()
   })
 
@@ -494,6 +555,94 @@ describe("work item detail screen", () => {
     expect(screen.getByDisplayValue("Plan launch remote")).toBeInTheDocument()
   })
 
+  it("shows a stable description preview while collaboration bootstraps", async () => {
+    const flushMock = vi.fn().mockResolvedValue(undefined)
+    const bootstrapContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Boot description",
+            },
+          ],
+        },
+      ],
+    }
+    let collaborationState: ReturnType<typeof useDocumentCollaborationMock> = {
+      bootstrapContent: null,
+      editorCollaboration: null,
+      collaboration: null,
+      flush: flushMock,
+      isAwaitingCollaboration: false,
+      lifecycle: "legacy" as const,
+      viewers: [],
+    }
+
+    useDocumentCollaborationMock.mockImplementation(() => collaborationState)
+
+    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    })
+
+    await waitFor(() => {
+      expect(richTextEditorRenderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collaboration: undefined,
+          content: "<p>Initial description</p>",
+          editable: true,
+          placeholder: "Add a description…",
+        })
+      )
+    })
+
+    collaborationState = {
+      bootstrapContent,
+      editorCollaboration: {
+        binding: {
+          doc: {},
+          provider: {},
+        },
+        localUser: {
+          userId: "user_1",
+          sessionId: "session_1",
+          name: "Alex",
+          avatarUrl: null,
+          color: "#000000",
+          typing: false,
+          activeBlockId: null,
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      },
+      collaboration: null,
+      flush: flushMock,
+      isAwaitingCollaboration: true,
+      lifecycle: "bootstrapping",
+      viewers: [],
+    }
+
+    rerender(<WorkItemDetailScreen itemId="item_1" />)
+
+    await waitFor(() => {
+      expect(richTextContentRenderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: "<p>Initial description</p>",
+        })
+      )
+    })
+    expect(richTextContentRenderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "<p>Initial description</p>",
+      })
+    )
+  })
+
   it("surfaces when other people are editing the same item", async () => {
     syncHeartbeatWorkItemPresenceMock.mockResolvedValue([
       {
@@ -516,14 +665,10 @@ describe("work item detail screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }))
 
+    expect(await screen.findByText("Taylor")).toBeInTheDocument()
     expect(
-      await screen.findByText("Taylor is also editing this item")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "You can keep editing, but you may need to reload before saving if they update the item first."
-      )
-    ).toBeInTheDocument()
+      screen.queryByText("Taylor is also editing this item")
+    ).toBeNull()
   })
 
   it("closes edit mode even when mention delivery fails after save", async () => {
@@ -882,10 +1027,73 @@ describe("work item detail screen", () => {
     expect(
       screen.getByRole("button", { name: "Manage labels" })
     ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
+    expect(
+      screen.getAllByRole("button", { name: "Project" }).length
+    ).toBeGreaterThan(0)
     expect(screen.getAllByText("PLA-3").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Child item").length).toBeGreaterThan(0)
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
+  })
+
+  it("keeps empty child-row assignee and project controls editable", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        documents: [
+          ...state.documents,
+          {
+            id: "document_3",
+            kind: "item-description",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            title: "Unassigned child",
+            content: "<p>Child description</p>",
+            linkedProjectIds: [],
+            linkedWorkItemIds: ["item_3"],
+            createdBy: "user_1",
+            updatedBy: "user_1",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+        workItems: [
+          ...state.workItems,
+          {
+            id: "item_3",
+            key: "PLA-3",
+            teamId: "team_1",
+            type: "sub-task",
+            title: "Unassigned child",
+            descriptionDocId: "document_3",
+            status: "todo",
+            priority: "medium",
+            assigneeId: null,
+            creatorId: "user_1",
+            parentId: "item_1",
+            primaryProjectId: null,
+            linkedProjectIds: [],
+            linkedDocumentIds: [],
+            labelIds: [],
+            milestoneId: null,
+            startDate: null,
+            dueDate: null,
+            targetDate: null,
+            subscriberIds: [],
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:00:00.000Z",
+          },
+        ],
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    expect(
+      screen.getAllByRole("button", { name: "Assignee" }).length
+    ).toBeGreaterThan(1)
+    expect(
+      screen.getAllByRole("button", { name: "Project" }).length
+    ).toBeGreaterThan(1)
   })
 
   it("shows sidebar subtask progress above the child list", () => {
@@ -993,6 +1201,41 @@ describe("work item detail screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add sub-task" }))
     expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
+  })
+
+  it("keeps activity comment submit disabled until the shared minimum plain-text length is met", () => {
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const commentEditors = screen.getAllByLabelText(
+      "Leave a comment or mention a teammate with @handle..."
+    )
+    const commentButtons = screen.getAllByRole("button", { name: "Comment" })
+    const commentEditor = commentEditors.at(-1)
+    const commentButton = commentButtons.at(-1)
+
+    expect(commentEditor).toBeDefined()
+    expect(commentButton).toBeDefined()
+
+    act(() => {
+      fireEvent.change(commentEditor!, {
+        target: {
+          value: "a",
+        },
+      })
+    })
+
+    expect(commentButton!).toBeDisabled()
+    expect(screen.getAllByText("Enter at least 2 characters").length).toBeGreaterThan(0)
+
+    act(() => {
+      fireEvent.change(commentEditor!, {
+        target: {
+          value: "ab",
+        },
+      })
+    })
+
+    expect(commentButton!).toBeEnabled()
   })
 
   it("posts activity comments on Enter and preserves mentions", () => {

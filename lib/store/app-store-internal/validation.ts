@@ -309,6 +309,32 @@ export function getResolvedProjectLinkForWorkItemUpdate(
   }
 }
 
+export function getProjectCascadeConfirmationForWorkItemUpdate(
+  state: AppData,
+  existing: WorkItem,
+  patch: {
+    parentId?: string | null
+    primaryProjectId?: string | null
+  }
+) {
+  const {
+    cascadeItemIds,
+    resolvedPrimaryProjectId,
+    shouldCascadeProjectLink,
+  } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+  const requiresConfirmation =
+    resolvedPrimaryProjectId !== existing.primaryProjectId &&
+    shouldCascadeProjectLink &&
+    cascadeItemIds.size > 1
+
+  return {
+    cascadeItemIds,
+    cascadeItemCount: cascadeItemIds.size,
+    resolvedPrimaryProjectId,
+    requiresConfirmation,
+  }
+}
+
 export function getWorkItemCascadeDeletePlan(
   state: AppData,
   itemId: string

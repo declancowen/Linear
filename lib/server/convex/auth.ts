@@ -18,6 +18,43 @@ const SNAPSHOT_ERROR_MAPPINGS = [
   },
 ] as const
 
+const SCOPED_READ_MODEL_ERROR_MAPPINGS = [
+  {
+    match:
+      /Could not find public function for 'app:(getScopedReadModelVersions|bumpScopedReadModelVersions)'/i,
+    status: 503,
+    code: "SCOPED_READ_MODELS_UNAVAILABLE",
+    message: "Scoped read models are unavailable",
+  },
+] as const
+
+let hasLoggedScopedReadModelFallback = false
+
+function normalizeScopeKeys(scopeKeys: string[]) {
+  return [...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean))]
+}
+
+function createZeroVersionEnvelope(scopeKeys: string[]) {
+  return {
+    versions: normalizeScopeKeys(scopeKeys).map((scopeKey) => ({
+      scopeKey,
+      version: 0,
+    })),
+  }
+}
+
+function warnScopedReadModelFallback(error: unknown) {
+  if (hasLoggedScopedReadModelFallback) {
+    return
+  }
+
+  hasLoggedScopedReadModelFallback = true
+  console.warn(
+    "Scoped read model invalidation is unavailable; falling back to snapshot-only refresh",
+    error instanceof Error ? { message: error.message } : undefined
+  )
+}
+
 export async function ensureConvexUserFromAuth(user: AuthenticatedAppUser) {
   return runConvexRequestWithRetry("ensureConvexUserFromAuth", () =>
     getConvexServerClient().mutation(api.app.ensureUserFromAuth, {
@@ -90,6 +127,79 @@ export async function getSnapshotVersionServer(input?: {
     )
   } catch (error) {
     throw coerceApplicationError(error, [...SNAPSHOT_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function getWorkspaceMembershipBootstrapServer(input: {
+  workosUserId?: string
+  email?: string
+  workspaceId: string
+}) {
+  try {
+    await triggerEmailJobProcessingServer()
+
+    return await runConvexRequestWithRetry(
+      "getWorkspaceMembershipBootstrapServer",
+      () =>
+        getConvexServerClient().query(
+          api.app.getWorkspaceMembershipBootstrap,
+          withServerToken(input)
+        )
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...SNAPSHOT_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function getScopedReadModelVersionsServer(input: {
+  scopeKeys: string[]
+}) {
+  try {
+    return await runConvexRequestWithRetry("getScopedReadModelVersionsServer", () =>
+      getConvexServerClient().query(
+        api.app.getScopedReadModelVersions,
+        withServerToken({
+          scopeKeys: input.scopeKeys,
+        })
+      )
+    )
+  } catch (error) {
+    const applicationError = coerceApplicationError(error, [
+      ...SCOPED_READ_MODEL_ERROR_MAPPINGS,
+    ])
+
+    if (applicationError?.code === "SCOPED_READ_MODELS_UNAVAILABLE") {
+      warnScopedReadModelFallback(error)
+      throw applicationError
+    }
+
+    throw applicationError ?? error
+  }
+}
+
+export async function bumpScopedReadModelVersionsServer(input: {
+  scopeKeys: string[]
+}) {
+  try {
+    return await runConvexRequestWithRetry("bumpScopedReadModelVersionsServer", () =>
+      getConvexServerClient().mutation(
+        api.app.bumpScopedReadModelVersions,
+        withServerToken({
+          scopeKeys: input.scopeKeys,
+        })
+      )
+    )
+  } catch (error) {
+    const applicationError = coerceApplicationError(error, [
+      ...SCOPED_READ_MODEL_ERROR_MAPPINGS,
+    ])
+
+    if (applicationError?.code === "SCOPED_READ_MODELS_UNAVAILABLE") {
+      warnScopedReadModelFallback(error)
+      return createZeroVersionEnvelope(input.scopeKeys)
+    }
+
+    throw applicationError ?? error
   }
 }
 

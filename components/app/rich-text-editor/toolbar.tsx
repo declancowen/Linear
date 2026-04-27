@@ -372,13 +372,9 @@ export function RichTextToolbar({
       {uploadingAttachment ? (
         <span className="text-xs text-muted-foreground">Uploading…</span>
       ) : null}
-      <div className="ml-auto flex items-center gap-2">
-        {showStats ? (
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            {statsWords} words · {statsCharacters} characters
-          </span>
-        ) : null}
-        {fullPage ? (
+      {fullPage ? (
+        <>
+          <div className="mx-1 h-4 w-px bg-border" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -413,6 +409,13 @@ export function RichTextToolbar({
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+        </>
+      ) : null}
+      <div className="ml-auto flex items-center gap-2">
+        {showStats ? (
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            {statsWords} words · {statsCharacters} characters
+          </span>
         ) : null}
       </div>
     </div>

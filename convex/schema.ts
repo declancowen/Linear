@@ -19,6 +19,7 @@ import {
   notificationFields,
   projectFields,
   projectUpdateFields,
+  readModelVersionFields,
   teamFields,
   teamMembershipFields,
   userFields,
@@ -77,7 +78,11 @@ export default defineSchema({
     .index("by_project", ["projectId"]),
   workItems: defineTable(workItemFields)
     .index("by_domain_id", ["id"])
-    .index("by_team_id", ["teamId"]),
+    .index("by_team_id", ["teamId"])
+    .index("by_description_doc", ["descriptionDocId"]),
+  readModelVersions: defineTable(readModelVersionFields).index("by_scope_key", [
+    "scopeKey",
+  ]),
   documents: defineTable(documentFields)
     .index("by_domain_id", ["id"])
     .index("by_created_by", ["createdBy"])

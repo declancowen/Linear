@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { removeWorkspaceUserServer } from "@/lib/server/convex"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -56,6 +57,7 @@ export async function DELETE(
       label: "Failed to deactivate WorkOS membership after workspace removal",
       memberships: result?.providerMemberships ?? [],
     })
+    await bumpWorkspaceMembershipReadModelScopesServer(workspaceId)
 
     return jsonOk({
       ok: true,

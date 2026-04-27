@@ -404,4 +404,22 @@ describe("WorkSurface", () => {
 
     expect(screen.queryByText("board-content")).not.toBeInTheDocument()
   })
+
+  it("renders a loading state instead of the empty label while scoped data is hydrating", () => {
+    render(
+      <WorkSurface
+        title="Work"
+        routeKey="/team/platform/work"
+        views={useAppStore.getState().views}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="No work"
+        isLoading
+        loadingLabel="Loading work..."
+      />
+    )
+
+    expect(screen.getByText("Loading work...")).toBeInTheDocument()
+    expect(screen.queryByText("No work")).not.toBeInTheDocument()
+  })
 })

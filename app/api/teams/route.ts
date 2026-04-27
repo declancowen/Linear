@@ -8,6 +8,7 @@ import { teamDetailsSchema } from "@/lib/domain/types"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { createTeamServer } from "@/lib/server/convex"
 import { withGeneratedJoinCode } from "@/lib/server/join-codes"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       logProviderError("Failed to reconcile app context after team creation", error)
     }
+    await bumpWorkspaceMembershipReadModelScopesServer(targetWorkspace.id)
 
     return jsonOk({
       ok: true,

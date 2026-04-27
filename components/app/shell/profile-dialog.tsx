@@ -9,8 +9,15 @@ import {
   syncRequestAccountEmailChange,
   syncRequestCurrentAccountPasswordReset,
 } from "@/lib/convex/client"
+import {
+  getTextInputLimitState,
+  profileAvatarFallbackConstraints,
+  profileNameConstraints,
+  profileTitleConstraints,
+} from "@/lib/domain/input-constraints"
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -55,6 +62,16 @@ export function ProfileDialog({
   const currentUserEmailAssignments =
     currentUser?.preferences.emailAssignments ?? false
   const currentUserEmailDigest = currentUser?.preferences.emailDigest ?? false
+  const nameLimitState = getTextInputLimitState(name, profileNameConstraints)
+  const titleLimitState = getTextInputLimitState(title, profileTitleConstraints)
+  const avatarLimitState = getTextInputLimitState(
+    avatarUrl,
+    profileAvatarFallbackConstraints
+  )
+  const canSaveProfile =
+    nameLimitState.canSubmit &&
+    titleLimitState.canSubmit &&
+    avatarLimitState.canSubmit
 
   useEffect(() => {
     if (!hasCurrentUser) {
@@ -162,18 +179,25 @@ export function ProfileDialog({
               id="profile-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
+              maxLength={profileNameConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
+          <FieldCharacterLimit state={nameLimitState} limit={profileNameConstraints.max} />
           <div className="flex items-center justify-between py-1.5">
             <span className="text-xs text-muted-foreground">Title</span>
             <Input
               id="profile-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
+              maxLength={profileTitleConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
+          <FieldCharacterLimit
+            state={titleLimitState}
+            limit={profileTitleConstraints.max}
+          />
           <div className="flex items-center justify-between py-1.5">
             <span className="text-xs text-muted-foreground">
               Avatar initials
@@ -182,9 +206,14 @@ export function ProfileDialog({
               id="profile-avatar"
               value={avatarUrl}
               onChange={(event) => setAvatarUrl(event.target.value)}
+              maxLength={profileAvatarFallbackConstraints.max}
               className="h-7 w-48 border-none bg-transparent text-right text-xs shadow-none focus-visible:ring-0"
             />
           </div>
+          <FieldCharacterLimit
+            state={avatarLimitState}
+            limit={profileAvatarFallbackConstraints.max}
+          />
         </div>
 
         <div className="flex flex-col border-t px-5 py-2">
@@ -282,6 +311,7 @@ export function ProfileDialog({
           </Button>
           <Button
             size="sm"
+            disabled={!canSaveProfile}
             onClick={() => {
               useAppStore.getState().updateCurrentUserProfile({
                 name,

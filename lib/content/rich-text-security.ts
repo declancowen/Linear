@@ -1,4 +1,5 @@
 import sanitizeHtml from "sanitize-html"
+import { parseHTML } from "linkedom"
 
 import { getPlainTextContent } from "@/lib/utils"
 
@@ -44,6 +45,13 @@ const RICH_TEXT_ALLOWED_TAGS = [
   "u",
   "ul",
 ] satisfies string[]
+
+const RICH_TEXT_EMBEDDED_CONTENT_TAGS = new Set([
+  "hr",
+  "img",
+  "input",
+  "table",
+])
 
 function normalizeAnchorAttributes(attributes: sanitizeHtml.Attributes) {
   const href = typeof attributes.href === "string" ? attributes.href.trim() : null
@@ -145,6 +153,93 @@ export function sanitizeRichTextContent(content: string) {
   return sanitizeHtml(content, RICH_TEXT_SANITIZE_OPTIONS).trim()
 }
 
+function hasMeaningfulRichTextNode(node: Node): boolean {
+  if (node.nodeType === 3) {
+    return (node.textContent ?? "").trim().length > 0
+  }
+
+  if (node.nodeType !== 1) {
+    return false
+  }
+
+  const element = node as HTMLElement
+  const tagName = element.tagName.toLowerCase()
+
+  if (RICH_TEXT_EMBEDDED_CONTENT_TAGS.has(tagName)) {
+    return true
+  }
+
+  return [...element.childNodes].some((child) =>
+    hasMeaningfulRichTextNode(child)
+  )
+}
+
+function trimTrailingRichTextNodes(container: ParentNode) {
+  while (container.lastChild) {
+    const node = container.lastChild
+
+    if (node.nodeType === 3) {
+      const textContent = node.textContent ?? ""
+      const trimmedTextContent = textContent.replace(/\s+$/u, "")
+
+      if (trimmedTextContent.length === 0) {
+        node.remove()
+        continue
+      }
+
+      if (trimmedTextContent !== textContent) {
+        node.textContent = trimmedTextContent
+      }
+
+      return
+    }
+
+    if (node.nodeType !== 1) {
+      node.remove()
+      continue
+    }
+
+    const element = node as HTMLElement
+
+    if (element.tagName.toLowerCase() === "br") {
+      element.remove()
+      continue
+    }
+
+    trimTrailingRichTextNodes(element)
+
+    if (!hasMeaningfulRichTextNode(element)) {
+      element.remove()
+      continue
+    }
+
+    return
+  }
+}
+
+export function trimTrailingRichTextDisplayWhitespace(content: string) {
+  const trimmedContent = content.trim()
+
+  if (trimmedContent.length === 0) {
+    return ""
+  }
+
+  const { document } = parseHTML(
+    `<!DOCTYPE html><html><head></head><body>${trimmedContent}</body></html>`
+  )
+
+  trimTrailingRichTextNodes(document.body)
+
+  return document.body.innerHTML.trim()
+}
+
+export function sanitizeRichTextMessageContent(content: string) {
+  const sanitized = sanitizeRichTextContent(content)
+  const normalized = trimTrailingRichTextDisplayWhitespace(sanitized)
+
+  return normalized.length > 0 ? normalized : sanitized
+}
+
 export function prepareRichTextForStorage(
   content: string,
   options?: {
@@ -152,6 +247,23 @@ export function prepareRichTextForStorage(
   }
 ) {
   const sanitized = sanitizeRichTextContent(content)
+  const plainText = getPlainTextContent(sanitized)
+  const minPlainTextCharacters = options?.minPlainTextCharacters ?? 0
+
+  return {
+    sanitized,
+    plainText,
+    isMeaningful: plainText.length >= minPlainTextCharacters,
+  }
+}
+
+export function prepareRichTextMessageForStorage(
+  content: string,
+  options?: {
+    minPlainTextCharacters?: number
+  }
+) {
+  const sanitized = sanitizeRichTextMessageContent(content)
   const plainText = getPlainTextContent(sanitized)
   const minPlainTextCharacters = options?.minPlainTextCharacters ?? 0
 

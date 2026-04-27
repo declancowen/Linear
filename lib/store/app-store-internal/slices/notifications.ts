@@ -5,6 +5,7 @@ import {
   syncArchiveNotifications,
   syncDeleteNotification,
   syncMarkNotificationRead,
+  syncMarkNotificationsRead,
   syncToggleNotificationRead,
   syncUnarchiveNotification,
   syncUnarchiveNotifications,
@@ -17,6 +18,7 @@ import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 type NotificationSlice = Pick<
   AppStore,
   | "markNotificationRead"
+  | "markNotificationsRead"
   | "toggleNotificationRead"
   | "archiveNotification"
   | "archiveNotifications"
@@ -43,6 +45,30 @@ export function createNotificationSlice(
       runtime.syncInBackground(
         syncMarkNotificationRead(notificationId),
         "Failed to update notification"
+      )
+    },
+    markNotificationsRead(notificationIds) {
+      if (notificationIds.length === 0) {
+        return
+      }
+
+      const notificationIdSet = new Set(notificationIds)
+      const readAt = getNow()
+
+      set((state) => ({
+        notifications: state.notifications.map((notification) =>
+          notificationIdSet.has(notification.id)
+            ? {
+                ...notification,
+                readAt: notification.readAt ?? readAt,
+              }
+            : notification
+        ),
+      }))
+
+      runtime.syncInBackground(
+        syncMarkNotificationsRead(notificationIds),
+        "Failed to mark notifications as read"
       )
     },
     toggleNotificationRead(notificationId) {

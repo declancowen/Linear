@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { workItemSchema } from "@/lib/domain/types"
 import { createWorkItemServer } from "@/lib/server/convex"
+import { bumpWorkItemReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -44,10 +45,16 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
+    if (result?.itemId) {
+      await bumpWorkItemReadModelScopesServer(session, result.itemId)
+    }
 
     return jsonOk({
       ok: true,
       itemId: result?.itemId ?? null,
+      itemUpdatedAt: result?.itemUpdatedAt ?? null,
+      descriptionDocId: result?.descriptionDocId ?? null,
+      descriptionUpdatedAt: result?.descriptionUpdatedAt ?? null,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

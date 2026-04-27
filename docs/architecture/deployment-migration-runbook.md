@@ -20,6 +20,10 @@ It is intentionally practical. The goal is to remove ambiguity from the flows th
 |--------|--------|--------|--------|
 | `pnpm convex:codegen` | refresh generated Convex bindings | no | must leave `convex/_generated` clean in CI |
 | `pnpm convex:deploy` | deploy Convex functions/schema to the configured environment | yes | run only after confirming env target |
+| `pnpm partykit:deploy:dev` | deploy hosted PartyKit collaboration runtime to the dev Cloudflare service | yes | targets `linear-collaboration-dev` |
+| `pnpm partykit:deploy:prod` | deploy hosted PartyKit collaboration runtime to the prod Cloudflare service | yes | targets `linear-collaboration-prod` |
+| `pnpm partykit:tail:dev` | tail logs from the dev hosted PartyKit service | no | operational verification for `linear-collaboration-dev` |
+| `pnpm partykit:tail:prod` | tail logs from the prod hosted PartyKit service | no | operational verification for `linear-collaboration-prod` |
 | `pnpm maintenance:backfill-lookups` | patch legacy lookup fields and label/workspace ownership metadata | yes | safe to re-run; supports `BACKFILL_BATCH_LIMIT` |
 | `pnpm sync:workos:workspaces` | reconcile Convex workspaces to WorkOS organizations | yes | mutates WorkOS and Convex |
 | `pnpm bootstrap:workspace` | create/bootstrap a workspace and team for a user | yes | intended for controlled setup flows, not casual local use |
@@ -36,6 +40,8 @@ Minimum high-risk variables:
 
 - `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL`
 - `CONVEX_SERVER_TOKEN`
+- `NEXT_PUBLIC_PARTYKIT_URL`
+- `COLLABORATION_TOKEN_SECRET`
 - `WORKOS_API_KEY`
 - `WORKOS_CLIENT_ID`
 - `RESEND_API_KEY`
@@ -51,7 +57,15 @@ Rules:
 
 ## Standard deploy choreography
 
-Use this sequence whenever a change affects Convex schema, generated bindings, or migration-sensitive reads.
+Use this sequence whenever a change affects Convex schema, generated bindings, migration-sensitive reads, or the hosted collaboration runtime.
+
+For collaboration/scoped-sync work, think in terms of three deployable layers:
+
+- web app (`Next.js` / Vercel)
+- PartyKit collaboration runtime
+- Convex backend functions/helpers
+
+If the change crosses those boundaries, the release is coordinated. Do not treat it as a single-service deploy.
 
 1. Run local verification:
    - `pnpm convex:codegen`
@@ -60,12 +74,25 @@ Use this sequence whenever a change affects Convex schema, generated bindings, o
    - no diff in `convex/_generated`
 3. Deploy to the intended non-prod environment first:
    - `pnpm convex:deploy`
-4. If the change depends on backfilled lookup fields, run:
+4. Deploy the web app to the same non-prod environment when route, UI, or browser contract changes are involved.
+5. If the change depends on backfilled lookup fields, run:
    - `pnpm maintenance:backfill-lookups`
-5. Verify post-deploy status:
+6. Verify post-deploy status:
    - backfill reports zero remaining when applicable
    - critical route/test smoke paths still pass
-6. Repeat the same choreography for production.
+7. If the change affects the hosted collaboration runtime, deploy PartyKit to the matching environment:
+   - `pnpm partykit:deploy:dev`
+8. Tail hosted collaboration logs during smoke verification:
+   - `pnpm partykit:tail:dev`
+9. Repeat the same choreography for production:
+   - `pnpm convex:deploy`
+   - deploy the matching web app build
+   - `pnpm partykit:deploy:prod`
+   - `pnpm partykit:tail:prod`
+
+### Collaboration-specific note
+
+If a release changes collaborative editor behavior, PartyKit session/bootstrap behavior, or scoped-sync freshness/error handling, assume `web + PartyKit + Convex` must be aligned unless the implementation is explicitly backward compatible across mixed versions.
 
 ## Backfill policy
 
@@ -124,6 +151,7 @@ The repo currently owns:
 - deploy choreography
 - backfill choreography
 - desktop smoke expectation
+- hosted PartyKit deployment choreography
 
 The repo does not yet fully own:
 

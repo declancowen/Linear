@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import { teamDetailsSchema } from "@/lib/domain/types"
+import { teamDetailsUpdateSchema } from "@/lib/domain/types"
 import { deleteTeamServer, updateTeamDetailsServer } from "@/lib/server/convex"
+import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -28,7 +29,7 @@ export async function PATCH(
 
   const parsed = await parseJsonBody(
     request,
-    teamDetailsSchema,
+    teamDetailsUpdateSchema,
     "Invalid team details payload"
   )
 
@@ -44,11 +45,20 @@ export async function PATCH(
       return appContext
     }
 
-    await updateTeamDetailsServer({
+    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+
+    const result = await updateTeamDetailsServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
       ...parsed,
     })
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
+    }
 
     return jsonOk({
       ok: true,
@@ -88,10 +98,19 @@ export async function DELETE(
       return appContext
     }
 
+    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+
     const result = await deleteTeamServer({
       currentUserId: appContext.ensuredUser.userId,
       teamId,
     })
+    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
+
+    if (invalidationWorkspaceId) {
+      await bumpWorkspaceMembershipReadModelScopesServer(
+        invalidationWorkspaceId
+      )
+    }
 
     return jsonOk({
       ok: true,

@@ -119,13 +119,19 @@ describe("WorkItemLabelsEditor", () => {
             }
           })
       ),
-      updateWorkItem: vi.fn((id: string, patch: Partial<{ labelIds: string[] }>) => {
-        useAppStore.setState((state) => ({
-          workItems: state.workItems.map((item) =>
-            item.id === id ? { ...item, ...patch } : item
-          ),
-        }))
-      }),
+      updateWorkItem: vi.fn(
+        (id: string, patch: Partial<{ labelIds: string[] }>) => {
+          useAppStore.setState((state) => ({
+            workItems: state.workItems.map((item) =>
+              item.id === id ? { ...item, ...patch } : item
+            ),
+          }))
+
+          return {
+            status: "updated" as const,
+          }
+        }
+      ),
     })
   })
 

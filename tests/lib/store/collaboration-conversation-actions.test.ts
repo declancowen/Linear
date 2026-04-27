@@ -208,4 +208,47 @@ describe("collaboration conversation actions", () => {
     expect(syncToggleChatMessageReactionMock).not.toHaveBeenCalled()
     expect(state.chatMessages[0]?.reactions).toEqual([])
   })
+
+  it("trims trailing hard breaks from optimistic chat messages before syncing", async () => {
+    const { createCollaborationConversationActions } = await import(
+      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
+    )
+
+    const state = createConversationTestState()
+    const backgroundTasks: Array<Promise<unknown> | null> = []
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncSendChatMessageMock.mockResolvedValueOnce(null)
+
+    const slice = createCollaborationConversationActions({
+      set: setState as never,
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn().mockResolvedValue(undefined),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTasks.push(task)
+        },
+      } as never,
+    })
+
+    slice.sendChatMessage({
+      conversationId: "conversation_1",
+      content: "<p>Hello<br><br></p>",
+    })
+
+    expect(state.chatMessages[0]?.content).toBe("<p>Hello</p>")
+    expect(syncSendChatMessageMock).toHaveBeenCalledWith(
+      "conversation_1",
+      "<p>Hello</p>",
+      state.chatMessages[0]?.id
+    )
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
 })

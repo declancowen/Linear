@@ -2,7 +2,11 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { isApplicationError } from "@/lib/server/application-errors"
-import { toggleChatMessageReactionServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  toggleChatMessageReactionServer,
+} from "@/lib/server/convex"
+import { resolveChatMessageReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -52,6 +56,12 @@ export async function POST(
       currentUserId: appContext.ensuredUser.userId,
       messageId,
       emoji: parsed.emoji,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: await resolveChatMessageReadModelScopeKeysServer(
+        session,
+        messageId
+      ),
     })
 
     return jsonOk({

@@ -515,6 +515,12 @@ export const workItemFields = {
   updatedAt: v.string(),
 }
 
+export const readModelVersionFields = {
+  scopeKey: v.string(),
+  version: v.number(),
+  updatedAt: v.string(),
+}
+
 export const documentFields = {
   id: v.string(),
   kind: documentKindValidator,
@@ -539,6 +545,7 @@ export const documentPresenceFields = {
   name: v.optional(v.string()),
   avatarUrl: v.optional(v.string()),
   avatarImageUrl: v.optional(v.union(v.string(), v.null())),
+  activeBlockId: v.optional(v.union(v.string(), v.null())),
   sessionId: v.string(),
   createdAt: v.string(),
   lastSeenAt: v.string(),

@@ -2,6 +2,8 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import { bumpScopedReadModelVersionsServer } from "@/lib/server/convex"
+import { resolveProjectReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   projectNameMaxLength,
   projectNameMinLength,
@@ -71,10 +73,18 @@ export async function PATCH(
       return appContext
     }
 
+    const scopeKeys = await resolveProjectReadModelScopeKeysServer(
+      session,
+      projectId
+    )
+
     await updateProjectServer({
       currentUserId: appContext.ensuredUser.userId,
       projectId,
       patch: parsed,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({
@@ -114,9 +124,17 @@ export async function DELETE(
       return appContext
     }
 
+    const scopeKeys = await resolveProjectReadModelScopeKeysServer(
+      session,
+      projectId
+    )
+
     await deleteProjectServer({
       currentUserId: appContext.ensuredUser.userId,
       projectId,
+    })
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys,
     })
 
     return jsonOk({

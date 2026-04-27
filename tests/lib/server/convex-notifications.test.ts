@@ -118,12 +118,14 @@ describe("convex notification and invite wrappers", () => {
       archiveNotificationServer,
       deleteNotificationServer,
       markNotificationReadServer,
+      updateNotificationsServer,
     } = await import("@/lib/server/convex/notifications")
 
     mutationMock
       .mockRejectedValueOnce(new Error("Notification not found"))
       .mockRejectedValueOnce(new Error("You do not have access to this notification"))
       .mockRejectedValueOnce(new Error("Notification not found"))
+      .mockRejectedValueOnce(new Error("You do not have access to this notification"))
 
     await expect(
       markNotificationReadServer({
@@ -153,6 +155,17 @@ describe("convex notification and invite wrappers", () => {
     ).rejects.toMatchObject({
       status: 404,
       code: "NOTIFICATION_NOT_FOUND",
+    })
+
+    await expect(
+      updateNotificationsServer({
+        currentUserId: "user_1",
+        action: "markRead",
+        notificationIds: ["notification_1"],
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "NOTIFICATION_ACCESS_DENIED",
     })
   })
 })

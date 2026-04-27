@@ -561,6 +561,188 @@ describe("view slice", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("clears a pending optimistic view config when the sync fails", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState() as AppData & {
+      pendingViewConfigById: Record<
+        string,
+        {
+          token: string
+          patch: {
+            layout?: "list" | "board" | "timeline"
+          }
+        }
+      >
+    }
+    state.pendingViewConfigById = {}
+    state.views = [
+      {
+        id: "view_1",
+        name: "Delivery view",
+        description: "",
+        scopeType: "team",
+        scopeId: "team_1",
+        entityKind: "items",
+        itemLevel: null,
+        showChildItems: false,
+        layout: "list",
+        grouping: "status",
+        subGrouping: null,
+        ordering: "priority",
+        filters: {
+          status: [],
+          priority: [],
+          assigneeIds: [],
+          creatorIds: [],
+          leadIds: [],
+          health: [],
+          milestoneIds: [],
+          relationTypes: [],
+          projectIds: [],
+          parentIds: [],
+          itemTypes: [],
+          labelIds: [],
+          teamIds: [],
+          showCompleted: true,
+        },
+        displayProps: ["id", "status"],
+        hiddenState: {
+          groups: [],
+          subgroups: [],
+        },
+        isShared: true,
+        route: "/team/platform/work",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncUpdateViewConfigMock.mockRejectedValueOnce(new Error("sync failed"))
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    slice.updateViewConfig("view_1", {
+      layout: "timeline",
+    })
+
+    expect(state.pendingViewConfigById.view_1?.patch.layout).toBe("timeline")
+    await expect(backgroundTask).rejects.toThrow("sync failed")
+    expect(state.pendingViewConfigById).toEqual({})
+  })
+
+  it("clears a pending optimistic view config when the sync succeeds", async () => {
+    const { createViewSlice } = await import(
+      "@/lib/store/app-store-internal/slices/views"
+    )
+
+    const state = createViewTestState() as AppData & {
+      pendingViewConfigById: Record<
+        string,
+        {
+          token: string
+          patch: {
+            layout?: "list" | "board" | "timeline"
+          }
+        }
+      >
+    }
+    state.pendingViewConfigById = {}
+    state.views = [
+      {
+        id: "view_1",
+        name: "Delivery view",
+        description: "",
+        scopeType: "team",
+        scopeId: "team_1",
+        entityKind: "items",
+        itemLevel: null,
+        showChildItems: false,
+        layout: "list",
+        grouping: "status",
+        subGrouping: null,
+        ordering: "priority",
+        filters: {
+          status: [],
+          priority: [],
+          assigneeIds: [],
+          creatorIds: [],
+          leadIds: [],
+          health: [],
+          milestoneIds: [],
+          relationTypes: [],
+          projectIds: [],
+          parentIds: [],
+          itemTypes: [],
+          labelIds: [],
+          teamIds: [],
+          showCompleted: true,
+        },
+        displayProps: ["id", "status"],
+        hiddenState: {
+          groups: [],
+          subgroups: [],
+        },
+        isShared: true,
+        route: "/team/platform/work",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ]
+
+    let backgroundTask: Promise<unknown> | null = null
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncUpdateViewConfigMock.mockResolvedValueOnce({ ok: true })
+
+    const slice = createViewSlice(
+      setState as never,
+      () => state as never,
+      {
+        refreshFromServer: vi.fn(),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTask = task
+        },
+      } as never
+    )
+
+    slice.updateViewConfig("view_1", {
+      layout: "timeline",
+    })
+
+    expect(state.pendingViewConfigById.view_1?.patch.layout).toBe("timeline")
+    await expect(backgroundTask).resolves.toBeUndefined()
+    expect(state.pendingViewConfigById).toEqual({})
+  })
+
   it("reorders visible display properties optimistically", async () => {
     const { createViewSlice } = await import(
       "@/lib/store/app-store-internal/slices/views"

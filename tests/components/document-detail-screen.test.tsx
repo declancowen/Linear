@@ -7,21 +7,37 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
 const {
+  applyDocumentCollaborationTitleMock,
+  collaborationEditorRunMock,
+  fetchDocumentDetailReadModelMock,
   fetchSnapshotMock,
   flushDocumentSyncMock,
+  flushCollaborationMock,
+  renameDocumentMock,
   routerPushMock,
   syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresenceMock,
   syncUpdateDocumentMock,
   syncSendDocumentMentionNotificationsMock,
+  richTextContentRenderMock,
+  richTextEditorRenderMock,
+  useDocumentCollaborationMock,
 } = vi.hoisted(() => ({
+  applyDocumentCollaborationTitleMock: vi.fn(),
+  collaborationEditorRunMock: vi.fn(),
+  fetchDocumentDetailReadModelMock: vi.fn(),
   fetchSnapshotMock: vi.fn(),
   flushDocumentSyncMock: vi.fn(),
+  flushCollaborationMock: vi.fn(),
+  renameDocumentMock: vi.fn(),
   routerPushMock: vi.fn(),
   syncClearDocumentPresenceMock: vi.fn(),
   syncHeartbeatDocumentPresenceMock: vi.fn(),
   syncUpdateDocumentMock: vi.fn(),
   syncSendDocumentMentionNotificationsMock: vi.fn(),
+  richTextContentRenderMock: vi.fn(),
+  richTextEditorRenderMock: vi.fn(),
+  useDocumentCollaborationMock: vi.fn(),
 }))
 
 vi.mock("next/link", () => ({
@@ -52,7 +68,13 @@ vi.mock("sonner", () => ({
   },
 }))
 
+vi.mock("@/lib/realtime/feature-flags", () => ({
+  isCollaborationEnabled: () => false,
+  isScopedSyncEnabled: () => true,
+}))
+
 vi.mock("@/lib/convex/client", () => ({
+  fetchDocumentDetailReadModel: fetchDocumentDetailReadModelMock,
   fetchSnapshot: fetchSnapshotMock,
   syncClearDocumentPresence: syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresence: syncHeartbeatDocumentPresenceMock,
@@ -60,19 +82,49 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateDocument: syncUpdateDocumentMock,
 }))
 
+vi.mock("@/hooks/use-document-collaboration", () => ({
+  useDocumentCollaboration: useDocumentCollaborationMock,
+}))
+
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
+    collaboration,
+    editable,
+    editorInstanceRef,
     onChange,
     onMentionCountsChange,
   }: {
-    content: string
+    content: string | Record<string, unknown>
+    collaboration?: unknown
+    editable?: boolean
+    editorInstanceRef?: { current: unknown }
     onChange: (content: string) => void
     onMentionCountsChange?: (
       counts: Record<string, number>,
       source: "initial" | "local" | "external"
     ) => void
   }) => {
+    richTextEditorRenderMock({
+      collaboration,
+      content,
+      editable,
+    })
+
+    if (editorInstanceRef) {
+      editorInstanceRef.current = {
+        chain() {
+          return {
+            command() {
+              return {
+                run: collaborationEditorRunMock,
+              }
+            },
+          }
+        },
+      }
+    }
+
     function countMentions(nextContent: string) {
       const counts: Record<string, number> = {}
       const matches = nextContent.matchAll(/data-id="([^"]+)"/g)
@@ -96,7 +148,11 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     }
 
     return (
-      <>
+      <div
+        data-testid="rich-text-editor"
+        data-collaboration={String(Boolean(collaboration))}
+        data-editable={String(Boolean(editable))}
+      >
         <button
           type="button"
           onClick={() => {
@@ -131,8 +187,15 @@ vi.mock("@/components/app/rich-text-editor", () => ({
         >
           Clear mentions
         </button>
-      </>
+      </div>
     )
+  },
+}))
+
+vi.mock("@/components/app/rich-text-content", () => ({
+  RichTextContent: (props: { content: string | Record<string, unknown> }) => {
+    richTextContentRenderMock(props)
+    return <div data-testid="rich-text-content" />
   },
 }))
 
@@ -250,8 +313,17 @@ describe("DocumentDetailScreen", () => {
   })
 
   beforeEach(() => {
+    window.sessionStorage.clear()
+    collaborationEditorRunMock.mockReset()
+    collaborationEditorRunMock.mockReturnValue(true)
+    fetchDocumentDetailReadModelMock.mockReset()
+    fetchDocumentDetailReadModelMock.mockResolvedValue({})
     fetchSnapshotMock.mockReset()
     flushDocumentSyncMock.mockReset()
+    flushCollaborationMock.mockReset()
+    flushCollaborationMock.mockResolvedValue(undefined)
+    renameDocumentMock.mockReset()
+    applyDocumentCollaborationTitleMock.mockReset()
     routerPushMock.mockReset()
     syncClearDocumentPresenceMock.mockReset()
     syncHeartbeatDocumentPresenceMock.mockReset()
@@ -267,11 +339,24 @@ describe("DocumentDetailScreen", () => {
       recipientCount: 1,
       mentionCount: 1,
     })
+    richTextContentRenderMock.mockReset()
+    richTextEditorRenderMock.mockReset()
+    useDocumentCollaborationMock.mockReset()
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: null,
+      collaboration: null,
+      flush: flushCollaborationMock,
+      lifecycle: "legacy",
+      viewers: [],
+    })
     window.history.replaceState({ page: "doc" }, "", "/docs/doc_1")
 
     useAppStore.setState({
       ...createEmptyState(),
+      applyDocumentCollaborationTitle: applyDocumentCollaborationTitleMock,
       flushDocumentSync: flushDocumentSyncMock,
+      renameDocument: renameDocumentMock,
       currentUserId: currentUser.id,
       currentWorkspaceId: "workspace_1",
       workspaces: [
@@ -324,13 +409,110 @@ describe("DocumentDetailScreen", () => {
     })
   })
 
+  it("falls back to collaboration title persistence when collaborative title updates cannot update an h1 heading", async () => {
+    collaborationEditorRunMock.mockReturnValue(false)
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: {} as never,
+      collaboration: {} as never,
+      flush: flushCollaborationMock,
+      lifecycle: "attached",
+      viewers: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch Notes" }))
+
+    const input = screen.getByPlaceholderText(
+      "Untitled document"
+    ) as HTMLInputElement
+    fireEvent.change(input, {
+      target: {
+        value: "Renamed without heading",
+      },
+    })
+    fireEvent.blur(input)
+
+    expect(applyDocumentCollaborationTitleMock).toHaveBeenCalledWith(
+      "doc_1",
+      "Renamed without heading"
+    )
+    expect(flushCollaborationMock).toHaveBeenCalledWith({
+      kind: "document-title",
+      documentTitle: "Renamed without heading",
+    })
+    expect(renameDocumentMock).not.toHaveBeenCalled()
+  })
+
+  it("locks collaborative documents into a stable preview shell while bootstrapping", async () => {
+    const bootstrapContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Boot content",
+            },
+          ],
+        },
+      ],
+    }
+
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent,
+      editorCollaboration: {
+        binding: {
+          doc: {},
+          provider: {},
+        },
+        localUser: {
+          userId: "user_1",
+          sessionId: "session_1",
+          name: "Alex",
+          avatarUrl: null,
+          color: "#000000",
+          typing: false,
+          activeBlockId: null,
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      },
+      collaboration: null,
+      flush: flushCollaborationMock,
+      lifecycle: "bootstrapping",
+      viewers: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    expect(useDocumentCollaborationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: "doc_1",
+      })
+    )
+    expect(screen.queryByTestId("rich-text-editor")).toBeNull()
+    expect(screen.getByTestId("rich-text-content")).toBeInTheDocument()
+    expect(richTextEditorRenderMock).not.toHaveBeenCalled()
+    expect(richTextContentRenderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content:
+          "<p><span class=\"editor-mention\" data-type=\"mention\" data-id=\"user_2\">@sam</span></p>",
+      })
+    )
+  })
+
   it("starts and clears document presence for editable documents", async () => {
     const { unmount } = render(<DocumentDetailScreen documentId="doc_1" />)
 
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 
@@ -353,7 +535,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 
@@ -366,9 +549,57 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
+  })
+
+  it("can transition from a missing document to a loaded document without hook-order errors", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {})
+
+    fetchDocumentDetailReadModelMock.mockResolvedValue({
+      documents: [
+        {
+          id: "doc_async",
+          kind: "workspace-document",
+          workspaceId: "workspace_1",
+          teamId: null,
+          title: "Async Doc",
+          content: "<p>Hello</p>",
+          linkedProjectIds: [],
+          linkedWorkItemIds: [],
+          createdBy: currentUser.id,
+          updatedBy: currentUser.id,
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+    })
+
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      documents: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_async" />)
+
+    expect(screen.getByText("Loading document...")).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Async Doc" })).toBeInTheDocument()
+    })
+
+    expect(
+      consoleErrorSpy.mock.calls.some(([message]) =>
+        typeof message === "string" &&
+        message.includes("change in the order of Hooks called by DocumentDetailScreen")
+      )
+    ).toBe(false)
+
+    consoleErrorSpy.mockRestore()
   })
 
   it("clears document presence when the page becomes hidden", async () => {
@@ -377,7 +608,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 
@@ -426,7 +658,8 @@ describe("DocumentDetailScreen", () => {
     await waitFor(() => {
       expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledWith(
         "doc_1",
-        "session_1"
+        "session_1",
+        null
       )
     })
 

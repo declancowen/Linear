@@ -35,6 +35,27 @@ const DOCUMENT_MUTATION_ERROR_MAPPINGS = [
     status: 403,
     code: "DOCUMENT_READ_ONLY",
   },
+  {
+    match: "Document changed while you were editing",
+    status: 409,
+    code: "DOCUMENT_EDIT_CONFLICT",
+  },
+] as const
+
+const COLLABORATION_DOCUMENT_ERROR_MAPPINGS = [
+  ...DOCUMENT_MUTATION_ERROR_MAPPINGS,
+  {
+    match: "Work item description document not found",
+    status: 404,
+    code: "WORK_ITEM_NOT_FOUND",
+  },
+  {
+    match:
+      /Could not find public function for 'app:getCollaborationDocument'/i,
+    status: 503,
+    code: "COLLABORATION_UNAVAILABLE",
+    message: "Document collaboration is unavailable",
+  },
 ] as const
 
 const DELETE_DOCUMENT_ERROR_MAPPINGS = [
@@ -88,6 +109,11 @@ const ITEM_DESCRIPTION_ERROR_MAPPINGS = [
     match: "Your current role is read-only",
     status: 403,
     code: "ITEM_DESCRIPTION_READ_ONLY",
+  },
+  {
+    match: "Work item description changed while you were editing",
+    status: 409,
+    code: "ITEM_DESCRIPTION_EDIT_CONFLICT",
   },
 ] as const
 
@@ -292,6 +318,7 @@ export async function updateDocumentContentServer(input: {
   currentUserId: string
   documentId: string
   content: string
+  expectedUpdatedAt?: string
 }) {
   const preparedContent = prepareRichTextForStorage(input.content)
 
@@ -311,11 +338,29 @@ export async function updateDocumentContentServer(input: {
   }
 }
 
+export async function getCollaborationDocumentServer(input: {
+  currentUserId: string
+  documentId: string
+}) {
+  try {
+    return await getConvexServerClient().query(
+      api.app.getCollaborationDocument,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...COLLABORATION_DOCUMENT_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
 export async function updateDocumentServer(input: {
   currentUserId: string
   documentId: string
   title?: string
   content?: string
+  expectedUpdatedAt?: string
 }) {
   const preparedContent =
     input.content !== undefined
@@ -325,6 +370,34 @@ export async function updateDocumentServer(input: {
   try {
     return await getConvexServerClient().mutation(
       api.app.updateDocument,
+      withServerToken({
+        ...input,
+        ...(preparedContent ? { content: preparedContent.sanitized } : {}),
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...DOCUMENT_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function persistCollaborationDocumentServer(input: {
+  currentUserId: string
+  documentId: string
+  title?: string
+  content?: string
+  expectedUpdatedAt?: string
+}) {
+  const preparedContent =
+    input.content !== undefined
+      ? prepareRichTextForStorage(input.content)
+      : null
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.persistCollaborationDocument,
       withServerToken({
         ...input,
         ...(preparedContent ? { content: preparedContent.sanitized } : {}),
@@ -410,6 +483,7 @@ export async function heartbeatDocumentPresenceServer(input: {
   name: string
   avatarUrl: string
   avatarImageUrl?: string | null
+  activeBlockId?: string | null
   sessionId: string
 }): Promise<DocumentPresenceViewer[]> {
   try {
@@ -448,12 +522,37 @@ export async function updateItemDescriptionServer(input: {
   currentUserId: string
   itemId: string
   content: string
+  expectedUpdatedAt?: string
 }) {
   const preparedContent = prepareRichTextForStorage(input.content)
 
   try {
     return await getConvexServerClient().mutation(
       api.app.updateItemDescription,
+      withServerToken({
+        ...input,
+        content: preparedContent.sanitized,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function persistCollaborationItemDescriptionServer(input: {
+  currentUserId: string
+  itemId: string
+  content: string
+  expectedUpdatedAt?: string
+}) {
+  const preparedContent = prepareRichTextForStorage(input.content)
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.persistCollaborationItemDescription,
       withServerToken({
         ...input,
         content: preparedContent.sanitized,

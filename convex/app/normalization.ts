@@ -177,6 +177,7 @@ export async function listDocumentPresenceViewers(
     name: entry.name ?? "User",
     avatarUrl: entry.avatarUrl ?? "",
     avatarImageUrl: entry.avatarImageUrl ?? null,
+    activeBlockId: entry.activeBlockId ?? null,
     lastSeenAt: entry.lastSeenAt,
   }))
 }

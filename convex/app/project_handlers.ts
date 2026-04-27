@@ -273,6 +273,10 @@ export async function createProjectHandler(
     createdAt: getNow(),
     updatedAt: getNow(),
   })
+
+  return {
+    workspaceId,
+  }
 }
 
 export async function updateProjectHandler(

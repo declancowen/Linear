@@ -1,5 +1,5 @@
 "use client"
-
+import type { Editor } from "@tiptap/react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -15,10 +15,16 @@ import { Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
+  documentTitleConstraints,
+  getTextInputLimitState,
+} from "@/lib/domain/input-constraints"
+import {
+  fetchDocumentDetailReadModel,
   syncClearDocumentPresence,
   syncHeartbeatDocumentPresence,
   syncSendDocumentMentionNotifications,
 } from "@/lib/convex/client"
+import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
 import {
   createDocumentMentionQueueState,
   getPendingDocumentMentionEntries,
@@ -34,8 +40,17 @@ import {
   getWorkspaceUsers,
 } from "@/lib/domain/selectors"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
+import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
+import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
+import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import {
+  FullPageRichTextShell,
+  useFullPageCanvasWidthPreference,
+} from "@/components/app/rich-text-editor/full-page-shell"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -53,6 +68,9 @@ import { canEditDocumentInUi, getDocumentPresenceSessionId } from "./helpers"
 import { MissingState } from "./shared"
 
 const DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
+const DOCUMENT_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
+const DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX =
+  "linear:collaboration:document-sync-modal-seen:"
 
 type DocumentMentionNotificationsResponse = {
   ok: boolean
@@ -78,15 +96,46 @@ function formatRecipientCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`
 }
 
+function hasSeenInitialDocumentSyncModal(documentId: string) {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  return (
+    window.sessionStorage.getItem(
+      `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`
+    ) === "true"
+  )
+}
+
+function markInitialDocumentSyncModalSeen(documentId: string) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  window.sessionStorage.setItem(
+    `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`,
+    "true"
+  )
+}
+
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const router = useRouter()
-  const { currentWorkspaceId, currentUserId, document, team } = useAppStore(
+  const {
+    currentWorkspaceId,
+    currentUser,
+    currentUserId,
+    document,
+    team,
+  } = useAppStore(
     useShallow((state) => {
       const document =
         state.documents.find((entry) => entry.id === documentId) ?? null
 
       return {
         currentWorkspaceId: state.currentWorkspaceId,
+        currentUser:
+          state.users.find((entry) => entry.id === state.currentUserId) ?? null,
         currentUserId: state.currentUserId,
         document,
         team: document?.teamId ? getTeam(state, document.teamId) : null,
@@ -109,13 +158,21 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   )
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState("")
+  const draftTitleLimitState = getTextInputLimitState(draftTitle, {
+    ...documentTitleConstraints,
+    allowEmpty: true,
+  })
   const [documentStats, setDocumentStats] = useState({
     words: 0,
     characters: 0,
   })
+  const [editorContent, setEditorContent] = useState(() => document?.content ?? "")
   const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
+  const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
+    null
+  )
   const [mentionQueue, dispatchMentionQueue] = useReducer(
     reduceDocumentMentionQueue,
     createDocumentMentionQueueState({})
@@ -127,17 +184,154 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
+  const [hasSeenInitialCollaborationAttach, setHasSeenInitialCollaborationAttach] =
+    useState(() => hasSeenInitialDocumentSyncModal(documentId))
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const editorInstanceRef = useRef<Editor | null>(null)
+  const legacyActiveBlockIdRef = useRef<string | null>(null)
+  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
   const allowHistoryExitRef = useRef(false)
   const currentRouteHrefRef = useRef<string | null>(null)
   const currentRouteStateRef = useRef<unknown>(null)
   const previousDocumentIdRef = useRef<string | null>(null)
+  const previousRouteDocumentIdRef = useRef(documentId)
+  const stableCollaborationUserRef = useRef<{
+    id: string
+    name: string
+    avatarUrl?: string | null
+    avatarImageUrl?: string | null
+  } | null>(null)
   const currentDocumentContentRef = useRef("")
   const currentDocumentId = document?.id ?? null
   const resolvedDocumentKind = document?.kind ?? null
   const documentTitle = document?.title ?? ""
+  const [stableCollaborativeDocumentId, setStableCollaborativeDocumentId] =
+    useState<string | null>(null)
+  const { fullPageCanvasWidth } = useFullPageCanvasWidthPreference(true)
+  const collaborationCurrentUser =
+    currentUser ?? stableCollaborationUserRef.current ?? null
+  const {
+    bootstrapContent,
+    editorCollaboration,
+    collaboration,
+    flush: flushCollaboration,
+    hasAttachedOnce,
+    lifecycle: collaborationLifecycle,
+    viewers: collaborationViewers,
+  } = useDocumentCollaboration({
+    documentId: stableCollaborativeDocumentId,
+    currentUser: collaborationCurrentUser,
+    enabled: Boolean(stableCollaborativeDocumentId),
+  })
+  const {
+    hasLoadedOnce: hasLoadedDocumentReadModel,
+  } = useScopedReadModelRefresh({
+    enabled: Boolean(documentId),
+    scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
+    fetchLatest: () => fetchDocumentDetailReadModel(documentId),
+    notFoundResult: documentId
+      ? createMissingScopedReadModelResult([
+          {
+            kind: "document-detail",
+            documentId,
+          },
+        ])
+      : undefined,
+  })
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
 
-  currentDocumentContentRef.current = document?.content ?? ""
+    stableCollaborationUserRef.current = {
+      id: currentUserId,
+      name: currentUser.name,
+      avatarUrl: currentUser.avatarUrl,
+      avatarImageUrl: currentUser.avatarImageUrl ?? null,
+    }
+  }, [
+    currentUser,
+    currentUserId,
+  ])
+
+  useEffect(() => {
+    if (previousRouteDocumentIdRef.current === documentId) {
+      return
+    }
+
+    previousRouteDocumentIdRef.current = documentId
+    setStableCollaborativeDocumentId(null)
+    setHasSeenInitialCollaborationAttach(hasSeenInitialDocumentSyncModal(documentId))
+  }, [documentId])
+
+  useEffect(() => {
+    if (!document) {
+      return
+    }
+
+    if (
+      document.kind === "private-document" ||
+      document.kind === "item-description"
+    ) {
+      setStableCollaborativeDocumentId(null)
+      return
+    }
+
+    setStableCollaborativeDocumentId(document.id)
+  }, [document])
+
+  const protectedDocumentId =
+    currentDocumentId ?? stableCollaborativeDocumentId
+  const isProtectingDocumentBody = Boolean(
+    protectedDocumentId &&
+      (collaborationLifecycle === "bootstrapping" ||
+        collaborationLifecycle === "attached")
+  )
+  const isCollaborationAttached = collaborationLifecycle === "attached"
+  const isCollaborationBootstrapping =
+    collaborationLifecycle === "bootstrapping"
+  const collaborationEditorContent = editorContent
+
+  useEffect(() => {
+    if (!isCollaborationAttached) {
+      return
+    }
+
+    markInitialDocumentSyncModalSeen(documentId)
+    setHasSeenInitialCollaborationAttach(true)
+  }, [documentId, isCollaborationAttached])
+
+  currentDocumentContentRef.current = editorContent
+
+  useEffect(() => {
+    setEditorContent(document?.content ?? "")
+  }, [currentDocumentId])
+
+  useEffect(() => {
+    if (!currentDocumentId || isProtectingDocumentBody) {
+      return
+    }
+
+    setEditorContent(document?.content ?? "")
+  }, [currentDocumentId, document?.content, isProtectingDocumentBody])
+
+  useEffect(() => {
+    if (!protectedDocumentId) {
+      return
+    }
+
+    const state = useAppStore.getState()
+
+    if (isProtectingDocumentBody) {
+      state.cancelDocumentSync(protectedDocumentId)
+    }
+
+    state.setDocumentBodyProtection(protectedDocumentId, isProtectingDocumentBody)
+
+    return () => {
+      useAppStore.getState().setDocumentBodyProtection(protectedDocumentId, false)
+    }
+  }, [protectedDocumentId, isProtectingDocumentBody])
 
   useEffect(() => {
     if (previousDocumentIdRef.current === currentDocumentId) {
@@ -145,6 +339,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
 
     previousDocumentIdRef.current = currentDocumentId
+    setLegacyActiveBlockId(null)
+    legacyActiveBlockIdRef.current = null
     setIsEditingTitle(false)
     dispatchMentionQueue({
       type: "reset-document",
@@ -182,7 +378,32 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }, [isEditingTitle])
 
   useEffect(() => {
+    if (!currentDocumentId) {
+      return
+    }
+
+    if (
+      collaborationLifecycle === "legacy" ||
+      collaborationLifecycle === "degraded"
+    ) {
+      return
+    }
+
+    useAppStore.getState().cancelDocumentSync(currentDocumentId)
+  }, [collaborationLifecycle, currentDocumentId])
+
+  useEffect(() => {
     if (!currentDocumentId || resolvedDocumentKind === "item-description") {
+      sendLegacyPresenceRef.current = null
+      setDocumentPresenceViewers([])
+      return
+    }
+
+    if (
+      collaborationLifecycle === "bootstrapping" ||
+      collaborationLifecycle === "attached"
+    ) {
+      sendLegacyPresenceRef.current = null
       setDocumentPresenceViewers([])
       return
     }
@@ -228,7 +449,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       try {
         const viewers = await syncHeartbeatDocumentPresence(
           activeDocumentId,
-          sessionId
+          sessionId,
+          legacyActiveBlockIdRef.current
         )
 
         if (
@@ -245,6 +467,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       } finally {
         scheduleHeartbeat(DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS)
       }
+    }
+
+    sendLegacyPresenceRef.current = () => {
+      void sendHeartbeat()
     }
 
     function resumePresence() {
@@ -313,11 +539,68 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         handleVisibilityChange
       )
       window.removeEventListener("pagehide", handlePageHide)
+      sendLegacyPresenceRef.current = null
       void syncClearDocumentPresence(activeDocumentId, sessionId, {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [currentDocumentId, resolvedDocumentKind, currentUserId])
+  }, [
+    collaborationLifecycle,
+    currentDocumentId,
+    currentUserId,
+    resolvedDocumentKind,
+  ])
+  const hasLiveCollaborationPresence =
+    collaborationLifecycle === "attached"
+  const activeDocumentViewers =
+    hasLiveCollaborationPresence
+      ? collaborationViewers
+      : currentUser
+        ? [
+            {
+              userId: currentUser.id,
+              name: currentUser.name,
+              avatarUrl: currentUser.avatarUrl,
+              avatarImageUrl: currentUser.avatarImageUrl ?? null,
+              activeBlockId: legacyActiveBlockId,
+              lastSeenAt: new Date().toISOString(),
+            },
+            ...documentPresenceViewers,
+          ]
+        : documentPresenceViewers
+  const otherDocumentViewers = activeDocumentViewers.filter(
+    (viewer) => viewer.userId !== currentUserId
+  )
+  const handleLegacyActiveBlockChange = useCallback(
+    (activeBlockId: string | null) => {
+      legacyActiveBlockIdRef.current = activeBlockId
+      setLegacyActiveBlockId(activeBlockId)
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (
+      hasLiveCollaborationPresence ||
+      !currentDocumentId ||
+      resolvedDocumentKind === "item-description"
+    ) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      sendLegacyPresenceRef.current?.()
+    }, DOCUMENT_PRESENCE_BLOCK_CHANGE_DELAY_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    hasLiveCollaborationPresence,
+    currentDocumentId,
+    legacyActiveBlockId,
+    resolvedDocumentKind,
+  ])
   const activePendingMentionEntries = useMemo(
     () => getPendingDocumentMentionEntries(mentionQueue),
     [mentionQueue]
@@ -474,17 +757,22 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     }
   }, [hasPendingMentionNotifications])
 
-  if (!document || document.kind === "item-description") {
-    if (deletingDocument) {
-      return null
-    }
-
-    return <MissingState title="Document not found" />
-  }
-
   const loadedDocument = document
+  const showCollaborationBootPreview =
+    Boolean(
+      loadedDocument &&
+        loadedDocument.kind !== "item-description" &&
+        loadedDocument.kind !== "private-document" &&
+        isCollaborationBootstrapping &&
+        !hasSeenInitialCollaborationAttach
+    )
+  const collaborationPreviewContent =
+    typeof bootstrapContent === "string"
+      ? bootstrapContent
+      : loadedDocument?.content ?? editorContent
+
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
-  const loadedDocumentId = loadedDocument.id
+  const loadedDocumentId = loadedDocument?.id ?? documentId
 
   function clearPendingMentionBatch() {
     dispatchMentionQueue({
@@ -525,7 +813,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     setSendingMentionNotifications(true)
 
     try {
-      await useAppStore.getState().flushDocumentSync(loadedDocumentId)
+      if (isCollaborationAttached) {
+        await flushCollaboration()
+      } else {
+        await useAppStore.getState().flushDocumentSync(loadedDocumentId)
+      }
 
       const result = (await syncSendDocumentMentionNotifications(
         loadedDocumentId,
@@ -555,13 +847,39 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }
 
   function saveTitle() {
+    if (!draftTitleLimitState.canSubmit) {
+      titleInputRef.current?.focus()
+      return
+    }
+
     const normalizedTitle = draftTitle.trim() || "Untitled document"
     setIsEditingTitle(false)
     setDraftTitle(normalizedTitle)
 
-    if (normalizedTitle !== loadedDocument.title) {
-      useAppStore.getState().renameDocument(loadedDocumentId, normalizedTitle)
+    if (normalizedTitle === (loadedDocument?.title ?? "")) {
+      return
     }
+
+    if (isCollaborationAttached) {
+      useAppStore
+        .getState()
+        .applyDocumentCollaborationTitle(loadedDocumentId, normalizedTitle)
+      void flushCollaboration({
+        kind: "document-title",
+        documentTitle: normalizedTitle,
+      }).catch((error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update document"
+        )
+      })
+      return
+    }
+
+    if (isCollaborationBootstrapping) {
+      return
+    }
+
+    useAppStore.getState().renameDocument(loadedDocumentId, normalizedTitle)
   }
 
   async function handleDeleteDocument() {
@@ -593,6 +911,49 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     completePendingExit()
   }
 
+  const handleDocumentContentChange = useCallback(
+    (content: string) => {
+      currentDocumentContentRef.current = content
+      setEditorContent(content)
+
+      if (isCollaborationAttached) {
+        useAppStore
+          .getState()
+          .applyDocumentCollaborationContent(loadedDocumentId, content)
+        return
+      }
+
+      if (isCollaborationBootstrapping) {
+        return
+      }
+
+      useAppStore.getState().updateDocumentContent(loadedDocumentId, content)
+    },
+    [isCollaborationAttached, isCollaborationBootstrapping, loadedDocumentId]
+  )
+
+  const handleDocumentAttachmentUpload = useCallback(
+    (file: File) =>
+      useAppStore.getState().uploadAttachment("document", loadedDocumentId, file),
+    [loadedDocumentId]
+  )
+
+  if (!loadedDocument || loadedDocument.kind === "item-description") {
+    if (deletingDocument) {
+      return null
+    }
+
+    if (!hasLoadedDocumentReadModel) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Loading document...
+        </div>
+      )
+    }
+
+    return <MissingState title="Document not found" />
+  }
+
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -606,22 +967,30 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
               Docs
             </Link>
             <span className="text-muted-foreground/50">/</span>
-            {editable ? (
+            {editable && !isCollaborationBootstrapping ? (
               isEditingTitle ? (
-                <Input
-                  ref={titleInputRef}
-                  value={draftTitle}
-                  onBlur={saveTitle}
-                  onChange={(event) => setDraftTitle(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault()
-                      event.currentTarget.blur()
-                    }
-                  }}
-                  className="h-7 w-full max-w-sm border-none bg-transparent px-1 py-0 text-sm font-medium shadow-none focus-visible:bg-background focus-visible:ring-1"
-                  placeholder="Untitled document"
-                />
+                <div className="w-full max-w-sm">
+                  <Input
+                    ref={titleInputRef}
+                    value={draftTitle}
+                    onBlur={saveTitle}
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        event.currentTarget.blur()
+                      }
+                    }}
+                    maxLength={documentTitleConstraints.max}
+                    className="h-7 w-full border-none bg-transparent px-1 py-0 text-sm font-medium shadow-none focus-visible:bg-background focus-visible:ring-1"
+                    placeholder="Untitled document"
+                  />
+                  <FieldCharacterLimit
+                    state={draftTitleLimitState}
+                    limit={documentTitleConstraints.max}
+                    className="mt-1 px-1"
+                  />
+                </div>
               ) : (
                 <button
                   type="button"
@@ -643,7 +1012,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
               {documentStats.words} words · {documentStats.characters}{" "}
               characters
             </span>
-            <DocumentPresenceAvatarGroup viewers={documentPresenceViewers} />
+            <DocumentPresenceAvatarGroup
+              viewers={otherDocumentViewers}
+              compact
+              className="ml-1.5"
+            />
             {editable ? (
               <Button
                 size="sm"
@@ -659,27 +1032,43 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         </div>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <RichTextEditor
-            content={document.content}
-            editable={editable}
-            fullPage
-            showStats={false}
-            placeholder="Start writing..."
-            mentionCandidates={mentionCandidates}
-            onMentionCountsChange={handleMentionCountsChange}
-            onStatsChange={setDocumentStats}
-            onChange={(content) =>
-              useAppStore.getState().updateDocumentContent(document.id, content)
-            }
-            onUploadAttachment={
-              document.kind === "team-document"
-                ? (file) =>
-                    useAppStore
-                      .getState()
-                      .uploadAttachment("document", document.id, file)
-                : undefined
-            }
-          />
+          {showCollaborationBootPreview ? (
+            <FullPageRichTextShell
+              canvasWidth={fullPageCanvasWidth}
+              reserveToolbarSpace
+            >
+              <RichTextContent
+                content={collaborationPreviewContent}
+                className="text-base text-fg-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+              />
+            </FullPageRichTextShell>
+          ) : (
+            <RichTextEditor
+              content={collaborationEditorContent}
+              collaboration={
+                isCollaborationAttached
+                  ? (editorCollaboration ?? collaboration ?? undefined)
+                  : undefined
+              }
+              currentPresenceUserId={currentUserId}
+              editable={editable && !isCollaborationBootstrapping}
+              editorInstanceRef={editorInstanceRef}
+              fullPage
+              showStats={false}
+              placeholder="Start writing..."
+              mentionCandidates={mentionCandidates}
+              onMentionCountsChange={handleMentionCountsChange}
+              onStatsChange={setDocumentStats}
+              onChange={handleDocumentContentChange}
+              presenceViewers={otherDocumentViewers}
+              onActiveBlockChange={handleLegacyActiveBlockChange}
+              onUploadAttachment={
+                document.kind === "team-document"
+                  ? handleDocumentAttachmentUpload
+                  : undefined
+              }
+            />
+          )}
         </div>
       </div>
 
@@ -765,6 +1154,29 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
                 ? "Sending..."
                 : "Send notifications"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCollaborationBootPreview}>
+        <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
+          <div className="px-5 py-5">
+            <DialogHeader className="p-0">
+              <DialogTitle className="text-base font-semibold">
+                Syncing latest changes
+              </DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Loading the latest document state. Editing will unlock
+                automatically in a moment.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <span
+                aria-hidden="true"
+                className="size-2 animate-pulse rounded-full bg-primary"
+              />
+              <span>Syncing latest changes…</span>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

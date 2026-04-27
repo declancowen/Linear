@@ -269,6 +269,26 @@ export async function markNotificationReadServer(input: {
   }
 }
 
+export async function updateNotificationsServer(input: {
+  currentUserId: string
+  action: "archive" | "unarchive" | "markRead"
+  notificationIds: string[]
+}) {
+  try {
+    return await runConvexRequestWithRetry("updateNotificationsServer", () =>
+      getConvexServerClient().mutation(
+        api.app.updateNotifications,
+        withServerToken(input)
+      )
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...NOTIFICATION_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
 export async function toggleNotificationReadServer(input: {
   currentUserId: string
   notificationId: string

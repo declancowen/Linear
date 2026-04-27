@@ -2,7 +2,11 @@ import { NextRequest } from "next/server"
 
 import { viewSchema } from "@/lib/domain/types"
 import { ApplicationError } from "@/lib/server/application-errors"
-import { createViewServer } from "@/lib/server/convex"
+import {
+  bumpScopedReadModelVersionsServer,
+  createViewServer,
+} from "@/lib/server/convex"
+import { resolveViewReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -40,6 +44,11 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
+    if (result?.id) {
+      await bumpScopedReadModelVersionsServer({
+        scopeKeys: await resolveViewReadModelScopeKeysServer(session, result.id),
+      })
+    }
 
     return jsonOk({
       ok: true,
