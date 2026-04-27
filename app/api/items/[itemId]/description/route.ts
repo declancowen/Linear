@@ -11,6 +11,7 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
+import { notifyCollaborationDocumentChangedServer } from "@/lib/server/collaboration-refresh"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import {
@@ -71,6 +72,21 @@ export async function PATCH(
     await bumpScopedReadModelVersionsServer({
       scopeKeys,
     })
+    if (typeof result.documentId === "string") {
+      const refreshResult = await notifyCollaborationDocumentChangedServer({
+        documentId: result.documentId,
+        kind: "canonical-updated",
+        reason: "item-description-route-patch",
+      })
+
+      if (!refreshResult.ok) {
+        console.warn("[collaboration] failed to notify item description room", {
+          itemId,
+          documentId: result.documentId,
+          reason: refreshResult.reason,
+        })
+      }
+    }
 
     return jsonOk({
       ok: true,

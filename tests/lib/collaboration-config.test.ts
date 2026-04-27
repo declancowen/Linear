@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  DEFAULT_COLLABORATION_REFRESH_TIMEOUT_MS,
+  resolveCollaborationRefreshTimeoutMs,
   resolveCollaborationServiceUrl,
   resolveCollaborationTokenSecret,
 } from "@/lib/collaboration/config"
@@ -33,5 +35,21 @@ describe("collaboration config helpers", () => {
   it("does not fall back to localhost defaults anymore", () => {
     expect(resolveCollaborationServiceUrl({})).toBeNull()
     expect(resolveCollaborationTokenSecret({})).toBeNull()
+  })
+
+  it("resolves bounded refresh notification timeouts", () => {
+    expect(
+      resolveCollaborationRefreshTimeoutMs({
+        COLLABORATION_REFRESH_TIMEOUT_MS: "250",
+      })
+    ).toBe(250)
+    expect(
+      resolveCollaborationRefreshTimeoutMs({
+        COLLABORATION_REFRESH_TIMEOUT_MS: "0",
+      })
+    ).toBe(DEFAULT_COLLABORATION_REFRESH_TIMEOUT_MS)
+    expect(resolveCollaborationRefreshTimeoutMs({})).toBe(
+      DEFAULT_COLLABORATION_REFRESH_TIMEOUT_MS
+    )
   })
 })

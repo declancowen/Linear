@@ -505,6 +505,59 @@ describe("DocumentDetailScreen", () => {
     )
   })
 
+  it("shows the initial collaboration sync modal only once per document session", async () => {
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: {
+        binding: {
+          doc: {},
+          provider: {},
+        },
+        localUser: {
+          userId: "user_1",
+          sessionId: "session_1",
+          name: "Alex",
+          avatarUrl: null,
+          color: "#000000",
+          typing: false,
+          activeBlockId: null,
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      },
+      collaboration: null,
+      flush: flushCollaborationMock,
+      lifecycle: "bootstrapping",
+      viewers: [],
+    })
+
+    const { unmount } = render(<DocumentDetailScreen documentId="doc_1" />)
+
+    expect(
+      screen.getByText(
+        "Loading the latest document state. Editing will unlock automatically in a moment."
+      )
+    ).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(
+        window.sessionStorage.getItem(
+          "linear:collaboration:document-sync-modal-seen:doc_1"
+        )
+      ).toBe("true")
+    })
+
+    unmount()
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    expect(
+      screen.queryByText(
+        "Loading the latest document state. Editing will unlock automatically in a moment."
+      )
+    ).toBeNull()
+  })
+
   it("starts and clears document presence for editable documents", async () => {
     const { unmount } = render(<DocumentDetailScreen documentId="doc_1" />)
 

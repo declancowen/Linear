@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import { notifyCollaborationDocumentChangedServer } from "@/lib/server/collaboration-refresh"
 import {
   bumpScopedReadModelVersionsServer,
   deleteDocumentServer,
@@ -80,6 +81,21 @@ export async function PATCH(
       scopeKeys,
     })
 
+    if (parsed.content !== undefined) {
+      const refreshResult = await notifyCollaborationDocumentChangedServer({
+        documentId,
+        kind: "canonical-updated",
+        reason: "document-route-patch-content",
+      })
+
+      if (!refreshResult.ok) {
+        console.warn("[collaboration] failed to refresh active document room", {
+          documentId,
+          reason: refreshResult.reason,
+        })
+      }
+    }
+
     return jsonOk({
       ok: true,
       updatedAt: result.updatedAt,
@@ -90,9 +106,13 @@ export async function PATCH(
     }
 
     logProviderError("Failed to update document", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to update document"), 500, {
-      code: "DOCUMENT_UPDATE_FAILED",
-    })
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update document"),
+      500,
+      {
+        code: "DOCUMENT_UPDATE_FAILED",
+      }
+    )
   }
 }
 
@@ -127,6 +147,18 @@ export async function DELETE(
     await bumpScopedReadModelVersionsServer({
       scopeKeys,
     })
+    const refreshResult = await notifyCollaborationDocumentChangedServer({
+      documentId,
+      kind: "document-deleted",
+      reason: "document-route-delete",
+    })
+
+    if (!refreshResult.ok) {
+      console.warn("[collaboration] failed to close deleted document room", {
+        documentId,
+        reason: refreshResult.reason,
+      })
+    }
 
     return jsonOk({
       ok: true,
@@ -137,8 +169,12 @@ export async function DELETE(
     }
 
     logProviderError("Failed to delete document", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to delete document"), 500, {
-      code: "DOCUMENT_DELETE_FAILED",
-    })
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete document"),
+      500,
+      {
+        code: "DOCUMENT_DELETE_FAILED",
+      }
+    )
   }
 }

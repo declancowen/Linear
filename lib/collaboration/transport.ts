@@ -4,6 +4,14 @@ import {
   isChatCollaborationRoomId,
   isDocumentCollaborationRoomId,
 } from "./rooms"
+import type { CollaborationLimits } from "./limits"
+import type { CollaborationErrorCode } from "./errors"
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+  isSupportedCollaborationProtocolVersion,
+  isSupportedRichTextCollaborationSchemaVersion,
+} from "./protocol"
 import type { JSONContent } from "@tiptap/core"
 
 export type CollaborationSessionRole = "viewer" | "editor"
@@ -22,6 +30,19 @@ export type DocumentCollaborationSessionTokenClaims = {
   role: CollaborationSessionRole
   sessionId: string
   workspaceId?: string | null
+  protocolVersion: number
+  schemaVersion: number
+  iat?: number
+  exp: number
+}
+
+export type InternalCollaborationRefreshTokenClaims = {
+  kind: "internal-refresh"
+  sub: "server"
+  roomId: string
+  documentId: string
+  action: "refresh"
+  protocolVersion: number
   iat?: number
   exp: number
 }
@@ -39,6 +60,7 @@ export type ChatCollaborationSessionTokenClaims = {
 
 export type CollaborationSessionTokenClaims =
   | DocumentCollaborationSessionTokenClaims
+  | InternalCollaborationRefreshTokenClaims
   | ChatCollaborationSessionTokenClaims
 
 export type CollaborationSessionBootstrap = {
@@ -47,6 +69,9 @@ export type CollaborationSessionBootstrap = {
   token: string
   serviceUrl: string
   role: CollaborationSessionRole
+  protocolVersion?: number
+  schemaVersion?: number
+  limits?: CollaborationLimits
   contentJson?: JSONContent
   contentHtml?: string
   expiresAt?: number
@@ -56,6 +81,8 @@ export type CollaborationSessionBootstrap = {
 export type CollaborationStatusChange = {
   state: CollaborationConnectionState
   reason?: string
+  code?: CollaborationErrorCode
+  reloadRequired?: boolean
 }
 
 export type CollaborationAwarenessChange<TAwarenessState> = {
@@ -190,10 +217,10 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
   const iat = input.iat
   const exp = input.exp
 
-  if (kind !== "doc" && kind !== "chat") {
+  if (kind !== "doc" && kind !== "chat" && kind !== "internal-refresh") {
     return {
       success: false,
-      error: "kind must be doc or chat",
+      error: "kind must be doc, chat, or internal-refresh",
     }
   }
 
@@ -207,6 +234,12 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
           [documentId, "documentId"],
           [sessionId, "sessionId"],
         ] as const)
+      : kind === "internal-refresh"
+        ? ([
+            [sub, "sub"],
+            [roomId, "roomId"],
+            [documentId, "documentId"],
+          ] as const)
       : ([
           [sub, "sub"],
           [roomId, "roomId"],
@@ -258,9 +291,10 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
 
   const normalizedSub = parsedStrings.get("sub")!
   const normalizedRoomId = parsedStrings.get("roomId")!
-  const normalizedSessionId = parsedStrings.get("sessionId")!
 
   if (kind === "doc") {
+    const normalizedSessionId = parsedStrings.get("sessionId")!
+
     if (!isCollaborationSessionRole(role)) {
       return {
         success: false,
@@ -271,6 +305,36 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
     const normalizedRole: CollaborationSessionRole = role
 
     const normalizedDocumentId = parsedStrings.get("documentId")!
+    const protocolVersion = input.protocolVersion
+    const schemaVersion = input.schemaVersion
+
+    if (typeof protocolVersion !== "number") {
+      return {
+        success: false,
+        error: "protocolVersion is required",
+      }
+    }
+
+    if (typeof schemaVersion !== "number") {
+      return {
+        success: false,
+        error: "schemaVersion is required",
+      }
+    }
+
+    if (!isSupportedCollaborationProtocolVersion(protocolVersion)) {
+      return {
+        success: false,
+        error: "protocolVersion is unsupported",
+      }
+    }
+
+    if (!isSupportedRichTextCollaborationSchemaVersion(schemaVersion)) {
+      return {
+        success: false,
+        error: "schemaVersion is unsupported",
+      }
+    }
 
     if (
       !isDocumentCollaborationRoomId(normalizedRoomId, normalizedDocumentId)
@@ -291,6 +355,65 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
         role: normalizedRole,
         sessionId: normalizedSessionId,
         workspaceId,
+        protocolVersion,
+        schemaVersion,
+        iat: typeof iat === "number" ? iat : undefined,
+        exp: normalizedExp,
+      },
+    }
+  }
+
+  if (kind === "internal-refresh") {
+    const normalizedDocumentId = parsedStrings.get("documentId")!
+    const action = input.action
+    const protocolVersion = input.protocolVersion
+
+    if (normalizedSub !== "server") {
+      return {
+        success: false,
+        error: "sub must be server for internal refresh",
+      }
+    }
+
+    if (action !== "refresh") {
+      return {
+        success: false,
+        error: "action must be refresh",
+      }
+    }
+
+    if (typeof protocolVersion !== "number") {
+      return {
+        success: false,
+        error: "protocolVersion is required",
+      }
+    }
+
+    if (!isSupportedCollaborationProtocolVersion(protocolVersion)) {
+      return {
+        success: false,
+        error: "protocolVersion is unsupported",
+      }
+    }
+
+    if (
+      !isDocumentCollaborationRoomId(normalizedRoomId, normalizedDocumentId)
+    ) {
+      return {
+        success: false,
+        error: "roomId must match the document collaboration room",
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        kind,
+        sub: "server",
+        roomId: normalizedRoomId,
+        documentId: normalizedDocumentId,
+        action,
+        protocolVersion,
         iat: typeof iat === "number" ? iat : undefined,
         exp: normalizedExp,
       },
@@ -298,6 +421,7 @@ export function safeParseCollaborationSessionTokenClaims(input: unknown):
   }
 
   const normalizedConversationId = parsedStrings.get("conversationId")!
+  const normalizedSessionId = parsedStrings.get("sessionId")!
 
   if (!isChatCollaborationRoomId(normalizedRoomId, normalizedConversationId)) {
     return {
@@ -336,6 +460,7 @@ export function createDocumentSessionBootstrap(input: {
   token: string
   serviceUrl: string
   role: CollaborationSessionRole
+  limits: CollaborationLimits
   contentJson?: JSONContent
   contentHtml?: string
 }) {
@@ -345,6 +470,9 @@ export function createDocumentSessionBootstrap(input: {
     token: input.token,
     serviceUrl: input.serviceUrl,
     role: input.role,
+    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+    schemaVersion: RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+    limits: input.limits,
     contentJson: input.contentJson,
     contentHtml: input.contentHtml,
   } satisfies CollaborationSessionBootstrap

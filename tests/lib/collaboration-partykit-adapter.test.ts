@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+} from "@/lib/collaboration/protocol"
+
 type EventListener = (...args: unknown[]) => void
 
 const providerState = vi.hoisted(() => ({
@@ -142,9 +147,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("waits for the first synced event before resolving the session connection", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -170,9 +174,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("does not resolve the session before the first synced event", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -201,9 +204,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("does not reject the initial connection on a transient connection error before sync", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -229,12 +231,72 @@ describe("PartyKit collaboration adapter", () => {
     expect(resolved).toBe(true)
   })
 
+  it("maps plain websocket close reasons to structured status changes", async () => {
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+    const statuses: unknown[] = []
+
+    session.onStatusChange((change) => {
+      statuses.push(change)
+    })
+
+    providerState.latest?.emit("connection-error", {
+      reason: "collaboration_conflict_reload_required",
+      code: 4499,
+    })
+
+    expect(statuses.at(-1)).toMatchObject({
+      state: "errored",
+      reason: "This document changed elsewhere. Reload to continue editing.",
+      code: "collaboration_conflict_reload_required",
+      reloadRequired: true,
+    })
+  })
+
+  it("maps websocket close codes when provider events omit a reason", async () => {
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
+
+    const adapter = createPartyKitCollaborationAdapter()
+    const session = adapter.openDocumentSession({
+      roomId: "doc:doc_1",
+      documentId: "doc_1",
+      token: "token_1",
+      serviceUrl: "http://127.0.0.1:1999",
+      role: "editor",
+    })
+    const statuses: unknown[] = []
+
+    session.onStatusChange((change) => {
+      statuses.push(change)
+    })
+
+    providerState.latest?.emit("connection-error", {
+      code: 4499,
+    })
+
+    expect(statuses.at(-1)).toMatchObject({
+      state: "errored",
+      reason: "This document changed elsewhere. Reload to continue editing.",
+      code: "collaboration_conflict_reload_required",
+      reloadRequired: true,
+    })
+  })
+
   it("does not emit an errored status when the initial sync is merely late", async () => {
     vi.useFakeTimers()
 
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -261,9 +323,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("does not pre-seed the collaboration doc from bootstrap content before sync", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -307,9 +368,8 @@ describe("PartyKit collaboration adapter", () => {
       isSecureContext: true,
     })
 
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
 
@@ -325,9 +385,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("emits current awareness state immediately when subscribing", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -390,9 +449,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("preserves semantic cursor fields when updating local awareness", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({
@@ -445,9 +503,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("refreshes an expiring token before provider auth params are resolved", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const getFreshBootstrap = vi.fn().mockResolvedValue({
       roomId: "doc:doc_1",
@@ -470,19 +527,24 @@ describe("PartyKit collaboration adapter", () => {
     })
 
     const params = await (
-      providerState.latest?.options?.params as (() => Promise<{ token: string }>)
+      providerState.latest?.options?.params as () => Promise<{
+        token: string
+        protocolVersion: string
+        schemaVersion: string
+      }>
     )()
 
     expect(getFreshBootstrap).toHaveBeenCalledTimes(1)
     expect(params).toEqual({
       token: "token_2",
+      protocolVersion: String(COLLABORATION_PROTOCOL_VERSION),
+      schemaVersion: String(RICH_TEXT_COLLABORATION_SCHEMA_VERSION),
     })
   })
 
   it("refreshes an expiring token before a manual flush", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const getFreshBootstrap = vi.fn().mockResolvedValue({
       roomId: "doc:doc_1",
@@ -512,6 +574,14 @@ describe("PartyKit collaboration adapter", () => {
     await session.flush()
 
     expect(getFreshBootstrap).toHaveBeenCalledTimes(1)
+    const [flushUrl] = fetchMock.mock.calls[0] ?? []
+    expect(flushUrl).toBeInstanceOf(URL)
+    expect((flushUrl as URL).searchParams.get("protocolVersion")).toBe(
+      String(COLLABORATION_PROTOCOL_VERSION)
+    )
+    expect((flushUrl as URL).searchParams.get("schemaVersion")).toBe(
+      String(RICH_TEXT_COLLABORATION_SCHEMA_VERSION)
+    )
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(URL),
       expect.objectContaining({
@@ -522,23 +592,14 @@ describe("PartyKit collaboration adapter", () => {
         },
         body: JSON.stringify({
           kind: "content",
-          contentJson: {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-              },
-            ],
-          },
         }),
       })
     )
   })
 
   it("forces a fresh bootstrap and retries manual flush after a room mismatch response", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const getFreshBootstrap = vi.fn().mockResolvedValue({
       roomId: "doc:doc_1",
@@ -553,7 +614,13 @@ describe("PartyKit collaboration adapter", () => {
       .mockResolvedValueOnce({
         ok: false,
         status: 401,
-        text: vi.fn().mockResolvedValue("Collaboration room mismatch"),
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            ok: false,
+            code: "collaboration_room_mismatch",
+            message: "Collaboration room mismatch",
+          })
+        ),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -584,7 +651,7 @@ describe("PartyKit collaboration adapter", () => {
           Authorization: "Bearer token_1",
           "Content-Type": "application/json",
         },
-      }),
+      })
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -594,22 +661,19 @@ describe("PartyKit collaboration adapter", () => {
           Authorization: "Bearer token_2",
           "Content-Type": "application/json",
         },
-      }),
+      })
     )
   })
 
   it("surfaces manual flush failures without retrying a room sync fence", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        text: vi.fn().mockResolvedValue(""),
-      })
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: vi.fn().mockResolvedValue(""),
+    })
     vi.stubGlobal("fetch", fetchMock)
 
     const adapter = createPartyKitCollaborationAdapter()
@@ -629,9 +693,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("includes optional work-item metadata in the manual flush payload", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -659,14 +722,6 @@ describe("PartyKit collaboration adapter", () => {
       expect.objectContaining({
         body: JSON.stringify({
           kind: "work-item-main",
-          contentJson: {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-              },
-            ],
-          },
           workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
           workItemTitle: "Updated title",
         }),
@@ -675,9 +730,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("omits the room state vector for document-title-only manual flushes", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -711,9 +765,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("disconnects the session when a manual flush reports a missing document", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
@@ -737,9 +790,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("destroys the Y.Doc when the session disconnects", async () => {
-    const { createPartyKitCollaborationAdapter } = await import(
-      "@/lib/collaboration/adapters/partykit"
-    )
+    const { createPartyKitCollaborationAdapter } =
+      await import("@/lib/collaboration/adapters/partykit")
 
     const adapter = createPartyKitCollaborationAdapter()
     const session = adapter.openDocumentSession({

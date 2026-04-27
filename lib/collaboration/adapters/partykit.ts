@@ -13,6 +13,18 @@ import {
   COLLABORATION_PARTY_NAME,
   COLLABORATION_XML_FRAGMENT,
 } from "@/lib/collaboration/constants"
+import { DEFAULT_COLLABORATION_LIMITS } from "@/lib/collaboration/limits"
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+} from "@/lib/collaboration/protocol"
+import {
+  createCollaborationErrorResponse,
+  getCollaborationErrorCodeForCloseCode,
+  isCollaborationErrorCode,
+  isCollaborationErrorResponse,
+  type CollaborationErrorResponse,
+} from "@/lib/collaboration/errors"
 import type {
   CollaborationAwarenessChange,
   CollaborationFlushInput,
@@ -68,7 +80,14 @@ function normalizeProviderAwarenessState(
   })
 }
 
-function createRoomRequestUrl(baseUrl: string, roomId: string) {
+function createRoomRequestUrl(
+  baseUrl: string,
+  roomId: string,
+  versions: {
+    protocolVersion: number
+    schemaVersion: number
+  }
+) {
   const serviceUrl = new URL(baseUrl)
   const normalizedPath = serviceUrl.pathname.replace(/\/$/, "")
   const roomUrl = new URL(
@@ -77,6 +96,8 @@ function createRoomRequestUrl(baseUrl: string, roomId: string) {
   )
 
   roomUrl.searchParams.set("action", COLLABORATION_FLUSH_PATH.replace("/", ""))
+  roomUrl.searchParams.set("protocolVersion", String(versions.protocolVersion))
+  roomUrl.searchParams.set("schemaVersion", String(versions.schemaVersion))
 
   return roomUrl
 }
@@ -130,9 +151,7 @@ function createAwarenessChange(
 ): CollaborationAwarenessChange<CollaborationAwarenessState> {
   const states = [...provider.awareness.getStates().values()]
     .map(normalizeProviderAwarenessState)
-    .filter(
-      (value): value is CollaborationAwarenessState => value !== null
-    )
+    .filter((value): value is CollaborationAwarenessState => value !== null)
 
   const localSessionId =
     normalizeProviderAwarenessState(provider.awareness.getLocalState())
@@ -140,7 +159,8 @@ function createAwarenessChange(
 
   return {
     local:
-      normalizeProviderAwarenessState(provider.awareness.getLocalState()) ?? null,
+      normalizeProviderAwarenessState(provider.awareness.getLocalState()) ??
+      null,
     remote: localSessionId
       ? states.filter((state) => state.sessionId !== localSessionId)
       : states,
@@ -168,9 +188,7 @@ function createStatusEmitter() {
 
 function createAwarenessEmitter() {
   const listeners = new Set<
-    (
-      change: CollaborationAwarenessChange<CollaborationAwarenessState>
-    ) => void
+    (change: CollaborationAwarenessChange<CollaborationAwarenessState>) => void
   >()
 
   return {
@@ -214,6 +232,20 @@ function shouldRetryFlushWithFreshBootstrap(status: number, message: string) {
   )
 }
 
+function isRetryableCollaborationAuthError(
+  status: number,
+  error: CollaborationErrorResponse | null
+) {
+  if (status !== 401 || !error) {
+    return false
+  }
+
+  return (
+    error.code === "collaboration_room_mismatch" ||
+    error.code === "collaboration_unauthenticated"
+  )
+}
+
 function isDocumentMissingFlushError(status: number, message: string) {
   return (
     status === 404 &&
@@ -221,12 +253,85 @@ function isDocumentMissingFlushError(status: number, message: string) {
   )
 }
 
-function buildFlushRequestBody(
-  doc: Y.Doc,
-  input?: CollaborationFlushInput
-) {
-  const contentJson = yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT)
+async function readCollaborationErrorResponse(response: Response) {
+  const text = await response.text()
 
+  if (!text.trim()) {
+    return {
+      message: "",
+      error: null,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown
+
+    if (isCollaborationErrorResponse(parsed)) {
+      return {
+        message: parsed.message,
+        error: parsed,
+      }
+    }
+  } catch {
+    // Fall through to legacy plain text errors.
+  }
+
+  return {
+    message: text,
+    error: null,
+  }
+}
+
+function parseCollaborationErrorFromUnknown(value: unknown) {
+  if (isCollaborationErrorResponse(value)) {
+    return value
+  }
+
+  if (isCollaborationErrorCode(value)) {
+    return createCollaborationErrorResponse(value)
+  }
+
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const reason =
+    typeof value.reason === "string"
+      ? value.reason
+      : typeof value.message === "string"
+        ? value.message
+        : null
+
+  if (!reason?.trim()) {
+    const closeCode =
+      typeof value.code === "number"
+        ? getCollaborationErrorCodeForCloseCode(value.code)
+        : null
+
+    return closeCode ? createCollaborationErrorResponse(closeCode) : null
+  }
+
+  if (isCollaborationErrorCode(reason)) {
+    return createCollaborationErrorResponse(reason)
+  }
+
+  try {
+    const parsed = JSON.parse(reason) as unknown
+
+    return isCollaborationErrorResponse(parsed) ? parsed : null
+  } catch {
+    const closeCode =
+      typeof value.code === "number"
+        ? getCollaborationErrorCodeForCloseCode(value.code)
+        : null
+
+    return closeCode
+      ? createCollaborationErrorResponse(closeCode, reason)
+      : null
+  }
+}
+
+function buildFlushRequestBody(doc: Y.Doc, input?: CollaborationFlushInput) {
   if (input?.kind === "document-title") {
     return {
       kind: "document-title" as const,
@@ -237,7 +342,6 @@ function buildFlushRequestBody(
   if (input?.kind === "work-item-main") {
     return {
       kind: "work-item-main" as const,
-      contentJson,
       ...(input.workItemExpectedUpdatedAt
         ? {
             workItemExpectedUpdatedAt: input.workItemExpectedUpdatedAt,
@@ -254,23 +358,30 @@ function buildFlushRequestBody(
   if (input?.kind === "teardown-content") {
     return {
       kind: "teardown-content" as const,
-      contentJson,
+      contentJson: yDocToProsemirrorJSON(doc, COLLABORATION_XML_FRAGMENT),
     }
   }
 
   return {
     kind: "content" as const,
-    contentJson,
   }
 }
 
 export function createPartyKitCollaborationAdapter(): CollaborationTransportAdapter<
   CollaborationAwarenessState,
   PartyKitDocumentCollaborationBinding
-  > {
+> {
   return {
     openDocumentSession(bootstrap) {
-      let activeBootstrap = bootstrap
+      const normalizeBootstrap = (nextBootstrap: typeof bootstrap) => ({
+        ...nextBootstrap,
+        protocolVersion:
+          nextBootstrap.protocolVersion ?? COLLABORATION_PROTOCOL_VERSION,
+        schemaVersion:
+          nextBootstrap.schemaVersion ?? RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+        limits: nextBootstrap.limits ?? DEFAULT_COLLABORATION_LIMITS,
+      })
+      let activeBootstrap = normalizeBootstrap(bootstrap)
       let bootstrapRefreshPromise: Promise<typeof bootstrap> | null = null
 
       const assertBootstrapIdentity = (nextBootstrap: typeof bootstrap) => {
@@ -301,10 +412,10 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
             .getFreshBootstrap()
             .then((nextBootstrap) => {
               assertBootstrapIdentity(nextBootstrap)
-              activeBootstrap = {
+              activeBootstrap = normalizeBootstrap({
                 ...nextBootstrap,
                 getFreshBootstrap: activeBootstrap.getFreshBootstrap,
-              }
+              })
               return activeBootstrap
             })
             .finally(() => {
@@ -333,6 +444,8 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
 
             return {
               token: nextBootstrap.token,
+              protocolVersion: String(nextBootstrap.protocolVersion),
+              schemaVersion: String(nextBootstrap.schemaVersion),
             }
           },
         })
@@ -345,16 +458,25 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
 
       const handleProviderStatus = (event: { status: string }) => {
         status.emit({
-          state:
-            event.status === "connected" ? "connected" : "disconnected",
+          state: event.status === "connected" ? "connected" : "disconnected",
           reason: event.status,
         })
       }
       const handleProviderError = (event: unknown) => {
+        const collaborationError = parseCollaborationErrorFromUnknown(event)
         status.emit({
           state: "errored",
           reason:
-            event instanceof Error ? event.message : "Partykit connection error",
+            collaborationError?.message ??
+            (event instanceof Error
+              ? event.message
+              : "Partykit connection error"),
+          ...(collaborationError
+            ? {
+                code: collaborationError.code,
+                reloadRequired: collaborationError.reloadRequired,
+              }
+            : {}),
         })
       }
       const handleAwarenessChange = () => {
@@ -443,7 +565,6 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
                 resolveOnce()
               }
             })
-
           } catch (error) {
             if (isCollaborationSyncTimeoutError(error)) {
               status.emit({
@@ -504,7 +625,15 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
             const response = await fetch(
               createRoomRequestUrl(
                 nextBootstrap.serviceUrl,
-                nextBootstrap.roomId
+                nextBootstrap.roomId,
+                {
+                  protocolVersion:
+                    nextBootstrap.protocolVersion ??
+                    COLLABORATION_PROTOCOL_VERSION,
+                  schemaVersion:
+                    nextBootstrap.schemaVersion ??
+                    RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+                }
               ),
               {
                 method: "POST",
@@ -516,13 +645,18 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
                 body: JSON.stringify(
                   buildFlushRequestBody(session.binding.doc, input)
                 ),
-              },
+              }
             )
+
+            const errorPayload = response.ok
+              ? { message: "", error: null }
+              : await readCollaborationErrorResponse(response)
 
             return {
               ok: response.ok,
               status: response.status,
-              message: response.ok ? "" : await response.text(),
+              message: errorPayload.message,
+              error: errorPayload.error,
             }
           }
 
@@ -534,10 +668,14 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
 
           if (
             activeBootstrap.getFreshBootstrap &&
-            shouldRetryFlushWithFreshBootstrap(
+            (isRetryableCollaborationAuthError(
               initialResult.status,
-              initialResult.message
-            )
+              initialResult.error
+            ) ||
+              shouldRetryFlushWithFreshBootstrap(
+                initialResult.status,
+                initialResult.message
+              ))
           ) {
             const refreshedResult = await flushOnce(true)
 
@@ -550,7 +688,12 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
             )
           }
 
-          if (isDocumentMissingFlushError(initialResult.status, initialResult.message)) {
+          if (
+            isDocumentMissingFlushError(
+              initialResult.status,
+              initialResult.message
+            )
+          ) {
             session.disconnect("document-missing")
           }
 

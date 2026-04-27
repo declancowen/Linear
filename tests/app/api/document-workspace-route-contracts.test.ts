@@ -27,6 +27,7 @@ const resolveDocumentReadModelScopeKeysServerMock = vi.fn()
 const resolveWorkItemReadModelScopeKeysServerMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
+const notifyCollaborationDocumentChangedServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
@@ -88,6 +89,11 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     resolveWorkItemReadModelScopeKeysServerMock,
 }))
 
+vi.mock("@/lib/server/collaboration-refresh", () => ({
+  notifyCollaborationDocumentChangedServer:
+    notifyCollaborationDocumentChangedServerMock,
+}))
+
 describe("document and workspace route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -115,6 +121,7 @@ describe("document and workspace route contracts", () => {
     resolveWorkItemReadModelScopeKeysServerMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
+    notifyCollaborationDocumentChangedServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
       user: {
@@ -152,7 +159,12 @@ describe("document and workspace route contracts", () => {
       "work-index:team_team_1",
     ])
     bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
-    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(
+      undefined
+    )
+    notifyCollaborationDocumentChangedServerMock.mockResolvedValue({
+      ok: true,
+    })
   })
 
   it("maps comment creation domain failures to typed error responses", async () => {
@@ -252,6 +264,73 @@ describe("document and workspace route contracts", () => {
       error: "Document not found",
       message: "Document not found",
       code: "DOCUMENT_NOT_FOUND",
+    })
+  })
+
+  it("does not refresh active collaboration rooms for document title-only updates", async () => {
+    const { PATCH } = await import("@/app/api/documents/[documentId]/route")
+
+    updateDocumentServerMock.mockResolvedValue({
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/documents/document_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "Updated title",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          documentId: "document_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    expect(updateDocumentServerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: undefined,
+        documentId: "document_1",
+        title: "Updated title",
+      })
+    )
+    expect(notifyCollaborationDocumentChangedServerMock).not.toHaveBeenCalled()
+  })
+
+  it("refreshes active collaboration rooms after document body updates", async () => {
+    const { PATCH } = await import("@/app/api/documents/[documentId]/route")
+
+    updateDocumentServerMock.mockResolvedValue({
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    })
+
+    const response = await PATCH(
+      new Request("http://localhost/api/documents/document_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: "<p>Updated body</p>",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          documentId: "document_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    expect(notifyCollaborationDocumentChangedServerMock).toHaveBeenCalledWith({
+      documentId: "document_1",
+      kind: "canonical-updated",
+      reason: "document-route-patch-content",
     })
   })
 

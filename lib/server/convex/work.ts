@@ -330,10 +330,13 @@ export async function deleteWorkItemServer(input: {
   itemId: string
 }) {
   try {
-    return await getConvexServerClient().mutation(
+    return (await getConvexServerClient().mutation(
       api.app.deleteWorkItem,
       withServerToken(input)
-    )
+    )) as {
+      deletedItemIds: string[]
+      deletedDescriptionDocIds?: string[]
+    }
   } catch (error) {
     throw (
       coerceApplicationError(error, [...WORK_ITEM_MUTATION_ERROR_MAPPINGS]) ??

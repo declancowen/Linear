@@ -2,6 +2,7 @@
 
 import type { JSONContent } from "@tiptap/core"
 
+import type { CollaborationLimits } from "@/lib/collaboration/limits"
 import type { CollaborationSessionRole } from "@/lib/collaboration/transport"
 
 import { runRouteMutation } from "./shared"
@@ -13,6 +14,9 @@ export type DocumentCollaborationSessionPayload = {
   serviceUrl: string
   role: CollaborationSessionRole
   sessionId: string
+  protocolVersion: number
+  schemaVersion: number
+  limits: CollaborationLimits
   expiresAt: number
   contentJson?: JSONContent
   contentHtml?: string
