@@ -44,6 +44,27 @@ describe("collaboration refresh notifications", () => {
     )
   })
 
+  it("returns a non-fatal failure when the refresh token cannot be signed", async () => {
+    vi.stubEnv("COLLABORATION_TOKEN_SECRET", "")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { notifyCollaborationDocumentChangedServer } =
+      await import("@/lib/server/collaboration-refresh")
+
+    await expect(
+      notifyCollaborationDocumentChangedServer({
+        documentId: "doc_1",
+        kind: "canonical-updated",
+        reason: "test",
+      })
+    ).resolves.toEqual({
+      ok: false,
+      reason: "COLLABORATION_TOKEN_SECRET is not configured",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("aborts refresh notifications after the configured timeout", async () => {
     vi.useFakeTimers()
     vi.stubEnv("COLLABORATION_REFRESH_TIMEOUT_MS", "25")

@@ -38,11 +38,79 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 11:39:46 BST` |
-| **Total turns** | `9` |
+| **Last reviewed** | `2026-04-27 11:49:14 BST` |
+| **Total turns** | `10` |
 | **Open findings** | `0` |
-| **Resolved findings** | `14` |
+| **Resolved findings** | `15` |
 | **Accepted findings** | `0` |
+
+## Turn 10 — 2026-04-27 11:49:14 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `4361ca7a` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Imported the latest external review finding. One live issue was fixed: refresh token signing happened before the best-effort helper's `try` boundary, so missing `COLLABORATION_TOKEN_SECRET` could reject the helper and convert successful document/work-item writes into route failures after commit.
+**Outcome:** all clear for current actionable findings.
+**Risk score:** high — this is a post-commit partial-failure path in user-facing mutation routes.
+**Change archetypes:** partial-failure containment, integration misconfiguration, best-effort notification contract, route latency/error isolation.
+**Intended change:** make every refresh-notification setup and delivery failure non-fatal to the caller after canonical Convex state has already committed.
+**Intent vs actual:** `notifyCollaborationDocumentChangedServer` now wraps token creation, abort setup, and fetch delivery inside its non-fatal error boundary. Missing token secret returns `{ ok: false, reason }` and skips fetch, matching missing service URL and timeout behavior.
+**Confidence:** high for the reported issue; the helper has a direct regression test and the route callers already treat non-ok helper results as warnings.
+**Coverage note:** reviewed refresh helper, token creation error source, document PATCH/DELETE, item description PATCH, work item DELETE notification callers, and prior timeout behavior.
+**Finding triage:** RCH-015 was live and fixed. Other pasted notes remain already fixed, stale, intentional, or non-blocking observations from Turns 7-9.
+**Bug classes / invariants checked:** best-effort external notification containment, post-commit route response safety, missing secret misconfiguration, timeout cleanup, fetch suppression on setup failure.
+**Branch totality:** re-reviewed the collaboration refresh helper in context of all current API callers and prior refresh-related findings.
+**Sibling closure:** all current refresh notification callers share this helper, so document route, item description route, and work-item deletion notifications inherit the non-fatal token-signing behavior.
+**Remediation impact surface:** `lib/server/collaboration-refresh.ts` and `tests/lib/server/collaboration-refresh.test.ts`.
+**Residual risk / unknowns:** none beyond operational warning visibility; a missing secret means active rooms will not be notified, but canonical data remains correct and routes do not fail after commit.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | Missing `COLLABORATION_TOKEN_SECRET` rejects refresh helper after canonical write commits | Resolved | post-commit partial-failure containment | Best-effort notification setup failures must return `{ ok:false }`, not throw | Wrapped token creation in helper error boundary; added missing-secret regression test |
+
+### Validation
+
+- `pnpm exec prettier --write lib/server/collaboration-refresh.ts tests/lib/server/collaboration-refresh.test.ts` — passed.
+- `pnpm exec vitest run tests/lib/server/collaboration-refresh.test.ts` — passed, `1` file / `3` tests.
+- `pnpm exec eslint $(git diff --name-only origin/main -- '*.ts' '*.tsx') --max-warnings 0` — passed for changed TypeScript/TSX files.
+- `pnpm typecheck` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/app/api/document-workspace-route-contracts.test.ts tests/lib/server/collaboration-refresh.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/lib/collaboration-config.test.ts tests/app/api/work-route-contracts.test.ts` — passed, `13` files / `154` tests.
+- `git diff --check` — passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** refresh helper, token signing helper, document and work-item API notification callers, refresh timeout tests, prior review turns.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-010 refresh timeout remains intact; RCH-011 body-only document refresh remains intact; RCH-012 clean-room callback guard remains intact.
+- **Hotspots or sibling paths revisited:** missing service URL, missing token secret, fetch timeout, non-ok PartyKit response, route warning behavior.
+- **Dependency/adjacent surfaces revalidated:** `createSignedCollaborationToken` error behavior, `resolveCollaborationServiceUrl`, `resolveCollaborationRefreshTimeoutMs`, shared caller handling.
+- **Why this is enough:** the helper is the single boundary used by all current refresh notification routes, and the new test proves the exact setup-failure variant no longer escapes.
+
+### Challenger pass
+
+- `done` — Assumed another setup step could still throw outside the helper boundary. `createDocumentCollaborationRoomId`, token signing, abort setup, URL creation, fetch, response parsing, and timeout cleanup are now inside the non-fatal path after service URL resolution.
+
+### Resolved / Carried / New findings
+
+#### RCH-015 [P1] Treat refresh token-signing failures as non-fatal notification failures
+
+**Status:** Resolved.
+
+**Issue:** `createSignedCollaborationToken` could throw before `notifyCollaborationDocumentChangedServer` entered its `try` block, causing route callers to fail after canonical writes had already committed.
+
+**Fix:** The helper now catches token-signing/setup failures and returns `{ ok: false }`. Tests cover missing token secret and assert no fetch is attempted.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** keep monitoring refresh warning logs after deploy for missing secret or timeout reasons.
+3. **Patterns noticed:** best-effort helpers need their entire setup path inside the non-fatal boundary, not only the external `fetch`.
+4. **Suggested approach:** for future post-commit side effects, test missing configuration before testing network failure.
+5. **Defer on purpose:** no background retry queue in this PR.
 
 ## Turn 9 — 2026-04-27 11:39:46 BST
 

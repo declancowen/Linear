@@ -40,52 +40,58 @@ export async function notifyCollaborationDocumentChangedServer(input: {
     }
   }
 
-  const issuedAt = Math.floor(Date.now() / 1000)
-  const roomId = createDocumentCollaborationRoomId(input.documentId)
-  const token = createSignedCollaborationToken({
-    kind: "internal-refresh",
-    sub: "server",
-    roomId,
-    documentId: input.documentId,
-    action: "refresh",
-    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
-    iat: issuedAt,
-    exp: issuedAt + 60,
-  })
-  const abortController = new AbortController()
-  const timeoutId = setTimeout(() => {
-    abortController.abort()
-  }, timeoutMs)
-
   try {
-    const response = await fetch(createRoomRefreshUrl(serviceUrl, roomId), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(input),
-      signal: abortController.signal,
+    const issuedAt = Math.floor(Date.now() / 1000)
+    const roomId = createDocumentCollaborationRoomId(input.documentId)
+    const token = createSignedCollaborationToken({
+      kind: "internal-refresh",
+      sub: "server",
+      roomId,
+      documentId: input.documentId,
+      action: "refresh",
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+      iat: issuedAt,
+      exp: issuedAt + 60,
     })
+    const abortController = new AbortController()
+    const timeoutId = setTimeout(() => {
+      abortController.abort()
+    }, timeoutMs)
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        reason: await response.text(),
+    try {
+      const response = await fetch(createRoomRefreshUrl(serviceUrl, roomId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+        signal: abortController.signal,
+      })
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          reason: await response.text(),
+        }
       }
-    }
 
-    return {
-      ok: true,
+      return {
+        ok: true,
+      }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        return {
+          ok: false,
+          reason: `Collaboration refresh notification timed out after ${timeoutMs}ms`,
+        }
+      }
+
+      throw error
+    } finally {
+      clearTimeout(timeoutId)
     }
   } catch (error) {
-    if (abortController.signal.aborted) {
-      return {
-        ok: false,
-        reason: `Collaboration refresh notification timed out after ${timeoutMs}ms`,
-      }
-    }
-
     return {
       ok: false,
       reason:
@@ -93,7 +99,5 @@ export async function notifyCollaborationDocumentChangedServer(input: {
           ? error.message
           : "Failed to notify collaboration room",
     }
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
