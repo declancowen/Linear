@@ -38,11 +38,62 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 10:16:53 BST` |
-| **Total turns** | `3` |
+| **Last reviewed** | `2026-04-27 10:20:28 BST` |
+| **Total turns** | `4` |
 | **Open findings** | `0` |
 | **Resolved findings** | `6` |
 | **Accepted findings** | `0` |
+
+## Turn 4 — 2026-04-27 10:20:28 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `e1132a12` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Re-ran diff review with architecture standards against the pushed branch state. No new actionable findings found.
+**Outcome:** all clear for the branch-level realtime collaboration hardening review.
+**Risk score:** high — realtime collaboration authority, protocol compatibility, admission, async persistence, and UX lifecycle are shared production paths.
+**Change archetypes:** contract, async ownership, auth/authorization, compatibility, source-of-truth, observability, lifecycle UX.
+**Intended change:** keep Convex HTML as durable truth while making live PartyKit/Yjs room behavior safe, versioned, limited, observable, and refresh-aware.
+**Intent vs actual:** current branch matches the intended architecture: protocol/limits/errors live in shared collaboration modules, server/PartyKit owns authority, active flush persists server-held room state, refresh replacement is guarded, and client UI lifecycle no longer reopens the same initial sync preview.
+**Confidence:** high for targeted collaboration behavior; medium for whole-repo only because known unrelated full-suite baseline failures are outside this branch.
+**Coverage note:** rechecked branch diff vs `origin/main`, PartyKit auth/admission/request/refresh paths, Next session/update/delete routes, client adapter/session hook, document and work-item detail sync modal gates, protocol docs, and review history.
+**Finding triage:** no live findings.
+**Bug classes / invariants checked:** TOCTOU destructive refresh, stale-client protocol bypass, role-specific capacity limits, server-owned persistence authority, internal refresh auth, Strict Mode duplicate side effects, one-shot modal lifecycle, teardown fallback safety.
+**Branch totality:** current `HEAD`/`origin/realtime-collab-hardening` at `e1132a12` was reviewed against `origin/main`, not just the last patch.
+**Sibling closure:** websocket and manual flush version paths were compared; document body and work-item description boot previews share one helper; document PATCH/DELETE, item description PATCH, and work item DELETE refresh paths were checked for active-room notification parity.
+**Remediation impact surface:** no new remediation needed.
+**Residual risk / unknowns:** hosted two-browser PartyKit smoke remains the only meaningful residual confidence gap; local unit/contract coverage cannot fully prove deployed worker/provider timing.
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed against PR `#26`, branch `realtime-collab-hardening`, base `origin/main`.
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed on `HEAD e1132a12`.
+- `pnpm typecheck` — passed.
+- `git diff --check origin/main` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/app/api/work-route-contracts.test.ts tests/app/api/document-workspace-route-contracts.test.ts` — passed, `11` files / `134` tests.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** current review history, architecture standards checklist, review gates, PartyKit auth/admission/request/server modules, client collaboration adapter/session hook, session/update/delete routes, protocol/limits/errors modules.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-001 through RCH-006 remain resolved in current tree.
+- **Hotspots or sibling paths revisited:** active save authority, teardown fallback, refresh clean/dirty/delete/access variants, viewer/editor admission, stale client websocket/flush variants, Strict Mode duplicate open behavior, document/work-item modal one-shot behavior.
+- **Dependency/adjacent surfaces revalidated:** token signing/parsing, `COLLABORATION_ALLOW_LEGACY_SCHEMA_VERSION` rollout flag, y-partykit flush URL construction, session bootstrap response, refresh internal token path.
+- **Why this is enough:** every previous external finding class now has a direct runtime guard at the owning boundary plus regression coverage on the exact failing variant and a sibling variant where relevant.
+
+### Challenger pass
+
+- `done` — Assumed one serious issue still existed in a bypass path. Rechecked flush without client params, stale schema params before body parse, viewer admission with full editor slots, dirty room during async refresh, and React Strict Mode session opens. No new live bug found.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** run a clean hosted two-client PartyKit smoke after deployment to validate real worker/provider behavior.
+3. **Patterns noticed:** this branch is now stronger where the earlier misses happened because authority and lifecycle invariants are tested at the owning boundary.
+4. **Suggested approach:** keep future collaboration changes behind the protocol/limits/error modules rather than adding route- or component-local policy.
+5. **Defer on purpose:** durable Yjs persistence, local IndexedDB, idle tab disconnect, and follow/scroll presence remain documented future work.
 
 ## Turn 3 — 2026-04-27 10:16:53 BST
 
