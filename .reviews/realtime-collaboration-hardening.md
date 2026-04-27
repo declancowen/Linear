@@ -38,11 +38,80 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 10:43:41 BST` |
-| **Total turns** | `5` |
+| **Last reviewed** | `2026-04-27 11:03:44 BST` |
+| **Total turns** | `6` |
 | **Open findings** | `0` |
-| **Resolved findings** | `9` |
+| **Resolved findings** | `10` |
 | **Accepted findings** | `0` |
+
+## Turn 6 — 2026-04-27 11:03:44 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `a1978af7` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Imported the latest external review batch. One live issue was found and fixed: app-side collaboration refresh notifications were best-effort semantically but could still stall document/work-item mutation responses because the awaited PartyKit `fetch` had no timeout.
+**Outcome:** all clear for current actionable findings.
+**Risk score:** high — this touches mutation response latency after canonical Convex commits and active-room reconciliation notification delivery.
+**Change archetypes:** async integration, partial-failure containment, config contract, route latency, operability.
+**Intended change:** ensure refresh notification failure cannot block user-facing PATCH/DELETE responses indefinitely after canonical data has already been committed.
+**Intent vs actual:** `notifyCollaborationDocumentChangedServer` now uses an app-owned bounded timeout with `AbortController`; timeout configuration is centralized in collaboration config and documented in env/runbook/protocol docs.
+**Confidence:** high for the reported issue; the helper has direct abort/timeout tests and all existing collaboration route/helper suites passed.
+**Coverage note:** reviewed the refresh helper, document PATCH/DELETE, item description PATCH, work item DELETE notification callers, config docs, and prior external findings.
+**Finding triage:** RCH-010 was live and fixed. The rest of the pasted items were already classified in Turn 5 as intentional/stale/observational or remain non-blocking notes.
+**Bug classes / invariants checked:** best-effort async containment, bounded external dependency latency, config fallback safety, canonical mutation independence.
+**Branch totality:** re-ran diff and architecture preflight on the current branch and rechecked the prior realtime collaboration hotspots.
+**Sibling closure:** all three call sites use the same helper, so the timeout applies to document route refresh, item description refresh, and deleted work-item description room notifications.
+**Remediation impact surface:** `lib/collaboration/config.ts`, `lib/server/collaboration-refresh.ts`, `.env.example`, protocol/runbook docs, config and refresh helper tests.
+**Residual risk / unknowns:** timeout value may need tuning in production, but the env override gives operations a safe adjustment point without code changes.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | App routes await PartyKit refresh notification fetches with no timeout | Resolved | async partial-failure containment | Best-effort notification must not introduce unbounded route latency after canonical commit | Added `COLLABORATION_REFRESH_TIMEOUT_MS`, aborting fetch, docs, and regression tests |
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed against PR `#26`, branch `realtime-collab-hardening`, base `origin/main`.
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed on `HEAD a1978af7`.
+- `pnpm exec vitest run tests/lib/collaboration-config.test.ts tests/lib/server/collaboration-refresh.test.ts` — passed, `2` files / `6` tests.
+- `pnpm exec eslint $(git diff --name-only origin/main -- '*.ts' '*.tsx') --max-warnings 0` — passed for changed TypeScript/TSX files.
+- `pnpm typecheck` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/lib/server/collaboration-refresh.test.ts tests/lib/collaboration-config.test.ts tests/app/api/work-route-contracts.test.ts tests/app/api/document-workspace-route-contracts.test.ts` — passed, `13` files / `147` tests.
+- `git diff --check` — passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** app route notification callers, collaboration config, refresh helper, protocol docs, runbook docs, review history.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-007 through RCH-009 remain resolved; refresh is still fire-and-forget in effect, but now bounded while awaited.
+- **Hotspots or sibling paths revisited:** document update/delete, work item description update, work item delete cascade, PartyKit refresh endpoint auth, canonical source-of-truth decision.
+- **Dependency/adjacent surfaces revalidated:** env fallback behavior, abort signal propagation, route warning behavior after failed refresh, timeout reason returned to existing logs.
+- **Why this is enough:** the single helper is the only path all current refresh notifications use, and the new timeout test proves the exact hanging variant cannot remain unbounded.
+
+### Challenger pass
+
+- `done` — Assumed a timeout could become another silent failure. Verified callers already log non-ok refresh results and canonical Convex writes/read-model bumps are completed before the bounded refresh wait.
+
+### Resolved / Carried / New findings
+
+#### RCH-010 [P1] Bound app-to-PartyKit refresh notification fetches
+
+**Status:** Resolved.
+
+**Issue:** Refresh notifications were best-effort logically but still used an awaited `fetch` without timeout, so slow/unreachable PartyKit could stall user-facing mutation responses after Convex had already committed.
+
+**Fix:** Added `COLLABORATION_REFRESH_TIMEOUT_MS` with default `1500`, passed an `AbortSignal` to the refresh `fetch`, and returns a structured failure reason on timeout. Existing callers keep warning and returning success for the canonical mutation.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** monitor refresh timeout warnings after deploy; tune `COLLABORATION_REFRESH_TIMEOUT_MS` if hosted PartyKit p95 needs more room.
+3. **Patterns noticed:** every best-effort external notification should have a bounded latency budget, even when failures are swallowed.
+4. **Suggested approach:** if refresh failures become common, decouple delivery into a background/job path rather than increasing route latency indefinitely.
+5. **Defer on purpose:** no broader refresh queue/retry mechanism in this PR.
 
 ## Turn 5 — 2026-04-27 10:43:41 BST
 

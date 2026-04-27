@@ -195,6 +195,7 @@ Environment overrides:
 - `COLLABORATION_MAX_FLUSH_BODY_BYTES`
 - `COLLABORATION_MAX_CONTENT_JSON_BYTES`
 - `COLLABORATION_MAX_CANONICAL_HTML_BYTES`
+- `COLLABORATION_REFRESH_TIMEOUT_MS`: app-to-PartyKit refresh notification timeout, default `1500`
 
 Invalid overrides fall back to defaults and log once.
 

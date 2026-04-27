@@ -1,5 +1,8 @@
 import { COLLABORATION_PARTY_NAME } from "@/lib/collaboration/constants"
-import { resolveCollaborationServiceUrl } from "@/lib/collaboration/config"
+import {
+  resolveCollaborationRefreshTimeoutMs,
+  resolveCollaborationServiceUrl,
+} from "@/lib/collaboration/config"
 import { createDocumentCollaborationRoomId } from "@/lib/collaboration/rooms"
 import { COLLABORATION_PROTOCOL_VERSION } from "@/lib/collaboration/protocol"
 import { createSignedCollaborationToken } from "@/lib/server/collaboration-token"
@@ -28,6 +31,7 @@ export async function notifyCollaborationDocumentChangedServer(input: {
   reason?: string
 }) {
   const serviceUrl = resolveCollaborationServiceUrl(process.env)
+  const timeoutMs = resolveCollaborationRefreshTimeoutMs(process.env)
 
   if (!serviceUrl) {
     return {
@@ -48,6 +52,10 @@ export async function notifyCollaborationDocumentChangedServer(input: {
     iat: issuedAt,
     exp: issuedAt + 60,
   })
+  const abortController = new AbortController()
+  const timeoutId = setTimeout(() => {
+    abortController.abort()
+  }, timeoutMs)
 
   try {
     const response = await fetch(createRoomRefreshUrl(serviceUrl, roomId), {
@@ -57,6 +65,7 @@ export async function notifyCollaborationDocumentChangedServer(input: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(input),
+      signal: abortController.signal,
     })
 
     if (!response.ok) {
@@ -70,6 +79,13 @@ export async function notifyCollaborationDocumentChangedServer(input: {
       ok: true,
     }
   } catch (error) {
+    if (abortController.signal.aborted) {
+      return {
+        ok: false,
+        reason: `Collaboration refresh notification timed out after ${timeoutMs}ms`,
+      }
+    }
+
     return {
       ok: false,
       reason:
@@ -77,5 +93,7 @@ export async function notifyCollaborationDocumentChangedServer(input: {
           ? error.message
           : "Failed to notify collaboration room",
     }
+  } finally {
+    clearTimeout(timeoutId)
   }
 }

@@ -74,6 +74,7 @@ Optional limit overrides:
 - `COLLABORATION_MAX_FLUSH_BODY_BYTES`
 - `COLLABORATION_MAX_CONTENT_JSON_BYTES`
 - `COLLABORATION_MAX_CANONICAL_HTML_BYTES`
+- App-only: `COLLABORATION_REFRESH_TIMEOUT_MS` bounds best-effort refresh notification waits after Convex mutations. Default: `1500`.
 
 Keep the app and the matching PartyKit service on the same collaboration token secret.
 
