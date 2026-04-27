@@ -38,11 +38,79 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 11:14:29 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-04-27 11:26:32 BST` |
+| **Total turns** | `8` |
 | **Open findings** | `0` |
-| **Resolved findings** | `10` |
+| **Resolved findings** | `11` |
 | **Accepted findings** | `0` |
+
+## Turn 8 — 2026-04-27 11:26:32 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `72e8622d` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Imported the latest external review finding. One live issue was found and fixed: document title-only PATCH requests emitted `canonical-updated`, which PartyKit treats as a body-content refresh and can close dirty active rooms with `collaboration_conflict_reload_required`.
+**Outcome:** all clear for current actionable findings.
+**Risk score:** high — route-level metadata writes were crossing into the active-room body reconciliation protocol.
+**Change archetypes:** realtime protocol boundary, metadata/body authority split, active-room lifecycle, route contract regression.
+**Intended change:** keep `canonical-updated` limited to canonical body changes and avoid disconnecting active editors for title-only document updates.
+**Intent vs actual:** document PATCH now notifies PartyKit only when `parsed.content !== undefined`; title-only updates still persist and bump read models, but do not trigger body reconciliation. Body updates still send `canonical-updated`.
+**Confidence:** high for the reported issue; the route tests now cover both title-only and body-update variants, and the collaboration targeted suite passed.
+**Coverage note:** reviewed document PATCH, PartyKit `canonical-updated` dirty-room handling, item-description PATCH, document DELETE, work-item DELETE notification fan-out, and the prior refresh timeout helper.
+**Finding triage:** RCH-011 was live and fixed. The rest of the latest pasted notes remain already fixed, intentional, or non-blocking observations from Turn 7.
+**Bug classes / invariants checked:** metadata/body authority separation, destructive refresh conflict avoidance, PATCH variant matrix (`title`, `content`, delete), sibling route notification semantics.
+**Branch totality:** re-reviewed current branch state against `origin/main` and the realtime collaboration hotspots, not only the patched route.
+**Sibling closure:** item-description PATCH always changes body content, so it still sends `canonical-updated`; document DELETE still sends `document-deleted`; work-item DELETE still notifies deleted description rooms in parallel.
+**Remediation impact surface:** `app/api/documents/[documentId]/route.ts` and `tests/app/api/document-workspace-route-contracts.test.ts`.
+**Residual risk / unknowns:** if future title changes need live-room metadata propagation, add a metadata-only refresh kind instead of overloading `canonical-updated`.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | Title-only document PATCH emits `canonical-updated` and can close dirty active rooms | Resolved | metadata/body authority split | Body reconciliation signals must not be emitted for metadata-only writes | Gate refresh notification on `parsed.content !== undefined`; added title-only/body-update route tests |
+
+### Validation
+
+- `pnpm exec prettier --write 'app/api/documents/[documentId]/route.ts' tests/app/api/document-workspace-route-contracts.test.ts` — passed.
+- `pnpm exec vitest run tests/app/api/document-workspace-route-contracts.test.ts` — passed, `1` file / `15` tests.
+- `pnpm exec eslint $(git diff --name-only origin/main -- '*.ts' '*.tsx') --max-warnings 0` — passed for changed TypeScript/TSX files.
+- `pnpm typecheck` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/app/api/document-workspace-route-contracts.test.ts tests/lib/server/collaboration-refresh.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/lib/collaboration-config.test.ts tests/app/api/work-route-contracts.test.ts` — passed, `13` files / `150` tests.
+- `git diff --check` — passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** document PATCH/DELETE route, PartyKit refresh handler, collaboration refresh helper, item-description PATCH route, work-item DELETE notification path, Turn 7 review notes.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-007 through RCH-010 remain resolved; the new route guard does not alter server-owned active flush or refresh timeout behavior.
+- **Hotspots or sibling paths revisited:** canonical content refresh, metadata-only document rename, document delete close path, item description body update, dirty active-room conflict handling.
+- **Dependency/adjacent surfaces revalidated:** read-model bump still happens for title-only updates, route response remains successful when no PartyKit notification is needed, body updates still notify active rooms.
+- **Why this is enough:** the bug was a route authority-classification issue, and the fix is at the route boundary that has the parsed payload variant information.
+
+### Challenger pass
+
+- `done` — Assumed the same class might exist in sibling routes. Item-description PATCH cannot be metadata-only, document DELETE uses a distinct delete kind, and work-item DELETE notification only targets deleted description documents. No sibling route needed the same guard.
+
+### Resolved / Carried / New findings
+
+#### RCH-011 [P2] Limit document PATCH canonical refresh to body-content updates
+
+**Status:** Resolved.
+
+**Issue:** Title-only document updates sent `canonical-updated`, causing PartyKit to treat metadata edits as canonical body refreshes and potentially close dirty rooms unnecessarily.
+
+**Fix:** Document PATCH now sends `canonical-updated` only when the request includes `content`. Tests cover no refresh for title-only updates and refresh for body updates.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** if live title propagation becomes necessary, add a metadata-only refresh kind rather than overloading `canonical-updated`.
+3. **Patterns noticed:** refresh kinds must remain authority-specific; broad names like `updated` are too easy to misuse across body and metadata changes.
+4. **Suggested approach:** keep route tests for each PATCH variant whenever a route fans out to realtime side effects.
+5. **Defer on purpose:** no metadata refresh protocol in this PR.
 
 ## Turn 7 — 2026-04-27 11:14:29 BST
 

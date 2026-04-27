@@ -80,17 +80,20 @@ export async function PATCH(
     await bumpScopedReadModelVersionsServer({
       scopeKeys,
     })
-    const refreshResult = await notifyCollaborationDocumentChangedServer({
-      documentId,
-      kind: "canonical-updated",
-      reason: "document-route-patch",
-    })
 
-    if (!refreshResult.ok) {
-      console.warn("[collaboration] failed to refresh active document room", {
+    if (parsed.content !== undefined) {
+      const refreshResult = await notifyCollaborationDocumentChangedServer({
         documentId,
-        reason: refreshResult.reason,
+        kind: "canonical-updated",
+        reason: "document-route-patch-content",
       })
+
+      if (!refreshResult.ok) {
+        console.warn("[collaboration] failed to refresh active document room", {
+          documentId,
+          reason: refreshResult.reason,
+        })
+      }
     }
 
     return jsonOk({
@@ -103,9 +106,13 @@ export async function PATCH(
     }
 
     logProviderError("Failed to update document", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to update document"), 500, {
-      code: "DOCUMENT_UPDATE_FAILED",
-    })
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to update document"),
+      500,
+      {
+        code: "DOCUMENT_UPDATE_FAILED",
+      }
+    )
   }
 }
 
@@ -162,8 +169,12 @@ export async function DELETE(
     }
 
     logProviderError("Failed to delete document", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to delete document"), 500, {
-      code: "DOCUMENT_DELETE_FAILED",
-    })
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to delete document"),
+      500,
+      {
+        code: "DOCUMENT_DELETE_FAILED",
+      }
+    )
   }
 }
