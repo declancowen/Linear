@@ -147,6 +147,14 @@ vi.mock("@/components/app/rich-text-editor", () => ({
       onMentionCountsChange?.(countMentions(nextContent), "local")
     }
 
+    function buildMentionContent(userId: string, count: number) {
+      return Array.from(
+        { length: count },
+        () =>
+          `<span class="editor-mention" data-type="mention" data-id="${userId}">@sam</span>`
+      ).join("")
+    }
+
     return (
       <div
         data-testid="rich-text-editor"
@@ -186,6 +194,38 @@ vi.mock("@/components/app/rich-text-editor", () => ({
           }}
         >
           Clear mentions
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const nextContent = buildMentionContent("user_2", 4)
+
+            onChange(nextContent)
+            onMentionCountsChange?.(countMentions(nextContent), "initial")
+          }}
+        >
+          Sync initial mentions
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const nextContent = buildMentionContent("user_2", 4)
+
+            onChange(nextContent)
+            onMentionCountsChange?.(countMentions(nextContent), "external")
+          }}
+        >
+          Sync external mentions
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const nextContent = buildMentionContent("user_2", 5)
+
+            syncContent(nextContent)
+          }}
+        >
+          Insert mention after sync
         </button>
       </div>
     )
@@ -918,6 +958,68 @@ describe("DocumentDetailScreen", () => {
       expect(
         screen.queryByText("Send mention notifications")
       ).not.toBeInTheDocument()
+    })
+  })
+
+  it("does not include externally synced mentions in a later notification batch", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync external mentions" }))
+
+    expect(screen.queryByText("Send mention notifications")).toBeNull()
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Insert mention after sync",
+      })
+    )
+
+    expect(
+      screen.getByText(
+        "1 mention across 1 person are ready to send for this document."
+      )
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+
+    await waitFor(() => {
+      expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
+        "doc_1",
+        [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ]
+      )
+    })
+  })
+
+  it("does not include initially hydrated mentions in a later notification batch", async () => {
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync initial mentions" }))
+
+    expect(screen.queryByText("Send mention notifications")).toBeNull()
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Insert mention after sync",
+      })
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+
+    await waitFor(() => {
+      expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
+        "doc_1",
+        [
+          {
+            userId: "user_2",
+            count: 1,
+          },
+        ]
+      )
     })
   })
 

@@ -586,6 +586,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       dispatchMentionQueue({
         type: "sync-counts",
         counts,
+        rebaseCounts: source !== "local",
         trackCountIncreases:
           source === "local" && document?.kind !== "private-document",
         ignoredUserIds: [currentUserId],

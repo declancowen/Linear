@@ -18,6 +18,7 @@ export type DocumentMentionQueueAction =
       type: "sync-counts"
       counts: RichTextMentionCounts
       trackCountIncreases?: boolean
+      rebaseCounts?: boolean
       ignoredUserIds?: string[]
     }
   | {
@@ -37,7 +38,10 @@ function getPendingMentionCount(
   currentCounts: RichTextMentionCounts,
   userId: string
 ) {
-  return Math.max(0, (currentCounts[userId] ?? 0) - (baselineCounts[userId] ?? 0))
+  return Math.max(
+    0,
+    (currentCounts[userId] ?? 0) - (baselineCounts[userId] ?? 0)
+  )
 }
 
 function pruneTrackedUserIds(
@@ -84,6 +88,47 @@ function trackCountIncreases(
   return nextTrackedUserIds
 }
 
+function rebaseMentionCounts(
+  baselineCounts: RichTextMentionCounts,
+  previousCounts: RichTextMentionCounts,
+  nextCounts: RichTextMentionCounts,
+  trackedUserIds: Record<string, true>
+) {
+  const rebasedCounts: RichTextMentionCounts = {}
+  const userIds = new Set([
+    ...Object.keys(baselineCounts),
+    ...Object.keys(previousCounts),
+    ...Object.keys(nextCounts),
+  ])
+
+  for (const userId of userIds) {
+    const nextCount = nextCounts[userId] ?? 0
+
+    if (nextCount <= 0) {
+      continue
+    }
+
+    if (!trackedUserIds[userId]) {
+      rebasedCounts[userId] = nextCount
+      continue
+    }
+
+    const previousPendingCount = getPendingMentionCount(
+      baselineCounts,
+      previousCounts,
+      userId
+    )
+    const preservedPendingCount = Math.min(previousPendingCount, nextCount)
+    const rebasedCount = nextCount - preservedPendingCount
+
+    if (rebasedCount > 0) {
+      rebasedCounts[userId] = rebasedCount
+    }
+  }
+
+  return rebasedCounts
+}
+
 export function createDocumentMentionQueueState(
   counts: RichTextMentionCounts
 ): DocumentMentionQueueState {
@@ -106,21 +151,30 @@ export function reduceDocumentMentionQueue(
 
     case "sync-counts": {
       const nextCurrentCounts = cloneMentionCounts(action.counts)
+      const nextBaselineCounts = action.rebaseCounts
+        ? rebaseMentionCounts(
+            state.baselineCounts,
+            state.currentCounts,
+            nextCurrentCounts,
+            state.trackedUserIds
+          )
+        : state.baselineCounts
       const prunedTrackedUserIds = pruneTrackedUserIds(
         state.trackedUserIds,
-        state.baselineCounts,
+        nextBaselineCounts,
         nextCurrentCounts
       )
 
       return {
         ...state,
+        baselineCounts: nextBaselineCounts,
         currentCounts: nextCurrentCounts,
         trackedUserIds: action.trackCountIncreases
           ? trackCountIncreases(
               prunedTrackedUserIds,
               state.currentCounts,
               nextCurrentCounts,
-              state.baselineCounts,
+              nextBaselineCounts,
               action.ignoredUserIds
             )
           : prunedTrackedUserIds,
