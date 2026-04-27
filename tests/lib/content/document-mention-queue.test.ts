@@ -144,4 +144,59 @@ describe("document mention queue", () => {
 
     expect(getPendingDocumentMentionEntries(state)).toEqual([])
   })
+
+  it("rebases external mentions before later local increases", () => {
+    let state = createDocumentMentionQueueState({})
+
+    state = reduceDocumentMentionQueue(state, {
+      type: "sync-counts",
+      counts: {
+        user_1: 4,
+      },
+      rebaseCounts: true,
+    })
+
+    expect(getPendingDocumentMentionEntries(state)).toEqual([])
+
+    state = reduceDocumentMentionQueue(state, {
+      type: "sync-counts",
+      counts: {
+        user_1: 5,
+      },
+      trackCountIncreases: true,
+    })
+
+    expect(getPendingDocumentMentionEntries(state)).toEqual([
+      {
+        userId: "user_1",
+        count: 1,
+      },
+    ])
+  })
+
+  it("preserves queued local mentions across external rebases", () => {
+    let state = createDocumentMentionQueueState({})
+
+    state = reduceDocumentMentionQueue(state, {
+      type: "sync-counts",
+      counts: {
+        user_1: 1,
+      },
+      trackCountIncreases: true,
+    })
+    state = reduceDocumentMentionQueue(state, {
+      type: "sync-counts",
+      counts: {
+        user_1: 4,
+      },
+      rebaseCounts: true,
+    })
+
+    expect(getPendingDocumentMentionEntries(state)).toEqual([
+      {
+        userId: "user_1",
+        count: 1,
+      },
+    ])
+  })
 })
