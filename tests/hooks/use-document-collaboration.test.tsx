@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
+import { StrictMode, type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { CollaborationTransportSession } from "@/lib/collaboration/transport"
@@ -153,6 +154,51 @@ describe("useDocumentCollaboration", () => {
         userId: "user_1",
       })
     )
+  })
+
+  it("does not issue duplicate session bootstraps during Strict Mode effect probing", async () => {
+    const session = createSession()
+
+    openDocumentCollaborationSessionMock.mockResolvedValue({
+      bootstrap: {
+        roomId: "doc:document_1",
+        documentId: "document_1",
+        token: "token",
+        serviceUrl: "https://collab.example.com",
+        role: "editor",
+        sessionId: "session_1",
+        contentJson: bootstrapContentJson,
+      },
+      session,
+    })
+
+    const { useDocumentCollaboration } = await import(
+      "@/hooks/use-document-collaboration"
+    )
+
+    renderHook(
+      () =>
+        useDocumentCollaboration({
+          documentId: "document_1",
+          enabled: true,
+          currentUser: {
+            id: "user_1",
+            name: "Alex",
+            avatarUrl: "",
+            avatarImageUrl: null,
+          },
+        }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <StrictMode>{children}</StrictMode>
+        ),
+      }
+    )
+
+    await waitFor(() => {
+      expect(openDocumentCollaborationSessionMock).toHaveBeenCalledTimes(1)
+      expect(session.connect).toHaveBeenCalledTimes(1)
+    })
   })
 
   it("clears stale collaboration state before re-enabling the same document", async () => {

@@ -38,11 +38,105 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 09:35:20 BST` |
-| **Total turns** | `2` |
+| **Last reviewed** | `2026-04-27 10:16:53 BST` |
+| **Total turns** | `3` |
 | **Open findings** | `0` |
-| **Resolved findings** | `2` |
+| **Resolved findings** | `6` |
 | **Accepted findings** | `0` |
+
+## Turn 3 — 2026-04-27 10:16:53 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `c79a10ac` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Re-reviewed the branch after external findings and a local duplicate-sync report. Four live issues were found and fixed: refresh clean-room replacement had an async dirty-check race, viewer admission was incorrectly blocked by full editor slots, manual flush did not require client version params, and dev Strict Mode/document remounts could issue duplicate collaboration session opens or show the initial sync modal twice.
+**Outcome:** all clear for the actionable findings in this turn.
+**Risk score:** high — collaboration room authority, admission, version compatibility, and initial editor boot flow changed.
+**Change archetypes:** authority, async race, role/permission parity, compatibility gate, lifecycle/retry, UX state.
+**Intended change:** preserve server-owned room state, reject stale non-websocket flushes, allow viewer overflow past editor cap, and show one initial sync preview per document open/session.
+**Intent vs actual:** implementation now checks room dirty/update-version on both sides of the canonical fetch, scopes editor limits to connecting editors only, applies client-version evidence to manual flushes, delays session open until Strict Mode probes can cancel, and records the sync modal as shown when it first opens while keeping that current modal visible until bootstrapping ends.
+**Confidence:** high for targeted collaboration paths; medium for whole-repo because known full-suite baseline failures remain outside this branch.
+**Coverage note:** rechecked PartyKit refresh, admission, request auth, hook lifecycle, document/work-item modal gating, and protocol docs.
+**Finding triage:** RCH-003 through RCH-006 were live and fixed in this turn.
+**Bug classes / invariants checked:** TOCTOU/async preservation, authority boundary, role-specific limits, stale-client compatibility, Strict Mode idempotence, one-shot UI lifecycle.
+**Branch totality:** branch state was reassessed after all new fixes, not just the pasted line references.
+**Sibling closure:** document body and work-item description sync previews both use the shared one-shot gate; websocket join and manual flush both require client version evidence; delete/access refresh paths close without destructive async replacement.
+**Remediation impact surface:** PartyKit admission/server refresh/auth, document collaboration hook, document/work-item detail screens, collaboration protocol doc, regression tests.
+**Residual risk / unknowns:** `localhost:4000` is running and hot-reloaded successfully; local logs still show session issuance from multiple active browser users/tabs, so a clean single-tab manual smoke is still useful before deploy.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | TOCTOU race in `canonical-updated` refresh can overwrite edits arriving during async fetch | Resolved | async preservation / TOCTOU | Dirty state must remain valid across every `await` before destructive replacement | Added `updateVersion` and pre/post-fetch dirty-version checks; conflict closes room instead of replacing |
+| User / external review | Viewer rejected when editor slots are full | Resolved | role-specific admission | Editor cap applies only to connecting editors; total cap applies to all connections | Admission now receives connecting role and only applies editor cap for editors |
+| User / external review | Manual flush accepts missing client protocol/schema params | Resolved | compatibility / authority | Non-websocket operations need the same stale-client evidence as websocket joins | Flush requests now call request verification with `requireClientVersionParams` |
+| User local report | Initial sync modal/session appears twice | Resolved | lifecycle idempotence / Strict Mode variant | Opening a room must be cancellable before network session issuance, and the initial modal must be one-shot per document session | Delayed session open by one task for Strict Mode cancellation; added shared one-shot sync-preview hook for document and work-item description surfaces |
+
+### Validation
+
+- `pnpm typecheck` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/app/api/work-route-contracts.test.ts tests/app/api/document-workspace-route-contracts.test.ts` — passed, `11` files / `134` tests.
+- `git diff --check` — passed.
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no new branch-specific architecture blocker identified.
+- `localhost:4000` — Next dev server is running; hot reload compiled the latest changes.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `services/partykit/server.ts`, `services/partykit/collaboration/admission.ts`, `hooks/use-document-collaboration.ts`, document/work-item detail sync preview code, protocol docs.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-001 and RCH-002 remain fixed; new manual flush path now has the same version gate as websocket admission.
+- **Hotspots or sibling paths revisited:** refresh canonical update/delete/access variants, viewer/editor admission variants, manual flush and teardown-content variants, document and work-item collaboration boot modals.
+- **Dependency/adjacent surfaces revalidated:** session bootstrap side effects under React Strict Mode, sessionStorage one-shot modal state, yjs room dirty tracking, structured refresh conflict close code.
+- **Why this is enough:** each external finding now has a direct runtime guard and regression coverage at the authoritative boundary that failed.
+
+### Challenger pass
+
+- `done` — Assumed the external findings indicated family-level gaps, not one-line bugs. Checked async dirty-state siblings, role variants, non-websocket protocol bypasses, and Strict Mode lifecycle variants.
+
+### Resolved / Carried / New findings
+
+#### RCH-003 [P1] Prevent canonical refresh from overwriting edits made during async fetch
+
+**Status:** Resolved.
+
+**Issue:** `canonical-updated` checked `dirty`, awaited Convex canonical content, then destructively replaced the Y.Doc without rechecking whether clients edited during the fetch window.
+
+**Fix:** Room metadata now tracks an `updateVersion` incremented on every Y.Doc update. Canonical refresh records the version before fetch and rechecks both `dirty` and `updateVersion` after fetch. Any change closes the room with `collaboration_conflict_reload_required`.
+
+#### RCH-004 [P1] Apply editor-room limits only to connecting editors
+
+**Status:** Resolved.
+
+**Issue:** Admission rejected all new connections when editor slots were full, including viewers that should still be allowed when total room capacity remains.
+
+**Fix:** Admission now receives the connecting role and only applies `maxEditorsPerRoom` when that role is `editor`. Total connection caps still apply to every role.
+
+#### RCH-005 [P1] Require client version params on manual flush
+
+**Status:** Resolved.
+
+**Issue:** Flush requests verified token claims but did not require client-reported protocol/schema query params, allowing stale clients to bypass the websocket version gate.
+
+**Fix:** PartyKit request auth now requires client version params for `action=flush`, including teardown fallback. Known failures return structured reload-required errors before parsing the body.
+
+#### RCH-006 [P2] Avoid duplicate initial collaboration sync modal/session opens
+
+**Status:** Resolved.
+
+**Issue:** The initial sync modal was marked as seen only after attach, so remounts/restarts during bootstrap could show it twice. In dev, React Strict Mode effect probing could also issue a throwaway collaboration session request before cleanup.
+
+**Fix:** Collaboration session open is scheduled with a cancellable zero-delay timer so Strict Mode cleanup can prevent the probe request. A shared `useInitialCollaborationSyncPreview` hook records the modal as shown when it opens, while keeping that current modal visible until bootstrapping exits.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** run a clean single-tab browser smoke against local/hosted PartyKit to confirm only one session is issued per document open outside multi-tab test noise.
+3. **Patterns noticed:** every async destructive update needs a post-await invariant check; every cap must be checked against the connecting variant, not just current aggregate state.
+4. **Suggested approach:** keep adding family-level tests for external review findings, not only the exact reported line.
+5. **Defer on purpose:** existing full-suite baseline failures remain outside this branch.
 
 ## Turn 2 — 2026-04-27 09:35:20 BST
 

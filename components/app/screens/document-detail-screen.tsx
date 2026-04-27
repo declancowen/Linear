@@ -41,6 +41,7 @@ import {
 } from "@/lib/domain/selectors"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
+import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
@@ -94,29 +95,6 @@ function formatMentionCountLabel(count: number) {
 
 function formatRecipientCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`
-}
-
-function hasSeenInitialDocumentSyncModal(documentId: string) {
-  if (typeof window === "undefined") {
-    return false
-  }
-
-  return (
-    window.sessionStorage.getItem(
-      `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`
-    ) === "true"
-  )
-}
-
-function markInitialDocumentSyncModalSeen(documentId: string) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  window.sessionStorage.setItem(
-    `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`,
-    "true"
-  )
 }
 
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
@@ -184,8 +162,6 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
-  const [hasSeenInitialCollaborationAttach, setHasSeenInitialCollaborationAttach] =
-    useState(() => hasSeenInitialDocumentSyncModal(documentId))
   const titleInputRef = useRef<HTMLInputElement>(null)
   const editorInstanceRef = useRef<Editor | null>(null)
   const legacyActiveBlockIdRef = useRef<string | null>(null)
@@ -261,7 +237,6 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     previousRouteDocumentIdRef.current = documentId
     setStableCollaborativeDocumentId(null)
-    setHasSeenInitialCollaborationAttach(hasSeenInitialDocumentSyncModal(documentId))
   }, [documentId])
 
   useEffect(() => {
@@ -291,15 +266,6 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const isCollaborationBootstrapping =
     collaborationLifecycle === "bootstrapping"
   const collaborationEditorContent = editorContent
-
-  useEffect(() => {
-    if (!isCollaborationAttached) {
-      return
-    }
-
-    markInitialDocumentSyncModalSeen(documentId)
-    setHasSeenInitialCollaborationAttach(true)
-  }, [documentId, isCollaborationAttached])
 
   currentDocumentContentRef.current = editorContent
 
@@ -758,14 +724,17 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }, [hasPendingMentionNotifications])
 
   const loadedDocument = document
-  const showCollaborationBootPreview =
-    Boolean(
+  const showCollaborationBootPreview = useInitialCollaborationSyncPreview({
+    id: loadedDocument?.id ?? null,
+    storagePrefix: DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX,
+    eligible: Boolean(
       loadedDocument &&
         loadedDocument.kind !== "item-description" &&
-        loadedDocument.kind !== "private-document" &&
-        isCollaborationBootstrapping &&
-        !hasSeenInitialCollaborationAttach
-    )
+        loadedDocument.kind !== "private-document"
+    ),
+    bootstrapping: isCollaborationBootstrapping,
+    attached: isCollaborationAttached,
+  })
   const collaborationPreviewContent =
     typeof bootstrapContent === "string"
       ? bootstrapContent

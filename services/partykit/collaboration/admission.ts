@@ -20,7 +20,8 @@ function isEditorConnection(connection: Connection<MaybeDocumentConnectionState>
 export function assertDocumentRoomAdmission(
   room: Room,
   limits: CollaborationLimits,
-  currentConnection?: Connection
+  currentConnection: Connection | undefined,
+  connectingRole: "viewer" | "editor"
 ) {
   const connections =
     typeof room.getConnections === "function"
@@ -31,6 +32,10 @@ export function assertDocumentRoomAdmission(
 
   if (connections.length >= limits.maxConnectionsPerRoom) {
     throw new PartyKitCollaborationError("collaboration_too_many_connections")
+  }
+
+  if (connectingRole !== "editor") {
+    return
   }
 
   const editorCount = connections.filter(isEditorConnection).length

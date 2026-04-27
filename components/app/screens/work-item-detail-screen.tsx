@@ -34,6 +34,7 @@ import {
   type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
+import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import {
   fetchWorkItemDetailReadModel,
   syncClearWorkItemPresence,
@@ -171,29 +172,6 @@ function isDescriptionPlaceholder(content: string) {
     normalized === "<p>Add a description…</p>" ||
     normalized === "<p>Add a description...</p>" ||
     normalized === "<p></p>"
-  )
-}
-
-function hasSeenInitialItemDescriptionSyncModal(itemId: string) {
-  if (typeof window === "undefined") {
-    return false
-  }
-
-  return (
-    window.sessionStorage.getItem(
-      `${ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX}${itemId}`
-    ) === "true"
-  )
-}
-
-function markInitialItemDescriptionSyncModalSeen(itemId: string) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  window.sessionStorage.setItem(
-    `${ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX}${itemId}`,
-    "true"
   )
 }
 
@@ -1485,8 +1463,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [mainEditing, setMainEditing] = useState(false)
-  const [hasSeenInitialDescriptionAttach, setHasSeenInitialDescriptionAttach] =
-    useState(() => hasSeenInitialItemDescriptionSyncModal(itemId))
   const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
   const [mainDraftUpdatedAt, setMainDraftUpdatedAt] = useState<string | null>(
     null
@@ -1577,9 +1553,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
     previousItemIdRef.current = itemId
     setStableDescriptionDocumentId(null)
-    setHasSeenInitialDescriptionAttach(
-      hasSeenInitialItemDescriptionSyncModal(itemId)
-    )
   }, [itemId])
 
   useEffect(() => {
@@ -1593,16 +1566,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const isCollaborationAttached = collaborationLifecycle === "attached"
   const isCollaborationBootstrapping =
     collaborationLifecycle === "bootstrapping"
-  useEffect(() => {
-    if (!isCollaborationAttached) {
-      return
-    }
-
-    markInitialItemDescriptionSyncModalSeen(itemId)
-    setHasSeenInitialDescriptionAttach(true)
-  }, [isCollaborationAttached, itemId])
-  const showDescriptionBootPreview =
-    isCollaborationBootstrapping && !hasSeenInitialDescriptionAttach
+  const showDescriptionBootPreview = useInitialCollaborationSyncPreview({
+    id: itemId,
+    storagePrefix: ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX,
+    bootstrapping: isCollaborationBootstrapping,
+    attached: isCollaborationAttached,
+  })
   const showDescriptionSyncDialog =
     isEditingCurrentItem && showDescriptionBootPreview
   const collaborationDescriptionContent = mainDraftDescription

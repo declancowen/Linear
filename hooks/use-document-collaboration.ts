@@ -468,10 +468,13 @@ export function useDocumentCollaboration(input: {
       }
     }
 
-    void open()
+    const openTimer = window.setTimeout(() => {
+      void open()
+    }, 0)
 
     return () => {
       cancelled = true
+      window.clearTimeout(openTimer)
       disposeStatus?.()
       disposeAwareness?.()
       disposeSynced?.()

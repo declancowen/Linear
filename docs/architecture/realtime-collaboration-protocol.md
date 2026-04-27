@@ -139,6 +139,7 @@ Rules:
 - `access-changed` closes active connections with `collaboration_access_revoked`.
 - `canonical-updated` replaces a clean active room from Convex canonical content.
 - `canonical-updated` does not overwrite a dirty room; it closes/notifies with `collaboration_conflict_reload_required`.
+- Clean-room replacement is guarded before and after the async canonical fetch with the room dirty flag and update version, so edits that arrive during the fetch window are treated as a conflict instead of being overwritten.
 - Wrong room/document pairs are rejected.
 
 ## Error Codes And Close Codes

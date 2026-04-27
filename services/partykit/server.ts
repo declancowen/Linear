@@ -72,6 +72,7 @@ type CollaborationBootstrapPayload = CollaborationDocumentFromConvex & {
 
 type CollaborationRoomStateMeta = {
   dirty: boolean
+  updateVersion: number
   lastCanonicalHash: string | null
   lastPersistError: string | null
 }
@@ -288,6 +289,7 @@ function getRoomStateMeta(doc: Doc) {
 
   const nextMeta: CollaborationRoomStateMeta = {
     dirty: false,
+    updateVersion: 0,
     lastCanonicalHash: null,
     lastPersistError: null,
   }
@@ -495,7 +497,10 @@ function observeRoomDocument(doc: Doc) {
 
   observedRoomDocs.add(doc)
   doc.on("update", () => {
-    getRoomStateMeta(doc).dirty = true
+    const meta = getRoomStateMeta(doc)
+
+    meta.dirty = true
+    meta.updateVersion += 1
   })
   ;(
     doc as Doc & {
@@ -637,6 +642,24 @@ async function verifyRequestClaims(
     allowLegacyClientVersionParams:
       (room.env as Record<string, unknown>)
         .COLLABORATION_ALLOW_LEGACY_SCHEMA_VERSION === "true",
+  })
+}
+
+function closeRoomForRefreshConflict(
+  room: Room,
+  doc: Doc,
+  documentId: string
+) {
+  closeActiveRoomConnections(doc, {
+    code: 4499,
+    reason: "collaboration_conflict_reload_required",
+  })
+  recordCollaborationEvent({
+    event: "refresh_conflict",
+    level: "warn",
+    roomId: room.id,
+    documentId,
+    code: "collaboration_conflict_reload_required",
   })
 }
 
@@ -976,22 +999,21 @@ async function handleRefreshRequest(
   const roomMeta = getRoomStateMeta(activeRoom.yDoc)
 
   if (roomMeta.dirty) {
-    closeActiveRoomConnections(activeRoom.yDoc, {
-      code: 4499,
-      reason: "collaboration_conflict_reload_required",
-    })
-    recordCollaborationEvent({
-      event: "refresh_conflict",
-      level: "warn",
-      roomId: room.id,
-      documentId: claims.documentId,
-      code: "collaboration_conflict_reload_required",
-    })
+    closeRoomForRefreshConflict(room, activeRoom.yDoc, claims.documentId)
     return
   }
 
+  const updateVersionBeforeFetch = roomMeta.updateVersion
   const payload = await fetchBootstrapDocument(room, activeRoom.claims.sub)
   const contentJson = normalizeCollaborationDocumentJson(payload.contentJson)
+
+  if (
+    roomMeta.dirty ||
+    roomMeta.updateVersion !== updateVersionBeforeFetch
+  ) {
+    closeRoomForRefreshConflict(room, activeRoom.yDoc, claims.documentId)
+    return
+  }
 
   replaceCollaborationDocFromJson(activeRoom.yDoc, contentJson)
   markRoomCanonical(activeRoom.yDoc, contentJson)
@@ -1158,7 +1180,8 @@ const collaboration = {
       assertDocumentRoomAdmission(
         room,
         resolveCollaborationLimits(room.env as Record<string, unknown>),
-        connection
+        connection,
+        claims.role
       )
 
       if (typeof connection.setState === "function") {
@@ -1271,7 +1294,9 @@ const collaboration = {
     let claims: CollaborationSessionTokenClaims
 
     try {
-      claims = await verifyRequestClaims(room, req)
+      claims = await verifyRequestClaims(room, req, {
+        requireClientVersionParams: isFlushRequest,
+      })
     } catch (error) {
       return createCollaborationErrorJsonResponse(error, corsHeaders)
     }
