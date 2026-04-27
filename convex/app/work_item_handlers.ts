@@ -783,6 +783,7 @@ export async function deleteWorkItemHandler(
 
   return {
     deletedItemIds: [...deletedItemIds],
+    deletedDescriptionDocIds: [...deletedDescriptionDocIds],
   }
 }
 

@@ -13,6 +13,7 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
+import { notifyCollaborationDocumentChangedServer } from "@/lib/server/collaboration-refresh"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import {
@@ -146,6 +147,26 @@ export async function DELETE(
     await bumpScopedReadModelVersionsServer({
       scopeKeys,
     })
+    await Promise.all(
+      (result?.deletedDescriptionDocIds ?? []).map(async (documentId) => {
+        const refreshResult = await notifyCollaborationDocumentChangedServer({
+          documentId,
+          kind: "document-deleted",
+          reason: "work-item-route-delete",
+        })
+
+        if (!refreshResult.ok) {
+          console.warn(
+            "[collaboration] failed to notify deleted work item description room",
+            {
+              itemId,
+              documentId,
+              reason: refreshResult.reason,
+            }
+          )
+        }
+      })
+    )
 
     return jsonOk({
       ok: true,

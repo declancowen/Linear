@@ -29,6 +29,12 @@ Operational expectations:
 - local web development targets the hosted dev PartyKit environment rather than a local `partykit dev` process
 - private documents do not participate in collaboration rooms
 
+Deploy compatibility:
+
+- deploy web and PartyKit together when protocol/schema versions change
+- `COLLABORATION_ALLOW_LEGACY_SCHEMA_VERSION=true` may temporarily allow websocket joins without client version params during a deploy-ordering window
+- keep `COLLABORATION_ALLOW_LEGACY_SCHEMA_VERSION` unset/false after rollout; strict rejection is the normal runtime mode
+
 ## Diagnostics
 
 Development diagnostics are emitted through `lib/browser/snapshot-diagnostics.ts`.
@@ -39,6 +45,10 @@ Signals now covered:
 - scoped read-model refresh success and failure
 - scoped invalidation stream reconnects
 - collaboration session open success and failure
+- PartyKit `connect_accepted`, `connect_rejected`, `room_seeded`
+- PartyKit `flush_started`, `flush_succeeded`, `flush_failed`
+- PartyKit `refresh_received`, `refresh_applied`, `refresh_conflict`
+- PartyKit `room_closed`, `limit_rejected`
 - fallback activation onto the legacy snapshot path
 - legacy snapshot stream reconnects
 
@@ -53,10 +63,17 @@ Expected log prefixes:
 
 Abort or roll back if any of the following persist during rollout:
 
-- collaboration join or bootstrap failure rate exceeds `1%`
+- collaboration join failure rate exceeds `1%`:
+  - numerator: `connect_rejected`
+  - denominator: `connect_accepted + connect_rejected`
 - scoped read-model refresh failure rate exceeds `1%`
-- p95 scoped invalidation visibility exceeds `3s`
+- collaboration flush failure rate exceeds `0.5%`:
+  - numerator: `flush_failed`
+  - denominator: `flush_succeeded + flush_failed`
+- p95 scoped invalidation or collaboration refresh visibility exceeds `3s`
 - collaborative documents show durable drift from canonical persisted content
+- `refresh_conflict` appears repeatedly for the same document without a known external update source
+- `limit_rejected` becomes common for normal-sized editing sessions
 - mention-send flows fail after collaborative edits
 
 ## Rollback Controls

@@ -4,6 +4,10 @@ import {
   createSignedCollaborationToken,
   verifySignedCollaborationToken,
 } from "@/lib/server/collaboration-token"
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+} from "@/lib/collaboration/protocol"
 
 describe("collaboration token helpers", () => {
   it("signs and verifies collaboration session tokens", () => {
@@ -29,6 +33,8 @@ describe("collaboration token helpers", () => {
       role: "editor",
       sessionId: "session_1",
       workspaceId: "workspace_1",
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+      schemaVersion: RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
       iat: 100,
       exp: 200,
     })

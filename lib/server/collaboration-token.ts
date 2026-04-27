@@ -1,7 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 
 import { resolveCollaborationTokenSecret } from "@/lib/collaboration/config"
-import type { CollaborationSessionTokenClaims } from "@/lib/collaboration/transport"
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+} from "@/lib/collaboration/protocol"
+import type {
+  CollaborationSessionTokenClaims,
+  DocumentCollaborationSessionTokenClaims,
+} from "@/lib/collaboration/transport"
+
+type LegacyDocumentCollaborationSessionTokenClaims = Omit<
+  DocumentCollaborationSessionTokenClaims,
+  "protocolVersion" | "schemaVersion"
+> &
+  Partial<
+    Pick<
+      DocumentCollaborationSessionTokenClaims,
+      "protocolVersion" | "schemaVersion"
+    >
+  >
+
+type SignableCollaborationSessionTokenClaims =
+  | CollaborationSessionTokenClaims
+  | LegacyDocumentCollaborationSessionTokenClaims
 
 function base64UrlEncode(value: string) {
   return Buffer.from(value, "utf8").toString("base64url")
@@ -26,9 +48,19 @@ function sign(payload: string, secret: string) {
 }
 
 export function createSignedCollaborationToken(
-  claims: CollaborationSessionTokenClaims
+  claims: SignableCollaborationSessionTokenClaims
 ) {
-  const encodedClaims = base64UrlEncode(JSON.stringify(claims))
+  const normalizedClaims =
+    claims.kind === "doc"
+      ? {
+          ...claims,
+          protocolVersion:
+            claims.protocolVersion ?? COLLABORATION_PROTOCOL_VERSION,
+          schemaVersion:
+            claims.schemaVersion ?? RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+        }
+      : claims
+  const encodedClaims = base64UrlEncode(JSON.stringify(normalizedClaims))
   const signature = sign(encodedClaims, getCollaborationTokenSecret())
 
   return `${encodedClaims}.${signature}`

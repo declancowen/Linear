@@ -182,6 +182,14 @@ last_updated: 2026-04-22
     - Blocking unknowns: none
     - Branch status: the full collaboration remediation tranche is landed, the repo-local audit ledger is closed with no open code findings, and the broad automated collaboration/scoped-sync verification sweep is green (`18/18` suites, `109/109` tests, `pnpm typecheck`); explicit multi-client/manual rollback exercises plus secure-transport validation in the browser remain the final pending gate.
     - _Requirements: REQ-FUNC-005, REQ-OPS-001_
+  - [x] 5.3 Harden the document collaboration protocol and PartyKit room boundary
+    - Depends on: 2.1, 2.2, 3.2, 3.3, 5.1
+    - Likely areas: `lib/collaboration/**`, `lib/server/collaboration-token.ts`, `lib/server/collaboration-refresh.ts`, `app/api/collaboration/**`, `services/partykit/**`, `hooks/use-document-collaboration.ts`, `tests/services/partykit-server.test.ts`
+    - Validation: token/parser tests, session route contract tests, adapter params tests, PartyKit connect/flush/limit/refresh tests, hook reload-required mapping tests
+    - Exit criteria: stale clients cannot join/flush, active saves persist server-held room state, teardown fallback is safe, limits are enforced, active-room refresh is available, and known errors are code-driven
+    - Rollback impact: moderate; deploy web and PartyKit together for protocol changes, or disable collaboration with `NEXT_PUBLIC_ENABLE_COLLABORATION=false`
+    - Deferred: durable Yjs state in Convex, local `y-indexeddb`, hidden-tab disconnect, and follow/scroll presence
+    - _Requirements: REQ-FUNC-001, REQ-FUNC-003, REQ-DATA-001, REQ-SEC-001, REQ-OPS-001, REQ-NFR-001_
 
 ## Post-Deploy Verification
 - Confirm collaboration room joins, cold rehydrates, and flushes succeed for document and work item description sessions.

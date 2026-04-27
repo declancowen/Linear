@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createCanonicalContentJson } from "@/lib/collaboration/canonical-content"
+import { DEFAULT_COLLABORATION_LIMITS } from "@/lib/collaboration/limits"
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+} from "@/lib/collaboration/protocol"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { verifySignedCollaborationToken } from "@/lib/server/collaboration-token"
 
@@ -82,6 +87,9 @@ describe("document collaboration session route contracts", () => {
       documentId: "doc_1",
       serviceUrl: "https://partykit.example.com",
       role: "editor",
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+      schemaVersion: RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+      limits: DEFAULT_COLLABORATION_LIMITS,
       contentJson: createCanonicalContentJson("<p>Hello</p>"),
       contentHtml: "<p>Hello</p>",
     })
@@ -95,6 +103,8 @@ describe("document collaboration session route contracts", () => {
       documentId: "doc_1",
       role: "editor",
       workspaceId: "workspace_1",
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+      schemaVersion: RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
     })
   })
 

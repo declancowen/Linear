@@ -23,6 +23,7 @@ import { createPartyKitCollaborationAdapter, type PartyKitDocumentCollaborationB
 import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { openDocumentCollaborationSession } from "@/lib/collaboration/client-session"
 import type {
+  CollaborationStatusChange,
   CollaborationConnectionState,
   CollaborationFlushInput,
   CollaborationSessionRole,
@@ -177,10 +178,14 @@ export function useDocumentCollaboration(input: {
   }, [input.documentId])
 
   const handleStatusChange = useEffectEvent(
-    (nextState: CollaborationConnectionState) => {
+    (change: CollaborationStatusChange) => {
       setState((current) => ({
         ...current,
-        connectionState: nextState,
+        connectionState: change.state,
+        error:
+          change.state === "errored" || change.reloadRequired
+            ? (change.reason ?? current.error)
+            : current.error,
       }))
     }
   )
@@ -279,8 +284,8 @@ export function useDocumentCollaboration(input: {
             bootstrapContent =
               activeBootstrap.contentJson ?? activeBootstrap.contentHtml ?? null
 
-            attemptDisposeStatus = activeOpenedSession.onStatusChange(({ state }) => {
-              handleStatusChange(state)
+            attemptDisposeStatus = activeOpenedSession.onStatusChange((change) => {
+              handleStatusChange(change)
             })
             attemptDisposeAwareness = activeOpenedSession.onAwarenessChange(
               ({ local, remote }) => {

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+} from "@/lib/collaboration/protocol"
+
 type EventListener = (...args: unknown[]) => void
 
 const providerState = vi.hoisted(() => ({
@@ -470,12 +475,18 @@ describe("PartyKit collaboration adapter", () => {
     })
 
     const params = await (
-      providerState.latest?.options?.params as (() => Promise<{ token: string }>)
+      providerState.latest?.options?.params as (() => Promise<{
+        token: string
+        protocolVersion: string
+        schemaVersion: string
+      }>)
     )()
 
     expect(getFreshBootstrap).toHaveBeenCalledTimes(1)
     expect(params).toEqual({
       token: "token_2",
+      protocolVersion: String(COLLABORATION_PROTOCOL_VERSION),
+      schemaVersion: String(RICH_TEXT_COLLABORATION_SCHEMA_VERSION),
     })
   })
 
@@ -512,6 +523,14 @@ describe("PartyKit collaboration adapter", () => {
     await session.flush()
 
     expect(getFreshBootstrap).toHaveBeenCalledTimes(1)
+    const [flushUrl] = fetchMock.mock.calls[0] ?? []
+    expect(flushUrl).toBeInstanceOf(URL)
+    expect((flushUrl as URL).searchParams.get("protocolVersion")).toBe(
+      String(COLLABORATION_PROTOCOL_VERSION)
+    )
+    expect((flushUrl as URL).searchParams.get("schemaVersion")).toBe(
+      String(RICH_TEXT_COLLABORATION_SCHEMA_VERSION)
+    )
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(URL),
       expect.objectContaining({
@@ -522,14 +541,6 @@ describe("PartyKit collaboration adapter", () => {
         },
         body: JSON.stringify({
           kind: "content",
-          contentJson: {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-              },
-            ],
-          },
         }),
       })
     )
@@ -659,14 +670,6 @@ describe("PartyKit collaboration adapter", () => {
       expect.objectContaining({
         body: JSON.stringify({
           kind: "work-item-main",
-          contentJson: {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-              },
-            ],
-          },
           workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
           workItemTitle: "Updated title",
         }),

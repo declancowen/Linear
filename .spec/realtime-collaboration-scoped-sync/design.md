@@ -24,6 +24,25 @@ last_updated: 2026-04-22
 - This spec governs the shared architecture for realtime collaboration and the breakup of the global snapshot synchronization model.
 - It covers collaborative document sessions, editor presence, provider boundaries, scoped read-model invalidation, migration sequencing, and rollback posture.
 
+## Current Collaboration Hardening Decision
+
+This implementation keeps Convex HTML as the durable canonical document body. PartyKit/Yjs remains the live collaboration room model for active sessions, not the durable source of truth.
+
+Outline's durable Yjs state model was reviewed and is a valid future option, but it is deferred for this PR. The compensating controls are:
+
+- document collaboration tokens carry protocol and schema versions
+- PartyKit rejects unsupported document versions on connect and flush
+- active `content` and `work-item-main` flushes persist the server-held room Y.Doc, not a client-supplied body snapshot
+- `teardown-content` is the only client-content fallback and is ignored while another editor remains
+- active rooms can receive internal refresh notifications for canonical updates, deletes, and access changes
+- dirty active rooms are not blindly overwritten by canonical refresh; they close with reload-required conflict semantics
+- room admission, editor count, flush body, teardown JSON, and canonical HTML size limits are explicit
+- PartyKit emits structured collaboration event names used by the rollout and runbook docs
+
+Direct Convex access from PartyKit via server-token helpers remains an accepted current exception. Revisit this if app-controlled callbacks become necessary for audit requirements, richer authorization context, or durable Yjs persistence.
+
+Durable Yjs state should be revisited only if active-room reconciliation becomes too complex, conflict/reload UX becomes frequent, or wiki-grade offline CRDT continuity becomes a required product capability.
+
 ## Repository Discovery Summary
 
 ### Repo Root
