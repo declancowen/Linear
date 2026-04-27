@@ -260,8 +260,11 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     collaborationLifecycle === "bootstrapping"
   const collaborationEditorContent = editorContent
 
-  latestDocumentContentRef.current = document?.content ?? ""
   currentDocumentContentRef.current = editorContent
+
+  useEffect(() => {
+    latestDocumentContentRef.current = document?.content ?? ""
+  }, [document?.content])
 
   useEffect(() => {
     setEditorContent(latestDocumentContentRef.current)

@@ -413,7 +413,7 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
             .then((nextBootstrap) => {
               assertBootstrapIdentity(nextBootstrap)
               activeBootstrap = normalizeBootstrap({
-                ...normalizeBootstrap(nextBootstrap),
+                ...nextBootstrap,
                 getFreshBootstrap: activeBootstrap.getFreshBootstrap,
               })
               return activeBootstrap

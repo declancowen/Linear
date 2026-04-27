@@ -11,9 +11,11 @@ import {
   isDocumentCollaborationRoomId,
   parseCollaborationRoomId,
 } from "@/lib/collaboration/rooms"
+import { DEFAULT_COLLABORATION_LIMITS } from "@/lib/collaboration/limits"
 import {
-  DEFAULT_COLLABORATION_LIMITS,
-} from "@/lib/collaboration/limits"
+  createCollaborationErrorResponse,
+  isCollaborationErrorResponse,
+} from "@/lib/collaboration/errors"
 import {
   COLLABORATION_PROTOCOL_VERSION,
   RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
@@ -36,6 +38,21 @@ import {
 } from "@/lib/scoped-sync/scope-keys"
 
 describe("collaboration foundation contracts", () => {
+  it("accepts only known collaboration error response codes", () => {
+    expect(
+      isCollaborationErrorResponse(
+        createCollaborationErrorResponse("collaboration_sync_timeout")
+      )
+    ).toBe(true)
+    expect(
+      isCollaborationErrorResponse({
+        ok: false,
+        code: "collaboration_not_real",
+        message: "Unknown code",
+      })
+    ).toBe(false)
+  })
+
   it("records collaboration events without content or token payloads", () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
 
@@ -81,7 +98,9 @@ describe("collaboration foundation contracts", () => {
     expect(isDocumentCollaborationRoomId(roomId, "doc_123")).toBe(true)
     expect(isDocumentCollaborationRoomId(roomId, "doc_456")).toBe(false)
     expect(isChatCollaborationRoomId(chatRoomId, "conversation_123")).toBe(true)
-    expect(isChatCollaborationRoomId(chatRoomId, "conversation_456")).toBe(false)
+    expect(isChatCollaborationRoomId(chatRoomId, "conversation_456")).toBe(
+      false
+    )
     expect(parseCollaborationRoomId("doc:bad:id")).toBeNull()
   })
 
@@ -297,10 +316,10 @@ describe("collaboration foundation contracts", () => {
     expect(createConversationThreadScopeKey("conversation_1")).toBe(
       "conversation-thread:conversation_1"
     )
-    expect(createChannelFeedScopeKey("channel_1")).toBe("channel-feed:channel_1")
-    expect(
-      parseReadModelScopeKey("document-detail:doc_123")
-    ).toEqual({
+    expect(createChannelFeedScopeKey("channel_1")).toBe(
+      "channel-feed:channel_1"
+    )
+    expect(parseReadModelScopeKey("document-detail:doc_123")).toEqual({
       kind: READ_MODEL_SCOPE_KINDS.documentDetail,
       parts: ["doc_123"],
       scopeKey: "document-detail:doc_123",
@@ -308,10 +327,15 @@ describe("collaboration foundation contracts", () => {
     expect(parseReadModelScopeKey("shell-context:workspace_1")).toBeNull()
     expect(parseReadModelScopeKey("unsupported:thing")).toBeNull()
     expect(() =>
-      createReadModelScopeKey(READ_MODEL_SCOPE_KINDS.shellContext, "workspace_1")
+      createReadModelScopeKey(
+        READ_MODEL_SCOPE_KINDS.shellContext,
+        "workspace_1"
+      )
     ).toThrow("shell-context does not accept scope parts")
     expect(() =>
       createReadModelScopeKey(READ_MODEL_SCOPE_KINDS.documentDetail, "bad:id")
-    ).toThrow("scope part 1 must use only letters, numbers, underscores, or hyphens")
+    ).toThrow(
+      "scope part 1 must use only letters, numbers, underscores, or hyphens"
+    )
   })
 })

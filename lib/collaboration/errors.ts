@@ -112,7 +112,7 @@ export function isCollaborationErrorResponse(
     "ok" in value &&
     value.ok === false &&
     "code" in value &&
-    typeof value.code === "string" &&
+    isCollaborationErrorCode(value.code) &&
     "message" in value &&
     typeof value.message === "string"
   )

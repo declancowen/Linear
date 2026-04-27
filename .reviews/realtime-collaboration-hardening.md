@@ -38,11 +38,76 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 11:03:44 BST` |
-| **Total turns** | `6` |
+| **Last reviewed** | `2026-04-27 11:14:29 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
 | **Resolved findings** | `10` |
 | **Accepted findings** | `0` |
+
+## Turn 7 — 2026-04-27 11:14:29 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `a1658974` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Imported the latest external review batch and rechecked the current tree with diff-review and architecture standards. No new blocking collaboration issue remains. I applied three cheap hardening cleanups from non-blocking notes: collaboration error response guards now reject unknown codes, the PartyKit adapter no longer double-normalizes refreshed bootstrap payloads, and document content refs are no longer assigned during render.
+**Outcome:** all clear for current actionable findings.
+**Risk score:** high — this branch still covers realtime protocol, auth, active-room reconciliation, async notification failure modes, and client lifecycle behavior.
+**Change archetypes:** protocol guard, client adapter simplification, React lifecycle cleanup, review hardening.
+**Intended change:** close out the latest review notes without changing collaboration authority semantics or introducing another lifecycle/compatibility variant.
+**Intent vs actual:** the runtime semantics remain unchanged except for stricter client-side error response validation; the other two changes remove maintainability footguns while preserving current behavior.
+**Confidence:** high for the latest pasted notes and cleanup set; the same targeted collaboration suite, typecheck, changed-file lint, and diff whitespace checks passed after the changes.
+**Coverage note:** reviewed the pasted current-tree notes, shared collaboration errors, PartyKit adapter bootstrap refresh, document detail content-ref lifecycle, and the prior Turn 5/6 resolved hotspots.
+**Finding triage:** no live High/Medium issue remained. WebSocket close-code propagation, flush version params, canonical refresh TOCTOU, connect metrics, malformed request classification, duplicate sync modal, and refresh timeout findings are already fixed in the current branch. Timing-safe compare, legacy schema flag behavior, Convex wrapper casts, fire-and-forget refresh semantics, and work-item preview eligibility remain intentional/accepted observations.
+**Bug classes / invariants checked:** structured error code validity, stale-client recovery, destructive refresh post-await preservation, bounded best-effort notification latency, React render/effect lifecycle, adapter bootstrap identity preservation.
+**Branch totality:** re-reviewed current branch state against `origin/main`, not only the four cleanup files.
+**Sibling closure:** the collaboration error guard is shared by adapter/hook consumers; the adapter cleanup is confined to refresh bootstrap normalization; document body and work-item body collaboration preview paths were checked via targeted component/hook tests.
+**Remediation impact surface:** `lib/collaboration/errors.ts`, `lib/collaboration/adapters/partykit.ts`, `components/app/screens/document-detail-screen.tsx`, and foundation tests.
+**Residual risk / unknowns:** hosted two-browser PartyKit smoke remains the only useful residual check after deploy; no unresolved code-level finding blocks the PR.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | `isCollaborationErrorResponse` accepts arbitrary string codes | Hardened | protocol guard / type narrowing | Structured recovery should only accept known collaboration codes | Added known-code validation and regression test |
+| User / external review | Redundant `normalizeBootstrap` call | Hardened | maintainability / adapter simplification | Bootstrap refresh should have one normalization boundary | Removed redundant inner normalization |
+| User / external review | Ref assignment during render in document detail | Hardened | React lifecycle / render side effect | Refs used by effects should be updated after commit where easy | Moved latest document content ref update into an effect |
+| User / external review | Timing-safe compare length branch | Intentional | crypto implementation detail | HMAC expected length is fixed/public and no secret is leaked by length mismatch | No code change |
+| User / external review | Legacy schema flag bypass behavior | Intentional | deploy compatibility | Legacy bypass must apply only to fully missing params, not partial version evidence | No code change |
+| User / external review | Convex wrapper return casts | Intentional / compatibility | generated client contract | Wrapper remains backward-compatible with older Convex deployments | No code change |
+| User / external review | Fire-and-forget refresh notifications | Already bounded | async partial failure | Best-effort notification must not stall route responses indefinitely | Turn 6 added timeout and tests |
+| User / external review | WebSocket close reasons may not map to structured errors | Already fixed | recovery propagation | Recovery code must survive HTTP and websocket variants | Turn 5 added close-code/code-string mapping and tests |
+| User / external review | Flush requests skip required client version params | Already fixed | stale-client bypass | HTTP flush must require version params when using document flush path | Current tree uses `requireClientVersionParams: isFlushRequest` and tests cover it |
+
+### Validation
+
+- `pnpm exec prettier --write components/app/screens/document-detail-screen.tsx lib/collaboration/errors.ts lib/collaboration/adapters/partykit.ts tests/lib/collaboration-foundation.test.ts` — passed.
+- `pnpm exec eslint $(git diff --name-only origin/main -- '*.ts' '*.tsx') --max-warnings 0` — passed for changed TypeScript/TSX files.
+- `pnpm typecheck` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/lib/server/collaboration-refresh.test.ts tests/lib/collaboration-config.test.ts tests/app/api/work-route-contracts.test.ts tests/app/api/document-workspace-route-contracts.test.ts` — passed, `13` files / `148` tests.
+- `git diff --check` — passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** latest pasted external notes, current review history, diff-review gates, architecture review checklist, collaboration errors/protocol, PartyKit adapter refresh path, document detail sync lifecycle.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-001 through RCH-010 remain resolved in current tree.
+- **Hotspots or sibling paths revisited:** stale-client websocket/flush compatibility, active-room destructive refresh guard, server-owned active flush, bounded app-to-PartyKit refresh notification, one-shot sync modal/session lifecycle.
+- **Dependency/adjacent surfaces revalidated:** shared error guard, close-code mapping consumers, adapter bootstrap identity assertion, document detail editor reset effect, collaboration targeted test suite.
+- **Why this is enough:** the latest notes were either already fixed, intentional, or local hardening opportunities; each applied cleanup has a direct test or existing behavior-preserving validation path.
+
+### Challenger pass
+
+- `done` — Assumed one latest note was still a live blocker despite being classified as observational. Rechecked websocket close mapping, flush URL version requirements, canonical refresh post-await guard, refresh timeout behavior, and document/work-item initial sync lifecycle. No new live High/Medium issue found.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** run a hosted two-client PartyKit smoke after deploy.
+3. **Patterns noticed:** repeated external notes are now mostly stale/intentional; keep requiring current-tree triage before changing code.
+4. **Suggested approach:** keep collaboration recovery logic centralized in shared protocol/error modules and treat adapter/server divergence as a review hotspot.
+5. **Defer on purpose:** broader repo-wide lint debt and generated Convex return typing improvements remain outside this PR.
 
 ## Turn 6 — 2026-04-27 11:03:44 BST
 
