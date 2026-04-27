@@ -19,6 +19,9 @@ import {
   RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
 } from "@/lib/collaboration/protocol"
 import {
+  createCollaborationErrorResponse,
+  getCollaborationErrorCodeForCloseCode,
+  isCollaborationErrorCode,
   isCollaborationErrorResponse,
   type CollaborationErrorResponse,
 } from "@/lib/collaboration/errors"
@@ -148,9 +151,7 @@ function createAwarenessChange(
 ): CollaborationAwarenessChange<CollaborationAwarenessState> {
   const states = [...provider.awareness.getStates().values()]
     .map(normalizeProviderAwarenessState)
-    .filter(
-      (value): value is CollaborationAwarenessState => value !== null
-    )
+    .filter((value): value is CollaborationAwarenessState => value !== null)
 
   const localSessionId =
     normalizeProviderAwarenessState(provider.awareness.getLocalState())
@@ -158,7 +159,8 @@ function createAwarenessChange(
 
   return {
     local:
-      normalizeProviderAwarenessState(provider.awareness.getLocalState()) ?? null,
+      normalizeProviderAwarenessState(provider.awareness.getLocalState()) ??
+      null,
     remote: localSessionId
       ? states.filter((state) => state.sessionId !== localSessionId)
       : states,
@@ -186,9 +188,7 @@ function createStatusEmitter() {
 
 function createAwarenessEmitter() {
   const listeners = new Set<
-    (
-      change: CollaborationAwarenessChange<CollaborationAwarenessState>
-    ) => void
+    (change: CollaborationAwarenessChange<CollaborationAwarenessState>) => void
   >()
 
   return {
@@ -287,6 +287,10 @@ function parseCollaborationErrorFromUnknown(value: unknown) {
     return value
   }
 
+  if (isCollaborationErrorCode(value)) {
+    return createCollaborationErrorResponse(value)
+  }
+
   if (!isRecord(value)) {
     return null
   }
@@ -299,7 +303,16 @@ function parseCollaborationErrorFromUnknown(value: unknown) {
         : null
 
   if (!reason?.trim()) {
-    return null
+    const closeCode =
+      typeof value.code === "number"
+        ? getCollaborationErrorCodeForCloseCode(value.code)
+        : null
+
+    return closeCode ? createCollaborationErrorResponse(closeCode) : null
+  }
+
+  if (isCollaborationErrorCode(reason)) {
+    return createCollaborationErrorResponse(reason)
   }
 
   try {
@@ -307,14 +320,18 @@ function parseCollaborationErrorFromUnknown(value: unknown) {
 
     return isCollaborationErrorResponse(parsed) ? parsed : null
   } catch {
-    return null
+    const closeCode =
+      typeof value.code === "number"
+        ? getCollaborationErrorCodeForCloseCode(value.code)
+        : null
+
+    return closeCode
+      ? createCollaborationErrorResponse(closeCode, reason)
+      : null
   }
 }
 
-function buildFlushRequestBody(
-  doc: Y.Doc,
-  input?: CollaborationFlushInput
-) {
+function buildFlushRequestBody(doc: Y.Doc, input?: CollaborationFlushInput) {
   if (input?.kind === "document-title") {
     return {
       kind: "document-title" as const,
@@ -353,7 +370,7 @@ function buildFlushRequestBody(
 export function createPartyKitCollaborationAdapter(): CollaborationTransportAdapter<
   CollaborationAwarenessState,
   PartyKitDocumentCollaborationBinding
-  > {
+> {
   return {
     openDocumentSession(bootstrap) {
       const normalizeBootstrap = (nextBootstrap: typeof bootstrap) => ({
@@ -361,8 +378,7 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
         protocolVersion:
           nextBootstrap.protocolVersion ?? COLLABORATION_PROTOCOL_VERSION,
         schemaVersion:
-          nextBootstrap.schemaVersion ??
-          RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+          nextBootstrap.schemaVersion ?? RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
         limits: nextBootstrap.limits ?? DEFAULT_COLLABORATION_LIMITS,
       })
       let activeBootstrap = normalizeBootstrap(bootstrap)
@@ -442,8 +458,7 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
 
       const handleProviderStatus = (event: { status: string }) => {
         status.emit({
-          state:
-            event.status === "connected" ? "connected" : "disconnected",
+          state: event.status === "connected" ? "connected" : "disconnected",
           reason: event.status,
         })
       }
@@ -453,7 +468,9 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
           state: "errored",
           reason:
             collaborationError?.message ??
-            (event instanceof Error ? event.message : "Partykit connection error"),
+            (event instanceof Error
+              ? event.message
+              : "Partykit connection error"),
           ...(collaborationError
             ? {
                 code: collaborationError.code,
@@ -548,7 +565,6 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
                 resolveOnce()
               }
             })
-
           } catch (error) {
             if (isCollaborationSyncTimeoutError(error)) {
               status.emit({
@@ -629,7 +645,7 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
                 body: JSON.stringify(
                   buildFlushRequestBody(session.binding.doc, input)
                 ),
-              },
+              }
             )
 
             const errorPayload = response.ok
@@ -672,7 +688,12 @@ export function createPartyKitCollaborationAdapter(): CollaborationTransportAdap
             )
           }
 
-          if (isDocumentMissingFlushError(initialResult.status, initialResult.message)) {
+          if (
+            isDocumentMissingFlushError(
+              initialResult.status,
+              initialResult.message
+            )
+          ) {
             session.disconnect("document-missing")
           }
 

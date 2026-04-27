@@ -7,6 +7,7 @@ export type CollaborationErrorCode =
   | "collaboration_access_revoked"
   | "collaboration_schema_version_required"
   | "collaboration_schema_version_unsupported"
+  | "collaboration_invalid_payload"
   | "collaboration_too_many_connections"
   | "collaboration_payload_too_large"
   | "collaboration_state_too_large"
@@ -38,18 +39,24 @@ export const COLLABORATION_CLOSE_CODES = {
 
 const DEFAULT_MESSAGES: Record<CollaborationErrorCode, string> = {
   collaboration_unauthenticated: "Collaboration authentication is required",
-  collaboration_forbidden: "You do not have access to this collaboration session",
+  collaboration_forbidden:
+    "You do not have access to this collaboration session",
   collaboration_room_mismatch: "Collaboration room mismatch",
-  collaboration_private_document: "Private documents do not support collaboration sessions",
+  collaboration_private_document:
+    "Private documents do not support collaboration sessions",
   collaboration_document_deleted: "This document was deleted",
   collaboration_access_revoked: "Your access to this document changed",
-  collaboration_schema_version_required: "Collaboration schema version is required",
+  collaboration_schema_version_required:
+    "Collaboration schema version is required",
   collaboration_schema_version_unsupported:
     "This page is out of date. Reload to continue editing.",
-  collaboration_too_many_connections: "This document has too many active editors",
+  collaboration_invalid_payload: "Invalid collaboration request payload",
+  collaboration_too_many_connections:
+    "This document has too many active editors",
   collaboration_payload_too_large: "Collaboration payload is too large",
   collaboration_state_too_large: "Collaboration document is too large",
-  collaboration_sync_timeout: "Timed out waiting for collaboration document sync",
+  collaboration_sync_timeout:
+    "Timed out waiting for collaboration document sync",
   collaboration_stale_client_snapshot_rejected:
     "Stale collaboration content was rejected",
   collaboration_conflict_reload_required:
@@ -69,6 +76,19 @@ const RETRYABLE_CODES = new Set<CollaborationErrorCode>([
   "collaboration_persist_failed",
   "collaboration_unknown",
 ])
+
+const COLLABORATION_ERROR_CODES = new Set<CollaborationErrorCode>(
+  Object.keys(DEFAULT_MESSAGES) as CollaborationErrorCode[]
+)
+
+export function isCollaborationErrorCode(
+  value: unknown
+): value is CollaborationErrorCode {
+  return (
+    typeof value === "string" &&
+    COLLABORATION_ERROR_CODES.has(value as CollaborationErrorCode)
+  )
+}
 
 export function createCollaborationErrorResponse(
   code: CollaborationErrorCode,
@@ -109,6 +129,7 @@ export function getCollaborationCloseCode(code: CollaborationErrorCode) {
     case "collaboration_document_deleted":
       return COLLABORATION_CLOSE_CODES.notFound
     case "collaboration_schema_version_required":
+    case "collaboration_invalid_payload":
     case "collaboration_payload_too_large":
       return COLLABORATION_CLOSE_CODES.invalidPayload
     case "collaboration_schema_version_unsupported":
@@ -141,6 +162,7 @@ export function getCollaborationErrorStatus(code: CollaborationErrorCode) {
       return 429
     case "collaboration_schema_version_required":
     case "collaboration_schema_version_unsupported":
+    case "collaboration_invalid_payload":
     case "collaboration_payload_too_large":
     case "collaboration_state_too_large":
       return 422
@@ -149,5 +171,32 @@ export function getCollaborationErrorStatus(code: CollaborationErrorCode) {
       return 503
     default:
       return 500
+  }
+}
+
+export function getCollaborationErrorCodeForCloseCode(
+  closeCode: number
+): CollaborationErrorCode | null {
+  switch (closeCode) {
+    case COLLABORATION_CLOSE_CODES.unauthenticated:
+      return "collaboration_unauthenticated"
+    case COLLABORATION_CLOSE_CODES.forbidden:
+      return "collaboration_forbidden"
+    case COLLABORATION_CLOSE_CODES.notFound:
+      return "collaboration_document_deleted"
+    case COLLABORATION_CLOSE_CODES.timeout:
+      return "collaboration_sync_timeout"
+    case COLLABORATION_CLOSE_CODES.invalidPayload:
+      return "collaboration_invalid_payload"
+    case COLLABORATION_CLOSE_CODES.reloadRequired:
+      return "collaboration_conflict_reload_required"
+    case COLLABORATION_CLOSE_CODES.tooManyConnections:
+      return "collaboration_too_many_connections"
+    case COLLABORATION_CLOSE_CODES.tooLarge:
+      return "collaboration_state_too_large"
+    case COLLABORATION_CLOSE_CODES.internalError:
+      return "collaboration_persist_failed"
+    default:
+      return null
   }
 }

@@ -1,9 +1,7 @@
 import type { JSONContent } from "@tiptap/core"
 import type { Request as PartyRequest } from "partykit/server"
 
-import {
-  COLLABORATION_FLUSH_PATH,
-} from "../../../lib/collaboration/constants"
+import { COLLABORATION_FLUSH_PATH } from "../../../lib/collaboration/constants"
 import {
   getJsonByteLength,
   getUtf8ByteLength,
@@ -39,10 +37,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function invalidPayload(message: string) {
+  return new PartyKitCollaborationError(
+    "collaboration_invalid_payload",
+    message
+  )
+}
+
+function parseRequestJson(rawBody: string, message: string) {
+  try {
+    return JSON.parse(rawBody) as unknown
+  } catch {
+    throw invalidPayload(message)
+  }
+}
+
 export function isCollaborationFlushRequestUrl(url: URL) {
   return (
-    url.searchParams.get("action") ===
-    COLLABORATION_FLUSH_PATH.replace("/", "")
+    url.searchParams.get("action") === COLLABORATION_FLUSH_PATH.replace("/", "")
   )
 }
 
@@ -73,22 +85,25 @@ export async function parseFlushRequest(
   const rawBody = await request.text()
 
   if (!rawBody.trim()) {
-    throw new Error("Invalid collaboration flush request")
+    throw invalidPayload("Invalid collaboration flush request")
   }
 
   if (getUtf8ByteLength(rawBody) > limits.maxFlushBodyBytes) {
     throw new PartyKitCollaborationError("collaboration_payload_too_large")
   }
 
-  const parsed = JSON.parse(rawBody) as unknown
+  const parsed = parseRequestJson(
+    rawBody,
+    "Invalid collaboration flush request"
+  )
 
   if (!isRecord(parsed)) {
-    throw new Error("Invalid collaboration flush request")
+    throw invalidPayload("Invalid collaboration flush request")
   }
 
   if (parsed.kind === "document-title") {
     if (typeof parsed.documentTitle !== "string") {
-      throw new Error("Invalid collaboration flush request")
+      throw invalidPayload("Invalid collaboration flush request")
     }
 
     return {
@@ -105,7 +120,7 @@ export async function parseFlushRequest(
 
   if (parsed.kind === "teardown-content") {
     if (!isRecord(parsed.contentJson)) {
-      throw new Error("Invalid collaboration flush request")
+      throw invalidPayload("Invalid collaboration flush request")
     }
 
     if (getJsonByteLength(parsed.contentJson) > limits.maxContentJsonBytes) {
@@ -123,14 +138,14 @@ export async function parseFlushRequest(
       typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
       typeof parsed.workItemExpectedUpdatedAt !== "string"
     ) {
-      throw new Error("Invalid collaboration flush request")
+      throw invalidPayload("Invalid collaboration flush request")
     }
 
     if (
       typeof parsed.workItemTitle !== "undefined" &&
       typeof parsed.workItemTitle !== "string"
     ) {
-      throw new Error("Invalid collaboration flush request")
+      throw invalidPayload("Invalid collaboration flush request")
     }
 
     return {
@@ -148,16 +163,19 @@ export async function parseFlushRequest(
     }
   }
 
-  throw new Error("Invalid collaboration flush request")
+  throw invalidPayload("Invalid collaboration flush request")
 }
 
 export async function parseRefreshRequest(
   request: PartyRequest
 ): Promise<CollaborationRoomRefreshRequest> {
-  const parsed = JSON.parse(await request.text()) as unknown
+  const parsed = parseRequestJson(
+    await request.text(),
+    "Invalid collaboration refresh request"
+  )
 
   if (!isRecord(parsed)) {
-    throw new Error("Invalid collaboration refresh request")
+    throw invalidPayload("Invalid collaboration refresh request")
   }
 
   if (
@@ -165,18 +183,18 @@ export async function parseRefreshRequest(
     parsed.kind !== "document-deleted" &&
     parsed.kind !== "access-changed"
   ) {
-    throw new Error("Invalid collaboration refresh request")
+    throw invalidPayload("Invalid collaboration refresh request")
   }
 
   if (typeof parsed.documentId !== "string" || !parsed.documentId.trim()) {
-    throw new Error("Invalid collaboration refresh request")
+    throw invalidPayload("Invalid collaboration refresh request")
   }
 
   if (
     typeof parsed.reason !== "undefined" &&
     typeof parsed.reason !== "string"
   ) {
-    throw new Error("Invalid collaboration refresh request")
+    throw invalidPayload("Invalid collaboration refresh request")
   }
 
   return {

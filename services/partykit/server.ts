@@ -160,7 +160,11 @@ function normalizeConnectionMessageEvents(connection: Connection) {
     return
   }
 
-  connection.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: AddEventListenerOptions | boolean) => {
+  connection.addEventListener = ((
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: AddEventListenerOptions | boolean
+  ) => {
     if (type !== "message") {
       return originalAddEventListener(type, listener, options)
     }
@@ -551,10 +555,13 @@ function closeActiveRoomConnections(
     try {
       connection.close(options?.code, options?.reason)
     } catch (error) {
-      console.warn("[collaboration] failed to close room connection after persist error", {
-        roomId: doc.guid,
-        error,
-      })
+      console.warn(
+        "[collaboration] failed to close room connection after persist error",
+        {
+          roomId: doc.guid,
+          error,
+        }
+      )
     }
   }
 }
@@ -645,11 +652,7 @@ async function verifyRequestClaims(
   })
 }
 
-function closeRoomForRefreshConflict(
-  room: Room,
-  doc: Doc,
-  documentId: string
-) {
+function closeRoomForRefreshConflict(room: Room, doc: Doc, documentId: string) {
   closeActiveRoomConnections(doc, {
     code: 4499,
     reason: "collaboration_conflict_reload_required",
@@ -771,20 +774,14 @@ async function bumpDocumentScopeKeys(
   })
 }
 
-async function loadCanonicalDocument(
-  room: Room
-) {
+async function loadCanonicalDocument(room: Room) {
   const payload = await fetchBootstrapDocument(
     room,
     requireRoomDocumentClaims(room).sub
   )
   const json = normalizeCollaborationDocumentJson(payload.contentJson)
 
-  return prosemirrorJSONToYDoc(
-    richTextSchema,
-    json,
-    COLLABORATION_XML_FRAGMENT
-  )
+  return prosemirrorJSONToYDoc(richTextSchema, json, COLLABORATION_XML_FRAGMENT)
 }
 
 async function persistCanonicalDocument(
@@ -875,10 +872,7 @@ async function persistCanonicalDocument(
   })
 }
 
-async function persistDocumentTitle(
-  room: Room,
-  documentTitle: string
-) {
+async function persistDocumentTitle(room: Room, documentTitle: string) {
   const claims = requireRoomEditorClaims(room)
   const collaborationDocument = await getEditableCollaborationDocument(
     room,
@@ -886,7 +880,9 @@ async function persistDocumentTitle(
   )
 
   if (collaborationDocument.kind === "item-description") {
-    throw new Error("Document title flush is not supported for item descriptions")
+    throw new Error(
+      "Document title flush is not supported for item descriptions"
+    )
   }
 
   if (documentTitle === collaborationDocument.title) {
@@ -1007,10 +1003,7 @@ async function handleRefreshRequest(
   const payload = await fetchBootstrapDocument(room, activeRoom.claims.sub)
   const contentJson = normalizeCollaborationDocumentJson(payload.contentJson)
 
-  if (
-    roomMeta.dirty ||
-    roomMeta.updateVersion !== updateVersionBeforeFetch
-  ) {
+  if (roomMeta.dirty || roomMeta.updateVersion !== updateVersionBeforeFetch) {
     closeRoomForRefreshConflict(room, activeRoom.yDoc, claims.documentId)
     return
   }
@@ -1055,12 +1048,17 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
             error instanceof Error
               ? error.message
               : "Failed to persist collaboration document"
-          console.error("[collaboration] failed to persist canonical document", {
-            roomId: room.id,
-            documentId: parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
-            userId: getRoomSessionState(room.id).latestEditorClaims?.sub ?? null,
-            error,
-          })
+          console.error(
+            "[collaboration] failed to persist canonical document",
+            {
+              roomId: room.id,
+              documentId:
+                parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
+              userId:
+                getRoomSessionState(room.id).latestEditorClaims?.sub ?? null,
+              error,
+            }
+          )
           closeActiveRoomConnections(doc, {
             code: 1011,
             reason: "collaboration_persist_failed",
@@ -1086,7 +1084,6 @@ async function ensureCanonicalDocumentSeeded(
   const currentJson = normalizeCollaborationDocumentJson(
     yDocToProsemirrorJSON(yDoc, COLLABORATION_XML_FRAGMENT)
   )
-  const roomMeta = getRoomStateMeta(yDoc)
 
   if (!hasActiveConnections) {
     if (!areDocumentJsonEqual(currentJson, contentJson)) {
@@ -1094,7 +1091,10 @@ async function ensureCanonicalDocumentSeeded(
     }
 
     markRoomCanonical(yDoc, contentJson)
-  } else if (!isEmptyDocumentJson(contentJson) && isCollaborationDocEmpty(yDoc)) {
+  } else if (
+    !isEmptyDocumentJson(contentJson) &&
+    isCollaborationDocEmpty(yDoc)
+  ) {
     replaceCollaborationDocFromJson(yDoc, contentJson)
     markRoomCanonical(yDoc, contentJson)
   }
@@ -1118,10 +1118,6 @@ const collaboration = {
           requireClientVersionParams: true,
         }
       )
-      recordCollaborationEvent({
-        event: "connect_accepted",
-        roomId: lobby.id,
-      })
       return req
     } catch (error) {
       const collaborationError = toCollaborationError(error)
@@ -1170,6 +1166,12 @@ const collaboration = {
           handleChatPresenceMessage(payload, connection, room)
         })
         broadcastChatPresenceSnapshot(room)
+        recordCollaborationEvent({
+          event: "connect_accepted",
+          roomId: room.id,
+          sessionId: claims.sessionId,
+          userId: claims.sub,
+        })
         return
       }
 
@@ -1205,6 +1207,13 @@ const collaboration = {
       await onConnect(connection, room, {
         ...options,
         readOnly: claims.role === "viewer",
+      })
+      recordCollaborationEvent({
+        event: "connect_accepted",
+        roomId: room.id,
+        documentId: claims.documentId,
+        sessionId: claims.sessionId,
+        userId: claims.sub,
       })
     } catch (error) {
       const collaborationError = toCollaborationError(error)

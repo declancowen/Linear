@@ -95,15 +95,42 @@ export async function verifyCollaborationRequestClaims(input: {
   }
 
   const expectedSignature = await signPayload(encodedClaims, input.secret)
-  const providedSignatureBytes = decodeBase64UrlBytes(providedSignature)
+  let providedSignatureBytes: Uint8Array
+
+  try {
+    providedSignatureBytes = decodeBase64UrlBytes(providedSignature)
+  } catch {
+    throw new Error("Invalid collaboration token")
+  }
 
   if (!timingSafeEqual(expectedSignature, providedSignatureBytes)) {
     throw new Error("Invalid collaboration token signature")
   }
 
-  const claims = parseCollaborationSessionTokenClaims(
-    JSON.parse(decodeBase64UrlUtf8(encodedClaims))
-  )
+  let decodedClaims: unknown
+
+  try {
+    decodedClaims = JSON.parse(decodeBase64UrlUtf8(encodedClaims))
+  } catch {
+    throw new Error("Invalid collaboration token")
+  }
+
+  let claims: CollaborationSessionTokenClaims
+
+  try {
+    claims = parseCollaborationSessionTokenClaims(decodedClaims)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    if (
+      message.includes("schemaVersion") ||
+      message.includes("protocolVersion")
+    ) {
+      throw error
+    }
+
+    throw new Error("Invalid collaboration token")
+  }
 
   if (claims.exp * 1000 <= Date.now()) {
     throw new Error("Expired collaboration token")

@@ -38,11 +38,103 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 10:20:28 BST` |
-| **Total turns** | `4` |
+| **Last reviewed** | `2026-04-27 10:43:41 BST` |
+| **Total turns** | `5` |
 | **Open findings** | `0` |
-| **Resolved findings** | `6` |
+| **Resolved findings** | `9` |
 | **Accepted findings** | `0` |
+
+## Turn 5 — 2026-04-27 10:43:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `fac413bf` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Imported the latest external review set and re-ran the collaboration diff review with architecture standards. Three live issues were fixed: `connect_accepted` was emitted before full admission/provider handoff, websocket plain-string close reasons were not mapped into structured client status, and malformed request payload/token parse failures could fall through as `collaboration_unknown` 5xx errors.
+**Outcome:** all clear for current actionable collaboration findings.
+**Risk score:** high — the changed paths affect realtime admission metrics, schema/protocol recovery, auth/payload classification, and active-room data preservation.
+**Change archetypes:** observability contract, protocol/error taxonomy, auth/input validation, browser transport adapter, lifecycle/async authority.
+**Intended change:** keep the hardening architecture intact while closing new externally reported bypasses/misclassification paths.
+**Intent vs actual:** accepted telemetry now fires only after full room admission and y-partykit provider handoff; close-code/reason handling is centralized in shared collaboration errors; malformed auth/request bodies are mapped to 401/422 structured collaboration responses.
+**Confidence:** high for the reported collaboration issues; medium for repo-wide lint only because `pnpm lint` still reports existing `origin/main` lint debt outside the changed-file set.
+**Coverage note:** reviewed current-tree PartyKit `onBeforeConnect`/`onConnect`, request auth/parse/error mapping, close-code helpers, client adapter `connection-error` parsing, canonical refresh TOCTOU guard, docs, and regression tests.
+**Finding triage:** RCH-007 through RCH-009 were live and fixed; the pasted canonical-refresh TOCTOU finding is stale because Turn 3 already added the post-fetch `dirty`/`updateVersion` guard and regression test.
+**Bug classes / invariants checked:** observability event atomicity, stale-client recovery propagation, malformed input classification, destructive-refresh post-await preservation, sibling websocket/HTTP error parity.
+**Branch totality:** current working tree was reviewed against `origin/main`; prior hotspots and Turn 3/4 resolved findings were rechecked, not just the latest pasted lines.
+**Sibling closure:** websocket close reason and numeric close-code variants are both tested; flush and refresh malformed JSON variants are both tested; malformed token signature variant is tested; admission rejection is tested after successful token preflight.
+**Remediation impact surface:** shared collaboration error code module, PartyKit auth/request/errors/server modules, client PartyKit adapter, protocol/rollout docs, and server/adapter tests.
+**Residual risk / unknowns:** hosted multi-client worker smoke remains useful, but no unresolved High/Medium code finding remains in the reviewed collaboration branch.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | `connect_accepted` emitted before admission and could double-count failed attempts | Resolved | observability atomicity | Accepted/rejected metrics must be mutually exclusive terminal outcomes | Moved `connect_accepted` to successful chat setup and successful document provider handoff; added rejection regression test |
+| User / external review | `canonical-updated` dirty check before async fetch could overwrite edits | Stale / already fixed | TOCTOU / destructive async preservation | Dirty/version must be rechecked after every `await` before replacement | Revalidated existing `updateVersion` guard and test from Turn 3 |
+| User / external review | Plain websocket close reasons were not parsed by the adapter | Resolved | protocol recovery propagation | Structured recovery must survive both HTTP JSON errors and websocket close events | Added close-code/code-string mapping and adapter tests for reason string and code-only events |
+| User / external review | Malformed token/JSON inputs mapped to `collaboration_unknown` 500 | Resolved | malformed input classification | Client/auth parse failures must be 4xx structured errors, not 5xx operational failures | Added `collaboration_invalid_payload`, token decode guards, parse guards, and 401/422 tests |
+| User / external review | Flush path allegedly skips required version params | Stale / already fixed | stale-client compatibility | HTTP flush needs the same version evidence as websocket admission | Current tree uses `requireClientVersionParams: isFlushRequest`; existing tests cover missing/stale flush params |
+| User / external review | Timing-safe compare length branch | Intentional | crypto implementation detail | HMAC length is public/fixed and length mismatch gives no secret | No change |
+| User / external review | Refresh notifications are fire-and-forget | Intentional | partial-failure semantics | Canonical Convex update should not fail because active-room notification failed | No change |
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed against PR `#26`, branch `realtime-collab-hardening`, base `origin/main`.
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed on `HEAD fac413bf`.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/lib/collaboration-partykit-adapter.test.ts` — passed, `2` files / `56` tests.
+- `pnpm typecheck` — passed.
+- `pnpm exec eslint $(git diff --name-only origin/main -- '*.ts' '*.tsx') --max-warnings 0` — passed for changed TypeScript/TSX files.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/app/api/work-route-contracts.test.ts tests/app/api/document-workspace-route-contracts.test.ts` — passed, `11` files / `141` tests.
+- `git diff --check` — passed.
+- `pnpm lint` — still fails on existing repo-wide lint issues outside this branch's changed-file set, including React compiler/ref warnings in unmodified `components/app/rich-text-editor.tsx`, `hooks/use-expiring-retained-value.ts`, and `hooks/use-retained-team-by-slug.ts`.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PartyKit server/auth/request/error modules, shared collaboration errors/protocol, client adapter, hook/document sync paths, protocol/rollout docs, previous review turns.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-003 TOCTOU guard, RCH-004 viewer/editor admission split, RCH-005 flush version params, and RCH-006 duplicate sync modal/session path remain resolved.
+- **Hotspots or sibling paths revisited:** websocket connect telemetry, admission rejection, HTTP flush parse, internal refresh parse, malformed token decode, websocket close-code propagation, canonical refresh clean/dirty variants.
+- **Dependency/adjacent surfaces revalidated:** shared close code mapping, adapter status emitter, hook reload-required handling, docs rollout metric denominator, changed-file lint.
+- **Why this is enough:** each live external finding now has a guard at the owning boundary plus targeted regression coverage for the exact weak variant and at least one sibling variant.
+
+### Challenger pass
+
+- `done` — Assumed the new fixes could create another metrics/error mismatch. Checked accepted/rejected event exclusivity, malformed token versus malformed body status codes, close reason string versus numeric code paths, and stale TOCTOU line references against current code.
+
+### Resolved / Carried / New findings
+
+#### RCH-007 [P2] Emit `connect_accepted` only after admission and provider handoff
+
+**Status:** Resolved.
+
+**Issue:** A connection could emit `connect_accepted` during token preflight and later emit `connect_rejected` during admission/seed/provider failure, corrupting rollout failure-rate metrics.
+
+**Fix:** `onBeforeConnect` now performs only auth preflight. `connect_accepted` is emitted after successful chat setup or successful document room admission, seeding, and `onConnect` provider handoff.
+
+#### RCH-008 [P2] Preserve structured recovery for websocket close events
+
+**Status:** Resolved.
+
+**Issue:** HTTP collaboration errors were structured JSON, but websocket close events could arrive as plain collaboration-code strings or numeric close codes, which the adapter ignored.
+
+**Fix:** Shared errors now expose code validation and close-code mapping. The adapter maps plain code strings and code-only close events into `CollaborationErrorResponse` before emitting status.
+
+#### RCH-009 [P2] Classify malformed auth/request payloads as client errors
+
+**Status:** Resolved.
+
+**Issue:** Invalid base64/token decode and malformed flush/refresh JSON could fall through to `collaboration_unknown` with HTTP 500.
+
+**Fix:** Token decode/schema parsing now preserves version errors but maps malformed tokens to `collaboration_unauthenticated`. Flush/refresh parsing throws `collaboration_invalid_payload` and returns structured HTTP 422.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** run hosted two-client PartyKit smoke after deploy.
+3. **Patterns noticed:** the strongest prevention artifact here is boundary-level tests for metrics, close-code propagation, and malformed input classification.
+4. **Suggested approach:** keep all new collaboration recovery states in `lib/collaboration/errors.ts` first, then consume from server and adapter.
+5. **Defer on purpose:** repo-wide lint debt outside this branch remains separate from the collaboration findings fixed here.
 
 ## Turn 4 — 2026-04-27 10:20:28 BST
 

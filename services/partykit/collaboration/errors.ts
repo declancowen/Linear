@@ -61,7 +61,10 @@ export function toCollaborationError(error: unknown) {
   }
 
   if (message.includes("room mismatch")) {
-    return new PartyKitCollaborationError("collaboration_room_mismatch", message)
+    return new PartyKitCollaborationError(
+      "collaboration_room_mismatch",
+      message
+    )
   }
 
   if (message.includes("too many active editors")) {
@@ -78,7 +81,21 @@ export function toCollaborationError(error: unknown) {
     )
   }
 
-  if (message.includes("schemaVersion") || message.includes("protocolVersion")) {
+  if (
+    message === "Invalid collaboration flush request" ||
+    message === "Invalid collaboration refresh request" ||
+    message.includes("JSON")
+  ) {
+    return new PartyKitCollaborationError(
+      "collaboration_invalid_payload",
+      message
+    )
+  }
+
+  if (
+    message.includes("schemaVersion") ||
+    message.includes("protocolVersion")
+  ) {
     return new PartyKitCollaborationError(
       message.includes("required")
         ? "collaboration_schema_version_required"

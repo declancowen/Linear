@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useReducer } from "react"
 
 function hasSeenInitialSyncPreview(storageKey: string) {
   if (typeof window === "undefined") {
@@ -26,30 +26,87 @@ export function useInitialCollaborationSyncPreview(input: {
   attached: boolean
 }) {
   const storageKey = input.id ? `${input.storagePrefix}${input.id}` : null
-  const [seenPreview, setSeenPreview] = useState(() => ({
+  const [previewState, dispatchPreviewState] = useReducer(
+    (
+      state: {
+        storageKey: string | null
+        seen: boolean
+        activePreviewId: string | null
+      },
+      action:
+        | {
+            type: "reset-storage-key"
+            storageKey: string | null
+          }
+        | {
+            type: "start"
+            id: string
+            storageKey: string
+          }
+        | {
+            type: "stop"
+            id: string
+          }
+    ) => {
+      if (action.type === "reset-storage-key") {
+        return {
+          storageKey: action.storageKey,
+          seen: action.storageKey
+            ? hasSeenInitialSyncPreview(action.storageKey)
+            : false,
+          activePreviewId: null,
+        }
+      }
+
+      if (action.type === "start") {
+        return {
+          storageKey: action.storageKey,
+          seen: true,
+          activePreviewId: action.id,
+        }
+      }
+
+      if (state.activePreviewId !== action.id) {
+        return state
+      }
+
+      return {
+        ...state,
+        activePreviewId: null,
+      }
+    },
     storageKey,
-    value: storageKey ? hasSeenInitialSyncPreview(storageKey) : false,
-  }))
-  const [activePreviewId, setActivePreviewId] = useState<string | null>(null)
+    (initialStorageKey) => ({
+      storageKey: initialStorageKey,
+      seen: initialStorageKey
+        ? hasSeenInitialSyncPreview(initialStorageKey)
+        : false,
+      activePreviewId: null,
+    })
+  )
+  const seenPreview = {
+    storageKey,
+    value: previewState.storageKey === storageKey ? previewState.seen : true,
+  }
+  const activePreviewId = previewState.activePreviewId
   const hasSeenPreview =
     seenPreview.storageKey === storageKey ? seenPreview.value : true
 
   useEffect(() => {
-    setActivePreviewId(null)
-    setSeenPreview({
+    dispatchPreviewState({
+      type: "reset-storage-key",
       storageKey,
-      value: storageKey ? hasSeenInitialSyncPreview(storageKey) : false,
     })
   }, [storageKey])
 
   const eligible = input.eligible ?? true
   const shouldStartPreview = Boolean(
     input.id &&
-      storageKey &&
-      eligible &&
-      input.bootstrapping &&
-      !hasSeenPreview &&
-      activePreviewId !== input.id
+    storageKey &&
+    eligible &&
+    input.bootstrapping &&
+    !hasSeenPreview &&
+    activePreviewId !== input.id
   )
 
   useEffect(() => {
@@ -58,11 +115,11 @@ export function useInitialCollaborationSyncPreview(input: {
     }
 
     markInitialSyncPreviewSeen(storageKey)
-    setSeenPreview({
+    dispatchPreviewState({
+      type: "start",
+      id: input.id,
       storageKey,
-      value: true,
     })
-    setActivePreviewId(input.id)
   }, [input.id, shouldStartPreview, storageKey])
 
   useEffect(() => {
@@ -71,20 +128,17 @@ export function useInitialCollaborationSyncPreview(input: {
     }
 
     if (!eligible || !input.bootstrapping || input.attached) {
-      setActivePreviewId(null)
+      dispatchPreviewState({
+        type: "stop",
+        id: input.id,
+      })
     }
-  }, [
-    activePreviewId,
-    eligible,
-    input.attached,
-    input.bootstrapping,
-    input.id,
-  ])
+  }, [activePreviewId, eligible, input.attached, input.bootstrapping, input.id])
 
   return Boolean(
     input.id &&
-      eligible &&
-      input.bootstrapping &&
-      (!hasSeenPreview || activePreviewId === input.id)
+    eligible &&
+    input.bootstrapping &&
+    (!hasSeenPreview || activePreviewId === input.id)
   )
 }

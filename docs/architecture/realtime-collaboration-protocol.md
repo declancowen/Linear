@@ -154,6 +154,7 @@ Core codes:
 - `collaboration_access_revoked`
 - `collaboration_schema_version_required`
 - `collaboration_schema_version_unsupported`
+- `collaboration_invalid_payload`
 - `collaboration_too_many_connections`
 - `collaboration_payload_too_large`
 - `collaboration_state_too_large`

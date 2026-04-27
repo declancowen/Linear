@@ -66,6 +66,7 @@ Abort or roll back if any of the following persist during rollout:
 - collaboration join failure rate exceeds `1%`:
   - numerator: `connect_rejected`
   - denominator: `connect_accepted + connect_rejected`
+  - note: `connect_accepted` is emitted only after full room admission and provider handoff succeed, not after token preflight
 - scoped read-model refresh failure rate exceeds `1%`
 - collaboration flush failure rate exceeds `0.5%`:
   - numerator: `flush_failed`
