@@ -106,22 +106,3 @@ export function toCollaborationError(error: unknown) {
 
   return new PartyKitCollaborationError("collaboration_unknown", message)
 }
-
-export function createCollaborationJsonResponse(error: unknown) {
-  const collaborationError = toCollaborationError(error)
-
-  return new Response(
-    JSON.stringify(
-      createCollaborationErrorResponse(
-        collaborationError.code,
-        collaborationError.message
-      )
-    ),
-    {
-      status: collaborationError.status,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  )
-}

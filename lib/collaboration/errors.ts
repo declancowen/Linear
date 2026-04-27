@@ -121,6 +121,7 @@ export function isCollaborationErrorResponse(
 export function getCollaborationCloseCode(code: CollaborationErrorCode) {
   switch (code) {
     case "collaboration_unauthenticated":
+    case "collaboration_room_mismatch":
       return COLLABORATION_CLOSE_CODES.unauthenticated
     case "collaboration_forbidden":
     case "collaboration_access_revoked":
@@ -149,6 +150,7 @@ export function getCollaborationCloseCode(code: CollaborationErrorCode) {
 export function getCollaborationErrorStatus(code: CollaborationErrorCode) {
   switch (code) {
     case "collaboration_unauthenticated":
+    case "collaboration_room_mismatch":
       return 401
     case "collaboration_forbidden":
     case "collaboration_access_revoked":

@@ -14,6 +14,8 @@ import {
 import { DEFAULT_COLLABORATION_LIMITS } from "@/lib/collaboration/limits"
 import {
   createCollaborationErrorResponse,
+  getCollaborationCloseCode,
+  getCollaborationErrorStatus,
   isCollaborationErrorResponse,
 } from "@/lib/collaboration/errors"
 import {
@@ -51,6 +53,11 @@ describe("collaboration foundation contracts", () => {
         message: "Unknown code",
       })
     ).toBe(false)
+  })
+
+  it("treats room mismatches as authentication recovery errors", () => {
+    expect(getCollaborationErrorStatus("collaboration_room_mismatch")).toBe(401)
+    expect(getCollaborationCloseCode("collaboration_room_mismatch")).toBe(4401)
   })
 
   it("records collaboration events without content or token payloads", () => {

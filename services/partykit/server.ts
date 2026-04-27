@@ -469,7 +469,7 @@ function requireRoomEditorClaims(room: Room) {
   return claims
 }
 
-function countOtherActiveDocumentConnections(
+function countOtherActiveDocumentEditors(
   room: Room,
   excludedSessionId: string
 ) {
@@ -485,6 +485,10 @@ function countOtherActiveDocumentConnections(
     }
 
     if (connection.state.claims.sessionId === excludedSessionId) {
+      continue
+    }
+
+    if (connection.state.claims.role !== "editor") {
       continue
     }
 
@@ -1040,10 +1044,15 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
       debounceWait: COLLABORATION_PERSIST_DEBOUNCE_WAIT_MS,
       debounceMaxWait: COLLABORATION_PERSIST_DEBOUNCE_MAX_WAIT_MS,
       handler: async (doc) => {
+        const roomMeta = getRoomStateMeta(doc)
+
+        if (!roomMeta.dirty) {
+          return
+        }
+
         try {
           await persistCanonicalDocument(room, doc, "periodic")
         } catch (error) {
-          const roomMeta = getRoomStateMeta(doc)
           roomMeta.lastPersistError =
             error instanceof Error
               ? error.message
@@ -1370,10 +1379,10 @@ const collaboration = {
       if (flushRequest.kind === "document-title") {
         await persistDocumentTitle(room, flushRequest.documentTitle)
       } else if (flushRequest.kind === "teardown-content") {
-        const hasOtherActiveConnections =
-          countOtherActiveDocumentConnections(room, claims.sessionId) > 0
+        const hasOtherActiveEditors =
+          countOtherActiveDocumentEditors(room, claims.sessionId) > 0
 
-        if (hasOtherActiveConnections) {
+        if (hasOtherActiveEditors) {
           console.warn(
             "[collaboration] skipped teardown flush because other editors remain",
             {

@@ -38,11 +38,100 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-27 09:22:52 BST` |
-| **Last reviewed** | `2026-04-27 11:26:32 BST` |
-| **Total turns** | `8` |
+| **Last reviewed** | `2026-04-27 11:39:46 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `11` |
+| **Resolved findings** | `14` |
 | **Accepted findings** | `0` |
+
+## Turn 9 — 2026-04-27 11:39:46 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `1a4cf0fc` |
+| **IDE / Agent** | `Codex` |
+
+**Summary:** Imported the latest external review batch. Three live issues were fixed: server-applied canonical refreshes could trigger periodic persistence in viewer-only rooms, room mismatch errors returned 500 instead of 401 and bypassed fresh-bootstrap retry, and teardown fallback skipped when only viewers remained.
+**Outcome:** all clear for current actionable findings.
+**Risk score:** high — the fixes touch active-room persistence authority, error/status contract recovery, and last-editor teardown safety.
+**Change archetypes:** server-applied update suppression, auth/retry status contract, viewer/editor role separation, dead-code cleanup, realtime lifecycle.
+**Intended change:** prevent server-owned refresh reconciliation from being treated as user-authored dirty state, keep room mismatch recoverable, and preserve last-editor teardown when remaining connections are read-only.
+**Intent vs actual:** the PartyKit periodic persist callback now no-ops for clean rooms, including server-applied refreshes that are immediately marked canonical; `collaboration_room_mismatch` maps to 401/4401; teardown skip logic now counts only other editors; the unused duplicate response helper was removed.
+**Confidence:** high for the reported issues; targeted unit coverage now exercises viewer-only refresh callback, structured room-mismatch retry, and viewer-only teardown.
+**Coverage note:** reviewed PartyKit session state, refresh handler, Yjs dirty/canonical metadata, periodic callback, manual teardown flush, shared collaboration error status/close mapping, and adapter retry behavior.
+**Finding triage:** RCH-012 through RCH-014 were live and fixed. The pasted TOCTOU and premature `connect_accepted` findings are stale in the current tree; timing-safe compare, legacy rollout bypass, Convex casts, lossy close-code reverse mapping, ref timing, bounded fire-and-forget refresh, and Strict Mode notes remain intentional/non-blocking observations.
+**Bug classes / invariants checked:** server-authored vs user-authored Yjs updates, clean-room persistence no-op, viewer/editor role split, structured retry status parity, teardown fallback data preservation.
+**Branch totality:** re-reviewed the current branch against the realtime collaboration hotspots and prior resolved findings, not just the latest line references.
+**Sibling closure:** active refresh, ensure-seed server updates, periodic callback, manual teardown, manual flush room mismatch, websocket close code mapping, and adapter retry paths were checked together.
+**Remediation impact surface:** `services/partykit/server.ts`, `lib/collaboration/errors.ts`, `services/partykit/collaboration/errors.ts`, PartyKit server tests, adapter tests, and foundation tests.
+**Residual risk / unknowns:** hosted two-client smoke remains useful for provider timing, but the code-level lifecycle variants now have direct regression coverage.
+
+### External finding import
+
+| Source | Finding | Status | Bug class | Missed invariant / variant | Action |
+|---|---|---|---|---|---|
+| User / external review | Server-applied canonical refresh update can trigger persist and close viewer-only rooms | Resolved | server-authored update suppression | Clean/server-applied Yjs updates must not require editor claims or persist | Periodic callback skips clean rooms; added viewer-only refresh callback regression test |
+| User / external review | `collaboration_room_mismatch` returns 500 but retry expects 401 | Resolved | error/status contract mismatch | Retryable auth recovery codes must use retryable auth status | Mapped room mismatch to 401/4401; adapter test now covers structured room mismatch retry |
+| User / external review | Teardown skip counts viewers as other editors | Resolved | role-specific connection variant | Last-editor teardown should skip only when another editor remains | Count only editor connections; added viewer-only teardown persist test |
+| User / external review | Duplicate exported PartyKit JSON response helper unused | Resolved | dead code / boundary confusion | One response helper should own PartyKit error JSON shape | Removed unused exported helper |
+| User / external review | Canonical refresh TOCTOU | Stale / already fixed | async destructive replacement | Dirty/update version is checked after async fetch | Revalidated existing post-fetch guard and test |
+| User / external review | Premature `connect_accepted` | Stale / already fixed | observability atomicity | Accepted/rejected events are terminal and mutually exclusive | Revalidated current accepted event placement after provider handoff |
+
+### Validation
+
+- `pnpm exec prettier --write services/partykit/server.ts services/partykit/collaboration/errors.ts lib/collaboration/errors.ts tests/services/partykit-server.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/collaboration-partykit-adapter.test.ts` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/collaboration-partykit-adapter.test.ts` — passed, `3` files / `66` tests.
+- `pnpm exec eslint $(git diff --name-only origin/main -- '*.ts' '*.tsx') --max-warnings 0` — passed for changed TypeScript/TSX files.
+- `pnpm typecheck` — passed.
+- `pnpm exec vitest run tests/services/partykit-server.test.ts tests/app/api/document-workspace-route-contracts.test.ts tests/lib/server/collaboration-refresh.test.ts tests/hooks/use-document-collaboration.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/collaboration-partykit-adapter.test.ts tests/app/api/document-collaboration-route-contracts.test.ts tests/lib/collaboration-client-session.test.ts tests/lib/collaboration-foundation.test.ts tests/lib/server/collaboration-token.test.ts tests/lib/collaboration-config.test.ts tests/app/api/work-route-contracts.test.ts` — passed, `13` files / `153` tests.
+- `git diff --check` — passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PartyKit server refresh/callback/teardown paths, shared collaboration errors, adapter flush retry path, PartyKit error helper module, prior Turn 8 route fix.
+- **Prior open findings rechecked:** none open.
+- **Prior resolved/adjacent areas revalidated:** RCH-007 through RCH-011 remain resolved; the clean-room callback guard does not weaken dirty-room conflict handling or manual flush authority.
+- **Hotspots or sibling paths revisited:** server-applied canonical refresh, ensure-seeded canonical writes, periodic persistence, last-close persistence, teardown fallback, room mismatch flush retry, viewer/editor admission.
+- **Dependency/adjacent surfaces revalidated:** Yjs dirty metadata, latest editor claims, close-code/status mapping, adapter structured JSON parsing, stale TOCTOU guard, connect telemetry placement.
+- **Why this is enough:** each live finding is now fixed at the owning boundary and has a regression test for the exact weak role/status/lifecycle variant.
+
+### Challenger pass
+
+- `done` — Assumed server-authored Yjs writes could still persist through a sibling path. Checked `ensureCanonicalDocumentSeeded`, `handleRefreshRequest`, periodic callback, manual teardown, and last-close persistence. Clean rooms now no-op in the periodic callback; dirty editor-authored rooms still persist.
+
+### Resolved / Carried / New findings
+
+#### RCH-012 [P1] Skip periodic persistence for clean server-applied refresh updates
+
+**Status:** Resolved.
+
+**Issue:** `replaceCollaborationDocFromJson` during canonical refresh emits a Yjs update, which could trigger the periodic callback. In viewer-only rooms there are no editor claims, so persistence failed and closed viewers.
+
+**Fix:** The periodic callback now returns immediately when room metadata is clean. Server-applied refresh marks the room canonical after replacement, so the callback does not require editor claims or close sockets.
+
+#### RCH-013 [P2] Make room mismatch retryable through the auth recovery path
+
+**Status:** Resolved.
+
+**Issue:** `collaboration_room_mismatch` fell through to HTTP 500, while the adapter retries with fresh bootstrap only for 401 auth-style failures.
+
+**Fix:** Room mismatch now maps to HTTP 401 and close code 4401. Adapter coverage now uses a structured room-mismatch response.
+
+#### RCH-014 [P2] Skip teardown fallback only when another editor remains
+
+**Status:** Resolved.
+
+**Issue:** Teardown fallback counted viewers as active editors, so last-editor teardown could be skipped when only read-only participants remained.
+
+**Fix:** The skip check counts only other editor connections. Viewer-only remaining rooms now accept the last editor's teardown persist.
+
+### Recommendations
+
+1. **Fix first:** none open.
+2. **Then address:** run hosted PartyKit smoke with one editor and one viewer after deployment.
+3. **Patterns noticed:** every realtime side effect needs role-aware and source-aware classification: editor vs viewer, client edit vs server reconciliation, body vs metadata.
+4. **Suggested approach:** keep adding regression tests around role/source variants whenever touching `handleRefreshRequest`, callback persistence, or flush teardown.
+5. **Defer on purpose:** no durable Yjs migration or metadata-only refresh protocol in this PR.
 
 ## Turn 8 — 2026-04-27 11:26:32 BST
 

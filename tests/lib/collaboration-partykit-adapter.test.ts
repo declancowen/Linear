@@ -614,7 +614,13 @@ describe("PartyKit collaboration adapter", () => {
       .mockResolvedValueOnce({
         ok: false,
         status: 401,
-        text: vi.fn().mockResolvedValue("Collaboration room mismatch"),
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            ok: false,
+            code: "collaboration_room_mismatch",
+            message: "Collaboration room mismatch",
+          })
+        ),
       })
       .mockResolvedValueOnce({
         ok: true,
