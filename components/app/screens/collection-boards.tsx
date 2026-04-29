@@ -105,14 +105,11 @@ export function ProjectBoard({
         const targetDateLabel = formatCalendarDateLabel(project.targetDate, "")
         const daysUntilDue = getCalendarDateDayOffset(project.targetDate, today)
         const isOverdue = daysUntilDue !== null && daysUntilDue < 0
-        const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 14
+        const isSoon =
+          daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 14
 
         return (
-          <ProjectContextMenu
-            key={project.id}
-            data={data}
-            project={project}
-          >
+          <ProjectContextMenu key={project.id} data={data} project={project}>
             <Link
               className="group flex min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
               href={getProjectHref(data, project) ?? "/workspace/projects"}
@@ -141,68 +138,72 @@ export function ProjectBoard({
                 <ArrowSquareOut className="size-3.5 shrink-0 text-fg-4 opacity-0 transition-opacity group-hover:opacity-100" />
               </div>
 
-            {summary ? (
-              <p className="line-clamp-2 text-[12.5px] leading-[1.5] text-fg-2">
-                {summary}
-              </p>
-            ) : null}
-
-            <div className="flex items-center gap-2.5 text-[11.5px] text-fg-3">
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                style={{
-                  background: `color-mix(in oklch, ${accent} 14%, transparent)`,
-                  color: accent,
-                }}
-              >
-                <span
-                  aria-hidden
-                  className="size-1.5 rounded-full"
-                  style={{ background: accent }}
-                />
-                {projectHealthMeta[project.health].label}
-              </span>
-              <div className="relative h-[5px] flex-1 overflow-hidden rounded-full bg-surface-3">
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full opacity-90 transition-all"
-                  style={{
-                    left: `${progress.completedPercent}%`,
-                    width: `${progress.inProgressOnlyPercent}%`,
-                    background: "var(--status-doing)",
-                  }}
-                />
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full transition-all"
-                  style={{
-                    width: `${progress.completedPercent}%`,
-                    background: "var(--status-done)",
-                  }}
-                />
-              </div>
-              <span className="tabular-nums">{progress.completedPercent}%</span>
-            </div>
-
-            <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
-              <span className="truncate">{lead?.name ?? "Unassigned"}</span>
-              {progress.scope > 0 ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span className="shrink-0">{progress.scope} items</span>
-                </>
+              {summary ? (
+                <p className="line-clamp-2 text-[12.5px] leading-[1.5] text-fg-2">
+                  {summary}
+                </p>
               ) : null}
-              {targetDateLabel ? (
+
+              <div className="flex items-center gap-2.5 text-[11.5px] text-fg-3">
                 <span
-                  className={cn(
-                    "ml-auto shrink-0 tabular-nums",
-                    isOverdue && "text-[color:var(--priority-urgent)]",
-                    !isOverdue && isSoon && "text-[color:var(--priority-high)]"
-                  )}
+                  className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5"
+                  style={{
+                    background: `color-mix(in oklch, ${accent} 14%, transparent)`,
+                    color: accent,
+                  }}
                 >
-                  {isOverdue ? "Overdue · " : ""}
-                  {targetDateLabel}
+                  <span
+                    aria-hidden
+                    className="size-1.5 rounded-full"
+                    style={{ background: accent }}
+                  />
+                  {projectHealthMeta[project.health].label}
                 </span>
-              ) : null}
-            </div>
+                <div className="relative h-[5px] flex-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full opacity-90 transition-all"
+                    style={{
+                      left: `${progress.completedPercent}%`,
+                      width: `${progress.inProgressOnlyPercent}%`,
+                      background: "var(--status-doing)",
+                    }}
+                  />
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full transition-all"
+                    style={{
+                      width: `${progress.completedPercent}%`,
+                      background: "var(--status-done)",
+                    }}
+                  />
+                </div>
+                <span className="tabular-nums">
+                  {progress.completedPercent}%
+                </span>
+              </div>
+
+              <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2 text-[11.5px] text-fg-3">
+                <span className="truncate">{lead?.name ?? "Unassigned"}</span>
+                {progress.scope > 0 ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="shrink-0">{progress.scope} items</span>
+                  </>
+                ) : null}
+                {targetDateLabel ? (
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 tabular-nums",
+                      isOverdue && "text-[color:var(--priority-urgent)]",
+                      !isOverdue &&
+                        isSoon &&
+                        "text-[color:var(--priority-high)]"
+                    )}
+                  >
+                    {isOverdue ? "Overdue · " : ""}
+                    {targetDateLabel}
+                  </span>
+                ) : null}
+              </div>
             </Link>
           </ProjectContextMenu>
         )
@@ -215,7 +216,6 @@ export function SavedViewsBoard({
   views,
   showDescriptions,
   contextLabels,
-  editable,
 }: {
   views: ViewDefinition[]
   showDescriptions: boolean

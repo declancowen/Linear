@@ -12,7 +12,9 @@ import type {
 } from "@/lib/domain/types"
 import {
   EMPTY_PARENT_FILTER_VALUE,
+  getAllowedWorkItemTypesForTemplate,
   getAllowedChildWorkItemTypesForItem,
+  getDefaultWorkItemTypesForTeamExperience,
   isCompletedWorkStatus,
   isExcludedFromWorkStatusRollup,
   priorities,
@@ -363,7 +365,9 @@ export function getVisibleItemsForView(
           }
 
           visitedIds.add(cursor.id)
-          cursor = cursor.parentId ? itemsById.get(cursor.parentId) ?? null : null
+          cursor = cursor.parentId
+            ? (itemsById.get(cursor.parentId) ?? null)
+            : null
         }
 
         return
@@ -497,7 +501,9 @@ export function getAvailableGroupKeysForItems(
   if (options?.teamId) {
     teamIds.add(options.teamId)
   }
-  const project = options?.projectId ? getProject(data, options.projectId) : null
+  const project = options?.projectId
+    ? getProject(data, options.projectId)
+    : null
 
   if (project?.scopeType === "team") {
     teamIds.add(project.scopeId)
@@ -566,7 +572,23 @@ export function getAvailableGroupKeysForItems(
   }
 
   if (field === "type") {
-    workItemTypes.forEach((type) => keys.add(type))
+    const allowedTypeKeys = new Set<WorkItem["type"]>()
+
+    if (project) {
+      getAllowedWorkItemTypesForTemplate(project.templateType).forEach((type) =>
+        allowedTypeKeys.add(type)
+      )
+    }
+
+    teamIds.forEach((teamId) => {
+      getDefaultWorkItemTypesForTeamExperience(
+        getTeam(data, teamId)?.settings.experience
+      ).forEach((type) => allowedTypeKeys.add(type))
+    })
+    const allowedTypes =
+      allowedTypeKeys.size > 0 ? [...allowedTypeKeys] : [...workItemTypes]
+
+    allowedTypes.forEach((type) => keys.add(type))
   }
 
   sourceItems.forEach((item) => {

@@ -887,18 +887,18 @@ function DetailSidebarActivity({
             className="mt-0 mb-1.5"
           />
           <div className="flex items-center justify-end gap-2">
-          <ShortcutKeys
-            keys={["Enter"]}
-            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-          />
-          <Button
-            size="sm"
-            disabled={!editable || !commentLimitState.canSubmit}
-            onClick={handleComment}
-          >
-            <PaperPlaneTilt className="size-3.5" />
-            Comment
-          </Button>
+            <ShortcutKeys
+              keys={["Enter"]}
+              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+            />
+            <Button
+              size="sm"
+              disabled={!editable || !commentLimitState.canSubmit}
+              onClick={handleComment}
+            >
+              <PaperPlaneTilt className="size-3.5" />
+              Comment
+            </Button>
           </div>
         </div>
       </div>
@@ -1153,48 +1153,48 @@ function MainActivityCommentCard({
                 className="mt-0 mb-1.5"
               />
               <div className="flex items-center justify-between gap-2">
-              <EmojiPickerPopover
-                align="start"
-                side="top"
-                onEmojiSelect={(emoji) =>
-                  replyEditorRef.current
-                    ?.chain()
-                    .focus()
-                    .insertContent(emoji)
-                    .run()
-                }
-                trigger={
-                  <button
-                    type="button"
-                    className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-                  >
-                    <Smiley className="size-3.5" />
-                  </button>
-                }
-              />
-              <div className="flex items-center gap-2">
-                <ShortcutKeys
-                  keys={["Enter"]}
-                  keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+                <EmojiPickerPopover
+                  align="start"
+                  side="top"
+                  onEmojiSelect={(emoji) =>
+                    replyEditorRef.current
+                      ?.chain()
+                      .focus()
+                      .insertContent(emoji)
+                      .run()
+                  }
+                  trigger={
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+                    >
+                      <Smiley className="size-3.5" />
+                    </button>
+                  }
                 />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setReplyContent("")
-                    setReplyOpen(false)
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={!replyLimitState.canSubmit}
-                  onClick={handleReply}
-                >
-                  Reply
-                </Button>
-              </div>
+                <div className="flex items-center gap-2">
+                  <ShortcutKeys
+                    keys={["Enter"]}
+                    keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setReplyContent("")
+                      setReplyOpen(false)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!replyLimitState.canSubmit}
+                    onClick={handleReply}
+                  >
+                    Reply
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -1419,40 +1419,40 @@ function MainActivityTimeline({
               className="mt-0 mb-1.5"
             />
             <div className="flex items-center justify-between gap-2">
-            <EmojiPickerPopover
-              align="start"
-              side="top"
-              onEmojiSelect={(emoji) =>
-                commentEditorRef.current
-                  ?.chain()
-                  .focus()
-                  .insertContent(emoji)
-                  .run()
-              }
-              trigger={
-                <button
-                  type="button"
-                  disabled={!editable}
-                  className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
-                >
-                  <Smiley className="size-4" />
-                </button>
-              }
-            />
-            <div className="flex items-center gap-2">
-              <ShortcutKeys
-                keys={["Enter"]}
-                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              <EmojiPickerPopover
+                align="start"
+                side="top"
+                onEmojiSelect={(emoji) =>
+                  commentEditorRef.current
+                    ?.chain()
+                    .focus()
+                    .insertContent(emoji)
+                    .run()
+                }
+                trigger={
+                  <button
+                    type="button"
+                    disabled={!editable}
+                    className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+                  >
+                    <Smiley className="size-4" />
+                  </button>
+                }
               />
-              <Button
-                size="sm"
-                disabled={!editable || !commentLimitState.canSubmit}
-                onClick={handleComment}
-              >
-                <PaperPlaneTilt className="size-3.5" />
-                Comment
-              </Button>
-            </div>
+              <div className="flex items-center gap-2">
+                <ShortcutKeys
+                  keys={["Enter"]}
+                  keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+                />
+                <Button
+                  size="sm"
+                  disabled={!editable || !commentLimitState.canSubmit}
+                  onClick={handleComment}
+                >
+                  <PaperPlaneTilt className="size-3.5" />
+                  Comment
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -1526,22 +1526,21 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     currentUser: collaborationCurrentUser,
     enabled: Boolean(stableDescriptionDocumentId),
   })
-  const {
-    hasLoadedOnce: hasLoadedWorkItemReadModel,
-  } = useScopedReadModelRefresh({
-    enabled:
-      !item ||
-      collaborationLifecycle === "legacy" ||
-      collaborationLifecycle === "degraded",
-    scopeKeys: [createWorkItemDetailScopeKey(itemId)],
-    fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
-    notFoundResult: createMissingScopedReadModelResult([
-      {
-        kind: "work-item-detail",
-        itemId,
-      },
-    ]),
-  })
+  const { hasLoadedOnce: hasLoadedWorkItemReadModel } =
+    useScopedReadModelRefresh({
+      enabled:
+        !item ||
+        collaborationLifecycle === "legacy" ||
+        collaborationLifecycle === "degraded",
+      scopeKeys: [createWorkItemDetailScopeKey(itemId)],
+      fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
+      notFoundResult: createMissingScopedReadModelResult([
+        {
+          kind: "work-item-detail",
+          itemId,
+        },
+      ]),
+    })
   useEffect(() => {
     if (!currentUser) {
       return
@@ -1553,10 +1552,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       avatarUrl: currentUser.avatarUrl,
       avatarImageUrl: currentUser.avatarImageUrl ?? null,
     }
-  }, [
-    currentUser,
-    currentUserId,
-  ])
+  }, [currentUser, currentUserId])
 
   useEffect(() => {
     if (previousItemIdRef.current === itemId) {
@@ -1591,9 +1587,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     activeDescriptionDocumentId ?? stableDescriptionDocumentId
   const isProtectingDescriptionBody = Boolean(
     protectedDescriptionDocumentId &&
-      (isEditingCurrentItem ||
-        isCollaborationBootstrapping ||
-        isCollaborationAttached)
+    (isEditingCurrentItem ||
+      isCollaborationBootstrapping ||
+      isCollaborationAttached)
   )
 
   useEffect(() => {
@@ -1628,10 +1624,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     }
 
     useAppStore.getState().cancelItemDescriptionSync(activePresenceItemId)
-  }, [
-    activePresenceItemId,
-    collaborationLifecycle,
-  ])
+  }, [activePresenceItemId, collaborationLifecycle])
 
   useEffect(() => {
     if (!activePresenceItemId) {
@@ -1787,35 +1780,29 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [
-    activePresenceItemId,
-    collaborationLifecycle,
-    currentUserId,
-  ])
+  }, [activePresenceItemId, collaborationLifecycle, currentUserId])
 
   useEffect(() => {
     setMainChildComposerOpen(false)
     setSidebarChildComposerOpen(false)
   }, [itemId])
 
-  const hasLiveDescriptionPresence =
-    collaborationLifecycle === "attached"
-  const activeDescriptionViewers =
-    hasLiveDescriptionPresence
-      ? collaborationViewers
-      : currentUser
-        ? [
-            {
-              userId: currentUser.id,
-              name: currentUser.name,
-              avatarUrl: currentUser.avatarUrl,
-              avatarImageUrl: currentUser.avatarImageUrl ?? null,
-              activeBlockId: legacyActiveBlockId,
-              lastSeenAt: new Date().toISOString(),
-            },
-            ...workItemPresenceViewers,
-          ]
-        : workItemPresenceViewers
+  const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
+  const activeDescriptionViewers = hasLiveDescriptionPresence
+    ? collaborationViewers
+    : currentUser
+      ? [
+          {
+            userId: currentUser.id,
+            name: currentUser.name,
+            avatarUrl: currentUser.avatarUrl,
+            avatarImageUrl: currentUser.avatarImageUrl ?? null,
+            activeBlockId: legacyActiveBlockId,
+            lastSeenAt: new Date().toISOString(),
+          },
+          ...workItemPresenceViewers,
+        ]
+      : workItemPresenceViewers
   const otherDescriptionViewers = activeDescriptionViewers.filter(
     (viewer) => viewer.userId !== currentUserId
   )
@@ -1976,15 +1963,14 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     isMainEditing &&
     Boolean(mainDraftUpdatedAt) &&
     mainDraftUpdatedAt !== currentItem.updatedAt
-  const canSaveMainSection =
-    isCollaborationAttached
-      ? isMainEditing && !savingMainSection
-      : !isAwaitingCollaboration &&
-          isMainEditing &&
-          mainTitleLimitState.canSubmit &&
-          (mainDirty || pendingMainMentionEntries.length > 0) &&
-          !savingMainSection &&
-          !mainDraftStale
+  const canSaveMainSection = isCollaborationAttached
+    ? isMainEditing && !savingMainSection
+    : !isAwaitingCollaboration &&
+      isMainEditing &&
+      mainTitleLimitState.canSubmit &&
+      (mainDirty || pendingMainMentionEntries.length > 0) &&
+      !savingMainSection &&
+      !mainDraftStale
 
   function buildEndDatePatch(nextEndDate: string | null) {
     return {
@@ -2421,18 +2407,21 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                             ? bootstrapContent
                             : collaborationDescriptionContent
                         }
-                        className="min-h-24 text-sm text-fg-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+                        className="text-fg-1 min-h-24 text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
                       />
                     ) : (
                       <RichTextEditor
                         content={collaborationDescriptionContent}
                         collaboration={
                           isCollaborationAttached
-                            ? (editorCollaboration ?? collaboration ?? undefined)
+                            ? (editorCollaboration ??
+                              collaboration ??
+                              undefined)
                             : undefined
                         }
                         currentPresenceUserId={currentUserId}
                         editable={editable && !isCollaborationBootstrapping}
+                        showStats={false}
                         placeholder="Add a description…"
                         presenceViewers={otherDescriptionViewers}
                         onActiveBlockChange={handleLegacyActiveBlockChange}
@@ -2804,7 +2793,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     <span className="truncate">{selectedMilestone.name}</span>
                     {selectedMilestone.targetDate ? (
                       <span className="text-fg-4">
-                        · {format(new Date(selectedMilestone.targetDate), "MMM d")}
+                        ·{" "}
+                        {format(
+                          new Date(selectedMilestone.targetDate),
+                          "MMM d"
+                        )}
                       </span>
                     ) : null}
                   </DetailSidebarStaticRow>
@@ -2818,7 +2811,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
                     options={parentOptions}
                     renderValue={(value, optionLabel) =>
                       value === "none" ? (
-                        <span className="truncate text-fg-4">{optionLabel}</span>
+                        <span className="truncate text-fg-4">
+                          {optionLabel}
+                        </span>
                       ) : (
                         <span className="truncate">{optionLabel}</span>
                       )

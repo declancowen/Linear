@@ -8,7 +8,7 @@ export function FieldCharacterLimit({
   className,
 }: {
   state: TextInputLimitState
-  limit: number
+  limit?: number
   className?: string
 }) {
   if (!state.error) {

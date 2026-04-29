@@ -115,5 +115,11 @@
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "miniflare>undici": "6.24.0",
+      "plist>@xmldom/xmldom": "0.8.13"
+    }
   }
 }

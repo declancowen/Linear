@@ -26,7 +26,9 @@ type ScopedReadModelRefreshInput = {
 }
 
 function normalizeScopeKeys(scopeKeys: string[]) {
-  return [...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean))].sort()
+  return [
+    ...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean)),
+  ].sort()
 }
 
 function isExpectedScopedReadModelMiss(error: unknown) {
@@ -110,7 +112,9 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       })
       if (isExpectedScopedReadModelMiss(nextError)) {
         if (input.notFoundResult) {
-          const missingResult = normalizeReadModelFetchResult(input.notFoundResult)
+          const missingResult = normalizeReadModelFetchResult(
+            input.notFoundResult
+          )
           mergeReadModelData(missingResult.data, {
             replace: missingResult.replace,
           })
@@ -144,10 +148,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
         }
       }
 
-      if (
-        inFlightGenerationRef.current === null &&
-        queuedRef.current
-      ) {
+      if (inFlightGenerationRef.current === null && queuedRef.current) {
         queuedRef.current = false
         void refresh()
       }
@@ -258,7 +259,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
     }
-  }, [input.enabled, scopeKeySignature, scopedSyncEnabled])
+  }, [input.enabled, scopeKeySignature, scopeKeys, scopedSyncEnabled])
 
   return {
     error,

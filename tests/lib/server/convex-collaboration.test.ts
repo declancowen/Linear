@@ -18,9 +18,8 @@ describe("convex collaboration server wrappers", () => {
   })
 
   it("maps known start-call domain failures to typed application errors", async () => {
-    const { startChatCallServer } = await import(
-      "@/lib/server/convex/collaboration"
-    )
+    const { startChatCallServer } =
+      await import("@/lib/server/convex/collaboration")
 
     mutationMock.mockRejectedValue(new Error("Your current role is read-only"))
 
@@ -67,29 +66,18 @@ describe("convex collaboration server wrappers", () => {
         '<p><span class="editor-mention evil" data-type="mention" data-id="user_2" data-label="alex">@alex</span></p>',
     })
 
-    expect(mutationMock).toHaveBeenNthCalledWith(
-      1,
-      expect.anything(),
-      expect.objectContaining({
-        content: "<p>Hello <a>bad</a></p>",
-      })
-    )
-    expect(mutationMock).toHaveBeenNthCalledWith(
-      2,
-      expect.anything(),
-      expect.objectContaining({
-        content:
-          '<p>Ship <img src="https://cdn.example.com/file.png" class="editor-image" /></p>',
-      })
-    )
-    expect(mutationMock).toHaveBeenNthCalledWith(
-      3,
-      expect.anything(),
-      expect.objectContaining({
-        content:
-          '<p><span class="editor-mention" data-type="mention" data-id="user_2" data-label="alex">@alex</span></p>',
-      })
-    )
+    expect(mutationMock).toHaveBeenCalledTimes(3)
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      content: "<p>Hello <a>bad</a></p>",
+    })
+    expect(mutationMock.mock.calls[1]?.[1]).toMatchObject({
+      content:
+        '<p>Ship <img src="https://cdn.example.com/file.png" class="editor-image"></p>',
+    })
+    expect(mutationMock.mock.calls[2]?.[1]).toMatchObject({
+      content:
+        '<p><span class="editor-mention" data-type="mention" data-id="user_2" data-label="alex">@alex</span></p>',
+    })
   })
 
   it("rejects sanitized collaboration content that no longer has meaningful text", async () => {
@@ -193,7 +181,9 @@ describe("convex collaboration server wrappers", () => {
     } = await import("@/lib/server/convex/collaboration")
 
     mutationMock
-      .mockRejectedValueOnce(new Error("Chats need at least two workspace members"))
+      .mockRejectedValueOnce(
+        new Error("Chats need at least two workspace members")
+      )
       .mockRejectedValueOnce(new Error("Chat is disabled for this team"))
       .mockRejectedValueOnce(
         new Error("Channel must target exactly one team or workspace")
@@ -322,9 +312,8 @@ describe("convex collaboration server wrappers", () => {
   })
 
   it("maps call-join lookup and finalize failures to typed application errors", async () => {
-    const { finalizeCallJoinServer, getCallJoinContextServer } = await import(
-      "@/lib/server/convex/collaboration"
-    )
+    const { finalizeCallJoinServer, getCallJoinContextServer } =
+      await import("@/lib/server/convex/collaboration")
 
     queryMock.mockRejectedValueOnce(
       new Error("Calls can only be joined from chats")

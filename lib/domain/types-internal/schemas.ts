@@ -30,7 +30,6 @@ import {
   workspaceAccentConstraints,
   workspaceFallbackBadgeConstraints,
   workspaceBrandingNameConstraints,
-  workspaceDescriptionConstraints,
   workspaceSetupNameConstraints,
 } from "../input-constraints"
 
@@ -52,7 +51,6 @@ import {
   teamExperienceTypes,
   teamIconTokens,
   themePreferences,
-  userStatusMessageMaxLength,
   userStatuses,
   viewLayouts,
   viewFilterStatuses,
@@ -75,7 +73,8 @@ function boundedTrimmedStringSchema(constraint: {
     .trim()
     .refine(
       (value) =>
-        isLegacyImageSourceValue(value, constraint) || value.length <= constraint.max,
+        isLegacyImageSourceValue(value, constraint) ||
+        value.length <= constraint.max,
       {
         message: `Enter ${constraint.max} characters or fewer`,
       }
@@ -237,7 +236,9 @@ export const teamMembershipRoleSchema = z.object({
 export const appWorkspaceBootstrapSchema = z.object({
   workspaceSlug: z.string().trim().min(2).max(64),
   workspaceName: z.string().trim().min(2).max(64),
-  workspaceLogoUrl: boundedTrimmedStringSchema(workspaceFallbackBadgeConstraints),
+  workspaceLogoUrl: boundedTrimmedStringSchema(
+    workspaceFallbackBadgeConstraints
+  ),
   workspaceAccent: z.string().trim().min(2).max(24),
   workspaceDescription: z.string().trim().min(8).max(220),
   teamSlug: z.string().trim().min(2).max(64),
@@ -345,42 +346,48 @@ const viewFiltersSchema = z.object({
   showCompleted: z.boolean(),
 })
 
-export const viewSchema = z.object({
-  id: z.string().trim().min(1).optional(),
-  scopeType: z.enum(["team", "workspace"]),
-  scopeId: z.string().min(1),
-  entityKind: z.enum(entityKinds),
-  containerType: z.enum(viewContainerTypes).nullable().optional(),
-  containerId: z.string().trim().min(1).nullable().optional(),
-  route: z.string().trim().min(1),
-  name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
-  description: boundedTrimmedStringSchema(viewDescriptionConstraints).default(""),
-  layout: z.enum(viewLayouts).optional(),
-  grouping: z.enum(groupFields).optional(),
-  subGrouping: z.enum(groupFields).nullable().optional(),
-  ordering: z.enum(orderingFields).optional(),
-  itemLevel: z.enum(workItemTypes).nullable().optional(),
-  showChildItems: z.boolean().optional(),
-  filters: viewFiltersSchema.optional(),
-  displayProps: z.array(z.enum(displayProperties)).optional(),
-  hiddenState: z
-    .object({
-      groups: z.array(z.string()),
-      subgroups: z.array(z.string()),
-    })
-    .optional(),
-}).superRefine((value, ctx) => {
-  const hasContainerType = value.containerType !== undefined && value.containerType !== null
-  const hasContainerId = value.containerId !== undefined && value.containerId !== null
+export const viewSchema = z
+  .object({
+    id: z.string().trim().min(1).optional(),
+    scopeType: z.enum(["team", "workspace"]),
+    scopeId: z.string().min(1),
+    entityKind: z.enum(entityKinds),
+    containerType: z.enum(viewContainerTypes).nullable().optional(),
+    containerId: z.string().trim().min(1).nullable().optional(),
+    route: z.string().trim().min(1),
+    name: z.string().trim().min(viewNameMinLength).max(viewNameMaxLength),
+    description: boundedTrimmedStringSchema(viewDescriptionConstraints).default(
+      ""
+    ),
+    layout: z.enum(viewLayouts).optional(),
+    grouping: z.enum(groupFields).optional(),
+    subGrouping: z.enum(groupFields).nullable().optional(),
+    ordering: z.enum(orderingFields).optional(),
+    itemLevel: z.enum(workItemTypes).nullable().optional(),
+    showChildItems: z.boolean().optional(),
+    filters: viewFiltersSchema.optional(),
+    displayProps: z.array(z.enum(displayProperties)).optional(),
+    hiddenState: z
+      .object({
+        groups: z.array(z.string()),
+        subgroups: z.array(z.string()),
+      })
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasContainerType =
+      value.containerType !== undefined && value.containerType !== null
+    const hasContainerId =
+      value.containerId !== undefined && value.containerId !== null
 
-  if (hasContainerType !== hasContainerId) {
-    ctx.addIssue({
-      code: "custom",
-      message: "containerType and containerId must be provided together",
-      path: hasContainerType ? ["containerId"] : ["containerType"],
-    })
-  }
-})
+    if (hasContainerType !== hasContainerId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "containerType and containerId must be provided together",
+        path: hasContainerType ? ["containerId"] : ["containerType"],
+      })
+    }
+  })
 
 export const workItemSchema = z.object({
   id: z.string().trim().min(1).optional(),
@@ -480,9 +487,7 @@ export const channelPostSchema = z.object({
 
 export const channelPostCommentSchema = z.object({
   postId: z.string().min(1),
-  content: boundedRichTextPlainTextSchema(
-    channelPostCommentContentConstraints
-  ),
+  content: boundedRichTextPlainTextSchema(channelPostCommentContentConstraints),
 })
 
 export const attachmentUploadUrlSchema = z.object({

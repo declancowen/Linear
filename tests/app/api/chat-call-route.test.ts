@@ -5,6 +5,8 @@ import { ApplicationError } from "@/lib/server/application-errors"
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const startChatCallServerMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
+const resolveConversationReadModelScopeKeysServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -14,6 +16,12 @@ vi.mock("@/lib/server/route-auth", () => ({
 
 vi.mock("@/lib/server/convex", () => ({
   startChatCallServer: startChatCallServerMock,
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
+}))
+
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  resolveConversationReadModelScopeKeysServer:
+    resolveConversationReadModelScopeKeysServerMock,
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -27,7 +35,13 @@ describe("chat-call route", () => {
     requireSessionMock.mockReset()
     requireAppContextMock.mockReset()
     startChatCallServerMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockReset()
+    resolveConversationReadModelScopeKeysServerMock.mockReset()
     logProviderErrorMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    resolveConversationReadModelScopeKeysServerMock.mockResolvedValue([
+      "conversation:conversation_1",
+    ])
   })
 
   it("returns the structured call payload from the narrow call command", async () => {

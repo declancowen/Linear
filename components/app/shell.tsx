@@ -38,17 +38,15 @@ import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-mode
 import {
   canAdminWorkspace,
   getAccessibleTeams,
-  getChannelPostHref,
-  getConversationHref,
   getCurrentUser,
   getCurrentWorkspace,
-  getProjectHref,
   getTeam,
   canEditWorkspace,
   getTeamFeatureSettings,
   isWorkspaceOwner,
 } from "@/lib/domain/selectors"
 import {
+  type AppData,
   type CreateDialogState,
   type Notification,
   getWorkSurfaceCopy,
@@ -256,7 +254,15 @@ function ShellFrameFallback() {
   )
 }
 
-function getNotificationHref(data: ReturnType<typeof useAppStore.getState>, notification: Notification) {
+type NotificationRouteData = Pick<
+  AppData,
+  "channelPosts" | "conversations" | "projects" | "teams"
+>
+
+function getNotificationHref(
+  data: NotificationRouteData,
+  notification: Notification
+) {
   if (notification.entityType === "workItem") {
     return `/items/${notification.entityId}`
   }
@@ -266,16 +272,57 @@ function getNotificationHref(data: ReturnType<typeof useAppStore.getState>, noti
   }
 
   if (notification.entityType === "project") {
-    const project = data.projects.find((entry) => entry.id === notification.entityId)
-    return project ? getProjectHref(data, project) : null
+    const project = data.projects.find(
+      (entry) => entry.id === notification.entityId
+    )
+
+    if (!project) {
+      return null
+    }
+
+    if (project.scopeType === "workspace") {
+      return `/workspace/projects/${project.id}`
+    }
+
+    const team = data.teams.find((entry) => entry.id === project.scopeId)
+    return team ? `/team/${team.slug}/projects/${project.id}` : null
   }
 
   if (notification.entityType === "channelPost") {
-    return getChannelPostHref(data, notification.entityId)
+    const post = data.channelPosts.find(
+      (entry) => entry.id === notification.entityId
+    )
+    const conversation = post
+      ? data.conversations.find((entry) => entry.id === post.conversationId)
+      : null
+
+    if (!post || !conversation || conversation.kind !== "channel") {
+      return null
+    }
+
+    if (conversation.scopeType === "workspace") {
+      return `/workspace/channel#${post.id}`
+    }
+
+    const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+    return team ? `/team/${team.slug}/channel#${post.id}` : null
   }
 
   if (notification.entityType === "chat") {
-    return getConversationHref(data, notification.entityId)
+    const conversation = data.conversations.find(
+      (entry) => entry.id === notification.entityId
+    )
+
+    if (!conversation || conversation.kind !== "chat") {
+      return null
+    }
+
+    if (conversation.scopeType === "workspace") {
+      return `/chats?chatId=${conversation.id}`
+    }
+
+    const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+    return team ? `/team/${team.slug}/chat` : null
   }
 
   if (notification.entityType === "invite") {
@@ -321,17 +368,18 @@ function NotificationModal({
   onOpen: () => void
 }) {
   return (
-    <Dialog open={Boolean(notification)} onOpenChange={(open) => {
-      if (!open) {
-        onDismiss()
-      }
-    }}>
+    <Dialog
+      open={Boolean(notification)}
+      onOpenChange={(open) => {
+        if (!open) {
+          onDismiss()
+        }
+      }}
+    >
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>New notification</DialogTitle>
-          <DialogDescription>
-            {notification?.message ?? ""}
-          </DialogDescription>
+          <DialogDescription>{notification?.message ?? ""}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="ghost" onClick={onDismiss}>
@@ -372,7 +420,15 @@ export function AppShell({ children }: AppShellProps) {
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     )
   )
-  const notificationModalData = useAppStore(useShallow((state) => state))
+  const notificationModalData = useAppStore(
+    useShallow((state) => ({
+      channelPosts: state.channelPosts,
+      conversations: state.conversations,
+      notifications: state.notifications,
+      projects: state.projects,
+      teams: state.teams,
+    }))
+  )
   const workspace = useAppStore(getCurrentWorkspace)
   const currentUser = useAppStore(getCurrentUser)
   const pendingInviteCount = useAppStore((state) => {
@@ -425,7 +481,8 @@ export function AppShell({ children }: AppShellProps) {
           createWorkspaceMembershipScopeKey(currentWorkspaceId),
         ]
       : [],
-    fetchLatest: async () => fetchWorkspaceMembershipReadModel(currentWorkspaceId),
+    fetchLatest: async () =>
+      fetchWorkspaceMembershipReadModel(currentWorkspaceId),
   })
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
@@ -715,8 +772,12 @@ export function AppShell({ children }: AppShellProps) {
     }
 
     setModalNotificationId(nextNotification.id)
-    useAppStore.getState().markNotificationRead(nextNotification.id)
-  }, [notificationModalCandidates, notificationModalData, pathname, searchParams])
+  }, [
+    notificationModalCandidates,
+    notificationModalData,
+    pathname,
+    searchParams,
+  ])
 
   const modalNotification =
     notificationModalCandidates.find(
@@ -774,6 +835,9 @@ export function AppShell({ children }: AppShellProps) {
           setModalNotificationId(null)
         }}
         onOpen={() => {
+          if (modalNotification) {
+            useAppStore.getState().markNotificationRead(modalNotification.id)
+          }
           if (modalNotificationHref) {
             router.push(modalNotificationHref)
           }

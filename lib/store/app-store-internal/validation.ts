@@ -15,7 +15,6 @@ import {
   getWorkSurfaceCopy,
   type AppData,
   type Conversation,
-  type Project,
   type TeamWorkflowSettings,
   type WorkItem,
 } from "@/lib/domain/types"
@@ -70,9 +69,9 @@ export function getProjectCreationValidationMessage(
   }
 
   if (
-    !getAllowedTemplateTypesForTeamExperience(team.settings.experience).includes(
-      input.templateType
-    )
+    !getAllowedTemplateTypesForTeamExperience(
+      team.settings.experience
+    ).includes(input.templateType)
   ) {
     return "Project template is not allowed for this team"
   }
@@ -317,11 +316,8 @@ export function getProjectCascadeConfirmationForWorkItemUpdate(
     primaryProjectId?: string | null
   }
 ) {
-  const {
-    cascadeItemIds,
-    resolvedPrimaryProjectId,
-    shouldCascadeProjectLink,
-  } = getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
+  const { cascadeItemIds, resolvedPrimaryProjectId, shouldCascadeProjectLink } =
+    getResolvedProjectLinkForWorkItemUpdate(state, existing, patch)
   const requiresConfirmation =
     resolvedPrimaryProjectId !== existing.primaryProjectId &&
     shouldCascadeProjectLink &&
@@ -451,16 +447,14 @@ export function getWorkspaceMemberIds(state: AppData, workspaceId: string) {
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
 
-  const userIds = new Set(
-    [
-      ...state.workspaceMemberships
-        .filter((membership) => membership.workspaceId === workspaceId)
-        .map((membership) => membership.userId),
-      ...state.teamMemberships
-        .filter((membership) => workspaceTeamIds.includes(membership.teamId))
-        .map((membership) => membership.userId),
-    ]
-  )
+  const userIds = new Set([
+    ...state.workspaceMemberships
+      .filter((membership) => membership.workspaceId === workspaceId)
+      .map((membership) => membership.userId),
+    ...state.teamMemberships
+      .filter((membership) => workspaceTeamIds.includes(membership.teamId))
+      .map((membership) => membership.userId),
+  ])
 
   if (workspaceOwnerId) {
     userIds.add(workspaceOwnerId)

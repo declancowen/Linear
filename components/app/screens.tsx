@@ -24,7 +24,6 @@ import {
   getTeam,
   getTeamDocuments,
   getUser,
-  getViewByRoute,
   getViewContextLabel,
   getVisibleProjectsForView,
   getViewsForScope,
@@ -141,16 +140,33 @@ function ScopedScreenLoading({ label }: { label: string }) {
 }
 
 function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
-  const data = useAppStore((state) => state)
-  const selectedView = getViewByRoute(data, routeKey)
+  const collectionState = useAppStore(
+    useShallow((state) => ({
+      currentUserId: state.currentUserId,
+      selectedViewId:
+        state.ui.selectedViewByRoute[
+          getViewerScopedDirectoryKey(state.currentUserId, routeKey)
+        ] ?? null,
+      viewerViewConfigByRoute: state.ui.viewerViewConfigByRoute,
+      views: state.views,
+    }))
+  )
+  const selectedView =
+    collectionState.views.find(
+      (view) => view.id === collectionState.selectedViewId
+    ) ?? null
   const searchParams = useSearchParams()
   const hasSelectedView = selectedView
     ? views.some((view) => view.id === selectedView.id)
     : false
   const activeBaseView = hasSelectedView ? selectedView : (views[0] ?? null)
   const activeOverride = activeBaseView
-    ? data.ui.viewerViewConfigByRoute[
-        getViewerScopedViewKey(data.currentUserId, routeKey, activeBaseView.id)
+    ? collectionState.viewerViewConfigByRoute[
+        getViewerScopedViewKey(
+          collectionState.currentUserId,
+          routeKey,
+          activeBaseView.id
+        )
       ]
     : null
   const activeView = activeBaseView
@@ -1041,8 +1057,7 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(team?.id),
     scopeKeys: team ? getWorkIndexScopeKeys("team", team.id) : [],
-    fetchLatest: () =>
-      fetchWorkIndexReadModel("team", team?.id ?? ""),
+    fetchLatest: () => fetchWorkIndexReadModel("team", team?.id ?? ""),
   })
   const views = useAppStore(
     useShallow((state) =>
@@ -1092,8 +1107,7 @@ export function AssignedScreen() {
     scopeKeys: currentUserId
       ? getWorkIndexScopeKeys("personal", currentUserId)
       : [],
-    fetchLatest: () =>
-      fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+    fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
   })
   const assignedViewExperience = useAppStore((state) => {
     return getSharedTeamExperience(
@@ -1736,29 +1750,30 @@ export function ViewsScreen({
     },
     directoryConfig
   )
-  const layout = (resolvedDirectoryConfig.layout ?? "list") as
-    | "list"
-    | "board"
+  const layout = (resolvedDirectoryConfig.layout ?? "list") as "list" | "board"
   const sortBy =
     (resolvedDirectoryConfig.ordering as ViewsDirectorySortField | undefined) ??
     "updated"
   const filters: ViewsDirectoryFilters = {
     entityKinds:
-      (resolvedDirectoryConfig.filters?.entityKinds as ViewDefinition["entityKind"][]) ??
-      [],
+      (resolvedDirectoryConfig.filters
+        ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
     scopes:
-      (resolvedDirectoryConfig.filters?.scopes as ViewsDirectoryScopeFilter[]) ??
-      [],
+      (resolvedDirectoryConfig.filters
+        ?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
   }
   const grouping =
-    (resolvedDirectoryConfig.grouping as ViewsDirectoryGroupField | undefined) ??
-    "none"
+    (resolvedDirectoryConfig.grouping as
+      | ViewsDirectoryGroupField
+      | undefined) ?? "none"
   const subGrouping =
-    (resolvedDirectoryConfig.subGrouping as ViewsDirectoryGroupField | undefined) ??
-    "none"
+    (resolvedDirectoryConfig.subGrouping as
+      | ViewsDirectoryGroupField
+      | undefined) ?? "none"
   const properties =
-    (resolvedDirectoryConfig.displayProps as ViewsDirectoryProperty[] | undefined) ??
-    DEFAULT_VIEW_DIRECTORY_PROPERTIES
+    (resolvedDirectoryConfig.displayProps as
+      | ViewsDirectoryProperty[]
+      | undefined) ?? DEFAULT_VIEW_DIRECTORY_PROPERTIES
   const editable = useAppStore((state) =>
     scopeType === "team"
       ? canEditTeam(state, scopeId)
