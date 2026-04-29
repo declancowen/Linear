@@ -32,9 +32,13 @@ import {
   UserCircle,
   X,
 } from "@phosphor-icons/react"
+import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
-import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-models"
+import {
+  fetchNotificationInboxReadModel,
+  fetchWorkspaceMembershipReadModel,
+} from "@/lib/convex/client/read-models"
 import {
   canAdminWorkspace,
   getAccessibleTeams,
@@ -66,12 +70,13 @@ import {
   createShellContextScopeKey,
   createWorkspaceMembershipScopeKey,
 } from "@/lib/scoped-sync/scope-keys"
+import { getNotificationInboxScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import {
-  appendPendingNotificationModalIds,
+  appendPendingNotificationToastIds,
   getNotificationHref,
   isViewingNotificationTarget,
 } from "@/components/app/notification-routing"
@@ -85,14 +90,6 @@ import { StatusDialog } from "@/components/app/shell/status-dialog"
 import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,6 +129,7 @@ type AppShellProps = {
 }
 
 const SHELL_CONTEXT_GRACE_PERIOD_MS = 1000
+const NOTIFICATION_TOAST_DURATION_MS = 5000
 
 function SidebarInsetResizeHandle() {
   const {
@@ -258,44 +256,53 @@ function ShellFrameFallback() {
   )
 }
 
-function NotificationModal({
+function NotificationToastContent({
   notification,
-  href,
-  onArchive,
   onDismiss,
   onOpen,
 }: {
-  notification: Notification | null
-  href: string | null
-  onArchive: () => void
+  notification: Notification
   onDismiss: () => void
   onOpen: () => void
 }) {
   return (
-    <Dialog
-      open={Boolean(notification)}
-      onOpenChange={(open) => {
-        if (!open) {
-          onDismiss()
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex w-[min(360px,calc(100vw-2rem))] cursor-pointer items-start gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-left text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-colors outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return
         }
+
+        event.preventDefault()
+        onOpen()
       }}
     >
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>New notification</DialogTitle>
-          <DialogDescription>{notification?.message ?? ""}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onDismiss}>
-            Dismiss
-          </Button>
-          <Button variant="outline" onClick={onArchive}>
-            Archive
-          </Button>
-          {href ? <Button onClick={onOpen}>Open</Button> : null}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <span className="bg-brand/10 text-brand mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md">
+        <Bell className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] leading-5 font-medium">
+          New notification
+        </span>
+        <span className="line-clamp-2 block text-[12px] leading-4 text-fg-3">
+          {notification.message}
+        </span>
+      </span>
+      <button
+        type="button"
+        aria-label="Dismiss notification"
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDismiss()
+        }}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
   )
 }
 
@@ -312,7 +319,7 @@ export function AppShell({ children }: AppShellProps) {
           notification.archivedAt == null
       ).length
   )
-  const notificationModalCandidates = useAppStore(
+  const notificationToastCandidates = useAppStore(
     useShallow((state) =>
       state.notifications
         .filter(
@@ -387,6 +394,15 @@ export function AppShell({ children }: AppShellProps) {
     fetchLatest: async () =>
       fetchWorkspaceMembershipReadModel(currentWorkspaceId),
   })
+  const { hasLoadedOnce: hasLoadedNotificationInbox } =
+    useScopedReadModelRefresh({
+      enabled: Boolean(currentUserId),
+      scopeKeys: currentUserId
+        ? getNotificationInboxScopeKeys(currentUserId)
+        : [],
+      fetchLatest: async () =>
+        fetchNotificationInboxReadModel(currentUserId ?? ""),
+    })
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
   )
@@ -454,18 +470,9 @@ export function AppShell({ children }: AppShellProps) {
   )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
-  const [modalNotificationId, setModalNotificationId] = useState<string | null>(
-    null
-  )
-  const modalNotificationFallback = useAppStore((state) =>
-    modalNotificationId
-      ? (state.notifications.find(
-          (notification) => notification.id === modalNotificationId
-        ) ?? null)
-      : null
-  )
   const knownNotificationIdsRef = useRef<Set<string> | null>(null)
-  const pendingModalNotificationIdsRef = useRef<string[]>([])
+  const pendingNotificationToastIdsRef = useRef<string[]>([])
+  const notificationToastUserIdRef = useRef<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useShortcutModifierLabel()
@@ -648,28 +655,34 @@ export function AppShell({ children }: AppShellProps) {
   }, [])
 
   useEffect(() => {
+    if (notificationToastUserIdRef.current !== currentUserId) {
+      notificationToastUserIdRef.current = currentUserId
+      knownNotificationIdsRef.current = null
+      pendingNotificationToastIdsRef.current = []
+    }
+
+    if (!currentUserId || !hasLoadedNotificationInbox) {
+      return
+    }
+
     if (knownNotificationIdsRef.current === null) {
       knownNotificationIdsRef.current = new Set(
-        notificationModalCandidates.map((notification) => notification.id)
+        notificationToastCandidates.map((notification) => notification.id)
       )
       return
     }
 
     const knownNotificationIds = knownNotificationIdsRef.current
-    appendPendingNotificationModalIds({
-      candidates: notificationModalCandidates,
+    appendPendingNotificationToastIds({
+      candidates: notificationToastCandidates,
       knownIds: knownNotificationIds,
-      pendingIds: pendingModalNotificationIdsRef.current,
+      pendingIds: pendingNotificationToastIdsRef.current,
     })
 
-    if (modalNotificationId) {
-      return
-    }
-
-    while (pendingModalNotificationIdsRef.current.length > 0) {
-      const nextNotificationId = pendingModalNotificationIdsRef.current.shift()
+    while (pendingNotificationToastIdsRef.current.length > 0) {
+      const nextNotificationId = pendingNotificationToastIdsRef.current.shift()
       const nextNotification =
-        notificationModalCandidates.find(
+        notificationToastCandidates.find(
           (notification) => notification.id === nextNotificationId
         ) ?? null
 
@@ -691,24 +704,39 @@ export function AppShell({ children }: AppShellProps) {
         continue
       }
 
-      setModalNotificationId(nextNotification.id)
-      return
+      toast.custom(
+        (toastId) => (
+          <NotificationToastContent
+            notification={nextNotification}
+            onDismiss={() => toast.dismiss(toastId)}
+            onOpen={() => {
+              toast.dismiss(toastId)
+
+              if (!href) {
+                return
+              }
+
+              useAppStore.getState().markNotificationRead(nextNotification.id)
+              router.push(href)
+            }}
+          />
+        ),
+        {
+          id: `notification-${nextNotification.id}`,
+          duration: NOTIFICATION_TOAST_DURATION_MS,
+          position: "bottom-right",
+        }
+      )
     }
   }, [
-    modalNotificationId,
-    notificationModalCandidates,
+    currentUserId,
+    hasLoadedNotificationInbox,
+    notificationToastCandidates,
     notificationRouteData,
     pathname,
+    router,
     searchParams,
   ])
-
-  const modalNotification =
-    notificationModalCandidates.find(
-      (notification) => notification.id === modalNotificationId
-    ) ?? modalNotificationFallback
-  const modalNotificationHref = modalNotification
-    ? getNotificationHref(notificationRouteData, modalNotification)
-    : null
 
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {
@@ -742,26 +770,6 @@ export function AppShell({ children }: AppShellProps) {
       <StatusDialog
         open={statusDialogOpen}
         onOpenChange={setStatusDialogOpen}
-      />
-      <NotificationModal
-        notification={modalNotification}
-        href={modalNotificationHref}
-        onDismiss={() => setModalNotificationId(null)}
-        onArchive={() => {
-          if (modalNotification) {
-            useAppStore.getState().archiveNotification(modalNotification.id)
-          }
-          setModalNotificationId(null)
-        }}
-        onOpen={() => {
-          if (modalNotification) {
-            useAppStore.getState().markNotificationRead(modalNotification.id)
-          }
-          if (modalNotificationHref) {
-            router.push(modalNotificationHref)
-          }
-          setModalNotificationId(null)
-        }}
       />
       {activeCreateDialog?.kind === "workItem" ? (
         <CreateWorkItemDialog

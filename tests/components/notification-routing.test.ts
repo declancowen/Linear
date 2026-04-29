@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  appendPendingNotificationModalIds,
+  appendPendingNotificationToastIds,
   isViewingNotificationTarget,
 } from "@/components/app/notification-routing"
 import type { Notification } from "@/lib/domain/types"
@@ -26,11 +26,11 @@ function notification(
 }
 
 describe("notification routing", () => {
-  it("queues every unknown notification modal once in candidate order", () => {
+  it("queues every unknown notification toast once in candidate order", () => {
     const knownIds = new Set(["notification_seen"])
     const pendingIds = ["notification_existing"]
 
-    appendPendingNotificationModalIds({
+    appendPendingNotificationToastIds({
       candidates: [
         { id: "notification_seen" },
         { id: "notification_first" },
@@ -40,7 +40,7 @@ describe("notification routing", () => {
       pendingIds,
     })
 
-    appendPendingNotificationModalIds({
+    appendPendingNotificationToastIds({
       candidates: [{ id: "notification_first" }, { id: "notification_second" }],
       knownIds,
       pendingIds,

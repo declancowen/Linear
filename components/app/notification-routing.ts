@@ -5,7 +5,7 @@ export type NotificationRouteData = Pick<
   "channelPosts" | "conversations" | "projects" | "teams"
 >
 
-export function appendPendingNotificationModalIds(input: {
+export function appendPendingNotificationToastIds(input: {
   candidates: Pick<Notification, "id">[]
   knownIds: Set<string>
   pendingIds: string[]

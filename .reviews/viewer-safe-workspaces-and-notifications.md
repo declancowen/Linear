@@ -40,11 +40,59 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 18:01:19 BST` |
-| **Total turns** | `5` |
+| **Last reviewed** | `2026-04-29 19:22:37 BST` |
+| **Total turns** | `6` |
 | **Open findings** | `0` |
 | **Resolved findings** | `30` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 6 — 2026-04-29 19:22:37 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `327fcc10` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Investigated slow local page loads against `origin/main` after the app had been run on `localhost:3001` with ad hoc URL overrides and then webpack fallback. No branch diff changes the proxy matcher, auth/session route, callback route, app layout, login flow, Next config, WorkOS/PartyKit URL env names, Next/AuthKit package versions, or dev-script port values. The observed slow path was local runtime configuration: running off the checked local origin forced the app away from the `.env.local` `3000` assumptions and exposed the slower webpack path. Restarting on `http://localhost:3000` with all local app/WorkOS redirect URLs aligned restored Turbopack and warmed route responses to tens of milliseconds.
+
+**Outcome:** no code finding; local dev server restarted on the aligned origin
+**Risk score:** medium — auth/routing and dev-runtime configuration affect every page, but no production code changed in this pass
+**Change archetypes:** local environment, auth routing, performance triage
+**Intended change:** determine whether branch changes caused every-page routing slowness
+**Intent vs actual:** branch routing/auth files are unchanged from `origin/main`; the every-page runtime impact comes from local origin/host mismatch and webpack fallback, not a new route or port diff
+**Confidence:** high for branch-vs-main route/config comparison; medium for authenticated browser UX until manually verified in the same browser session
+**Coverage note:** compared `proxy.ts`, `lib/auth-routing.ts`, `app/auth/session/route.ts`, `app/auth/callback/route.ts`, `app/callback/route.ts`, `app/page.tsx`, `app/login/page.tsx`, `app/(workspace)/layout.tsx`, `next.config.mjs`, package diffs, shell/read-model shared paths, and branch diff occurrences of local port/auth env tokens
+**Finding triage:** no new code finding; prior review findings remain closed/accepted as documented
+**Bug classes / invariants checked:** Environment Compatibility (single canonical local origin), Auth Flow (callback host matches verifier-cookie host), Performance Hot Path (warm navigation should not recompile every route)
+**Branch totality:** shared shell/read-model changes remain the only branch changes touching every authenticated page; local measurements show their warmed overhead is not the cause of multi-second route loads
+**Sibling closure:** checked route/proxy/auth entry points and package/dev-script diffs for port or WorkOS redirect changes; none were present
+**Residual risk / unknowns:** browser-level authenticated navigation should still be spot-checked after login because curl measurements cover server redirects and warmed unauthenticated route handling, not client-side hydrated transitions inside an existing session
+
+| Status | Count |
+|--------|-------|
+| New findings | `0` |
+| Resolved during Turn 6 | `0` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### Validation
+
+- `GET /auth/session?next=%2F%3Fvalidated%3D1&mode=login` on `http://localhost:3000` — `307` to `/login`, not `404`.
+- Warm curl timings on `http://localhost:3000`: `/login` `37ms`, `/workspace/docs` `50ms`, `/workspace/projects` `52ms`, `/inbox` `40ms`.
+- Next dev logs with Turbopack on `localhost:3000`: warmed route handling split was single-digit millisecond `next.js`/`proxy.ts` plus `~30-45ms` application code.
+- `pnpm exec vitest run tests/components/notification-routing.test.ts` — passed.
+- `pnpm exec eslint components/app/shell.tsx components/app/notification-routing.ts components/app/screens/work-item-ui.tsx tests/components/notification-routing.test.ts --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Use for local dev:** `http://localhost:3000` with `APP_URL`, `NEXT_PUBLIC_APP_URL`, `TEAMS_URL`, `NEXT_DEV_SERVER_URL`, and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` all aligned to `localhost:3000`.
+2. **Avoid for this branch:** running the app on `3001` unless every app/auth URL env is also overridden to `localhost:3001` and `/auth/session` is verified before testing product behavior.
+3. **Then address:** spot-check authenticated browser navigation in the already-open browser session and confirm the sidebar inbox count/toast behavior on real notifications.
 
 ---
 

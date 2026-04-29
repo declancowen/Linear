@@ -327,49 +327,49 @@ function CommentThreadItem({
               className="mt-0 mb-1.5"
             />
             <div className="flex items-center justify-between gap-2">
-            <EmojiPickerPopover
-              align="start"
-              side="top"
-              onEmojiSelect={(emoji) =>
-                replyEditorRef.current
-                  ?.chain()
-                  .focus()
-                  .insertContent(emoji)
-                  .run()
-              }
-              trigger={
-                <button
-                  type="button"
-                  className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+              <EmojiPickerPopover
+                align="start"
+                side="top"
+                onEmojiSelect={(emoji) =>
+                  replyEditorRef.current
+                    ?.chain()
+                    .focus()
+                    .insertContent(emoji)
+                    .run()
+                }
+                trigger={
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
+                  >
+                    <Smiley className="size-4" />
+                  </button>
+                }
+              />
+              <ShortcutKeys
+                keys={["Enter"]}
+                className="ml-auto"
+                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setReplyContent("")
+                    setReplyOpen(false)
+                  }}
                 >
-                  <Smiley className="size-4" />
-                </button>
-              }
-            />
-            <ShortcutKeys
-              keys={["Enter"]}
-              className="ml-auto"
-              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setReplyContent("")
-                  setReplyOpen(false)
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={!replyLimitState.canSubmit}
-                onClick={handleReply}
-              >
-                Reply
-              </Button>
-            </div>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!replyLimitState.canSubmit}
+                  onClick={handleReply}
+                >
+                  Reply
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -544,37 +544,37 @@ export function CommentsInline({
             className="mt-0 mb-1.5"
           />
           <div className="flex items-center justify-between gap-2">
-          <EmojiPickerPopover
-            align="start"
-            side="top"
-            onEmojiSelect={(emoji) =>
-              commentEditorRef.current
-                ?.chain()
-                .focus()
-                .insertContent(emoji)
-                .run()
-            }
-            trigger={
-              <button
-                type="button"
-                disabled={!editable}
-                className="rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent"
-              >
-                <Smiley className="size-4" />
-              </button>
-            }
-          />
-          <ShortcutKeys
-            keys={["Enter"]}
-            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-          />
-          <Button
-            size="sm"
-            disabled={!editable || !commentLimitState.canSubmit}
-            onClick={handleComment}
-          >
-            Comment
-          </Button>
+            <EmojiPickerPopover
+              align="start"
+              side="top"
+              onEmojiSelect={(emoji) =>
+                commentEditorRef.current
+                  ?.chain()
+                  .focus()
+                  .insertContent(emoji)
+                  .run()
+              }
+              trigger={
+                <button
+                  type="button"
+                  disabled={!editable}
+                  className="rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent"
+                >
+                  <Smiley className="size-4" />
+                </button>
+              }
+            />
+            <ShortcutKeys
+              keys={["Enter"]}
+              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+            />
+            <Button
+              size="sm"
+              disabled={!editable || !commentLimitState.canSubmit}
+              onClick={handleComment}
+            >
+              Comment
+            </Button>
           </div>
         </div>
       </div>
@@ -655,7 +655,7 @@ export function InlineChildIssueComposer({
   const [status, setStatus] = useState<WorkStatus>(
     teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
   )
-  const [priority, setPriority] = useState<Priority>("medium")
+  const [priority, setPriority] = useState<Priority>("none")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const projectId = parentItem.primaryProjectId ?? "none"
   const fallbackType = getPreferredWorkItemTypeForTeamExperience(
@@ -686,11 +686,12 @@ export function InlineChildIssueComposer({
       ? null
       : (teamMembers.find((user) => user.id === assigneeId) ?? null)
   const normalizedTitle = title.trim()
-  const titleLimitState = getTextInputLimitState(title, workItemTitleConstraints)
+  const titleLimitState = getTextInputLimitState(
+    title,
+    workItemTitleConstraints
+  )
   const canCreate =
-    !disabled &&
-    titleLimitState.canSubmit &&
-    availableItemTypes.length > 0
+    !disabled && titleLimitState.canSubmit && availableItemTypes.length > 0
 
   function handleCreate() {
     if (!titleLimitState.canSubmit) {
