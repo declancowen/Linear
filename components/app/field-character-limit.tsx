@@ -11,7 +11,7 @@ export function FieldCharacterLimit({
   limit?: number
   className?: string
 }) {
-  if (!state.error) {
+  if (!state.error || (state.tooShort && state.displayCount === 0)) {
     return null
   }
 
