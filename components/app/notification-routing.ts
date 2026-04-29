@@ -99,6 +99,16 @@ function getHrefPathname(href: string) {
   return href.split(/[?#]/, 1)[0]
 }
 
+function getHrefHash(href: string) {
+  const hashStart = href.indexOf("#")
+
+  if (hashStart === -1) {
+    return ""
+  }
+
+  return href.slice(hashStart + 1).split("?", 1)[0]
+}
+
 function getHrefSearchParams(href: string) {
   const query = href.includes("?")
     ? href.split("?", 2)[1]?.split("#", 1)[0]
@@ -106,13 +116,34 @@ function getHrefSearchParams(href: string) {
   return new URLSearchParams(query ?? "")
 }
 
+function normalizeHash(hash: string | null | undefined) {
+  return hash?.replace(/^#/, "") ?? ""
+}
+
 export function isViewingNotificationTarget(input: {
   notification: Notification
   href: string | null
   pathname: string
   searchParams: URLSearchParams
+  hash?: string | null
 }) {
-  const { notification, href, pathname, searchParams } = input
+  const { notification, href, pathname, searchParams, hash } = input
+
+  if (notification.entityType === "channelPost") {
+    if (!href) {
+      return false
+    }
+
+    const hrefHash = getHrefHash(href)
+
+    if (!hrefHash) {
+      return false
+    }
+
+    return (
+      pathname === getHrefPathname(href) && normalizeHash(hash) === hrefHash
+    )
+  }
 
   if (notification.entityType === "chat") {
     if (!href) {

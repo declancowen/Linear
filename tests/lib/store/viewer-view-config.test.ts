@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createDefaultViewFilters, type ViewDefinition } from "@/lib/domain/types"
+import {
+  createDefaultViewFilters,
+  type ViewDefinition,
+} from "@/lib/domain/types"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { getViewByRoute } from "@/lib/domain/selectors"
 import {
@@ -175,6 +178,57 @@ describe("viewer-local view config", () => {
     ).toEqual({
       status: ["todo"],
       showCompleted: false,
+    })
+  })
+
+  it("does not persist undefined viewer directory filters for non-filter patches", () => {
+    const surfaceKey = "views-directory:workspace:workspace_1"
+
+    useAppStore.setState({
+      ...createEmptyState(),
+      currentUserId: "user_1",
+    })
+
+    useAppStore
+      .getState()
+      .patchViewerDirectoryConfig(surfaceKey, { layout: "board" })
+
+    const overrideKey = getViewerScopedDirectoryKey("user_1", surfaceKey)
+
+    expect(
+      useAppStore.getState().ui.viewerDirectoryConfigByRoute[overrideKey]
+    ).toEqual({
+      layout: "board",
+    })
+  })
+
+  it("merges viewer directory filter patches with the current persisted filters", () => {
+    const surfaceKey = "views-directory:workspace:workspace_1"
+
+    useAppStore.setState({
+      ...createEmptyState(),
+      currentUserId: "user_1",
+    })
+
+    useAppStore.getState().patchViewerDirectoryConfig(surfaceKey, {
+      filters: {
+        entityKinds: ["items"],
+      },
+    })
+    useAppStore.getState().patchViewerDirectoryConfig(surfaceKey, {
+      filters: {
+        scopes: ["workspace"],
+      },
+    })
+
+    const overrideKey = getViewerScopedDirectoryKey("user_1", surfaceKey)
+
+    expect(
+      useAppStore.getState().ui.viewerDirectoryConfigByRoute[overrideKey]
+        ?.filters
+    ).toEqual({
+      entityKinds: ["items"],
+      scopes: ["workspace"],
     })
   })
 })

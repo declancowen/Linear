@@ -40,11 +40,97 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 19:22:37 BST` |
-| **Total turns** | `6` |
+| **Last reviewed** | `2026-04-29 19:57:20 BST` |
+| **Total turns** | `7` |
 | **Open findings** | `0` |
-| **Resolved findings** | `30` |
+| **Resolved findings** | `34` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 7 — 2026-04-29 19:57:20 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `06acfce4` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest repeated review list against the current tree. Most entries were already fixed, stale, or accepted product behavior. Four live follow-ups were fixed locally: channel-post notification suppression now requires the current hash to match the notified post, notification toasts no longer drain a reconnect burst all at once, view-directory filter toggles compute from current store state instead of render-time filter values, and viewer-directory config patches no longer persist `filters: undefined`.
+
+**Outcome:** current live findings resolved locally; push pending
+**Risk score:** medium — notification routing/read state and viewer-local directory config affect shared shell and saved-view UX
+**Change archetypes:** lifecycle, routing, shared UI state, persistence hygiene
+**Intended change:** confirm whether the pasted findings leave the branch in a shippable state and fix any current-tree issues
+**Intent vs actual:** notifications now distinguish channel post hash targets, toast delivery is paced, directory filter patches read current state at action time, and non-filter directory patches remain clean
+**Confidence:** high for the fixed units; medium for burst toast UX until manually observed with real reconnect batches
+**Coverage note:** checked `notification-routing.ts`, `shell.tsx`, `screens.tsx`, `ui.ts`, existing notification/store tests, and the latest pasted findings against current code
+**Finding triage:** no Critical/High findings remain open; accepted product behaviors from Turn 4 remain accepted and unchanged
+**Bug classes / invariants checked:** Target Identity (post hash matters), Burst Lifecycle (one toast cadence), State Preservation (rapid filter toggles must merge), Persistence Hygiene (avoid undefined override fields)
+**Branch totality:** rechecked the shared notification and viewer-directory paths changed since the previous push; no new route/auth/port behavior changed
+**Sibling closure:** notification active-target suppression was checked for chat and channel-post variants; directory filter merge was checked at both UI handler and store persistence layers
+**Residual risk / unknowns:** large notification bursts now pace one toast per 5-second duration, which is conservative; product can still choose to coalesce bursts later
+
+| Status | Count |
+|--------|-------|
+| New findings | `4` |
+| Resolved during Turn 7 | `4` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| User / PR notes | Channel-post suppression ignores post hash | resolved in `F7-01` | Target Identity | active surface must match item anchor, not only pathname | fixed |
+| User / PR notes | Toast queue drains all pending notifications in one effect | resolved in `F7-02` | Burst Lifecycle | reconnect batches should not spam the viewport | fixed |
+| User / PR notes | Views directory toggles use render-time filters | resolved in `F7-03` | State Preservation | rapid toggles should read current state | fixed |
+| User / PR notes | `patchViewerDirectoryConfig` persists `filters: undefined` | resolved in `F7-04` | Persistence Hygiene | absent optional override keys stay absent | fixed |
+| User / PR notes | `FieldCharacterLimit` `limit` required/unused | stale | Interface Hygiene | current prop is optional and minimum message behavior was fixed in `06acfce4` | no code change |
+| User / PR notes | selected-view migration strips legacy keys, `patchViewerViewConfig` drops filters, CI codegen no-secret drift | already fixed | Compatibility / Release Safety / Preservation | current tree contains prior fixes and tests | no code change |
+| User / PR notes | clear filters/display properties, blank create priority, message digest exclusion, child-row/sidebar UX, rich-text API/defaults, broad selectors/perf notes | accepted | Product UX / Performance | accepted tradeoffs documented in Turn 4 | no code change |
+
+### Resolved during Turn 7
+
+#### F7-01 ~~[BUG] Medium~~ → RESOLVED — Channel-post notifications were auto-read on any channel route
+**Where:** [components/app/notification-routing.ts](../components/app/notification-routing.ts), [components/app/shell.tsx](../components/app/shell.tsx), [tests/components/notification-routing.test.ts](../tests/components/notification-routing.test.ts)
+
+**What was wrong:** The active-target check stripped the hash from `/workspace/channel#post_id`, so any channel route matched any post notification in that channel.
+
+**How it was fixed:** Channel-post suppression now compares both pathname and hash. The shell tracks `window.location.hash` and passes it into the routing helper; without a matching hash, the toast remains eligible.
+
+#### F7-02 ~~[UX] Medium~~ → RESOLVED — Notification toast bursts could all render at once
+**Where:** [components/app/shell.tsx](../components/app/shell.tsx)
+
+**What was wrong:** The toast effect drained the whole pending queue in one render, so reconnect batches could stack many toasts simultaneously.
+
+**How it was fixed:** The effect now emits one toast, schedules the next queue flush after the toast duration, and clears the timer on user changes/unmount.
+
+#### F7-03 ~~[BUG] Low~~ → RESOLVED — Views directory filter toggles could patch from stale render values
+**Where:** [components/app/screens.tsx](../components/app/screens.tsx)
+
+**What was wrong:** Toggle handlers built full filter patches from render-time arrays rather than current store state, leaving a narrow stale-state window for rapid/batched toggles.
+
+**How it was fixed:** Toggle handlers now resolve the latest viewer directory config from the store before computing the next filter arrays.
+
+#### F7-04 ~~[CLEANUP] Low~~ → RESOLVED — Non-filter directory patches stored `filters: undefined`
+**Where:** [lib/store/app-store-internal/slices/ui.ts](../lib/store/app-store-internal/slices/ui.ts), [tests/lib/store/viewer-view-config.test.ts](../tests/lib/store/viewer-view-config.test.ts)
+
+**What was wrong:** A layout-only directory patch could persist an unnecessary `filters: undefined` key.
+
+**How it was fixed:** Directory patching now only writes `filters` when a real filter patch exists or current filters are already present.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/notification-routing.test.ts tests/lib/store/viewer-view-config.test.ts tests/components/field-character-limit.test.tsx` — passed.
+- `pnpm exec eslint components/app/notification-routing.ts components/app/shell.tsx components/app/screens.tsx lib/store/app-store-internal/slices/ui.ts tests/components/notification-routing.test.ts tests/lib/store/viewer-view-config.test.ts --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** push this follow-up and let PR checks/review rerun.
 
 ---
 

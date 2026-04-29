@@ -1730,18 +1730,26 @@ export function ViewsScreen({
         ]
     )
   )
-  const resolvedDirectoryConfig = applyViewerDirectoryConfig(
-    {
-      layout: "list" as "list" | "board",
-      ordering: "updated",
-      grouping: "none",
-      subGrouping: "none",
-      filters: {
-        entityKinds: [],
-        scopes: [],
-      },
-      displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+  const defaultDirectoryConfig: ViewerDirectoryConfig & {
+    layout: "list" | "board"
+    ordering: ViewsDirectorySortField
+    grouping: ViewsDirectoryGroupField
+    subGrouping: ViewsDirectoryGroupField
+    filters: ViewsDirectoryFilters
+    displayProps: ViewsDirectoryProperty[]
+  } = {
+    layout: "list",
+    ordering: "updated",
+    grouping: "none",
+    subGrouping: "none",
+    filters: {
+      entityKinds: [],
+      scopes: [],
     },
+    displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+  }
+  const resolvedDirectoryConfig = applyViewerDirectoryConfig(
+    defaultDirectoryConfig,
     directoryConfig
   )
   const layout = (resolvedDirectoryConfig.layout ?? "list") as "list" | "board"
@@ -1854,6 +1862,34 @@ export function ViewsScreen({
       .patchViewerDirectoryConfig(directorySurfaceKey, patch)
   }
 
+  function getCurrentDirectoryFilters(): ViewsDirectoryFilters {
+    const state = useAppStore.getState()
+    const currentConfig = applyViewerDirectoryConfig(
+      defaultDirectoryConfig,
+      state.ui.viewerDirectoryConfigByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
+      ]
+    )
+
+    return {
+      entityKinds:
+        (currentConfig.filters
+          ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
+      scopes:
+        (currentConfig.filters?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
+    }
+  }
+
+  function updateDirectoryFilters(
+    resolveNextFilters: (
+      current: ViewsDirectoryFilters
+    ) => ViewsDirectoryFilters
+  ) {
+    updateDirectoryConfig({
+      filters: resolveNextFilters(getCurrentDirectoryFilters()),
+    })
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <Topbar>
@@ -1880,23 +1916,23 @@ export function ViewsScreen({
             })
           }
           onToggleEntityKind={(entityKind) =>
-            updateDirectoryConfig({
-              filters: {
-                ...filters,
-                entityKinds: filters.entityKinds.includes(entityKind)
-                  ? filters.entityKinds.filter((value) => value !== entityKind)
-                  : [...filters.entityKinds, entityKind],
-              },
+            updateDirectoryFilters((current) => {
+              return {
+                ...current,
+                entityKinds: current.entityKinds.includes(entityKind)
+                  ? current.entityKinds.filter((value) => value !== entityKind)
+                  : [...current.entityKinds, entityKind],
+              }
             })
           }
           onToggleScope={(scope) =>
-            updateDirectoryConfig({
-              filters: {
-                ...filters,
-                scopes: filters.scopes.includes(scope)
-                  ? filters.scopes.filter((value) => value !== scope)
-                  : [...filters.scopes, scope],
-              },
+            updateDirectoryFilters((current) => {
+              return {
+                ...current,
+                scopes: current.scopes.includes(scope)
+                  ? current.scopes.filter((value) => value !== scope)
+                  : [...current.scopes, scope],
+              }
             })
           }
         />

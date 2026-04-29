@@ -869,22 +869,26 @@ export function createUiSlice(
           surfaceKey
         )
         const current = state.ui.viewerDirectoryConfigByRoute[storageKey] ?? {}
+        const nextConfig = {
+          ...current,
+          ...patch,
+        }
+
+        if (patch.filters) {
+          nextConfig.filters = {
+            ...current.filters,
+            ...patch.filters,
+          }
+        } else if (!current.filters) {
+          delete nextConfig.filters
+        }
 
         return {
           ui: {
             ...state.ui,
             viewerDirectoryConfigByRoute: {
               ...state.ui.viewerDirectoryConfigByRoute,
-              [storageKey]: {
-                ...current,
-                ...patch,
-                filters: patch.filters
-                  ? {
-                      ...current.filters,
-                      ...patch.filters,
-                    }
-                  : current.filters,
-              },
+              [storageKey]: nextConfig,
             },
           },
         }

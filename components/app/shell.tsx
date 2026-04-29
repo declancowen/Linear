@@ -310,6 +310,7 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [currentHash, setCurrentHash] = useState("")
   const unread = useAppStore(
     (state) =>
       state.notifications.filter(
@@ -473,6 +474,9 @@ export function AppShell({ children }: AppShellProps) {
   const knownNotificationIdsRef = useRef<Set<string> | null>(null)
   const pendingNotificationToastIdsRef = useRef<string[]>([])
   const notificationToastUserIdRef = useRef<string | null>(null)
+  const notificationToastFlushTimeoutRef = useRef<number | null>(null)
+  const [notificationToastQueueTick, setNotificationToastQueueTick] =
+    useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useShortcutModifierLabel()
@@ -655,10 +659,38 @@ export function AppShell({ children }: AppShellProps) {
   }, [])
 
   useEffect(() => {
+    function updateCurrentHash() {
+      setCurrentHash(window.location.hash)
+    }
+
+    updateCurrentHash()
+    window.addEventListener("hashchange", updateCurrentHash)
+
+    return () => {
+      window.removeEventListener("hashchange", updateCurrentHash)
+    }
+  }, [pathname])
+
+  useEffect(
+    () => () => {
+      if (notificationToastFlushTimeoutRef.current !== null) {
+        window.clearTimeout(notificationToastFlushTimeoutRef.current)
+        notificationToastFlushTimeoutRef.current = null
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
     if (notificationToastUserIdRef.current !== currentUserId) {
       notificationToastUserIdRef.current = currentUserId
       knownNotificationIdsRef.current = null
       pendingNotificationToastIdsRef.current = []
+
+      if (notificationToastFlushTimeoutRef.current !== null) {
+        window.clearTimeout(notificationToastFlushTimeoutRef.current)
+        notificationToastFlushTimeoutRef.current = null
+      }
     }
 
     if (!currentUserId || !hasLoadedNotificationInbox) {
@@ -679,6 +711,10 @@ export function AppShell({ children }: AppShellProps) {
       pendingIds: pendingNotificationToastIdsRef.current,
     })
 
+    if (notificationToastFlushTimeoutRef.current !== null) {
+      return
+    }
+
     while (pendingNotificationToastIdsRef.current.length > 0) {
       const nextNotificationId = pendingNotificationToastIdsRef.current.shift()
       const nextNotification =
@@ -698,6 +734,7 @@ export function AppShell({ children }: AppShellProps) {
           href,
           pathname,
           searchParams,
+          hash: currentHash,
         })
       ) {
         useAppStore.getState().markNotificationRead(nextNotification.id)
@@ -727,11 +764,22 @@ export function AppShell({ children }: AppShellProps) {
           position: "bottom-right",
         }
       )
+
+      if (pendingNotificationToastIdsRef.current.length > 0) {
+        notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
+          notificationToastFlushTimeoutRef.current = null
+          setNotificationToastQueueTick((current) => current + 1)
+        }, NOTIFICATION_TOAST_DURATION_MS)
+      }
+
+      return
     }
   }, [
     currentUserId,
+    currentHash,
     hasLoadedNotificationInbox,
     notificationToastCandidates,
+    notificationToastQueueTick,
     notificationRouteData,
     pathname,
     router,

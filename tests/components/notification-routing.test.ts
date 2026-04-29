@@ -105,4 +105,27 @@ describe("notification routing", () => {
       })
     ).toBe(true)
   })
+
+  it("does not suppress channel post notifications from the channel pathname alone", () => {
+    expect(
+      isViewingNotificationTarget({
+        notification: notification("channelPost", "post_target"),
+        href: "/workspace/channel#post_target",
+        pathname: "/workspace/channel",
+        searchParams: new URLSearchParams(),
+      })
+    ).toBe(false)
+  })
+
+  it("suppresses channel post notifications only when the hash target matches", () => {
+    expect(
+      isViewingNotificationTarget({
+        notification: notification("channelPost", "post_target"),
+        href: "/workspace/channel#post_target",
+        pathname: "/workspace/channel",
+        searchParams: new URLSearchParams(),
+        hash: "#post_target",
+      })
+    ).toBe(true)
+  })
 })
