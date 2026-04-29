@@ -7,6 +7,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +25,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit:deps
-      - run: pnpm convex:codegen
+      - if: ${{ env.CONVEX_DEPLOYMENT != '' }}
+        run: pnpm convex:codegen
       - run: git diff --exit-code -- convex/_generated
       - run: pnpm check

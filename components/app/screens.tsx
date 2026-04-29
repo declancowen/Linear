@@ -38,6 +38,7 @@ import {
   projectStatusMeta,
   priorityMeta,
   templateMeta,
+  type AppData,
   type DisplayProperty,
   type GroupField,
   type Project,
@@ -94,6 +95,7 @@ import {
 export { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
 import {
   createEmptyViewFilters,
+  selectAppDataSnapshot,
   type ViewFilterKey,
 } from "@/components/app/screens/helpers"
 import { DocumentBoard } from "@/components/app/screens/collection-boards"
@@ -140,35 +142,29 @@ function ScopedScreenLoading({ label }: { label: string }) {
 }
 
 function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
-  const collectionState = useAppStore(
-    useShallow((state) => ({
-      currentUserId: state.currentUserId,
-      selectedViewId:
-        state.ui.selectedViewByRoute[
-          getViewerScopedDirectoryKey(state.currentUserId, routeKey)
-        ] ?? null,
-      viewerViewConfigByRoute: state.ui.viewerViewConfigByRoute,
-      views: state.views,
-    }))
+  const selectedViewId = useAppStore(
+    (state) =>
+      state.ui.selectedViewByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, routeKey)
+      ] ?? null
   )
-  const selectedView =
-    collectionState.views.find(
-      (view) => view.id === collectionState.selectedViewId
-    ) ?? null
-  const searchParams = useSearchParams()
-  const hasSelectedView = selectedView
-    ? views.some((view) => view.id === selectedView.id)
-    : false
-  const activeBaseView = hasSelectedView ? selectedView : (views[0] ?? null)
-  const activeOverride = activeBaseView
-    ? collectionState.viewerViewConfigByRoute[
-        getViewerScopedViewKey(
-          collectionState.currentUserId,
-          routeKey,
-          activeBaseView.id
-        )
-      ]
+  const selectedView = selectedViewId
+    ? (views.find((view) => view.id === selectedViewId) ?? null)
     : null
+  const searchParams = useSearchParams()
+  const hasSelectedView = Boolean(selectedView)
+  const activeBaseView = selectedView ?? views[0] ?? null
+  const activeOverride = useAppStore((state) => {
+    if (!activeBaseView) {
+      return null
+    }
+
+    return (
+      state.ui.viewerViewConfigByRoute[
+        getViewerScopedViewKey(state.currentUserId, routeKey, activeBaseView.id)
+      ] ?? null
+    )
+  })
   const activeView = activeBaseView
     ? applyViewerViewConfig(activeBaseView, activeOverride)
     : null
@@ -427,11 +423,7 @@ function getProjectGroupKey(project: Project, field: string) {
   return project.status
 }
 
-function getProjectGroupLabel(
-  data: ReturnType<typeof useAppStore.getState>,
-  field: string,
-  key: string
-) {
+function getProjectGroupLabel(data: AppData, field: string, key: string) {
   if (field === "priority") {
     return priorityMeta[key as keyof typeof priorityMeta]?.label ?? "None"
   }
@@ -458,7 +450,7 @@ function getProjectGroupLabel(
 }
 
 function compareProjectGroupKeys(
-  data: ReturnType<typeof useAppStore.getState>,
+  data: AppData,
   field: string,
   left: string,
   right: string
@@ -501,7 +493,7 @@ function compareProjectGroupKeys(
 }
 
 function getProjectDisplayTokens(
-  data: ReturnType<typeof useAppStore.getState>,
+  data: AppData,
   project: Project,
   displayProps: DisplayProperty[]
 ) {
@@ -699,7 +691,7 @@ function ProjectDisplayTokenRow({
   displayProps,
   className,
 }: {
-  data: ReturnType<typeof useAppStore.getState>
+  data: AppData
   project: Project
   displayProps: DisplayProperty[]
   className?: string
@@ -733,7 +725,7 @@ function ProjectRow({
   project,
   displayProps,
 }: {
-  data: ReturnType<typeof useAppStore.getState>
+  data: AppData
   project: Project
   displayProps: DisplayProperty[]
 }) {
@@ -808,7 +800,7 @@ function ProjectCard({
   project,
   displayProps,
 }: {
-  data: ReturnType<typeof useAppStore.getState>
+  data: AppData
   project: Project
   displayProps: DisplayProperty[]
 }) {
@@ -1179,7 +1171,7 @@ export function ProjectsScreen({
   title: string
   description?: string
 }) {
-  const data = useAppStore((state) => state)
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),
     scopeKeys: getProjectIndexScopeKeys(scopeType, scopeId),
@@ -2109,7 +2101,7 @@ export function DocsScreen({
   title: string
   description?: string
 }) {
-  const data = useAppStore((state) => state)
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),

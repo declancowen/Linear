@@ -1527,6 +1527,8 @@ export function RichTextEditor({
   )
 
   const resolvedEditorContent = sanitizedStringContent ?? content
+  const collaborationDocument = collaboration?.binding.doc ?? null
+  const collaborationProvider = collaboration?.binding.provider ?? null
   const visiblePresenceViewers = useMemo(
     () =>
       currentPresenceUserId
@@ -1551,16 +1553,16 @@ export function RichTextEditor({
   )
   const collaborationExtensions = useMemo(
     () =>
-      collaboration
+      collaborationDocument && collaborationProvider
         ? [
             Collaboration.configure({
-              document: collaboration.binding.doc,
+              document: collaborationDocument,
               field: COLLABORATION_XML_FRAGMENT,
-              provider: collaboration.binding.provider,
+              provider: collaborationProvider,
             }),
           ]
         : [],
-    [collaboration]
+    [collaborationDocument, collaborationProvider]
   )
 
   function clearTypingTimeout() {
@@ -2526,8 +2528,7 @@ export function RichTextEditor({
                   })}
                 {marker.viewers.length > MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS ? (
                   <span className="rounded-full bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border">
-                    +
-                    {marker.viewers.length - MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS}
+                    {`+${marker.viewers.length - MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS}`}
                   </span>
                 ) : null}
               </div>

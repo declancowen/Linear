@@ -46,7 +46,6 @@ import {
   isWorkspaceOwner,
 } from "@/lib/domain/selectors"
 import {
-  type AppData,
   type CreateDialogState,
   type Notification,
   getWorkSurfaceCopy,
@@ -71,6 +70,10 @@ import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import {
+  getNotificationHref,
+  isViewingNotificationTarget,
+} from "@/components/app/notification-routing"
 import { useShortcutModifierLabel } from "@/components/app/shortcut-keys"
 import { CreateViewDialog } from "@/components/app/screens/create-view-dialog"
 import { CreateProjectDialog } from "@/components/app/screens/project-creation"
@@ -252,106 +255,6 @@ function ShellFrameFallback() {
       </div>
     </div>
   )
-}
-
-type NotificationRouteData = Pick<
-  AppData,
-  "channelPosts" | "conversations" | "projects" | "teams"
->
-
-function getNotificationHref(
-  data: NotificationRouteData,
-  notification: Notification
-) {
-  if (notification.entityType === "workItem") {
-    return `/items/${notification.entityId}`
-  }
-
-  if (notification.entityType === "document") {
-    return `/docs/${notification.entityId}`
-  }
-
-  if (notification.entityType === "project") {
-    const project = data.projects.find(
-      (entry) => entry.id === notification.entityId
-    )
-
-    if (!project) {
-      return null
-    }
-
-    if (project.scopeType === "workspace") {
-      return `/workspace/projects/${project.id}`
-    }
-
-    const team = data.teams.find((entry) => entry.id === project.scopeId)
-    return team ? `/team/${team.slug}/projects/${project.id}` : null
-  }
-
-  if (notification.entityType === "channelPost") {
-    const post = data.channelPosts.find(
-      (entry) => entry.id === notification.entityId
-    )
-    const conversation = post
-      ? data.conversations.find((entry) => entry.id === post.conversationId)
-      : null
-
-    if (!post || !conversation || conversation.kind !== "channel") {
-      return null
-    }
-
-    if (conversation.scopeType === "workspace") {
-      return `/workspace/channel#${post.id}`
-    }
-
-    const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-    return team ? `/team/${team.slug}/channel#${post.id}` : null
-  }
-
-  if (notification.entityType === "chat") {
-    const conversation = data.conversations.find(
-      (entry) => entry.id === notification.entityId
-    )
-
-    if (!conversation || conversation.kind !== "chat") {
-      return null
-    }
-
-    if (conversation.scopeType === "workspace") {
-      return `/chats?chatId=${conversation.id}`
-    }
-
-    const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-    return team ? `/team/${team.slug}/chat` : null
-  }
-
-  if (notification.entityType === "invite") {
-    return "/invites"
-  }
-
-  return null
-}
-
-function isViewingNotificationTarget(input: {
-  notification: Notification
-  href: string | null
-  pathname: string
-  searchParams: URLSearchParams
-}) {
-  const { notification, href, pathname, searchParams } = input
-
-  if (notification.entityType === "chat") {
-    return (
-      searchParams.get("chatId") === notification.entityId ||
-      (href ? pathname === href.split("?")[0] : false)
-    )
-  }
-
-  if (!href) {
-    return false
-  }
-
-  return pathname === href.split("?")[0]
 }
 
 function NotificationModal({

@@ -27,6 +27,9 @@ Files and areas reviewed across all turns:
 - `components/app/collaboration-screens/channel-ui.tsx` — explicit rich-text stats hiding in constrained composer surfaces
 - `app/api/chats/[chatId]/calls/route.ts` and API route tests — typed application-error handling with scoped invalidation side effects
 - `components/providers/convex-app-provider.tsx` and retained-value hooks — lint-safe React hook usage
+- `components/app/notification-routing.ts` — notification href resolution and active-target suppression helpers
+- `.github/workflows/ci.yml` — Convex codegen behavior when CI has no deployment secret
+- `hooks/use-scoped-read-model-refresh.ts` — stable scoped key effect dependencies
 - `package.json` and `pnpm-lock.yaml` — dependency audit overrides for high-severity transitive vulnerabilities
 - `tests/*` impacted suites — viewer config, empty groups, notification routing, document presence, route contracts, collaboration wrappers
 
@@ -35,11 +38,101 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 16:29:37 BST` |
-| **Total turns** | `1` |
+| **Last reviewed** | `2026-04-29 16:52:55 BST` |
+| **Total turns** | `2` |
 | **Open findings** | `0` |
-| **Resolved findings** | `13` |
-| **Accepted findings** | `6` |
+| **Resolved findings** | `20` |
+| **Accepted findings** | `8` |
+
+---
+
+## Turn 2 — 2026-04-29 16:52:55 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `0040e6be` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `High` |
+
+**Summary:** Imported the second external finding batch and re-reviewed the current diff for the same performance, notification, rich-text, and CI failure classes. The new live P1 notification finding was valid: workspace chat notifications were suppressed by pathname alone on `/chats`, so a user viewing a different conversation could have a new notification silently marked read. The follow-up pass also found valid smaller regressions around rich-text overflow text, over-broad viewer override subscriptions, collaboration extension memo dependencies, a redundant scoped-key effect dependency, and GitHub CI codegen running without Convex deployment configuration. All live issues from this pass were fixed, covered where useful, and re-verified.
+
+| Status | Count |
+|--------|-------|
+| New findings | `7` |
+| Resolved during Turn 2 | `7` |
+| Accepted / intentional | `1` |
+| Carried open | `0` |
+
+### Resolved during Turn 2
+
+#### F2-01 ~~[BUG] High~~ → RESOLVED — Workspace chat target suppression marked different chats read
+**Where:** [components/app/notification-routing.ts](../components/app/notification-routing.ts), [components/app/shell.tsx](../components/app/shell.tsx), [tests/components/notification-routing.test.ts](../tests/components/notification-routing.test.ts)
+
+**What was wrong:** Chat notification suppression treated any `/chats` pathname match as already viewing the target, even when `chatId` was different or absent.
+
+**How it was fixed:** Moved notification routing into a pure helper and changed chat suppression so workspace chat hrefs with `chatId` suppress only when both pathname and `chatId` match. Team chat routes, which have no `chatId`, still suppress by exact route. Added focused coverage for matching, mismatched, and team chat cases.
+
+#### F2-02 ~~[UI] Low~~ → RESOLVED — Rich-text block presence overflow rendered `+ 3`
+**Where:** [components/app/rich-text-editor.tsx](../components/app/rich-text-editor.tsx)
+
+**What was wrong:** JSX line wrapping split the plus sign and count expression into separate text nodes, producing a visible space.
+
+**How it was fixed:** Rendered the overflow label as a single template-string expression, e.g. `+3`.
+
+#### F2-03 ~~[PERFORMANCE] Medium~~ → RESOLVED — Collection layout still subscribed to every viewer override
+**Where:** [components/app/screens.tsx](../components/app/screens.tsx)
+
+**What was wrong:** The first fix narrowed `useCollectionLayout()` away from the full store, but still selected the whole `viewerViewConfigByRoute` object.
+
+**How it was fixed:** The hook now selects only the active route/view override entry after resolving the active base view, so unrelated viewer override changes do not re-render every collection screen. The same re-review also replaced two remaining broad project/docs screen selectors with the existing domain snapshot selector.
+
+#### F2-04 ~~[PERFORMANCE] Low~~ → RESOLVED — Collaboration extension memo depended on the whole collaboration object
+**Where:** [components/app/rich-text-editor.tsx](../components/app/rich-text-editor.tsx)
+
+**What was wrong:** The lint-safe follow-up widened the memo dependency to `collaboration`, recreating extensions if a parent passed an equivalent object with a new identity.
+
+**How it was fixed:** The memo now depends on the actual `doc` and `provider` values used to configure the extension.
+
+#### F2-05 ~~[PERFORMANCE] Low~~ → RESOLVED — Scoped read-model effect depended on the memoized key array
+**Where:** [hooks/use-scoped-read-model-refresh.ts](../hooks/use-scoped-read-model-refresh.ts)
+
+**What was wrong:** The effect included `scopeKeys` in its dependency array even though `scopeKeySignature` is the canonical change signal.
+
+**How it was fixed:** The effect now derives its local stream key array from `scopeKeySignature`, keeping the dependency on the stable signature only.
+
+#### F2-06 ~~[CI] High~~ → RESOLVED — GitHub CI failed Convex codegen without deployment env
+**Where:** [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+
+**What was wrong:** GitHub Actions ran `pnpm convex:codegen` even when no `CONVEX_DEPLOYMENT` was configured, failing before `pnpm check`.
+
+**How it was fixed:** The workflow now exposes optional Convex deployment secrets and only runs codegen when `CONVEX_DEPLOYMENT` is present. The generated-file drift check still runs on every CI pass.
+
+#### F2-07 ~~[PERFORMANCE] Medium~~ → RESOLVED — Project/docs screens retained broad store subscriptions
+**Where:** [components/app/screens.tsx](../components/app/screens.tsx)
+
+**What was wrong:** A same-family grep pass found two additional `useAppStore((state) => state)` selectors in project and docs collection screens.
+
+**How it was fixed:** Replaced them with `useAppStore(useShallow(selectAppDataSnapshot))` and adjusted local project-rendering helper types to consume `AppData`.
+
+### Accepted / intentional in Turn 2
+
+| External finding | Status | Reason |
+|------------------|--------|--------|
+| `message` notifications excluded from email digest claims | Accepted | This is intentional: generic chat messages are in-app only, while mentions keep the existing `mention` type and email preference behavior. |
+
+### Re-review pass
+
+- Searched the touched diff for `useAppStore((state) => state)`, whole `viewerViewConfigByRoute` selection, chat suppression path/query mismatches, split JSX plus text, and scoped-key dependency churn.
+- Re-checked that stale findings from the external list were already fixed in Turn 1: `notificationModalData` whole-store subscription, `FieldCharacterLimit` required `limit`, and `RichTextEditor showStats = false`.
+- Re-confirmed intentional changes from the architecture plan: hard rich-text limit enforcement, `"none"` create-work default priority, user-scoped selected-view migration, in-app-only generic message notifications, one modal per notification batch, and sidebar subtask property hiding.
+
+### Verification
+
+- `pnpm audit --audit-level high` — passed; 5 moderate advisories remain below the configured threshold.
+- `pnpm convex:codegen && git diff --exit-code -- convex/_generated` — passed locally with Convex env present.
+- `pnpm exec vitest run tests/components/notification-routing.test.ts tests/components/views-screen.test.tsx tests/lib/store/viewer-view-config.test.ts tests/components/work-surface-view.test.tsx tests/lib/use-scoped-read-model-refresh.test.tsx` — passed, 5 files / 34 tests.
+- `pnpm check` — passed, including lint, typecheck, 140 test files / 726 tests, build, and desktop smoke.
+- `git diff --check` — passed.
 
 ---
 
@@ -57,7 +150,7 @@ Files and areas reviewed across all turns:
 |--------|-------|
 | New findings | `13` |
 | Resolved during Turn 1 | `13` |
-| Accepted / intentional | `6` |
+| Accepted / intentional | `7` |
 | Carried open | `0` |
 
 ### Original requirements check
