@@ -40,11 +40,69 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 17:44:52 BST` |
-| **Total turns** | `4` |
+| **Last reviewed** | `2026-04-29 18:01:19 BST` |
+| **Total turns** | `5` |
 | **Open findings** | `0` |
-| **Resolved findings** | `29` |
+| **Resolved findings** | `30` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 5 — 2026-04-29 18:01:19 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `2f5fe415` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest Codex PR review finding after Devin completed. The finding was live: when `CONVEX_DEPLOYMENT` was absent, CI skipped `pnpm convex:codegen` but still ran `git diff --exit-code -- convex/_generated`, creating a misleading generated-bindings check that could not detect drift. The workflow now separates the generated diff from the no-secret path and fails explicitly if Convex source or generated files changed while codegen cannot run.
+
+**Outcome:** current CI finding resolved locally; remote recheck pending until this turn is pushed
+**Risk score:** medium — CI/release-safety behavior changed, but runtime code did not
+**Change archetypes:** infra, release-safety, generated-artifact verification
+**Intended change:** prevent a false-positive generated Convex binding check when codegen is skipped
+**Intent vs actual:** codegen and generated diff now run only when the deployment secret is present; the no-secret path performs an explicit diff-range guard and fails on Convex source/generated changes instead of passing a stale generated diff
+**Confidence:** medium-high — workflow formatting and shell syntax were checked locally; GitHub Actions must confirm the exact hosted expression/runtime behavior
+**Coverage note:** checked the current `.github/workflows/ci.yml`, branch Convex-file changes, and the unresolved PR thread
+**Finding triage:** the new PR finding is fixed in `F5-01`; repeated user flags were already triaged in Turn 4
+**Bug classes / invariants checked:** Release Safety (generated files must be verified only after generation), Compatibility (fork/no-secret PRs get a clear failure instead of false success)
+**Branch totality:** only the CI workflow changed in this turn; prior Turn 4 code fixes and full local `pnpm check` remain valid for runtime code
+**Sibling closure:** checked `package.json` codegen script and existing Convex generated-file docs; no other workflow codegen checks exist
+**Residual risk / unknowns:** fork PRs that change Convex files without repo secrets will now fail with instructions rather than getting a weaker check; that is intentional to avoid false assurance
+
+| Status | Count |
+|--------|-------|
+| New findings | `1` |
+| Resolved during Turn 5 | `1` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | CI codegen drift check is ineffective when `CONVEX_DEPLOYMENT` is absent | resolved in `F5-01` | Release Safety | generated diff must not pass unless codegen actually ran | fixed |
+
+### Resolved during Turn 5
+
+#### F5-01 ~~[BUG] Medium~~ → RESOLVED — Convex generated-file check passed without running codegen
+**Where:** [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+
+**What was wrong:** The workflow skipped `pnpm convex:codegen` when `CONVEX_DEPLOYMENT` was absent, then still ran `git diff --exit-code -- convex/_generated`. Without generation, the diff could only detect direct generated-file edits, not stale generated bindings caused by Convex source changes.
+
+**How it was fixed:** The checkout now fetches history for reliable diff ranges. When `CONVEX_DEPLOYMENT` is present, CI runs codegen and then verifies `convex/_generated`. When it is absent, CI explicitly fails if the PR/push changes Convex source or generated bindings, so the generated check cannot produce a false green result.
+
+### Validation
+
+- `pnpm exec prettier --check .github/workflows/ci.yml` — passed.
+- Extracted workflow shell block with `bash -n` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** push this workflow fix, resolve the new PR thread, and wait for Actions plus Devin to re-run on the new head.
 
 ---
 

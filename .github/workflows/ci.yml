@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -25,7 +27,37 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit:deps
-      - if: ${{ env.CONVEX_DEPLOYMENT != '' }}
+      - name: Guard Convex generated bindings when codegen is unavailable
+        if: ${{ env.CONVEX_DEPLOYMENT == '' }}
+        shell: bash
+        env:
+          DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DIFF_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$DIFF_BASE" ] || [ "$DIFF_BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "::error::CONVEX_DEPLOYMENT is unavailable and no reliable diff base exists for Convex codegen verification."
+            exit 1
+          fi
+
+          if ! git cat-file -e "$DIFF_BASE^{commit}" || ! git cat-file -e "$DIFF_HEAD^{commit}"; then
+            echo "::error::CONVEX_DEPLOYMENT is unavailable and the Convex codegen diff range cannot be resolved."
+            exit 1
+          fi
+
+          convex_source_changes="$(git diff --name-only "$DIFF_BASE" "$DIFF_HEAD" -- convex ':!convex/_generated/**')"
+          generated_changes="$(git diff --name-only "$DIFF_BASE" "$DIFF_HEAD" -- convex/_generated)"
+
+          if [ -n "$convex_source_changes" ] || [ -n "$generated_changes" ]; then
+            echo "::error::CONVEX_DEPLOYMENT is unavailable, so CI cannot verify Convex generated bindings for these changes."
+            printf '%s\n' "$convex_source_changes" "$generated_changes" | sed '/^$/d'
+            exit 1
+          fi
+
+          echo "CONVEX_DEPLOYMENT unavailable; no Convex source or generated binding changes detected."
+      - name: Generate Convex bindings
+        if: ${{ env.CONVEX_DEPLOYMENT != '' }}
         run: pnpm convex:codegen
-      - run: git diff --exit-code -- convex/_generated
+      - name: Verify Convex generated bindings
+        if: ${{ env.CONVEX_DEPLOYMENT != '' }}
+        run: git diff --exit-code -- convex/_generated
       - run: pnpm check
