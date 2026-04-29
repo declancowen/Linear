@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { isViewingNotificationTarget } from "@/components/app/notification-routing"
+import {
+  appendPendingNotificationModalIds,
+  isViewingNotificationTarget,
+} from "@/components/app/notification-routing"
 import type { Notification } from "@/lib/domain/types"
 
 function notification(
@@ -23,6 +26,38 @@ function notification(
 }
 
 describe("notification routing", () => {
+  it("queues every unknown notification modal once in candidate order", () => {
+    const knownIds = new Set(["notification_seen"])
+    const pendingIds = ["notification_existing"]
+
+    appendPendingNotificationModalIds({
+      candidates: [
+        { id: "notification_seen" },
+        { id: "notification_first" },
+        { id: "notification_second" },
+      ],
+      knownIds,
+      pendingIds,
+    })
+
+    appendPendingNotificationModalIds({
+      candidates: [{ id: "notification_first" }, { id: "notification_second" }],
+      knownIds,
+      pendingIds,
+    })
+
+    expect(pendingIds).toEqual([
+      "notification_existing",
+      "notification_first",
+      "notification_second",
+    ])
+    expect([...knownIds]).toEqual([
+      "notification_seen",
+      "notification_first",
+      "notification_second",
+    ])
+  })
+
   it("does not suppress workspace chat notifications for a different active chat", () => {
     expect(
       isViewingNotificationTarget({

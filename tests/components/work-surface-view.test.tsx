@@ -467,22 +467,21 @@ describe("ListView", () => {
     vi.clearAllMocks()
   })
 
-  it("does not expand empty groups into placeholder space", () => {
+  it("does not render empty read-only groups without item rows", () => {
+    const data = createData()
+
     render(
       <ListView
-        data={createData()}
-        items={createData().workItems}
+        data={data}
+        items={data.workItems}
         view={createView()}
         editable={false}
       />
     )
 
-    const backlogHeader = screen.getByRole("button", { name: /backlog/i })
-
-    expect(screen.queryByText("No items")).not.toBeInTheDocument()
-
-    fireEvent.click(backlogHeader)
-
+    expect(
+      screen.queryByRole("button", { name: /backlog/i })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
   })
 
@@ -516,6 +515,46 @@ describe("ListView", () => {
         }),
       })
     )
+  })
+
+  it("does not synthesize create-context groups for read-only empty surfaces", () => {
+    const data = {
+      ...createEditableData(),
+      workItems: [],
+    }
+    const view = createView("list", [], { grouping: "status" })
+    const createContext = {
+      defaultTeamId: "team_1",
+      defaultProjectId: "project_1",
+    }
+
+    const { rerender } = render(
+      <ListView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={view}
+        editable={false}
+        createContext={createContext}
+      />
+    )
+
+    expect(screen.queryByText("Backlog")).not.toBeInTheDocument()
+    expect(screen.queryByText("No items")).not.toBeInTheDocument()
+
+    rerender(
+      <BoardView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={{ ...view, layout: "board" }}
+        editable={false}
+        createContext={createContext}
+      />
+    )
+
+    expect(screen.queryByText("Backlog")).not.toBeInTheDocument()
+    expect(screen.queryByText("No items")).not.toBeInTheDocument()
   })
 
   it("does not render completion meters in list group headers", () => {

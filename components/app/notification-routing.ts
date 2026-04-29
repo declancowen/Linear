@@ -5,6 +5,23 @@ export type NotificationRouteData = Pick<
   "channelPosts" | "conversations" | "projects" | "teams"
 >
 
+export function appendPendingNotificationModalIds(input: {
+  candidates: Pick<Notification, "id">[]
+  knownIds: Set<string>
+  pendingIds: string[]
+}) {
+  const { candidates, knownIds, pendingIds } = input
+
+  for (const notification of candidates) {
+    if (knownIds.has(notification.id)) {
+      continue
+    }
+
+    knownIds.add(notification.id)
+    pendingIds.push(notification.id)
+  }
+}
+
 export function getNotificationHref(
   data: NotificationRouteData,
   notification: Notification

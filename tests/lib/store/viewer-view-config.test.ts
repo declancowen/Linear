@@ -7,7 +7,7 @@ import {
   getViewerScopedDirectoryKey,
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
-import { useAppStore } from "@/lib/store/app-store"
+import { migratePersistedAppStore, useAppStore } from "@/lib/store/app-store"
 
 function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
   return {
@@ -69,6 +69,43 @@ describe("viewer-local view config", () => {
     })
   })
 
+  it("preserves legacy unscoped selected view keys as a fallback", () => {
+    const route = "/team/platform/work"
+    const view = createView()
+
+    expect(
+      migratePersistedAppStore({
+        ui: {
+          selectedViewByRoute: {
+            [route]: view.id,
+          },
+        },
+      }).ui?.selectedViewByRoute
+    ).toEqual({
+      [route]: view.id,
+    })
+
+    useAppStore.setState({
+      ...createEmptyState(),
+      currentUserId: "user_1",
+      views: [view],
+      ui: {
+        ...createEmptyState().ui,
+        selectedViewByRoute: {
+          [route]: view.id,
+        },
+      },
+    })
+
+    expect(getViewByRoute(useAppStore.getState(), route)).toEqual(view)
+
+    useAppStore.getState().setSelectedView(route, "view_2")
+
+    expect(useAppStore.getState().ui.selectedViewByRoute).toEqual({
+      [getViewerScopedDirectoryKey("user_1", route)]: "view_2",
+    })
+  })
+
   it("stores viewer overrides without mutating the shared view definition", () => {
     const route = "/team/platform/work"
     const view = createView({
@@ -107,6 +144,37 @@ describe("viewer-local view config", () => {
       filters: {
         status: [],
       },
+    })
+  })
+
+  it("keeps filter patches when showCompleted is patched with them", () => {
+    const route = "/team/platform/work"
+    const view = createView()
+    const patch: {
+      filters: Partial<ViewDefinition["filters"]>
+      showCompleted: boolean
+    } = {
+      filters: {
+        status: ["todo"],
+      },
+      showCompleted: false,
+    }
+
+    useAppStore.setState({
+      ...createEmptyState(),
+      currentUserId: "user_1",
+      views: [view],
+    })
+
+    useAppStore.getState().patchViewerViewConfig(route, view.id, patch)
+
+    const overrideKey = getViewerScopedViewKey("user_1", route, view.id)
+
+    expect(
+      useAppStore.getState().ui.viewerViewConfigByRoute[overrideKey]?.filters
+    ).toEqual({
+      status: ["todo"],
+      showCompleted: false,
     })
   })
 })

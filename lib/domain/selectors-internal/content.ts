@@ -425,7 +425,7 @@ export function getViewByRoute(data: AppData, route: string) {
   const selected =
     data.ui.selectedViewByRoute[
       getViewerScopedDirectoryKey(data.currentUserId, route)
-    ]
+    ] ?? data.ui.selectedViewByRoute[route]
   return data.views.find((view) => view.id === selected) ?? null
 }
 

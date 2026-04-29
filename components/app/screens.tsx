@@ -146,7 +146,9 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
     (state) =>
       state.ui.selectedViewByRoute[
         getViewerScopedDirectoryKey(state.currentUserId, routeKey)
-      ] ?? null
+      ] ??
+      state.ui.selectedViewByRoute[routeKey] ??
+      null
   )
   const selectedView = selectedViewId
     ? (views.find((view) => view.id === selectedViewId) ?? null)

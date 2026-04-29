@@ -26,6 +26,7 @@ import {
 } from "@phosphor-icons/react"
 
 import {
+  buildItemGroups,
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
   getGroupValue,
@@ -628,11 +629,14 @@ export function BoardView({
   onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
 }) {
   const groups = [
-    ...buildItemGroupsWithEmptyGroups(data, items, view, {
-      sourceItems: scopedItems,
-      teamId: createContext?.defaultTeamId,
-      projectId: createContext?.defaultProjectId,
-    }).entries(),
+    ...(editable
+      ? buildItemGroupsWithEmptyGroups(data, items, view, {
+          sourceItems: scopedItems,
+          teamId: createContext?.defaultTeamId,
+          projectId: createContext?.defaultProjectId,
+        })
+      : buildItemGroups(data, items, view)
+    ).entries(),
   ]
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const [activeDragPreviewKind, setActiveDragPreviewKind] = useState<
@@ -1013,11 +1017,14 @@ export function ListView({
   onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
 }) {
   const groups = [
-    ...buildItemGroupsWithEmptyGroups(data, items, view, {
-      sourceItems: scopedItems,
-      teamId: createContext?.defaultTeamId,
-      projectId: createContext?.defaultProjectId,
-    }).entries(),
+    ...(editable
+      ? buildItemGroupsWithEmptyGroups(data, items, view, {
+          sourceItems: scopedItems,
+          teamId: createContext?.defaultTeamId,
+          projectId: createContext?.defaultProjectId,
+        })
+      : buildItemGroups(data, items, view)
+    ).entries(),
   ]
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [activeItemId, setActiveItemId] = useState<string | null>(null)

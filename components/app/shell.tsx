@@ -71,6 +71,7 @@ import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import {
+  appendPendingNotificationModalIds,
   getNotificationHref,
   isViewingNotificationTarget,
 } from "@/components/app/notification-routing"
@@ -464,6 +465,7 @@ export function AppShell({ children }: AppShellProps) {
       : null
   )
   const knownNotificationIdsRef = useRef<Set<string> | null>(null)
+  const pendingModalNotificationIdsRef = useRef<string[]>([])
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useShortcutModifierLabel()
@@ -654,34 +656,46 @@ export function AppShell({ children }: AppShellProps) {
     }
 
     const knownNotificationIds = knownNotificationIdsRef.current
-    const nextNotification = notificationModalCandidates.find(
-      (notification) => !knownNotificationIds.has(notification.id)
-    )
+    appendPendingNotificationModalIds({
+      candidates: notificationModalCandidates,
+      knownIds: knownNotificationIds,
+      pendingIds: pendingModalNotificationIdsRef.current,
+    })
 
-    for (const notification of notificationModalCandidates) {
-      knownNotificationIds.add(notification.id)
-    }
-
-    if (!nextNotification) {
+    if (modalNotificationId) {
       return
     }
 
-    const href = getNotificationHref(notificationRouteData, nextNotification)
+    while (pendingModalNotificationIdsRef.current.length > 0) {
+      const nextNotificationId = pendingModalNotificationIdsRef.current.shift()
+      const nextNotification =
+        notificationModalCandidates.find(
+          (notification) => notification.id === nextNotificationId
+        ) ?? null
 
-    if (
-      isViewingNotificationTarget({
-        notification: nextNotification,
-        href,
-        pathname,
-        searchParams,
-      })
-    ) {
-      useAppStore.getState().markNotificationRead(nextNotification.id)
+      if (!nextNotification) {
+        continue
+      }
+
+      const href = getNotificationHref(notificationRouteData, nextNotification)
+
+      if (
+        isViewingNotificationTarget({
+          notification: nextNotification,
+          href,
+          pathname,
+          searchParams,
+        })
+      ) {
+        useAppStore.getState().markNotificationRead(nextNotification.id)
+        continue
+      }
+
+      setModalNotificationId(nextNotification.id)
       return
     }
-
-    setModalNotificationId(nextNotification.id)
   }, [
+    modalNotificationId,
     notificationModalCandidates,
     notificationRouteData,
     pathname,

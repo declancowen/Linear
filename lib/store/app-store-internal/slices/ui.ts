@@ -62,6 +62,10 @@ const FILTER_KEYS: ViewFilterValueKey[] = [
   "teamIds",
 ]
 
+type RuntimeViewConfigPatch = PendingViewConfig["patch"] & {
+  filters?: Partial<AppData["views"][number]["filters"]>
+}
+
 function getSelectedViewStorageKey(userId: string, route: string) {
   return getViewerScopedDirectoryKey(userId, route)
 }
@@ -149,18 +153,22 @@ function applyPendingViewConfig(
   view: AppData["views"][number],
   patch: PendingViewConfig["patch"]
 ) {
-  const { showCompleted, ...viewPatch } = patch
+  const { showCompleted, filters, ...viewPatch } =
+    patch as RuntimeViewConfigPatch
+  const hasFilterPatch = filters !== undefined || showCompleted !== undefined
 
   return {
     ...view,
     ...viewPatch,
-    filters:
-      showCompleted === undefined
-        ? view.filters
-        : {
+    ...(hasFilterPatch
+      ? {
+          filters: {
             ...view.filters,
-            showCompleted,
+            ...filters,
+            ...(showCompleted === undefined ? {} : { showCompleted }),
           },
+        }
+      : {}),
   }
 }
 
@@ -631,15 +639,20 @@ export function createUiSlice(
       }))
     },
     setSelectedView(route, viewId) {
-      set((state) => ({
-        ui: {
-          ...state.ui,
-          selectedViewByRoute: {
-            ...state.ui.selectedViewByRoute,
-            [getSelectedViewStorageKey(state.currentUserId, route)]: viewId,
+      set((state) => {
+        const selectedViewByRoute = { ...state.ui.selectedViewByRoute }
+        delete selectedViewByRoute[route]
+
+        return {
+          ui: {
+            ...state.ui,
+            selectedViewByRoute: {
+              ...selectedViewByRoute,
+              [getSelectedViewStorageKey(state.currentUserId, route)]: viewId,
+            },
           },
-        },
-      }))
+        }
+      })
     },
     patchViewerViewConfig(surfaceKey, viewId, patch) {
       set((state) => {
@@ -649,7 +662,10 @@ export function createUiSlice(
           viewId
         )
         const current = state.ui.viewerViewConfigByRoute[key] ?? {}
-        const { showCompleted, ...viewPatch } = patch
+        const { showCompleted, filters, ...viewPatch } =
+          patch as RuntimeViewConfigPatch
+        const hasFilterPatch =
+          filters !== undefined || showCompleted !== undefined
 
         return {
           ui: {
@@ -659,12 +675,15 @@ export function createUiSlice(
               [key]: {
                 ...current,
                 ...viewPatch,
-                ...(showCompleted === undefined
+                ...(!hasFilterPatch
                   ? {}
                   : {
                       filters: {
                         ...current.filters,
-                        showCompleted,
+                        ...filters,
+                        ...(showCompleted === undefined
+                          ? {}
+                          : { showCompleted }),
                       },
                     }),
               },

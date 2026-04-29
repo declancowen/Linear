@@ -13,7 +13,9 @@ type PersistedAppStore = Omit<Partial<AppStore>, "ui"> & {
   ui?: Partial<AppStore["ui"]>
 }
 
-function migratePersistedAppStore(persistedState: unknown): PersistedAppStore {
+export function migratePersistedAppStore(
+  persistedState: unknown
+): PersistedAppStore {
   const state = (persistedState ?? {}) as PersistedAppStore
   const selectedViewByRoute = state.ui?.selectedViewByRoute ?? {}
 
@@ -22,10 +24,13 @@ function migratePersistedAppStore(persistedState: unknown): PersistedAppStore {
     ui: {
       ...state.ui,
       selectedViewByRoute: Object.fromEntries(
-        Object.entries(selectedViewByRoute).filter(([key]) => key.includes("::"))
+        Object.entries(selectedViewByRoute).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string"
+        )
       ),
       viewerViewConfigByRoute: state.ui?.viewerViewConfigByRoute ?? {},
-      viewerDirectoryConfigByRoute: state.ui?.viewerDirectoryConfigByRoute ?? {},
+      viewerDirectoryConfigByRoute:
+        state.ui?.viewerDirectoryConfigByRoute ?? {},
     },
   }
 }

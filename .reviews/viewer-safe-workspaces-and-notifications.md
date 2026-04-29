@@ -28,6 +28,8 @@ Files and areas reviewed across all turns:
 - `app/api/chats/[chatId]/calls/route.ts` and API route tests — typed application-error handling with scoped invalidation side effects
 - `components/providers/convex-app-provider.tsx` and retained-value hooks — lint-safe React hook usage
 - `components/app/notification-routing.ts` — notification href resolution and active-target suppression helpers
+- `components/app/screens/work-surface-view.tsx` — editable vs read-only group synthesis and empty surface behavior
+- `lib/store/app-store.ts` and `lib/domain/selectors-internal/content.ts` — persisted selected-view migration and legacy route fallback
 - `.github/workflows/ci.yml` — Convex codegen behavior when CI has no deployment secret
 - `hooks/use-scoped-read-model-refresh.ts` — stable scoped key effect dependencies
 - `package.json` and `pnpm-lock.yaml` — dependency audit overrides for high-severity transitive vulnerabilities
@@ -38,11 +40,112 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 17:20:19 BST` |
-| **Total turns** | `3` |
+| **Last reviewed** | `2026-04-29 17:44:52 BST` |
+| **Total turns** | `4` |
 | **Open findings** | `0` |
-| **Resolved findings** | `25` |
-| **Accepted findings** | `9` |
+| **Resolved findings** | `29` |
+| **Accepted findings** | `8` |
+
+---
+
+## Turn 4 — 2026-04-29 17:44:52 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `49e9c772` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `High` |
+
+**Summary:** Re-imported the repeated user flags and the latest Codex PR review JSON against the current tree. Most repeated flags were already fixed or remain accepted product behavior. Four current-tree issues were fixed in this turn: simultaneous notification arrivals now queue modals instead of marking undisplayed notifications as known, read-only board/list surfaces no longer synthesize empty scaffold groups from create context, v3 unscoped selected-view keys are preserved as a legacy fallback instead of being stripped during migration, and viewer config runtime patches now merge `filters` and `showCompleted` rather than letting one overwrite the other.
+
+**Outcome:** all current local findings resolved after focused verification
+**Risk score:** high — this branch changes persisted UI state, shared work-surface rendering, notification read/modal behavior, and viewer-local saved-view overrides
+**Change archetypes:** migration, shared-ui, lifecycle, variant-state, performance, compatibility
+**Intended change:** keep viewer preferences scoped without dropping legacy selections, preserve notification modal delivery for every new notification, and only render empty group scaffolding where the user can act on it
+**Intent vs actual:** local state ownership is preserved: migration compatibility stays in the store/selectors, notification queueing stays in the shell presentation layer with a pure helper, and editable-only group scaffolding stays in the work-surface view component
+**Confidence:** high — focused verification and the full branch check passed after this turn's edits
+**Coverage note:** current-tree triage covered every repeated flag, the two latest PR findings, the changed files, and adjacent selectors/store helpers
+**Finding triage:** no Critical/High findings remain open; product-level accepted items are documented below
+**Bug classes / invariants checked:** Lifecycle (queued modals must survive a batch), Variant State (read-only + empty + create context), Compatibility (v3 persisted route keys), Preservation (filter patch plus showCompleted)
+**Branch totality:** rechecked the latest branch head and Turn 3 hotspot families before editing
+**Sibling closure:** checked board and list paths together, notification queue and active-target suppression together, scoped and legacy selected-view reads together, and shared/viewer config patch merge shapes together
+**Remediation impact surface:** changes are limited to UI presentation, local store migration/selection, and tests; no server schema or Convex contract changed
+**Residual risk / unknowns:** `knownNotificationIdsRef` still grows for the browser session, and accepted UX choices remain for clearing viewer filters/display properties, default blank create priority, and in-app-only message notifications
+
+| Status | Count |
+|--------|-------|
+| New findings | `4` |
+| Resolved during Turn 4 | `4` |
+| Accepted / intentional | `8` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Queue notification modals instead of dropping concurrent arrivals | resolved in `F4-01` | Lifecycle / Affordance | every new notification in a batch gets a modal opportunity | fixed |
+| Codex PR review | Avoid synthesizing empty groups for read-only empty views | resolved in `F4-02` | Variant State | read-only empty surfaces should not show non-actionable scaffold groups | fixed |
+| User / PR notes | v3→v4 migration strips unscoped selected-view keys | resolved in `F4-03` | Compatibility / Migration | legacy route selection remains available until a scoped selection is written | fixed |
+| User / PR notes | `patchViewerViewConfig` can drop filters when `showCompleted` is present | resolved in `F4-04` | Preservation | combined patch fields must merge into one filter patch | fixed |
+| User / PR notes | `clearViewerViewFilters` clears current filters rather than reverting to saved base | accepted | Product UX / Preservation | clear current viewer restrictions vs revert to base saved filters | no code change |
+| User / PR notes | `clearViewerViewDisplayProperties` stores `displayProps: []` | accepted | Product UX / Variant State | show no display properties vs revert to base defaults | no code change |
+| User / PR notes | Create dialog default priority is `"none"` | accepted | Semantic Regression | blank create defaults vs team template priority default | no code change |
+| User / PR notes | `message` notifications excluded from email digests | accepted | Authority | Convex notification type owns email eligibility | no code change |
+| User / PR notes | Rich-text hard limit activates whenever max is supplied | accepted | Shared UI / Contract | max as hard limit vs future soft-only counter | no code change |
+| User / PR notes | Views directory computes view arrays inline | accepted | Performance Hot Path | large saved-view lists | no code change |
+| User / PR notes | `knownNotificationIdsRef` grows for session lifetime | accepted | Lifecycle / Performance | session cache bounded by notifications received | no code change |
+| User / PR notes | child-row optional properties hidden in sidebar / when empty | accepted | Semantic Regression | uncluttered child rows vs direct empty-property editing | no code change |
+| User / PR notes | `SavedViewsBoard`, `FieldCharacterLimit`, rich-text memo/attachments, `scopeKeys`, `showStats`, `useCollectionLayout`, and `applyViewerViewConfig` repeated flags | already fixed before Turn 4 | Mixed | current tree no longer matches the claimed bad states | no code change |
+
+### Resolved during Turn 4
+
+#### F4-01 ~~[BUG] Medium~~ → RESOLVED — Simultaneous notification arrivals dropped modal opportunities after the first
+**Where:** [components/app/shell.tsx](../components/app/shell.tsx), [components/app/notification-routing.ts](../components/app/notification-routing.ts), [tests/components/notification-routing.test.ts](../tests/components/notification-routing.test.ts)
+
+**What was wrong:** The effect selected one unknown notification with `.find()` but marked every candidate known immediately, so the rest of a same-render batch could never open a modal.
+
+**How it was fixed:** Added an explicit pending notification modal queue. New unknown candidate ids are appended once, the current modal blocks replacement, active-target notifications are marked read and skipped, and the next pending id is shown when the modal is dismissed/opened/archived.
+
+#### F4-02 ~~[BUG] Medium~~ → RESOLVED — Read-only empty work surfaces rendered non-actionable scaffold groups
+**Where:** [components/app/screens/work-surface-view.tsx](../components/app/screens/work-surface-view.tsx), [tests/components/work-surface-view.test.tsx](../tests/components/work-surface-view.test.tsx)
+
+**What was wrong:** Board and list views always called `buildItemGroupsWithEmptyGroups()` with create context, so empty read-only surfaces could render empty lanes/headers without an add affordance.
+
+**How it was fixed:** Editable board/list views still use `buildItemGroupsWithEmptyGroups()` for creation scaffolding. Read-only views now use `buildItemGroups()` and render only groups backed by actual items. Added list and board coverage for empty read-only create-context surfaces.
+
+#### F4-03 ~~[COMPATIBILITY] Medium~~ → RESOLVED — v3 selected-view route keys were stripped during v4 migration
+**Where:** [lib/store/app-store.ts](../lib/store/app-store.ts), [lib/domain/selectors-internal/content.ts](../lib/domain/selectors-internal/content.ts), [components/app/screens.tsx](../components/app/screens.tsx), [lib/store/app-store-internal/slices/ui.ts](../lib/store/app-store-internal/slices/ui.ts), [tests/lib/store/viewer-view-config.test.ts](../tests/lib/store/viewer-view-config.test.ts)
+
+**What was wrong:** The migration kept only keys containing `::`, but v3 persisted plain route keys such as `/team/platform/work`; those users would lose their selected saved view on upgrade.
+
+**How it was fixed:** The migration preserves string selected-view entries. Runtime view lookup prefers the viewer-scoped key and falls back to the legacy route key. The next explicit selection writes the scoped key and removes the legacy route key for that route.
+
+#### F4-04 ~~[ROBUSTNESS] Low~~ → RESOLVED — Combined `filters` and `showCompleted` runtime patches could overwrite filter changes
+**Where:** [lib/store/app-store-internal/slices/ui.ts](../lib/store/app-store-internal/slices/ui.ts), [tests/lib/store/viewer-view-config.test.ts](../tests/lib/store/viewer-view-config.test.ts)
+
+**What was wrong:** `showCompleted` was split out and rebuilt as a `filters` object, so a runtime payload containing both `filters` and `showCompleted` could lose the `filters` patch.
+
+**How it was fixed:** Shared and viewer config patch application now treat `filters` plus `showCompleted` as one merged filter patch. Added regression coverage for the viewer override path.
+
+### Architecture check
+
+- Notification queueing remains a presentation-layer concern: server notification state and digest eligibility stay in Convex, while the shell owns modal delivery sequencing.
+- Read-only empty group behavior is enforced at the work-surface component boundary because editability is a UI capability, not a domain grouping rule.
+- Legacy selected-view compatibility lives in local persistence and selectors; scoped keys remain the preferred storage boundary once the user writes a new selection.
+- Filter patch preservation is enforced where patch application owns the merge invariant, not in individual callers.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/notification-routing.test.ts tests/components/work-surface-view.test.tsx tests/lib/store/viewer-view-config.test.ts` — passed, 3 files / 27 tests.
+- `pnpm exec eslint components/app/notification-routing.ts components/app/shell.tsx components/app/screens.tsx components/app/screens/work-surface-view.tsx lib/domain/selectors-internal/content.ts lib/store/app-store.ts lib/store/app-store-internal/slices/ui.ts tests/components/notification-routing.test.ts tests/components/work-surface-view.test.tsx tests/lib/store/viewer-view-config.test.ts --max-warnings 0` — passed.
+- `git diff --check` — passed.
+- `pnpm check` — passed: lint, typecheck, 140 test files / 730 tests, production build, desktop smoke.
+
+### Recommendations
+
+1. **Fix first:** none from the imported current-tree findings.
+2. **Then address:** resolve the two PR threads after pushing, and re-check remote CI/review status.
+3. **Defer on purpose:** changing clear-filter/display-property semantics would be a product decision and should be made consistently across shared and viewer-local view controls.
 
 ---
 
