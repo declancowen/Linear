@@ -2,6 +2,7 @@
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppData } from "@/lib/domain/types"
+import { getViewerScopedDirectoryKey, getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
 import {
   selectReadModelForInstruction,
   type ScopedReadModelPatch,
@@ -16,7 +17,12 @@ import {
   normalizeNotifications,
   normalizeUsers,
 } from "../helpers"
-import type { AppStore, AppStoreSlice, PendingViewConfig } from "../types"
+import type {
+  AppStore,
+  AppStoreSlice,
+  PendingViewConfig,
+  ViewFilterValueKey,
+} from "../types"
 
 type UiSlice = Pick<
   AppStore,
@@ -29,8 +35,36 @@ type UiSlice = Pick<
   | "openCreateDialog"
   | "closeCreateDialog"
   | "setSelectedView"
+  | "patchViewerViewConfig"
+  | "toggleViewerViewFilterValue"
+  | "clearViewerViewFilters"
+  | "toggleViewerViewDisplayProperty"
+  | "reorderViewerViewDisplayProperties"
+  | "clearViewerViewDisplayProperties"
+  | "toggleViewerViewHiddenValue"
+  | "patchViewerDirectoryConfig"
   | "setActiveInboxNotification"
 >
+
+const FILTER_KEYS: ViewFilterValueKey[] = [
+  "status",
+  "priority",
+  "assigneeIds",
+  "creatorIds",
+  "leadIds",
+  "health",
+  "milestoneIds",
+  "relationTypes",
+  "projectIds",
+  "parentIds",
+  "itemTypes",
+  "labelIds",
+  "teamIds",
+]
+
+function getSelectedViewStorageKey(userId: string, route: string) {
+  return getViewerScopedDirectoryKey(userId, route)
+}
 
 function getNextActiveTeamId(
   teams: AppData["teams"],
@@ -602,10 +636,240 @@ export function createUiSlice(
           ...state.ui,
           selectedViewByRoute: {
             ...state.ui.selectedViewByRoute,
-            [route]: viewId,
+            [getSelectedViewStorageKey(state.currentUserId, route)]: viewId,
           },
         },
       }))
+    },
+    patchViewerViewConfig(surfaceKey, viewId, patch) {
+      set((state) => {
+        const key = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[key] ?? {}
+        const { showCompleted, ...viewPatch } = patch
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [key]: {
+                ...current,
+                ...viewPatch,
+                ...(showCompleted === undefined
+                  ? {}
+                  : {
+                      filters: {
+                        ...current.filters,
+                        showCompleted,
+                      },
+                    }),
+              },
+            },
+          },
+        }
+      })
+    },
+    toggleViewerViewFilterValue(surfaceKey, viewId, key, value) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const baseView = state.views.find((view) => view.id === viewId)
+        const currentFilters = current.filters ?? {}
+        const currentValues = (currentFilters[key] ??
+          baseView?.filters[key] ??
+          []) as string[]
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((entry) => entry !== value)
+          : [...currentValues, value]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                filters: {
+                  ...currentFilters,
+                  [key]: nextValues,
+                },
+              },
+            },
+          },
+        }
+      })
+    },
+    clearViewerViewFilters(surfaceKey, viewId) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const filters = { ...(current.filters ?? {}) }
+
+        for (const key of FILTER_KEYS) {
+          filters[key] = [] as never
+        }
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                filters,
+              },
+            },
+          },
+        }
+      })
+    },
+    toggleViewerViewDisplayProperty(surfaceKey, viewId, property) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const baseView = state.views.find((view) => view.id === viewId)
+        const displayProps = current.displayProps ?? baseView?.displayProps ?? []
+        const nextDisplayProps = displayProps.includes(property)
+          ? displayProps.filter((entry) => entry !== property)
+          : [...displayProps, property]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                displayProps: nextDisplayProps,
+              },
+            },
+          },
+        }
+      })
+    },
+    reorderViewerViewDisplayProperties(surfaceKey, viewId, displayProps) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                displayProps: [...new Set(displayProps)],
+              },
+            },
+          },
+        }
+      })
+    },
+    clearViewerViewDisplayProperties(surfaceKey, viewId) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                displayProps: [],
+              },
+            },
+          },
+        }
+      })
+    },
+    toggleViewerViewHiddenValue(surfaceKey, viewId, key, value) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const baseView = state.views.find((view) => view.id === viewId)
+        const currentHiddenState = current.hiddenState ??
+          baseView?.hiddenState ?? { groups: [], subgroups: [] }
+        const currentValues = currentHiddenState[key] ?? []
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((entry) => entry !== value)
+          : [...currentValues, value]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                hiddenState: {
+                  groups: [...currentHiddenState.groups],
+                  subgroups: [...currentHiddenState.subgroups],
+                  [key]: nextValues,
+                },
+              },
+            },
+          },
+        }
+      })
+    },
+    patchViewerDirectoryConfig(surfaceKey, patch) {
+      set((state) => {
+        const storageKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const current = state.ui.viewerDirectoryConfigByRoute[storageKey] ?? {}
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryConfigByRoute: {
+              ...state.ui.viewerDirectoryConfigByRoute,
+              [storageKey]: {
+                ...current,
+                ...patch,
+                filters: patch.filters
+                  ? {
+                      ...current.filters,
+                      ...patch.filters,
+                    }
+                  : current.filters,
+              },
+            },
+          },
+        }
+      })
     },
     setActiveInboxNotification(notificationId) {
       set((state) => ({

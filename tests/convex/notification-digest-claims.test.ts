@@ -82,6 +82,11 @@ describe("notification digest claims", () => {
         id: "notification_4",
         userId: "user_2",
       }),
+      createNotification({
+        id: "notification_5",
+        userId: "user_1",
+        type: "message",
+      }),
     ]
 
     listPendingDigestNotificationsMock.mockResolvedValue(pendingNotifications)

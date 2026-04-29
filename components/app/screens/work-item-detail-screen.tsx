@@ -593,6 +593,10 @@ function DetailChildWorkItemRow({
   variant?: "main" | "sidebar"
 }) {
   const childDone = item.status === "done"
+  const showMainPriority = item.priority !== "none"
+  const showMainAssignee = item.assigneeId !== null
+  const showMainProject = item.primaryProjectId !== null
+  const showProperties = variant !== "sidebar"
 
   return (
     <div
@@ -615,32 +619,40 @@ function DetailChildWorkItemRow({
           {item.title}
         </span>
       </Link>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <InlineWorkItemPropertyControl
-          data={data}
-          item={item}
-          property="status"
-          variant="child"
-        />
-        <InlineWorkItemPropertyControl
-          data={data}
-          item={item}
-          property="priority"
-          variant="child"
-        />
-        <InlineWorkItemPropertyControl
-          data={data}
-          item={item}
-          property="assignee"
-          variant="child"
-        />
-        <InlineWorkItemPropertyControl
-          data={data}
-          item={item}
-          property="project"
-          variant="child"
-        />
-      </div>
+      {showProperties ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <InlineWorkItemPropertyControl
+            data={data}
+            item={item}
+            property="status"
+            variant="child"
+          />
+          {showMainPriority ? (
+            <InlineWorkItemPropertyControl
+              data={data}
+              item={item}
+              property="priority"
+              variant="child"
+            />
+          ) : null}
+          {showMainAssignee ? (
+            <InlineWorkItemPropertyControl
+              data={data}
+              item={item}
+              property="assignee"
+              variant="child"
+            />
+          ) : null}
+          {showMainProject ? (
+            <InlineWorkItemPropertyControl
+              data={data}
+              item={item}
+              property="project"
+              variant="child"
+            />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1935,10 +1947,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     isMainEditing && mainDraftTitle.trim().length > 0
       ? mainDraftTitle
       : currentItem.title
-  const sidebarDescription = isMainEditing
-    ? mainDraftDescription
-    : descriptionContent
-  const sidebarHasDescription = !isDescriptionPlaceholder(sidebarDescription)
   const activeMainPendingMentionRetryEntries =
     filterPendingDocumentMentionsByContent(
       mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
@@ -2627,17 +2635,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               <h2 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
                 {sidebarTitle}
               </h2>
-
-              {sidebarHasDescription ? (
-                <RichTextContent
-                  content={sidebarDescription}
-                  className="text-[13.5px] leading-[1.6] text-fg-2 [&_li]:mb-1 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mb-2.5 [&_ul]:ml-[18px] [&_ul]:list-disc"
-                />
-              ) : (
-                <p className="text-[13.5px] leading-[1.6] text-fg-4">
-                  No description yet.
-                </p>
-              )}
 
               <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
                 <DetailSidebarSelectRow

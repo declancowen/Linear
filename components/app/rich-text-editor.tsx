@@ -1329,7 +1329,7 @@ export function RichTextEditor({
   compact = false,
   fullPage = false,
   showToolbar = true,
-  showStats = true,
+  showStats = false,
   autoFocus = false,
   onUploadAttachment,
   onSubmitShortcut,
@@ -1526,7 +1526,8 @@ export function RichTextEditor({
         placeholder,
         collaboration: Boolean(collaboration),
         characterLimit:
-          enforcePlainTextLimit && maxPlainTextCharacters
+          (enforcePlainTextLimit || Boolean(maxPlainTextCharacters)) &&
+          maxPlainTextCharacters
             ? maxPlainTextCharacters
             : undefined,
       }),

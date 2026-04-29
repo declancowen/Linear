@@ -486,6 +486,38 @@ describe("ListView", () => {
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
   })
 
+  it("keeps add item available for empty unfiltered editable groups", () => {
+    const data = {
+      ...createEditableData(),
+      workItems: [],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={[]}
+        view={createView("list", [], { grouping: "status" })}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+          defaultProjectId: "project_1",
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+        defaultValues: expect.objectContaining({
+          status: "backlog",
+        }),
+      })
+    )
+  })
+
   it("does not render completion meters in list group headers", () => {
     const data = createProgressData()
 

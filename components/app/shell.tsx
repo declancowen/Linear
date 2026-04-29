@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -38,8 +38,11 @@ import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-mode
 import {
   canAdminWorkspace,
   getAccessibleTeams,
+  getChannelPostHref,
+  getConversationHref,
   getCurrentUser,
   getCurrentWorkspace,
+  getProjectHref,
   getTeam,
   canEditWorkspace,
   getTeamFeatureSettings,
@@ -47,13 +50,12 @@ import {
 } from "@/lib/domain/selectors"
 import {
   type CreateDialogState,
+  type Notification,
   getWorkSurfaceCopy,
   resolveUserStatus,
   type UserStatus,
-  type UserProfile,
   userStatusMeta,
   userStatuses,
-  type Workspace,
 } from "@/lib/domain/types"
 import { buildGlobalCreateActions } from "@/lib/domain/search-create-actions"
 import {
@@ -81,6 +83,14 @@ import { StatusDialog } from "@/components/app/shell/status-dialog"
 import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -246,9 +256,101 @@ function ShellFrameFallback() {
   )
 }
 
+function getNotificationHref(data: ReturnType<typeof useAppStore.getState>, notification: Notification) {
+  if (notification.entityType === "workItem") {
+    return `/items/${notification.entityId}`
+  }
+
+  if (notification.entityType === "document") {
+    return `/docs/${notification.entityId}`
+  }
+
+  if (notification.entityType === "project") {
+    const project = data.projects.find((entry) => entry.id === notification.entityId)
+    return project ? getProjectHref(data, project) : null
+  }
+
+  if (notification.entityType === "channelPost") {
+    return getChannelPostHref(data, notification.entityId)
+  }
+
+  if (notification.entityType === "chat") {
+    return getConversationHref(data, notification.entityId)
+  }
+
+  if (notification.entityType === "invite") {
+    return "/invites"
+  }
+
+  return null
+}
+
+function isViewingNotificationTarget(input: {
+  notification: Notification
+  href: string | null
+  pathname: string
+  searchParams: URLSearchParams
+}) {
+  const { notification, href, pathname, searchParams } = input
+
+  if (notification.entityType === "chat") {
+    return (
+      searchParams.get("chatId") === notification.entityId ||
+      (href ? pathname === href.split("?")[0] : false)
+    )
+  }
+
+  if (!href) {
+    return false
+  }
+
+  return pathname === href.split("?")[0]
+}
+
+function NotificationModal({
+  notification,
+  href,
+  onArchive,
+  onDismiss,
+  onOpen,
+}: {
+  notification: Notification | null
+  href: string | null
+  onArchive: () => void
+  onDismiss: () => void
+  onOpen: () => void
+}) {
+  return (
+    <Dialog open={Boolean(notification)} onOpenChange={(open) => {
+      if (!open) {
+        onDismiss()
+      }
+    }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>New notification</DialogTitle>
+          <DialogDescription>
+            {notification?.message ?? ""}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onDismiss}>
+            Dismiss
+          </Button>
+          <Button variant="outline" onClick={onArchive}>
+            Archive
+          </Button>
+          {href ? <Button onClick={onOpen}>Open</Button> : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const unread = useAppStore(
     (state) =>
       state.notifications.filter(
@@ -258,6 +360,19 @@ export function AppShell({ children }: AppShellProps) {
           notification.archivedAt == null
       ).length
   )
+  const notificationModalCandidates = useAppStore(
+    useShallow((state) =>
+      state.notifications
+        .filter(
+          (notification) =>
+            notification.userId === state.currentUserId &&
+            notification.readAt === null &&
+            notification.archivedAt == null
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    )
+  )
+  const notificationModalData = useAppStore(useShallow((state) => state))
   const workspace = useAppStore(getCurrentWorkspace)
   const currentUser = useAppStore(getCurrentUser)
   const pendingInviteCount = useAppStore((state) => {
@@ -379,6 +494,10 @@ export function AppShell({ children }: AppShellProps) {
   )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
+  const [modalNotificationId, setModalNotificationId] = useState<string | null>(
+    null
+  )
+  const knownNotificationIdsRef = useRef<Set<string> | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useShortcutModifierLabel()
@@ -560,6 +679,57 @@ export function AppShell({ children }: AppShellProps) {
     }
   }, [])
 
+  useEffect(() => {
+    if (knownNotificationIdsRef.current === null) {
+      knownNotificationIdsRef.current = new Set(
+        notificationModalCandidates.map((notification) => notification.id)
+      )
+      return
+    }
+
+    const knownNotificationIds = knownNotificationIdsRef.current
+    const nextNotification = notificationModalCandidates.find(
+      (notification) => !knownNotificationIds.has(notification.id)
+    )
+
+    for (const notification of notificationModalCandidates) {
+      knownNotificationIds.add(notification.id)
+    }
+
+    if (!nextNotification) {
+      return
+    }
+
+    const href = getNotificationHref(notificationModalData, nextNotification)
+
+    if (
+      isViewingNotificationTarget({
+        notification: nextNotification,
+        href,
+        pathname,
+        searchParams,
+      })
+    ) {
+      useAppStore.getState().markNotificationRead(nextNotification.id)
+      return
+    }
+
+    setModalNotificationId(nextNotification.id)
+    useAppStore.getState().markNotificationRead(nextNotification.id)
+  }, [notificationModalCandidates, notificationModalData, pathname, searchParams])
+
+  const modalNotification =
+    notificationModalCandidates.find(
+      (notification) => notification.id === modalNotificationId
+    ) ??
+    notificationModalData.notifications.find(
+      (notification) => notification.id === modalNotificationId
+    ) ??
+    null
+  const modalNotificationHref = modalNotification
+    ? getNotificationHref(notificationModalData, modalNotification)
+    : null
+
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {
       const next = new Set(current)
@@ -592,6 +762,23 @@ export function AppShell({ children }: AppShellProps) {
       <StatusDialog
         open={statusDialogOpen}
         onOpenChange={setStatusDialogOpen}
+      />
+      <NotificationModal
+        notification={modalNotification}
+        href={modalNotificationHref}
+        onDismiss={() => setModalNotificationId(null)}
+        onArchive={() => {
+          if (modalNotification) {
+            useAppStore.getState().archiveNotification(modalNotification.id)
+          }
+          setModalNotificationId(null)
+        }}
+        onOpen={() => {
+          if (modalNotificationHref) {
+            router.push(modalNotificationHref)
+          }
+          setModalNotificationId(null)
+        }}
       />
       {activeCreateDialog?.kind === "workItem" ? (
         <CreateWorkItemDialog

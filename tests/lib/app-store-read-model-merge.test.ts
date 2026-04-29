@@ -176,6 +176,8 @@ describe("app store read model merge", () => {
         activeTeamId: "team_1",
         activeInboxNotificationId: null,
         selectedViewByRoute: {},
+        viewerViewConfigByRoute: {},
+        viewerDirectoryConfigByRoute: {},
         activeCreateDialog: null,
       },
     })

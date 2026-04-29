@@ -100,6 +100,7 @@ export const notificationTypes = [
   "mention",
   "assignment",
   "comment",
+  "message",
   "invite",
   "status-change",
 ] as const

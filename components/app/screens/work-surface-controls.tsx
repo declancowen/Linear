@@ -1392,11 +1392,22 @@ export function ProjectSortChipPopover({
 
 export function ProjectViewConfigPopover({
   view,
+  onUpdateView,
   extraAction,
 }: {
   view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
   extraAction?: ReactNode
 }) {
+  function handleUpdateView(patch: ViewConfigPatch) {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(view.id, patch)
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -1431,7 +1442,7 @@ export function ProjectViewConfigPopover({
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 onClick={() =>
-                  useAppStore.getState().updateViewConfig(view.id, {
+                  handleUpdateView({
                     layout: layout.value as "list" | "board",
                   })
                 }
@@ -1457,7 +1468,7 @@ export function ProjectViewConfigPopover({
               { value: "title", label: "Name" },
             ]}
             onValueChange={(value) =>
-              useAppStore.getState().updateViewConfig(view.id, {
+              handleUpdateView({
                 ordering: value as OrderingField,
               })
             }
@@ -1470,7 +1481,7 @@ export function ProjectViewConfigPopover({
               { value: "false", label: "Hide completed" },
             ]}
             onValueChange={(value) =>
-              useAppStore.getState().updateViewConfig(view.id, {
+              handleUpdateView({
                 showCompleted: value === "true",
               })
             }

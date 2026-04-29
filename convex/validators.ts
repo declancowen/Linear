@@ -85,6 +85,7 @@ const notificationTypeLiterals = [
   v.literal("mention"),
   v.literal("assignment"),
   v.literal("comment"),
+  v.literal("message"),
   v.literal("invite"),
   v.literal("status-change"),
 ] as const

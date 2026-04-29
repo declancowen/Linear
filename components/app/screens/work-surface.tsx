@@ -12,6 +12,10 @@ import {
 } from "@/lib/domain/selectors"
 import { isSystemView } from "@/lib/domain/default-views"
 import {
+  applyViewerViewConfig,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
+import {
   getDefaultTemplateTypeForTeamExperience,
   type Team,
   type TeamExperienceType,
@@ -125,6 +129,7 @@ export function WorkSurface({
   filterItems,
   team,
   createTeamId,
+  createContext,
   groupingExperience,
   emptyLabel,
   isLoading = false,
@@ -141,6 +146,10 @@ export function WorkSurface({
   filterItems?: WorkItem[]
   team: Team | null
   createTeamId?: string | null
+  createContext?: {
+    defaultTeamId?: string | null
+    defaultProjectId?: string | null
+  }
   groupingExperience?: TeamExperienceType | null
   emptyLabel: string
   isLoading?: boolean
@@ -161,11 +170,20 @@ export function WorkSurface({
     null
   )
   const usingFallbackViews = views.length === 0 && localFallbackViews.length > 0
-  const activeView = usingFallbackViews
+  const activeBaseView = usingFallbackViews
     ? (localFallbackViews.find((view) => view.id === localFallbackViewId) ??
       localFallbackViews[0] ??
       null)
     : (getViewByRoute(data, routeKey) ?? views[0] ?? null)
+  const activeViewOverride = activeBaseView
+    ? data.ui.viewerViewConfigByRoute[
+        getViewerScopedViewKey(data.currentUserId, routeKey, activeBaseView.id)
+      ]
+    : null
+  const activeView =
+    activeBaseView && !usingFallbackViews
+      ? applyViewerViewConfig(activeBaseView, activeViewOverride)
+      : activeBaseView
   const effectiveGroupingExperience =
     groupingExperience === undefined
       ? (team?.settings.experience ?? null)
@@ -197,10 +215,10 @@ export function WorkSurface({
       return
     }
 
-    if (!activeView && views[0]) {
+    if (!activeBaseView && views[0]) {
       useAppStore.getState().setSelectedView(routeKey, views[0].id)
     }
-  }, [activeView, routeKey, usingFallbackViews, views])
+  }, [activeBaseView, routeKey, usingFallbackViews, views])
 
   useEffect(() => {
     if (!requestedViewId) {
@@ -377,6 +395,82 @@ export function WorkSurface({
     )
   }
 
+  function updateViewerActiveView(patch: ViewConfigPatch) {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore.getState().patchViewerViewConfig(routeKey, activeView.id, patch)
+  }
+
+  function toggleViewerActiveViewFilterValue(
+    key: ViewFilterKey,
+    value: string
+  ) {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewFilterValue(routeKey, activeView.id, key, value)
+  }
+
+  function clearViewerActiveViewFilters() {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore.getState().clearViewerViewFilters(routeKey, activeView.id)
+  }
+
+  function toggleViewerActiveDisplayProperty(
+    property: ViewDefinition["displayProps"][number]
+  ) {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewDisplayProperty(routeKey, activeView.id, property)
+  }
+
+  function reorderViewerActiveDisplayProperties(
+    displayProps: ViewDefinition["displayProps"]
+  ) {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .reorderViewerViewDisplayProperties(routeKey, activeView.id, displayProps)
+  }
+
+  function clearViewerActiveDisplayProperties() {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .clearViewerViewDisplayProperties(routeKey, activeView.id)
+  }
+
+  function toggleViewerActiveHiddenValue(
+    key: "groups" | "subgroups",
+    value: string
+  ) {
+    if (usingFallbackViews || !activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewHiddenValue(routeKey, activeView.id, key, value)
+  }
+
   function handleCreateWorkItem() {
     if (!resolvedCreateTeamId) {
       return
@@ -467,7 +561,7 @@ export function WorkSurface({
           <LayoutTabs
             view={compatibleActiveView}
             onUpdateView={
-              usingFallbackViews ? updateLocalActiveView : undefined
+              usingFallbackViews ? updateLocalActiveView : updateViewerActiveView
             }
           />
           <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
@@ -477,43 +571,51 @@ export function WorkSurface({
             hiddenFilters={hiddenFilters}
             variant="chip"
             onToggleFilterValue={
-              usingFallbackViews ? toggleLocalActiveViewFilterValue : undefined
+              usingFallbackViews
+                ? toggleLocalActiveViewFilterValue
+                : toggleViewerActiveViewFilterValue
             }
             onClearFilters={
-              usingFallbackViews ? clearLocalActiveViewFilters : undefined
+              usingFallbackViews
+                ? clearLocalActiveViewFilters
+                : clearViewerActiveViewFilters
             }
           />
           <LevelChipPopover
             view={compatibleActiveView}
             onUpdateView={
-              usingFallbackViews ? updateLocalActiveView : undefined
+              usingFallbackViews ? updateLocalActiveView : updateViewerActiveView
             }
           />
           <GroupChipPopover
             view={compatibleActiveView}
             groupOptions={groupOptions}
             onUpdateView={
-              usingFallbackViews ? updateLocalActiveView : undefined
+              usingFallbackViews ? updateLocalActiveView : updateViewerActiveView
             }
           />
           <SortChipPopover
             view={compatibleActiveView}
             onUpdateView={
-              usingFallbackViews ? updateLocalActiveView : undefined
+              usingFallbackViews ? updateLocalActiveView : updateViewerActiveView
             }
           />
           <PropertiesChipPopover
             view={compatibleActiveView}
             onToggleDisplayProperty={
-              usingFallbackViews ? toggleLocalActiveDisplayProperty : undefined
+              usingFallbackViews
+                ? toggleLocalActiveDisplayProperty
+                : toggleViewerActiveDisplayProperty
             }
             onReorderDisplayProperties={
               usingFallbackViews
                 ? reorderLocalActiveDisplayProperties
-                : undefined
+                : reorderViewerActiveDisplayProperties
             }
             onClearDisplayProperties={
-              usingFallbackViews ? clearLocalActiveDisplayProperties : undefined
+              usingFallbackViews
+                ? clearLocalActiveDisplayProperties
+                : clearViewerActiveDisplayProperties
             }
           />
           <div className="ml-auto flex items-center gap-1.5">
@@ -554,6 +656,14 @@ export function WorkSurface({
                 view={compatibleActiveView}
                 editable={editable}
                 childDisplayMode={childDisplayMode}
+                createContext={{
+                  defaultTeamId:
+                    createContext?.defaultTeamId ?? resolvedCreateTeamId,
+                  defaultProjectId: createContext?.defaultProjectId ?? null,
+                }}
+                onToggleHiddenValue={
+                  usingFallbackViews ? undefined : toggleViewerActiveHiddenValue
+                }
               />
             ) : null}
             {compatibleActiveView.layout === "list" ? (
@@ -564,6 +674,14 @@ export function WorkSurface({
                 view={compatibleActiveView}
                 editable={editable}
                 childDisplayMode={childDisplayMode}
+                createContext={{
+                  defaultTeamId:
+                    createContext?.defaultTeamId ?? resolvedCreateTeamId,
+                  defaultProjectId: createContext?.defaultProjectId ?? null,
+                }}
+                onToggleHiddenValue={
+                  usingFallbackViews ? undefined : toggleViewerActiveHiddenValue
+                }
               />
             ) : null}
             {compatibleActiveView.layout === "timeline" ? (

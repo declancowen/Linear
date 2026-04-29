@@ -29,6 +29,7 @@ import {
   viewNameMinLength,
   viewSchema,
 } from "@/lib/domain/types"
+import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 
 import { createId, getNow } from "../helpers"
 import { createStoreRuntime } from "../runtime"
@@ -124,8 +125,14 @@ export function createViewSlice(
       }
 
       const viewId = parsed.data.id ?? createId("view")
+      const selectedViewKey = getViewerScopedDirectoryKey(
+        state.currentUserId,
+        parsed.data.route
+      )
       const previousSelectedViewId =
-        state.ui.selectedViewByRoute[parsed.data.route] ?? null
+        state.ui.selectedViewByRoute[selectedViewKey] ??
+        state.ui.selectedViewByRoute[parsed.data.route] ??
+        null
       const view = createViewDefinition({
         id: viewId,
         name: parsed.data.name,
@@ -163,7 +170,8 @@ export function createViewSlice(
           ...current.ui,
           selectedViewByRoute: {
             ...current.ui.selectedViewByRoute,
-            [view.route]: view.id,
+            [getViewerScopedDirectoryKey(current.currentUserId, view.route)]:
+              view.id,
           },
         },
       }))
@@ -191,11 +199,17 @@ export function createViewSlice(
                 ...current.ui.selectedViewByRoute,
               }
 
-              if (nextSelectedViewByRoute[view.route] === viewId) {
+              const nextSelectedViewKey = getViewerScopedDirectoryKey(
+                current.currentUserId,
+                view.route
+              )
+
+              if (nextSelectedViewByRoute[nextSelectedViewKey] === viewId) {
                 if (previousSelectedViewId) {
-                  nextSelectedViewByRoute[view.route] = previousSelectedViewId
+                  nextSelectedViewByRoute[nextSelectedViewKey] =
+                    previousSelectedViewId
                 } else {
-                  delete nextSelectedViewByRoute[view.route]
+                  delete nextSelectedViewByRoute[nextSelectedViewKey]
                 }
               }
 

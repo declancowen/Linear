@@ -531,6 +531,28 @@ export function createCollaborationConversationActions({
           notifiedUserIds.add(mentionedUserId)
         }
 
+        for (const audienceUserId of audienceUserIds) {
+          if (
+            audienceUserId === state.currentUserId ||
+            notifiedUserIds.has(audienceUserId)
+          ) {
+            continue
+          }
+
+          notifications.unshift(
+            createNotification(
+              audienceUserId,
+              state.currentUserId,
+              `${actor?.name ?? "Someone"} sent you a message in ${conversation.title || "a chat"}`,
+              "chat",
+              conversation.id,
+              "message"
+            )
+          )
+
+          notifiedUserIds.add(audienceUserId)
+        }
+
         return {
           ...state,
           notifications,

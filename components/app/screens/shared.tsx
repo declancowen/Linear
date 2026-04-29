@@ -58,6 +58,25 @@ export const PROPERTY_SELECT_SEPARATOR_VALUE = "__separator__"
 export const SCREEN_HEADER_CLASS_NAME =
   "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
 
+const LABEL_COLOR_TOKENS: Record<string, string> = {
+  rose: "var(--label-1)",
+  amber: "var(--label-2)",
+  orange: "var(--label-2)",
+  emerald: "var(--label-3)",
+  blue: "var(--label-4)",
+  cyan: "var(--label-4)",
+  indigo: "var(--label-5)",
+  violet: "var(--label-5)",
+}
+
+export function getLabelColorValue(color?: string | null) {
+  if (!color) {
+    return "var(--fg-4)"
+  }
+
+  return LABEL_COLOR_TOKENS[color] ?? color
+}
+
 export function LabelColorDot({
   color,
   className,
@@ -68,8 +87,9 @@ export function LabelColorDot({
   return (
     <span
       aria-hidden
+      data-label-color={color ?? undefined}
       className={cn("inline-block size-2.5 shrink-0 rounded-full", className)}
-      style={{ backgroundColor: color ?? "var(--fg-4)" }}
+      style={{ backgroundColor: getLabelColorValue(color) }}
     />
   )
 }
@@ -765,7 +785,12 @@ export function WorkItemLabelsEditor({
       {selectedLabels.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {selectedLabels.map((label) => (
-            <Badge key={label.id} variant="secondary" className="h-5 px-2">
+            <Badge
+              key={label.id}
+              variant="secondary"
+              className="h-5 gap-1.5 px-2"
+            >
+              <LabelColorDot color={label.color} className="size-1.5" />
               {label.name}
             </Badge>
           ))}
@@ -801,7 +826,7 @@ export function WorkItemLabelsEditor({
                         key={label.id}
                         type="button"
                         className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
                           selected
                             ? "border-primary/40 bg-primary/10 text-foreground"
                             : "border-border text-muted-foreground hover:text-foreground"
@@ -809,6 +834,7 @@ export function WorkItemLabelsEditor({
                         onClick={() => toggleLabel(label.id)}
                         disabled={!editable}
                       >
+                        <LabelColorDot color={label.color} className="size-1.5" />
                         {label.name}
                       </button>
                     )

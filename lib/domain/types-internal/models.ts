@@ -212,6 +212,30 @@ export interface ViewDefinition {
   updatedAt: string
 }
 
+export type ViewerViewConfigOverride = Partial<{
+  layout: ViewLayout
+  filters: Partial<ViewFilters>
+  grouping: GroupField
+  subGrouping: GroupField | null
+  ordering: OrderingField
+  itemLevel: WorkItemType | null
+  showChildItems: boolean
+  displayProps: DisplayProperty[]
+  hiddenState: HiddenState
+}>
+
+export type ViewerDirectoryConfig = Partial<{
+  layout: "list" | "board"
+  filters: {
+    entityKinds?: EntityKind[]
+    scopes?: string[]
+  }
+  grouping: string
+  subGrouping: string
+  ordering: string
+  displayProps: string[]
+}>
+
 export interface Comment {
   id: string
   targetType: CommentTargetType
@@ -403,6 +427,8 @@ export interface UiState {
   activeTeamId: string
   activeInboxNotificationId: string | null
   selectedViewByRoute: Record<string, string>
+  viewerViewConfigByRoute: Record<string, ViewerViewConfigOverride>
+  viewerDirectoryConfigByRoute: Record<string, ViewerDirectoryConfig>
   activeCreateDialog: CreateDialogState | null
 }
 

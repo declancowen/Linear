@@ -25,6 +25,10 @@ import {
   type ViewDefinition,
 } from "@/lib/domain/types"
 import { createViewDefinition } from "@/lib/domain/default-views"
+import {
+  applyViewerViewConfig,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { fetchProjectDetailReadModel } from "@/lib/convex/client"
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
@@ -171,10 +175,26 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const selectedProjectView = projectRoute
     ? getViewByRoute(data, projectRoute)
     : null
-  const activeSavedProjectView = savedProjectItemViews.some(
+  const activeSavedProjectViewBase = savedProjectItemViews.some(
     (view) => view.id === selectedProjectView?.id
   )
     ? selectedProjectView
+    : null
+  const activeSavedProjectViewOverride =
+    activeSavedProjectViewBase && projectRoute
+      ? data.ui.viewerViewConfigByRoute[
+          getViewerScopedViewKey(
+            data.currentUserId,
+            projectRoute,
+            activeSavedProjectViewBase.id
+          )
+        ]
+      : null
+  const activeSavedProjectView = activeSavedProjectViewBase
+    ? applyViewerViewConfig(
+        activeSavedProjectViewBase,
+        activeSavedProjectViewOverride
+      )
     : null
 
   useEffect(() => {
@@ -454,6 +474,84 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     setProjectItemsDisplayProps(displayProps)
   }
 
+  function updateViewerProjectItemsView(patch: ViewConfigPatch) {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .patchViewerViewConfig(projectRoute, activeSavedProjectView.id, patch)
+  }
+
+  function toggleViewerProjectItemsFilter(key: ViewFilterKey, value: string) {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewFilterValue(projectRoute, activeSavedProjectView.id, key, value)
+  }
+
+  function clearViewerProjectItemsFilters() {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .clearViewerViewFilters(projectRoute, activeSavedProjectView.id)
+  }
+
+  function toggleViewerProjectItemsDisplayProperty(property: DisplayProperty) {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewDisplayProperty(
+        projectRoute,
+        activeSavedProjectView.id,
+        property
+      )
+  }
+
+  function reorderViewerProjectItemsDisplayProperties(
+    displayProps: DisplayProperty[]
+  ) {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .reorderViewerViewDisplayProperties(
+        projectRoute,
+        activeSavedProjectView.id,
+        displayProps
+      )
+  }
+
+  function toggleViewerProjectItemsHiddenValue(
+    key: "groups" | "subgroups",
+    value: string
+  ) {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewHiddenValue(
+        projectRoute,
+        activeSavedProjectView.id,
+        key,
+        value
+      )
+  }
+
   function applyProjectItemsViewTemplate(view: ViewDefinition) {
     setProjectItemsLayout(view.layout)
     setProjectItemsGrouping(view.grouping)
@@ -544,7 +642,9 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
           <LayoutTabs
             view={activeProjectItemsView}
             onUpdateView={
-              activeSavedProjectView ? undefined : updateProjectItemsView
+              activeSavedProjectView
+                ? updateViewerProjectItemsView
+                : updateProjectItemsView
             }
           />
           <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
@@ -553,41 +653,51 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
             items={items}
             variant="chip"
             onToggleFilterValue={
-              activeSavedProjectView ? undefined : toggleProjectItemsFilter
+              activeSavedProjectView
+                ? toggleViewerProjectItemsFilter
+                : toggleProjectItemsFilter
             }
             onClearFilters={
-              activeSavedProjectView ? undefined : clearProjectItemsFilters
+              activeSavedProjectView
+                ? clearViewerProjectItemsFilters
+                : clearProjectItemsFilters
             }
           />
           <LevelChipPopover
             view={activeProjectItemsView}
             onUpdateView={
-              activeSavedProjectView ? undefined : updateProjectItemsView
+              activeSavedProjectView
+                ? updateViewerProjectItemsView
+                : updateProjectItemsView
             }
           />
           <GroupChipPopover
             view={activeProjectItemsView}
             groupOptions={projectGroupOptions}
             onUpdateView={
-              activeSavedProjectView ? undefined : updateProjectItemsView
+              activeSavedProjectView
+                ? updateViewerProjectItemsView
+                : updateProjectItemsView
             }
           />
           <SortChipPopover
             view={activeProjectItemsView}
             onUpdateView={
-              activeSavedProjectView ? undefined : updateProjectItemsView
+              activeSavedProjectView
+                ? updateViewerProjectItemsView
+                : updateProjectItemsView
             }
           />
           <PropertiesChipPopover
             view={activeProjectItemsView}
             onToggleDisplayProperty={
               activeSavedProjectView
-                ? undefined
+                ? toggleViewerProjectItemsDisplayProperty
                 : toggleProjectItemsDisplayProperty
             }
             onReorderDisplayProperties={
               activeSavedProjectView
-                ? undefined
+                ? reorderViewerProjectItemsDisplayProperties
                 : reorderProjectItemsDisplayProperties
             }
           />
@@ -596,11 +706,13 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
               view={activeProjectItemsView}
               groupOptions={projectGroupOptions}
               onUpdateView={
-                activeSavedProjectView ? undefined : updateProjectItemsView
+                activeSavedProjectView
+                  ? updateViewerProjectItemsView
+                  : updateProjectItemsView
               }
               onToggleDisplayProperty={
                 activeSavedProjectView
-                  ? undefined
+                  ? toggleViewerProjectItemsDisplayProperty
                   : toggleProjectItemsDisplayProperty
               }
             />
@@ -638,6 +750,15 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 scopedItems={items}
                 view={activeProjectItemsView}
                 editable={editable}
+                createContext={{
+                  defaultTeamId: createWorkItemTeamId,
+                  defaultProjectId: project.id,
+                }}
+                onToggleHiddenValue={
+                  activeSavedProjectView
+                    ? toggleViewerProjectItemsHiddenValue
+                    : undefined
+                }
               />
             ) : null}
             {activeProjectItemsView.layout === "list" ? (
@@ -647,6 +768,15 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
                 scopedItems={items}
                 view={activeProjectItemsView}
                 editable={editable}
+                createContext={{
+                  defaultTeamId: createWorkItemTeamId,
+                  defaultProjectId: project.id,
+                }}
+                onToggleHiddenValue={
+                  activeSavedProjectView
+                    ? toggleViewerProjectItemsHiddenValue
+                    : undefined
+                }
               />
             ) : null}
             {activeProjectItemsView.layout === "timeline" ? (

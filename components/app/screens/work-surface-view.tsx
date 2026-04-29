@@ -204,15 +204,17 @@ function buildCreateDefaultsForGroup({
   view,
   groupValue,
   subgroupValue,
+  createContext,
 }: {
   data: AppData
   items: WorkItem[]
   view: Pick<ViewDefinition, "grouping" | "subGrouping">
   groupValue: string
   subgroupValue?: string
+  createContext?: WorkSurfaceCreateContext
 }) {
   const baseItem = items[0] ?? null
-  const teamId = baseItem?.teamId ?? null
+  const teamId = baseItem?.teamId ?? createContext?.defaultTeamId ?? null
   const groupDefaults = getCreateDefaultsForField(
     data,
     baseItem,
@@ -240,6 +242,7 @@ function buildCreateDefaultsForGroup({
       subgroupDefaults?.defaultTeamId ??
       groupDefaults.defaultTeamId ??
       baseItem?.teamId ??
+      createContext?.defaultTeamId ??
       null,
     initialType:
       subgroupDefaults?.initialType ?? groupDefaults.initialType ?? null,
@@ -247,11 +250,19 @@ function buildCreateDefaultsForGroup({
       status: groupedPatch.status,
       priority: groupedPatch.priority,
       assigneeId: groupedPatch.assigneeId,
-      primaryProjectId: groupedPatch.primaryProjectId,
+      primaryProjectId:
+        groupedPatch.primaryProjectId !== undefined
+          ? groupedPatch.primaryProjectId
+          : (createContext?.defaultProjectId ?? null),
       labelIds: groupedPatch.labelIds,
       parentId: groupedPatch.parentId ?? null,
     },
   }
+}
+
+type WorkSurfaceCreateContext = {
+  defaultTeamId?: string | null
+  defaultProjectId?: string | null
 }
 
 function GroupPill({
@@ -604,6 +615,8 @@ export function BoardView({
   view,
   editable,
   childDisplayMode = "direct",
+  createContext,
+  onToggleHiddenValue,
 }: {
   data: AppData
   items: WorkItem[]
@@ -611,9 +624,15 @@ export function BoardView({
   view: ViewDefinition
   editable: boolean
   childDisplayMode?: ChildDisplayMode
+  createContext?: WorkSurfaceCreateContext
+  onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
 }) {
   const groups = [
-    ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
+    ...buildItemGroupsWithEmptyGroups(data, items, view, {
+      sourceItems: scopedItems,
+      teamId: createContext?.defaultTeamId,
+      projectId: createContext?.defaultProjectId,
+    }).entries(),
   ]
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
   const [activeDragPreviewKind, setActiveDragPreviewKind] = useState<
@@ -741,6 +760,7 @@ export function BoardView({
       view,
       groupValue,
       subgroupValue,
+      createContext,
     })
 
     openManagedCreateDialog({
@@ -750,6 +770,7 @@ export function BoardView({
         laneItems[0]?.teamId ??
         items[0]?.teamId ??
         scopedItems?.[0]?.teamId ??
+        createContext?.defaultTeamId ??
         null,
       defaultProjectId: createDefaults.defaultValues.primaryProjectId,
       initialType: createDefaults.initialType,
@@ -927,9 +948,11 @@ export function BoardView({
                 key={groupName}
                 className="rounded-md border border-line px-2 py-0.5 text-xs hover:bg-surface-3"
                 onClick={() =>
-                  useAppStore
-                    .getState()
-                    .toggleViewHiddenValue(view.id, "groups", groupName)
+                  onToggleHiddenValue
+                    ? onToggleHiddenValue("groups", groupName)
+                    : useAppStore
+                        .getState()
+                        .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
                 {getGroupValueLabel(view.grouping, groupName)}
@@ -977,6 +1000,8 @@ export function ListView({
   view,
   editable,
   childDisplayMode = "direct",
+  createContext,
+  onToggleHiddenValue,
 }: {
   data: AppData
   items: WorkItem[]
@@ -984,9 +1009,15 @@ export function ListView({
   view: ViewDefinition
   editable: boolean
   childDisplayMode?: ChildDisplayMode
+  createContext?: WorkSurfaceCreateContext
+  onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
 }) {
   const groups = [
-    ...buildItemGroupsWithEmptyGroups(data, items, view).entries(),
+    ...buildItemGroupsWithEmptyGroups(data, items, view, {
+      sourceItems: scopedItems,
+      teamId: createContext?.defaultTeamId,
+      projectId: createContext?.defaultProjectId,
+    }).entries(),
   ]
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [activeItemId, setActiveItemId] = useState<string | null>(null)
@@ -1114,6 +1145,7 @@ export function ListView({
       view,
       groupValue,
       subgroupValue,
+      createContext,
     })
 
     openManagedCreateDialog({
@@ -1123,6 +1155,7 @@ export function ListView({
         laneItems[0]?.teamId ??
         items[0]?.teamId ??
         scopedItems?.[0]?.teamId ??
+        createContext?.defaultTeamId ??
         null,
       defaultProjectId: createDefaults.defaultValues.primaryProjectId,
       initialType: createDefaults.initialType,
@@ -1148,7 +1181,7 @@ export function ListView({
 
           const groupItems = Array.from(subgroups.values()).flat()
           const groupCount = groupItems.length
-          const isExpandable = groupCount > 0
+          const isExpandable = groupCount > 0 || editable
           const isCollapsed = collapsedGroups.has(groupName)
           const groupLabel = getGroupValueLabel(view.grouping, groupName)
           const groupAdornment = getGroupValueAdornment(
@@ -1342,9 +1375,11 @@ export function ListView({
                 key={groupName}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-3"
                 onClick={() =>
-                  useAppStore
-                    .getState()
-                    .toggleViewHiddenValue(view.id, "groups", groupName)
+                  onToggleHiddenValue
+                    ? onToggleHiddenValue("groups", groupName)
+                    : useAppStore
+                        .getState()
+                        .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
                 {getGroupValueAdornment(view.grouping, groupName)}
