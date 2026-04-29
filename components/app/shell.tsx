@@ -323,11 +323,10 @@ export function AppShell({ children }: AppShellProps) {
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     )
   )
-  const notificationModalData = useAppStore(
+  const notificationRouteData = useAppStore(
     useShallow((state) => ({
       channelPosts: state.channelPosts,
       conversations: state.conversations,
-      notifications: state.notifications,
       projects: state.projects,
       teams: state.teams,
     }))
@@ -456,6 +455,13 @@ export function AppShell({ children }: AppShellProps) {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [modalNotificationId, setModalNotificationId] = useState<string | null>(
     null
+  )
+  const modalNotificationFallback = useAppStore((state) =>
+    modalNotificationId
+      ? (state.notifications.find(
+          (notification) => notification.id === modalNotificationId
+        ) ?? null)
+      : null
   )
   const knownNotificationIdsRef = useRef<Set<string> | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -660,7 +666,7 @@ export function AppShell({ children }: AppShellProps) {
       return
     }
 
-    const href = getNotificationHref(notificationModalData, nextNotification)
+    const href = getNotificationHref(notificationRouteData, nextNotification)
 
     if (
       isViewingNotificationTarget({
@@ -677,7 +683,7 @@ export function AppShell({ children }: AppShellProps) {
     setModalNotificationId(nextNotification.id)
   }, [
     notificationModalCandidates,
-    notificationModalData,
+    notificationRouteData,
     pathname,
     searchParams,
   ])
@@ -685,13 +691,9 @@ export function AppShell({ children }: AppShellProps) {
   const modalNotification =
     notificationModalCandidates.find(
       (notification) => notification.id === modalNotificationId
-    ) ??
-    notificationModalData.notifications.find(
-      (notification) => notification.id === modalNotificationId
-    ) ??
-    null
+    ) ?? modalNotificationFallback
   const modalNotificationHref = modalNotification
-    ? getNotificationHref(notificationModalData, modalNotification)
+    ? getNotificationHref(notificationRouteData, modalNotification)
     : null
 
   function toggleTeam(teamId: string) {

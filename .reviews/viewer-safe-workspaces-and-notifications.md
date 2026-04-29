@@ -38,13 +38,144 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 16:52:55 BST` |
-| **Total turns** | `2` |
+| **Last reviewed** | `2026-04-29 17:20:19 BST` |
+| **Total turns** | `3` |
 | **Open findings** | `0` |
-| **Resolved findings** | `20` |
-| **Accepted findings** | `8` |
+| **Resolved findings** | `25` |
+| **Accepted findings** | `9` |
 
 ---
+
+## Turn 3 — 2026-04-29 17:20:19 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `714cbd1f` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `High` |
+
+**Summary:** Continued the interrupted review loop from Turn 2, re-imported the supplied PR bugs/flags against the current tree, checked PR #29 review threads, and ran a challenger pass across the viewer override, notification, rich-text, scoped refresh, and Electron runtime surfaces. Most supplied items were already fixed or intentional product/architecture choices. Five low/medium current-tree issues were still worth resolving: the branch carried unused duplicate Electron `.mjs` entrypoints that drifted from the real `.cjs` runtime, notification modal route data still subscribed to the full notifications array, `SavedViewsBoard` still exposed a dead required `editable` type prop, viewer override merge checks used truthiness instead of presence checks, and the rich-text editor had two cheap defensive/performance cleanups around collaboration identity and attachment no-op handling.
+
+**Outcome:** all clear after fixes
+**Risk score:** high — shared Zustand UI state, notification read semantics, rich-text editor behavior, local persistence migration, scoped refresh hooks, CI, and desktop runtime packaging are all in the branch blast radius
+**Change archetypes:** shared-ui, optimistic-state, migration, fallback-state, performance, release-safety, infra
+**Intended change:** keep viewer-local view preferences isolated from shared saved views, keep notification modal behavior correct and narrow, preserve rich-text constraints, and remove PR hygiene/runtime drift before pushing
+**Intent vs actual:** the current tree now matches the intended ownership boundaries: shared saved views remain server-owned templates, viewer overrides are local UI state, notification routing is a pure presentation helper, rich-text constraints stay in the shared editor contract, and Electron packaging continues to use the repo-owned `.cjs` entrypoints only
+**Confidence:** high — current-tree behavior was checked against the pasted findings, GitHub review comments, branch diff, and focused/full verification
+**Coverage note:** reviewed `.reviews/*` history, PR #29 metadata and review threads, current branch diff vs `origin/main`, current-turn diff, and the specific files behind every supplied finding
+**Finding triage:** all supplied findings are now `resolved`, `already fixed`, or `accepted/intentional`; no Critical/High findings remain open
+**Bug classes / invariants checked:** Authority (viewer-local overrides vs shared saved views), Preservation (clear/filter/default behavior), Variant State (empty props, null/undefined override values), Performance Hot Path (store selector breadth and editor extension identity), Release Safety (desktop runtime entrypoints)
+**Branch totality:** rechecked the latest branch head, not only the current patch, including prior open PR threads and the Turn 1/2 hotspot families
+**Sibling closure:** searched for broad `useAppStore((state) => state)` selectors, whole `viewerViewConfigByRoute` subscriptions, duplicate Electron entrypoints, stale rich-text dependency patterns, and scoped refresh dependency drift
+**Remediation impact surface:** changes are limited to presentation/domain helper boundaries and desktop file hygiene; no persisted schema or server contract changed in this turn
+**Residual risk / unknowns:** several UX choices remain intentional product behavior rather than bugs: clearing filters clears the current viewer filter state, generic message notifications are in-app only, one modal is shown per batch, and child-row optional properties stay hidden when unset/sidebar
+
+| Status | Count |
+|--------|-------|
+| New findings | `5` |
+| Resolved during Turn 3 | `5` |
+| Accepted / intentional | `1` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| User / PR notes | `clearViewerViewFilters` stores empty arrays instead of removing override keys | accepted | Preservation | clear current filters vs revert to saved base filters | no code change; matches current clear-filter UX |
+| User / PR notes | v3→v4 migration drops unscoped `selectedViewByRoute` entries | accepted | Migration / Scope | old per-route selection vs viewer-scoped isolation | no code change; privacy/isolation tradeoff |
+| User / PR notes | `SavedViewsBoard` still required unused `editable` prop | resolved in `F3-03` | Shared UI | dead required prop after component refactor | fixed |
+| User / PR notes | Create dialog default priority changed to `"none"` | accepted | Semantic Regression | template defaults vs requested blank create defaults | no code change; explicit priority defaults still work |
+| User / PR notes | `message` notifications excluded from digest claims | accepted | Authority | server notification type owns email eligibility | no code change; mentions still use email-capable `mention` type |
+| User / PR notes | Rich-text hard limit activates whenever max is supplied | accepted | Shared UI / Contract | max-as-hard-limit vs soft display-only future callers | no code change; current constrained callsites expect hard stop |
+| User / PR notes | `handleEditorFiles` lost early `onUploadAttachment` guard | resolved in `F3-05` | Performance Hot Path | no uploader should do zero async per-file work | fixed |
+| User / PR notes | Views directory recomputes arrays inline | accepted | Performance Hot Path | large saved-view lists | no code change; selectors were narrowed and this is low risk |
+| User / PR notes | notification effect depended on route data containing `notifications` | resolved in `F3-02` | Performance Hot Path | active-target suppression should not carry full notification route data | fixed |
+| User / PR notes | `knownNotificationIdsRef` grows for session lifetime | accepted | Lifecycle | session cache bound | no code change; low-volume session state |
+| User / PR notes | only first simultaneous notification opens a modal | accepted | Affordance / UX | anti-spam batch behavior | no code change; inbox still retains unread notifications |
+| User / PR notes | `applyViewerViewConfig` used truthy override checks | resolved in `F3-04` | Variant State | present override must not depend on truthiness | fixed |
+| User / PR notes | child-row optional properties hidden in sidebar / when empty | accepted | Semantic Regression | direct child-row editing vs uncluttered requested UI | no code change; matches branch requirement |
+| User / PR notes | `RichTextEditor showStats` default changed to false | already fixed in `F1-05` | Shared UI | shared default should not silently change | no action this turn |
+| User / PR notes | `useCollectionLayout` subscribed to broad viewer config object | already fixed in `F2-03` | Performance Hot Path | active collection should subscribe only to active override | no action this turn |
+| User / PR notes | `FieldCharacterLimit` still required unused `limit` | already fixed in `F1-06` | Shared UI | dead required interface after display refactor | no action this turn |
+| User / PR notes | `collaborationExtensions` depended on whole collaboration object | already fixed in `F2-04`; base extensions tightened in `F3-05` | Performance Hot Path | editor extensions should depend on actual values used | fixed remaining cheap sibling |
+| User / PR notes | `scopeKeys` redundant effect dependency | already fixed in `F2-05` | Performance Hot Path | signature is the canonical scope-key dependency | no action this turn |
+
+### Resolved during Turn 3
+
+#### F3-01 ~~[CONSISTENCY] Medium~~ → RESOLVED — PR added unused Electron `.mjs` entrypoints that drifted from the real desktop runtime
+**Where:** [electron/main.mjs](../electron/main.mjs), [electron/preload.mjs](../electron/preload.mjs), [electron/main.cjs](../electron/main.cjs), [package.json](../package.json)
+
+**What was wrong:** The branch added `electron/main.mjs` and `electron/preload.mjs`, but package metadata, `scripts/run-electron.cjs`, `scripts/desktop-smoke.mjs`, and `scripts/package-electron-mac.mjs` all use `electron/main.cjs` / `electron/preload.cjs`. The added `.mjs` main was also weaker than the real entrypoint: it lacked packaged runtime config fallback, trusted WorkOS/identity-provider in-app navigation, single-instance behavior, and the current window/icon policy.
+
+**How it was fixed:** Removed the unused `.mjs` entrypoints so there is one governed desktop source path. The desktop smoke gate continues to assert the `.cjs` runtime path.
+
+#### F3-02 ~~[PERFORMANCE] Low~~ → RESOLVED — Notification modal route data still carried the full notifications array
+**Where:** [components/app/shell.tsx](../components/app/shell.tsx)
+
+**What was wrong:** The Turn 2 selector was narrowed from whole-store subscription, but the object used by the notification routing effect still included `notifications` even though `getNotificationHref()` only needs channel posts, conversations, projects, and teams.
+
+**How it was fixed:** Split route data from modal notification lookup. The effect now depends on `notificationRouteData` without the full notification array, while the current modal fallback subscribes only to the selected notification id.
+
+#### F3-03 ~~[HYGIENE] Low~~ → RESOLVED — `SavedViewsBoard` exposed a dead required `editable` prop
+**Where:** [components/app/screens/collection-boards.tsx](../components/app/screens/collection-boards.tsx)
+
+**What was wrong:** The component no longer used `editable`, but its public prop type still required callers to provide it.
+
+**How it was fixed:** Removed `editable` from the component prop contract.
+
+#### F3-04 ~~[ROBUSTNESS] Low~~ → RESOLVED — Viewer override merge used truthy checks for explicit override fields
+**Where:** [lib/domain/viewer-view-config.ts](../lib/domain/viewer-view-config.ts)
+
+**What was wrong:** `layout`, `grouping`, and `ordering` overrides were applied only when truthy. Current enum values are all truthy, so this was not a live behavior bug, but it made the domain helper depend on an incidental property of the current unions.
+
+**How it was fixed:** Switched those checks to `!== undefined`, matching the existing nullable/presence semantics for sibling override fields.
+
+#### F3-05 ~~[PERFORMANCE] Low~~ → RESOLVED — Rich-text editor kept cheap avoidable extension/no-op churn
+**Where:** [components/app/rich-text-editor.tsx](../components/app/rich-text-editor.tsx)
+
+**What was wrong:** `handleEditorFiles()` performed one async no-op per file when no uploader was registered, and base extension memoization depended on the full `collaboration` object even though the base extension only needs the boolean collaboration mode.
+
+**How it was fixed:** Restored the early uploader guard and memoized base extensions on `hasCollaboration` plus the actual constraint/placeholder fields.
+
+### Architecture check
+
+- Viewer override policy stays in the domain/store boundary: `applyViewerViewConfig()` applies explicit overrides defensively, while shared saved views remain unchanged by viewer-local preferences.
+- Notification routing is now a pure presentation helper with a narrow data contract; server notification eligibility and digest behavior remain owned by Convex handlers.
+- Rich-text hard limits and validity remain shared-editor concerns; constrained callsites opt into hidden stats and enforcement explicitly.
+- Desktop runtime ownership is clearer after deleting duplicate `.mjs` entrypoints: packaging, smoke tests, and app metadata all point at the `.cjs` entrypoint family.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PR #29 metadata/review threads, `package.json`, Electron runtime scripts, notification routing/shell, viewer config domain helper, rich-text editor, scoped refresh hook, and relevant tests.
+- **Prior open findings rechecked:** GitHub review threads for broad store selector, notification whole-store selector, chat target suppression, and rich-text overflow text were all current-tree triaged; no live Critical/High issue remained.
+- **Prior resolved/adjacent areas revalidated:** Turn 1/2 fixes for `useCollectionLayout`, notification route suppression, `showStats`, `FieldCharacterLimit`, `collaborationExtensions`, and `scopeKeys` were rechecked.
+- **Hotspots or sibling paths revisited:** searched for `useAppStore((state) => state)`, broad `viewerViewConfigByRoute` subscription, duplicate Electron `.mjs` entrypoints, full-notification route-data coupling, and stale rich-text dependency patterns.
+- **Dependency/adjacent surfaces revalidated:** desktop smoke still validates the real `.cjs` runtime, and the GitHub PR checks were green before this local patch.
+- **Why this is enough:** the remaining changes are small boundary/hygiene fixes in already-reviewed hotspot files, and the full verification stack passed after the final patch.
+
+### Challenger pass
+
+- `done` — assumed one serious issue still existed after the supplied findings. The live issue found was the duplicate Electron `.mjs` runtime surface, which was not in the pasted list. After deletion, the challenger pass did not find another current-tree bug in the viewer override, notification modal, rich-text, scoped refresh, or desktop smoke paths.
+
+### Validation
+
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` — passed; PR #29 open and CI checks green at captured head.
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; desktop runtime and store/domain hotspots reviewed.
+- `gh pr view 29 ...` / `gh api repos/declancowen/Linear/pulls/29/comments` / GraphQL review threads — completed; only outdated fixed threads remained.
+- `pnpm exec vitest run tests/components/notification-routing.test.ts tests/lib/store/viewer-view-config.test.ts tests/lib/use-scoped-read-model-refresh.test.tsx tests/components/views-screen.test.tsx` — passed, 4 files / 17 tests.
+- `pnpm exec vitest run tests/components/notification-routing.test.ts tests/components/views-screen.test.tsx` — passed after the final shell selector split, 2 files / 8 tests.
+- `pnpm exec eslint components/app/shell.tsx components/app/notification-routing.ts components/app/rich-text-editor.tsx components/app/screens/collection-boards.tsx lib/domain/viewer-view-config.ts --max-warnings 0` — passed.
+- `pnpm audit:deps` — passed at high threshold; 5 moderate advisories remain below threshold.
+- `pnpm check` — passed after final patch: lint, typecheck, 140 test files / 726 tests, production build, desktop smoke.
+- `git diff --check -- . ':!.reviews/'` — passed.
+
+### Recommendations
+
+1. **Fix first:** none remaining.
+2. **Then address:** if product wants “clear filters” to mean “revert to saved view filters,” change that deliberately across both project and viewer filter paths rather than only in `clearViewerViewFilters()`.
+3. **Patterns noticed:** avoid adding parallel runtime entrypoints unless the package metadata, smoke tests, and packaging scripts are switched in the same patch.
+4. **Suggested approach:** keep future viewer-local preference work behind `lib/domain/viewer-view-config.ts` and the UI slice actions so shared saved-view templates cannot become a second source of truth.
+5. **Defer on purpose:** pruning `knownNotificationIdsRef` and changing one-modal-per-batch behavior are product/performance follow-ups, not blockers for this PR.
 
 ## Turn 2 — 2026-04-29 16:52:55 BST
 

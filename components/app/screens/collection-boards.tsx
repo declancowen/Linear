@@ -220,7 +220,6 @@ export function SavedViewsBoard({
   views: ViewDefinition[]
   showDescriptions: boolean
   contextLabels?: Record<string, string>
-  editable: boolean
 }) {
   return (
     <div className="grid gap-3.5 px-7 py-4 sm:grid-cols-2 xl:grid-cols-3">

@@ -20,7 +20,10 @@ export function getViewerScopedViewKey(
   ].join("::")
 }
 
-export function getViewerScopedDirectoryKey(userId: string, surfaceKey: string) {
+export function getViewerScopedDirectoryKey(
+  userId: string,
+  surfaceKey: string
+) {
   return [encodeKeyPart(userId || "anonymous"), encodeKeyPart(surfaceKey)].join(
     "::"
   )
@@ -36,13 +39,15 @@ export function applyViewerViewConfig(
 
   return {
     ...view,
-    ...(override.layout ? { layout: override.layout } : {}),
-    ...(override.grouping ? { grouping: override.grouping } : {}),
+    ...(override.layout !== undefined ? { layout: override.layout } : {}),
+    ...(override.grouping !== undefined ? { grouping: override.grouping } : {}),
     ...(override.subGrouping !== undefined
       ? { subGrouping: override.subGrouping }
       : {}),
-    ...(override.ordering ? { ordering: override.ordering } : {}),
-    ...(override.itemLevel !== undefined ? { itemLevel: override.itemLevel } : {}),
+    ...(override.ordering !== undefined ? { ordering: override.ordering } : {}),
+    ...(override.itemLevel !== undefined
+      ? { itemLevel: override.itemLevel }
+      : {}),
     ...(override.showChildItems !== undefined
       ? { showChildItems: override.showChildItems }
       : {}),

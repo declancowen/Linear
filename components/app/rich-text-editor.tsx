@@ -1527,6 +1527,7 @@ export function RichTextEditor({
   )
 
   const resolvedEditorContent = sanitizedStringContent ?? content
+  const hasCollaboration = Boolean(collaboration)
   const collaborationDocument = collaboration?.binding.doc ?? null
   const collaborationProvider = collaboration?.binding.provider ?? null
   const visiblePresenceViewers = useMemo(
@@ -1542,14 +1543,19 @@ export function RichTextEditor({
     () =>
       createRichTextBaseExtensions({
         placeholder,
-        collaboration: Boolean(collaboration),
+        collaboration: hasCollaboration,
         characterLimit:
           (enforcePlainTextLimit || Boolean(maxPlainTextCharacters)) &&
           maxPlainTextCharacters
             ? maxPlainTextCharacters
             : undefined,
       }),
-    [collaboration, enforcePlainTextLimit, maxPlainTextCharacters, placeholder]
+    [
+      hasCollaboration,
+      enforcePlainTextLimit,
+      maxPlainTextCharacters,
+      placeholder,
+    ]
   )
   const collaborationExtensions = useMemo(
     () =>
@@ -1615,7 +1621,7 @@ export function RichTextEditor({
 
   const handleEditorFiles = useCallback(
     async (currentEditor: Editor, files: File[], position?: number | null) => {
-      if (files.length === 0) {
+      if (!onUploadAttachmentRef.current || files.length === 0) {
         return
       }
 
