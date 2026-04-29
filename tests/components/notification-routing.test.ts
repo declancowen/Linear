@@ -71,6 +71,19 @@ describe("notification routing", () => {
     ).toBe(false)
   })
 
+  it("does not suppress chat notifications when the target href is unavailable", () => {
+    expect(
+      isViewingNotificationTarget({
+        notification: notification("chat", "conversation_target"),
+        href: null,
+        pathname: "/workspace/search",
+        searchParams: new URLSearchParams({
+          chatId: "conversation_target",
+        }),
+      })
+    ).toBe(false)
+  })
+
   it("suppresses workspace chat notifications only when the chatId matches", () => {
     expect(
       isViewingNotificationTarget({

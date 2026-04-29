@@ -147,7 +147,7 @@ export function isViewingNotificationTarget(input: {
 
   if (notification.entityType === "chat") {
     if (!href) {
-      return searchParams.get("chatId") === notification.entityId
+      return false
     }
 
     const hrefPathname = getHrefPathname(href)

@@ -40,11 +40,70 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 19:57:20 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-04-29 21:03:34 BST` |
+| **Total turns** | `8` |
 | **Open findings** | `0` |
-| **Resolved findings** | `34` |
+| **Resolved findings** | `35` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 8 — 2026-04-29 21:03:34 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `cc4c133d` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest P2 finding against current notification routing. The finding was live: when chat href resolution failed, `isViewingNotificationTarget()` could still suppress a chat notification based only on a matching `chatId` query parameter on any route. The fallback now returns `false`, so transient route-data gaps cannot silently mark chat notifications read.
+
+**Outcome:** current live finding resolved locally; push pending
+**Risk score:** medium — notification read state can hide user-visible messages
+**Change archetypes:** target identity, fallback safety, notification lifecycle
+**Intended change:** prevent missing chat href data from auto-marking notifications read outside a verified chat route
+**Intent vs actual:** only resolved chat hrefs can suppress active-target chat notifications; unresolved hrefs remain toast-eligible
+**Confidence:** high — focused helper test covers the missing-href fallback
+**Coverage note:** checked `components/app/notification-routing.ts` and existing notification routing tests
+**Finding triage:** the new P2 is fixed in `F8-01`; the repeated non-P2 items are unchanged from Turn 7 triage as stale, already fixed, accepted, or low-risk notes
+**Bug classes / invariants checked:** Fallback Safety (missing target data must not mutate read state), Target Identity (query match is not enough without route authority)
+**Branch totality:** no additional app-shell or store behavior changed in this turn
+**Sibling closure:** channel-post missing hash and chat missing href now both fail closed instead of suppressing by partial route data
+**Residual risk / unknowns:** none beyond the accepted product/performance tradeoffs already documented
+
+| Status | Count |
+|--------|-------|
+| New findings | `1` |
+| Resolved during Turn 8 | `1` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Require chat pathname in fallback target check | resolved in `F8-01` | Fallback Safety / Target Identity | missing href must not suppress by query alone | fixed |
+
+### Resolved during Turn 8
+
+#### F8-01 ~~[BUG] Medium~~ → RESOLVED — Missing chat href could suppress notifications by query alone
+**Where:** [components/app/notification-routing.ts](../components/app/notification-routing.ts), [tests/components/notification-routing.test.ts](../tests/components/notification-routing.test.ts)
+
+**What was wrong:** If `getNotificationHref()` could not resolve a chat href, `isViewingNotificationTarget()` treated any route with `?chatId=<target>` as active and allowed the shell to mark the notification read.
+
+**How it was fixed:** The missing-href chat fallback now returns `false`. Resolved chat hrefs still suppress only when the pathname and `chatId` match.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/notification-routing.test.ts` — passed.
+- `pnpm exec eslint components/app/notification-routing.ts tests/components/notification-routing.test.ts --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** push this follow-up and let PR checks/review rerun.
 
 ---
 
