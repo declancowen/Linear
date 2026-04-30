@@ -41,11 +41,65 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-30 08:11:38 BST` |
-| **Total turns** | `12` |
+| **Last reviewed** | `2026-04-30 08:27:06 BST` |
+| **Total turns** | `13` |
 | **Open findings** | `0` |
 | **Resolved findings** | `41` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 13 — 2026-04-30 08:27:06 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `2f754731` |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Re-reviewed the latest repeated finding batch against the current tree after `F12-01`. No new live findings were found. The Project Detail property clear path now passes `onClearDisplayProperties` to the viewer-local clear handler for saved project views, and the repeated persisted-map, CI fallback, notification routing, stale selector, field-limit, and dead popover items are already fixed, stale, accepted product behavior, or low-risk documented tradeoffs.
+
+**Outcome:** no current live findings; branch remains pushed
+**Risk score:** medium — repeated findings target shared store persistence, saved-view override routing, notification read/toast lifecycle, and CI fallback behavior
+**Change archetypes:** re-review, external finding triage, regression verification
+**Intended change:** confirm whether the pasted list exposes any new current-tree defects after the Project Detail clear-properties fix
+**Intent vs actual:** no additional code changes were needed; current code matches the documented intended behavior for the high-risk paths
+**Confidence:** high for the checked repeated findings — targeted tests and lint/typecheck passed, and the specific fallback paths were inspected
+**Coverage note:** checked `project-detail-screen.tsx`, `work-surface.tsx`, `screens.tsx`, `shell.tsx`, `notification-routing.ts`, `app-store.ts`, `ui.ts`, `convex-app-provider.tsx`, `rich-text-editor.tsx`, and `use-scoped-read-model-refresh.ts`
+**Finding triage:** no new live issues; repeated notes are classified as accepted, already fixed, or stale in prior turns
+**Bug classes / invariants checked:** State Ownership (viewer-local actions do not mutate shared views), Persistence Hygiene (persisted viewer maps are capped), Fallback Safety (notification/CI fallback paths fail closed), Interface Hygiene (unused/dead surfaces removed)
+**Branch totality:** branch was checked at `2f754731`, clean against origin, with no unpushed code changes
+**Sibling closure:** property clear routing now matches toggle/reorder routing across Project Detail, Work Surface, and collection screens
+**Residual risk / unknowns:** accepted product tradeoffs remain: clear filters/properties means empty override values, message notifications remain in-app only, and localStorage compaction is insertion-order bounded rather than LRU
+
+| Status | Count |
+|--------|-------|
+| New findings | `0` |
+| Resolved during Turn 13 | `0` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| User / PR notes | Project Detail property clear mutates shared view | already fixed | State Ownership / Preservation | fixed in `F12-01` with regression coverage | no code change |
+| User / PR notes | Persisted map compaction uses insertion order, not LRU | accepted | Persistence Hygiene | documented cap tradeoff without timestamp metadata | no code change |
+| User / PR notes | `useLayoutEffect` omits `applyReadModelData` | accepted | Lifecycle / Hook Stability | current code uses `useEffectEvent`; effect re-runs on seed signature | no code change |
+| User / PR notes | Repeated clear-filter/display-property semantics, default priority, message digest, child-row/sidebar display, read-only scaffold groups, rich-text stats/API, notification session cache, and low-risk performance notes | accepted | Product UX / Performance | accepted tradeoffs documented in prior turns | no code change |
+| User / PR notes | Repeated persisted-map growth, CI fallback, unused project popover, broad selectors, notification hash/fallback, stale directory toggles, migration key loss, field-limit interface, undefined directory filters, truthy override checks, attachment guard | stale / already fixed | State Preservation / Fallback Safety / Release Safety / Interface Hygiene | current tree contains previous fixes or the claimed behavior is absent | no code change |
+
+### Validation
+
+- `pnpm exec vitest run tests/components/project-detail-screen.test.tsx tests/lib/store/viewer-view-config.test.ts tests/components/notification-routing.test.ts tests/components/field-character-limit.test.tsx` — passed.
+- `pnpm exec eslint components/app/screens/project-detail-screen.tsx components/app/screens/work-surface.tsx components/app/screens.tsx components/app/shell.tsx components/app/notification-routing.ts lib/store/app-store.ts lib/store/app-store-internal/slices/ui.ts components/providers/convex-app-provider.tsx components/app/rich-text-editor.tsx hooks/use-scoped-read-model-refresh.ts --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** keep PR checks/review running against the pushed branch.
 
 ---
 
