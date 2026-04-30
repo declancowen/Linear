@@ -28,6 +28,7 @@ Files and areas reviewed across all turns:
 - `app/api/chats/[chatId]/calls/route.ts` and API route tests — typed application-error handling with scoped invalidation side effects
 - `components/providers/convex-app-provider.tsx` and retained-value hooks — lint-safe React hook usage
 - `components/app/notification-routing.ts` — notification href resolution and active-target suppression helpers
+- `components/app/screens/work-surface-controls.tsx` — active view configuration controls and retired project config popover cleanup
 - `components/app/screens/work-surface-view.tsx` — editable vs read-only group synthesis and empty surface behavior
 - `lib/store/app-store.ts` and `lib/domain/selectors-internal/content.ts` — persisted selected-view migration, localStorage retention caps, and legacy route fallback
 - `.github/workflows/ci.yml` — Convex codegen behavior when CI has no deployment secret
@@ -40,11 +41,82 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-30 07:27:47 BST` |
-| **Total turns** | `10` |
+| **Last reviewed** | `2026-04-30 07:45:36 BST` |
+| **Total turns** | `11` |
 | **Open findings** | `0` |
-| **Resolved findings** | `38` |
+| **Resolved findings** | `40` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 11 — 2026-04-30 07:45:36 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `3dde3f47` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest repeated review batch against the current tree. The new CI P2 was live: when Convex codegen cannot run, the fallback guard compared the PR base branch tip directly against the PR head, which can include base-only Convex changes after a branch was cut. The guard now computes a merge-base first and diffs only branch-introduced changes. I also removed the unused `ProjectViewConfigPopover` export from `work-surface-controls.tsx`.
+
+**Outcome:** current live findings resolved locally; push pending
+**Risk score:** medium — CI fallback behavior affects fork PR correctness and release confidence when Convex secrets are unavailable
+**Change archetypes:** release safety, CI fallback, dead surface cleanup
+**Intended change:** prevent false-positive Convex fallback failures and remove an unused internal component export
+**Intent vs actual:** the no-secret Convex guard now scopes source/generated checks to `merge-base..head`, while active view configuration continues through `ViewConfigPopover`
+**Confidence:** high — the fallback range was inspected directly and typecheck proves no remaining component imports depend on the removed export
+**Coverage note:** checked `.github/workflows/ci.yml`, `components/app/screens/work-surface-controls.tsx`, and repeated pasted findings against the current tree
+**Finding triage:** CI merge-base finding resolved in `F11-01`; unused project config popover resolved in `F11-02`; persisted map growth is already fixed in `F10-01`; repeated selector/routing/toast/migration/field-limit findings remain stale, already fixed, or accepted as documented in earlier turns
+**Bug classes / invariants checked:** Release Safety (fallback CI diff must only include head-branch changes), Interface Hygiene (unused exports should not carry stale mutation behavior)
+**Branch totality:** rechecked the existing CI no-secret hotspot and active view-config control surface; no new store, notification, or create-dialog behavior changed in this turn
+**Sibling closure:** the generated and non-generated Convex diff checks now share the same merge-base range; active project/detail screens already use `ViewConfigPopover`, so the retired project-only popover had no remaining callers
+**Residual risk / unknowns:** push workflows still use `github.event.before` as the candidate base; for normal pushes merge-base equals that commit, and for fork PRs the false-positive base-tip case is now removed
+
+| Status | Count |
+|--------|-------|
+| New findings | `2` |
+| Resolved during Turn 11 | `2` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Compare Convex changes against merge-base, not base tip | resolved in `F11-01` | Release Safety | no-secret fallback must diff branch-introduced changes only | fixed |
+| User / PR notes | `ProjectViewConfigPopover` exported but unused | resolved in `F11-02` | Interface Hygiene | retired internal config surface should not keep stale mutation API | fixed |
+| User / PR notes | Viewer config maps grow unboundedly in localStorage | already fixed | Persistence Hygiene | bounded in `F10-01` | no code change |
+| User / PR notes | Repeated clear-filter/display-property semantics, default priority, message digest, rich-text stats/API, child-row/sidebar display, and low-risk performance notes | accepted | Product UX / Performance | accepted tradeoffs already documented in Turn 4 | no code change |
+| User / PR notes | Repeated broad store selectors, notification hash/fallback, toast queue, stale directory toggles, migration key loss, field-limit interface, undefined directory filters, truthy override checks | stale / already fixed | State Preservation / Fallback Safety / Presentation / Interface Hygiene | current tree contains previous fixes or the claimed behavior is absent | no code change |
+
+### Resolved during Turn 11
+
+#### F11-01 ~~[BUG] Medium~~ → RESOLVED — No-secret Convex guard compared against base tip
+**Where:** [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+
+**What was wrong:** The fallback guard diffed `DIFF_BASE` directly against `DIFF_HEAD`. For pull requests, `DIFF_BASE` is the base branch tip for the event, not necessarily the branch point, so base-only Convex changes could make a fork PR fail even if the PR did not touch Convex files.
+
+**How it was fixed:** The guard now computes `git merge-base "$DIFF_BASE" "$DIFF_HEAD"` and uses that merge-base for both Convex source and generated binding diffs.
+
+#### F11-02 ~~[BUG] Low~~ → RESOLVED — Unused project view config popover kept stale API surface
+**Where:** [components/app/screens/work-surface-controls.tsx](../components/app/screens/work-surface-controls.tsx)
+
+**What was wrong:** `ProjectViewConfigPopover` was exported but had no callers after the refactor. It duplicated view-config mutation behavior and had been adjusted for viewer-local overrides despite being retired.
+
+**How it was fixed:** Removed the unused component export. Existing project/detail surfaces continue to use `ViewConfigPopover`.
+
+### Validation
+
+- `DIFF_BASE=$(git rev-parse origin/main) DIFF_HEAD=$(git rev-parse HEAD); git merge-base "$DIFF_BASE" "$DIFF_HEAD"; git diff --name-only "$(git merge-base "$DIFF_BASE" "$DIFF_HEAD")" "$DIFF_HEAD" -- convex ':!convex/_generated/**'; git diff --name-only "$(git merge-base "$DIFF_BASE" "$DIFF_HEAD")" "$DIFF_HEAD" -- convex/_generated` — merge-base range resolved and Convex branch changes were scoped to head-introduced files.
+- `rg -n "ProjectViewConfigPopover" .` — no remaining references.
+- `pnpm exec eslint components/app/screens/work-surface-controls.tsx --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** commit, push, and let PR checks/review rerun.
 
 ---
 

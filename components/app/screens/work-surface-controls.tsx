@@ -44,7 +44,10 @@ import {
   TreeStructure,
 } from "@phosphor-icons/react"
 
-import { ProjectTemplateGlyph, TeamIconGlyph } from "@/components/app/entity-icons"
+import {
+  ProjectTemplateGlyph,
+  TeamIconGlyph,
+} from "@/components/app/entity-icons"
 import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
   EMPTY_PARENT_FILTER_VALUE,
@@ -312,25 +315,22 @@ export function FilterPopover({
   dashedWhenEmpty?: boolean
 }) {
   const [query, setQuery] = useState("")
-  const scopedItems = useMemo(
-    () => {
-      if (!view.itemLevel) {
-        return items
-      }
+  const scopedItems = useMemo(() => {
+    if (!view.itemLevel) {
+      return items
+    }
 
-      const visibleTypes = new Set<WorkItemType>([view.itemLevel])
-      const childType = view.showChildItems
-        ? getChildWorkItemCopy(view.itemLevel, null).childType
-        : null
+    const visibleTypes = new Set<WorkItemType>([view.itemLevel])
+    const childType = view.showChildItems
+      ? getChildWorkItemCopy(view.itemLevel, null).childType
+      : null
 
-      if (childType) {
-        visibleTypes.add(childType)
-      }
+    if (childType) {
+      visibleTypes.add(childType)
+    }
 
-      return items.filter((item) => visibleTypes.has(item.type))
-    },
-    [items, view.itemLevel, view.showChildItems]
-  )
+    return items.filter((item) => visibleTypes.has(item.type))
+  }, [items, view.itemLevel, view.showChildItems])
   const teamIds = useMemo(
     () => [...new Set(scopedItems.map((item) => item.teamId))],
     [scopedItems]
@@ -397,10 +397,7 @@ export function FilterPopover({
     scopedItems.some((item) => item.type === itemType)
   )
   const statusOptions = getStatusOrderForTeam(singleTeam)
-  const hiddenFilterSet = useMemo(
-    () => new Set(hiddenFilters),
-    [hiddenFilters]
-  )
+  const hiddenFilterSet = useMemo(() => new Set(hiddenFilters), [hiddenFilters])
 
   const activeCount =
     view.filters.status.length +
@@ -507,7 +504,9 @@ export function FilterPopover({
               activeCount={view.filters.status.length}
             >
               {statusOptions
-                .filter((status) => matchesQuery(statusMeta[status].label, query))
+                .filter((status) =>
+                  matchesQuery(statusMeta[status].label, query)
+                )
                 .map((status) => (
                   <FilterRow
                     key={status}
@@ -531,8 +530,12 @@ export function FilterPopover({
                     key={priority}
                     icon={<PriorityIcon priority={priority as Priority} />}
                     label={meta.label}
-                    active={view.filters.priority.includes(priority as Priority)}
-                    onClick={() => handleToggleFilterValue("priority", priority)}
+                    active={view.filters.priority.includes(
+                      priority as Priority
+                    )}
+                    onClick={() =>
+                      handleToggleFilterValue("priority", priority)
+                    }
                   />
                 ))}
             </FilterSection>
@@ -567,7 +570,7 @@ export function FilterPopover({
                       handleToggleFilterValue("itemTypes", itemType)
                     }
                   />
-              ))}
+                ))}
             </FilterSection>
           ) : null}
           {!hiddenFilterSet.has("assigneeIds") && assignees.length > 0 ? (
@@ -592,7 +595,7 @@ export function FilterPopover({
                       handleToggleFilterValue("assigneeIds", assignee.id)
                     }
                   />
-              ))}
+                ))}
             </FilterSection>
           ) : null}
           {!hiddenFilterSet.has("projectIds") && filteredProjects.length > 0 ? (
@@ -617,7 +620,7 @@ export function FilterPopover({
                       handleToggleFilterValue("projectIds", project.id)
                     }
                   />
-              ))}
+                ))}
             </FilterSection>
           ) : null}
           {!hiddenFilterSet.has("parentIds") ? (
@@ -952,7 +955,10 @@ export function ProjectFilterPopover({
     [projects]
   )
   const statusOptions = useMemo(
-    () => projectStatuses.filter((status) => projects.some((project) => project.status === status)),
+    () =>
+      projectStatuses.filter((status) =>
+        projects.some((project) => project.status === status)
+      ),
     [projects]
   )
   const activeCount =
@@ -1058,10 +1064,7 @@ export function ProjectFilterPopover({
             >
               {statusOptions
                 .filter((status) =>
-                  matchesQuery(
-                    projectStatusMeta[status].label,
-                    query
-                  )
+                  matchesQuery(projectStatusMeta[status].label, query)
                 )
                 .map((status) => (
                   <FilterRow
@@ -1081,9 +1084,7 @@ export function ProjectFilterPopover({
                         }
                       />
                     }
-                    label={
-                      projectStatusMeta[status].label
-                    }
+                    label={projectStatusMeta[status].label}
                     active={view.filters.status.includes(status)}
                     onClick={() => handleToggleFilterValue("status", status)}
                   />
@@ -1385,113 +1386,6 @@ export function ProjectSortChipPopover({
             }
           />
         </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-export function ProjectViewConfigPopover({
-  view,
-  onUpdateView,
-  extraAction,
-}: {
-  view: ViewDefinition
-  onUpdateView?: (patch: ViewConfigPatch) => void
-  extraAction?: ReactNode
-}) {
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button size="icon-xs" variant="ghost">
-          <GearSix className="size-3.5" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-64 overflow-hidden border border-line bg-surface p-0 shadow-lg"
-      >
-        <div className="border-b border-line-soft px-3 py-2.5">
-          <div className="flex rounded-md bg-surface-2 p-0.5">
-            {[
-              {
-                value: "list",
-                label: "List",
-                icon: <Rows className="size-3" />,
-              },
-              {
-                value: "board",
-                label: "Board",
-                icon: <Kanban className="size-3" />,
-              },
-            ].map((layout) => (
-              <button
-                key={layout.value}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
-                  view.layout === layout.value
-                    ? "bg-background font-medium text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() =>
-                  handleUpdateView({
-                    layout: layout.value as "list" | "board",
-                  })
-                }
-              >
-                {layout.icon}
-                {layout.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-col px-3 py-2">
-          <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-            Configuration
-          </div>
-          <ConfigSelect
-            label="Ordering"
-            value={view.ordering}
-            options={[
-              { value: "priority", label: "Priority" },
-              { value: "updatedAt", label: "Updated" },
-              { value: "createdAt", label: "Created" },
-              { value: "targetDate", label: "Target date" },
-              { value: "title", label: "Name" },
-            ]}
-            onValueChange={(value) =>
-              handleUpdateView({
-                ordering: value as OrderingField,
-              })
-            }
-          />
-          <ConfigSelect
-            label="Completed"
-            value={String(view.filters.showCompleted)}
-            options={[
-              { value: "true", label: "Show all" },
-              { value: "false", label: "Hide completed" },
-            ]}
-            onValueChange={(value) =>
-              handleUpdateView({
-                showCompleted: value === "true",
-              })
-            }
-          />
-        </div>
-        {extraAction ? (
-          <>
-            <div className="border-t px-3 py-2">{extraAction}</div>
-          </>
-        ) : null}
       </PopoverContent>
     </Popover>
   )
@@ -1900,7 +1794,9 @@ export function PropertiesChipPopover({
       return
     }
 
-    useAppStore.getState().reorderViewDisplayProperties(view.id, nextDisplayProps)
+    useAppStore
+      .getState()
+      .reorderViewDisplayProperties(view.id, nextDisplayProps)
   }
 
   function handleClearDisplayProperties() {
@@ -2037,7 +1933,9 @@ export function PropertiesChipPopover({
             )}
           </PropertyPopoverList>
           <PropertyPopoverList className="min-h-[240px] overflow-x-hidden px-0">
-            <PropertyPopoverGroup>Hidden · {hiddenProperties.length}</PropertyPopoverGroup>
+            <PropertyPopoverGroup>
+              Hidden · {hiddenProperties.length}
+            </PropertyPopoverGroup>
             {hiddenFiltered.length > 0 ? (
               <div className="px-1 pb-1">
                 {hiddenFiltered.map((property) => (
@@ -2104,7 +2002,7 @@ function SortableDisplayPropertyRow({
         transition,
       }}
       className={cn(
-        "flex h-8 w-full cursor-grab items-center gap-2 rounded-[5px] px-2 text-[12.5px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground touch-none will-change-transform active:cursor-grabbing",
+        "flex h-8 w-full cursor-grab touch-none items-center gap-2 rounded-[5px] px-2 text-[12.5px] text-fg-2 transition-colors will-change-transform hover:bg-surface-3 hover:text-foreground active:cursor-grabbing",
         isDragging && "z-10 bg-surface-3 opacity-80 shadow-sm"
       )}
     >

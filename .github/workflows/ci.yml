@@ -44,8 +44,13 @@ jobs:
             exit 1
           fi
 
-          convex_source_changes="$(git diff --name-only "$DIFF_BASE" "$DIFF_HEAD" -- convex ':!convex/_generated/**')"
-          generated_changes="$(git diff --name-only "$DIFF_BASE" "$DIFF_HEAD" -- convex/_generated)"
+          if ! diff_base="$(git merge-base "$DIFF_BASE" "$DIFF_HEAD")" || [ -z "$diff_base" ]; then
+            echo "::error::CONVEX_DEPLOYMENT is unavailable and no merge-base exists for Convex codegen verification."
+            exit 1
+          fi
+
+          convex_source_changes="$(git diff --name-only "$diff_base" "$DIFF_HEAD" -- convex ':!convex/_generated/**')"
+          generated_changes="$(git diff --name-only "$diff_base" "$DIFF_HEAD" -- convex/_generated)"
 
           if [ -n "$convex_source_changes" ] || [ -n "$generated_changes" ]; then
             echo "::error::CONVEX_DEPLOYMENT is unavailable, so CI cannot verify Convex generated bindings for these changes."
