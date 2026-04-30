@@ -773,12 +773,10 @@ export function AppShell({ children }: AppShellProps) {
         }
       )
 
-      if (pendingNotificationToastIdsRef.current.length > 0) {
-        notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
-          notificationToastFlushTimeoutRef.current = null
-          setNotificationToastQueueTick((current) => current + 1)
-        }, NOTIFICATION_TOAST_DURATION_MS)
-      }
+      notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
+        notificationToastFlushTimeoutRef.current = null
+        setNotificationToastQueueTick((current) => current + 1)
+      }, NOTIFICATION_TOAST_DURATION_MS)
 
       return
     }
