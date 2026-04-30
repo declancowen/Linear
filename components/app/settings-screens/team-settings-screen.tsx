@@ -195,6 +195,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     return (
       <SettingsScaffold
         title="Team settings"
+        breadcrumb="Settings"
         subtitle="Requested team not found"
       >
         <SettingsSection
@@ -211,6 +212,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
     return (
       <SettingsScaffold
         title="Team settings"
+        breadcrumb="Settings"
         subtitle="Team admin access required"
       >
         <SettingsSection
@@ -298,6 +300,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   return (
     <SettingsScaffold
       title="Team settings"
+      breadcrumb="Settings"
       hero={
         <SettingsHero
           leading={
@@ -343,7 +346,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
               }
             }}
           >
-            {saving ? "Saving..." : "Save team"}
+            {saving ? "Saving..." : "Save changes"}
           </Button>
         ) : null
       }
@@ -353,7 +356,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         onValueChange={setActiveTab}
         options={[
           { value: "team", label: "Team" },
-          { value: "users", label: "Users", count: teamMembers.length },
+          { value: "users", label: "Members", count: teamMembers.length },
         ]}
       />
 
@@ -412,8 +415,9 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
       ) : (
         <>
           <SettingsSection
-            title={`Team members · ${teamMembers.length}`}
-            description="Admins manage membership and roles for this team."
+            title="Members"
+            description="Admins manage roles and membership for this team."
+            variant="plain"
           >
             <TeamMembersList
               members={teamMembers}
@@ -433,8 +437,9 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
           </SettingsSection>
 
           <SettingsSection
-            title={`Pending invites · ${pendingInvites.length}`}
+            title="Pending invites"
             description="Pending invites still grant access until you cancel them."
+            variant="plain"
           >
             <PendingInvitesList
               invites={pendingInvites}

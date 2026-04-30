@@ -1,4 +1,5 @@
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
+import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 import type {
   AppData,
   Document,
@@ -421,7 +422,10 @@ export function getRecentDocuments(data: AppData) {
 }
 
 export function getViewByRoute(data: AppData, route: string) {
-  const selected = data.ui.selectedViewByRoute[route]
+  const selected =
+    data.ui.selectedViewByRoute[
+      getViewerScopedDirectoryKey(data.currentUserId, route)
+    ] ?? data.ui.selectedViewByRoute[route]
   return data.views.find((view) => view.id === selected) ?? null
 }
 

@@ -1,11 +1,6 @@
 "use client"
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarDots,
@@ -65,9 +60,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  PriorityIcon,
-} from "@/components/app/screens/shared"
+import { PriorityIcon } from "@/components/app/screens/shared"
 import { TeamSpaceCrumbPicker } from "@/components/app/screens/team-space-crumb-picker"
 import { WorkItemAssigneeAvatar } from "@/components/app/screens/work-item-ui"
 import {
@@ -213,15 +206,25 @@ function createInitialProjectPresentationConfig(
   }
 }
 
-export function CreateProjectDialog({
-  open,
-  onOpenChange,
-  defaultTeamId,
-}: {
+type CreateProjectDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   defaultTeamId?: string | null
-}) {
+}
+
+export function CreateProjectDialog(props: CreateProjectDialogProps) {
+  const dialogInstanceKey = props.open
+    ? `open:${props.defaultTeamId ?? ""}`
+    : "closed"
+
+  return <CreateProjectDialogContent key={dialogInstanceKey} {...props} />
+}
+
+function CreateProjectDialogContent({
+  open,
+  onOpenChange,
+  defaultTeamId,
+}: CreateProjectDialogProps) {
   const appData = useAppStore(useShallow(selectAppDataSnapshot))
   const availableTeams = useAppStore(
     useShallow((state) => getEditableTeamsForFeature(state, "projects"))
@@ -325,7 +328,8 @@ export function CreateProjectDialog({
     [teamMembers, resolvedMemberIds]
   )
   const selectedLabels = useMemo(
-    () => availableLabels.filter((label) => selectedLabelIds.includes(label.id)),
+    () =>
+      availableLabels.filter((label) => selectedLabelIds.includes(label.id)),
     [availableLabels, selectedLabelIds]
   )
   const canCreate =
@@ -442,7 +446,9 @@ export function CreateProjectDialog({
     }))
   }
 
-  function reorderPresentationDisplayProperties(displayProps: DisplayProperty[]) {
+  function reorderPresentationDisplayProperties(
+    displayProps: DisplayProperty[]
+  ) {
     setPresentation((current) => ({
       ...current,
       displayProps,
@@ -518,42 +524,19 @@ export function CreateProjectDialog({
     templateType,
   ])
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    setSelectedTeamId(initialTeamId)
-    setName("")
-    setSummary("")
-    setStatus("backlog")
-    setPriority("none")
-    setLeadId(initialLeadId)
-    setMemberIds([])
-    setStartDate(null)
-    setTargetDate(null)
-    setSelectedLabelIds([])
-    setPresentation(createInitialProjectPresentationConfig(initialTemplateType))
-  }, [
-    initialLeadId,
-    initialTeamId,
-    initialTemplateType,
-    open,
-  ])
-
   useCommandEnterSubmit(open && canCreate, handleCreate)
 
   const labelsTriggerText =
     selectedLabels.length === 0
       ? "Labels"
       : selectedLabels.length === 1
-        ? selectedLabels[0]?.name ?? "Labels"
+        ? (selectedLabels[0]?.name ?? "Labels")
         : `${selectedLabels.length} labels`
   const membersTriggerText =
     selectedMembers.length === 0
       ? "Members"
       : selectedMembers.length === 1
-        ? selectedMembers[0]?.name ?? "Members"
+        ? (selectedMembers[0]?.name ?? "Members")
         : `${selectedMembers.length} members`
 
   return (
@@ -900,9 +883,7 @@ export function CreateProjectDialog({
                 <input
                   type="date"
                   value={startDate ?? ""}
-                  onChange={(event) =>
-                    setStartDate(event.target.value || null)
-                  }
+                  onChange={(event) => setStartDate(event.target.value || null)}
                   className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
                 />
               </div>
@@ -1085,7 +1066,9 @@ export function CreateProjectDialog({
               <PropertiesChipPopover
                 view={presentationView}
                 onToggleDisplayProperty={togglePresentationDisplayProperty}
-                onReorderDisplayProperties={reorderPresentationDisplayProperties}
+                onReorderDisplayProperties={
+                  reorderPresentationDisplayProperties
+                }
                 onClearDisplayProperties={clearPresentationDisplayProperties}
                 tone="default"
                 dashedWhenEmpty
@@ -1118,7 +1101,11 @@ export function CreateProjectDialog({
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
               <ShortcutKeys
                 keys={["Esc"]}

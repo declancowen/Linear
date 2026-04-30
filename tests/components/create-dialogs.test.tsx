@@ -339,6 +339,91 @@ describe("create dialogs", () => {
     }
   })
 
+  it("defaults work items to no priority instead of the team template priority", async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      teams: state.teams.map((team) =>
+        team.id === "team_1"
+          ? {
+              ...team,
+              settings: {
+                ...team.settings,
+                workflow: {
+                  ...team.settings.workflow,
+                  defaultPriority: "high",
+                },
+              },
+            }
+          : team
+      ),
+    }))
+
+    const createWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "createWorkItem")
+      .mockReturnValue("item_new")
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "No priority item" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            priority: "none",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
+  it("preserves explicit priority defaults from priority lanes", async () => {
+    const createWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "createWorkItem")
+      .mockReturnValue("item_new")
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+          defaultValues={{
+            priority: "high",
+          }}
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "High priority lane item" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            priority: "high",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
   it("drops invalid default assignees that do not belong to the selected team", async () => {
     useAppStore.setState((state) => ({
       ...state,

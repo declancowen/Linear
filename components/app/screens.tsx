@@ -24,7 +24,6 @@ import {
   getTeam,
   getTeamDocuments,
   getUser,
-  getViewByRoute,
   getViewContextLabel,
   getVisibleProjectsForView,
   getViewsForScope,
@@ -39,12 +38,14 @@ import {
   projectStatusMeta,
   priorityMeta,
   templateMeta,
+  type AppData,
   type DisplayProperty,
   type GroupField,
   type Project,
   type ScopeType,
   type Team,
   type ViewDefinition,
+  type ViewerDirectoryConfig,
 } from "@/lib/domain/types"
 import {
   buildAssignedWorkViews,
@@ -52,6 +53,12 @@ import {
   getSharedTeamExperience,
   isSystemView,
 } from "@/lib/domain/default-views"
+import {
+  applyViewerDirectoryConfig,
+  applyViewerViewConfig,
+  getViewerScopedDirectoryKey,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import {
   fetchDocumentIndexReadModel,
@@ -88,6 +95,7 @@ import {
 export { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
 import {
   createEmptyViewFilters,
+  selectAppDataSnapshot,
   type ViewFilterKey,
 } from "@/components/app/screens/helpers"
 import { DocumentBoard } from "@/components/app/screens/collection-boards"
@@ -134,12 +142,34 @@ function ScopedScreenLoading({ label }: { label: string }) {
 }
 
 function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
-  const selectedView = useAppStore((state) => getViewByRoute(state, routeKey))
+  const selectedViewId = useAppStore(
+    (state) =>
+      state.ui.selectedViewByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, routeKey)
+      ] ??
+      state.ui.selectedViewByRoute[routeKey] ??
+      null
+  )
+  const selectedView = selectedViewId
+    ? (views.find((view) => view.id === selectedViewId) ?? null)
+    : null
   const searchParams = useSearchParams()
-  const hasSelectedView = selectedView
-    ? views.some((view) => view.id === selectedView.id)
-    : false
-  const activeView = hasSelectedView ? selectedView : (views[0] ?? null)
+  const hasSelectedView = Boolean(selectedView)
+  const activeBaseView = selectedView ?? views[0] ?? null
+  const activeOverride = useAppStore((state) => {
+    if (!activeBaseView) {
+      return null
+    }
+
+    return (
+      state.ui.viewerViewConfigByRoute[
+        getViewerScopedViewKey(state.currentUserId, routeKey, activeBaseView.id)
+      ] ?? null
+    )
+  })
+  const activeView = activeBaseView
+    ? applyViewerViewConfig(activeBaseView, activeOverride)
+    : null
   const [localLayout, setLocalLayout] = useState<"list" | "board">("list")
 
   useEffect(() => {
@@ -172,9 +202,9 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
 
   function setLayout(nextLayout: "list" | "board") {
     if (activeView) {
-      useAppStore.getState().updateViewConfig(activeView.id, {
-        layout: nextLayout,
-      })
+      useAppStore
+        .getState()
+        .patchViewerViewConfig(routeKey, activeView.id, { layout: nextLayout })
       return
     }
 
@@ -395,11 +425,7 @@ function getProjectGroupKey(project: Project, field: string) {
   return project.status
 }
 
-function getProjectGroupLabel(
-  data: ReturnType<typeof useAppStore.getState>,
-  field: string,
-  key: string
-) {
+function getProjectGroupLabel(data: AppData, field: string, key: string) {
   if (field === "priority") {
     return priorityMeta[key as keyof typeof priorityMeta]?.label ?? "None"
   }
@@ -426,7 +452,7 @@ function getProjectGroupLabel(
 }
 
 function compareProjectGroupKeys(
-  data: ReturnType<typeof useAppStore.getState>,
+  data: AppData,
   field: string,
   left: string,
   right: string
@@ -469,7 +495,7 @@ function compareProjectGroupKeys(
 }
 
 function getProjectDisplayTokens(
-  data: ReturnType<typeof useAppStore.getState>,
+  data: AppData,
   project: Project,
   displayProps: DisplayProperty[]
 ) {
@@ -667,7 +693,7 @@ function ProjectDisplayTokenRow({
   displayProps,
   className,
 }: {
-  data: ReturnType<typeof useAppStore.getState>
+  data: AppData
   project: Project
   displayProps: DisplayProperty[]
   className?: string
@@ -701,7 +727,7 @@ function ProjectRow({
   project,
   displayProps,
 }: {
-  data: ReturnType<typeof useAppStore.getState>
+  data: AppData
   project: Project
   displayProps: DisplayProperty[]
 }) {
@@ -776,7 +802,7 @@ function ProjectCard({
   project,
   displayProps,
 }: {
-  data: ReturnType<typeof useAppStore.getState>
+  data: AppData
   project: Project
   displayProps: DisplayProperty[]
 }) {
@@ -1025,8 +1051,7 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(team?.id),
     scopeKeys: team ? getWorkIndexScopeKeys("team", team.id) : [],
-    fetchLatest: () =>
-      fetchWorkIndexReadModel("team", team?.id ?? ""),
+    fetchLatest: () => fetchWorkIndexReadModel("team", team?.id ?? ""),
   })
   const views = useAppStore(
     useShallow((state) =>
@@ -1076,8 +1101,7 @@ export function AssignedScreen() {
     scopeKeys: currentUserId
       ? getWorkIndexScopeKeys("personal", currentUserId)
       : [],
-    fetchLatest: () =>
-      fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+    fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
   })
   const assignedViewExperience = useAppStore((state) => {
     return getSharedTeamExperience(
@@ -1149,7 +1173,7 @@ export function ProjectsScreen({
   title: string
   description?: string
 }) {
-  const data = useAppStore((state) => state)
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),
     scopeKeys: getProjectIndexScopeKeys(scopeType, scopeId),
@@ -1345,6 +1369,64 @@ export function ProjectsScreen({
     setProjectDisplayProperties([])
   }
 
+  function updateViewerProjectView(patch: ViewConfigPatch) {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore.getState().patchViewerViewConfig(routeKey, activeView.id, patch)
+  }
+
+  function toggleViewerProjectFilterValue(key: ViewFilterKey, value: string) {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewFilterValue(routeKey, activeView.id, key, value)
+  }
+
+  function clearViewerProjectFilters() {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore.getState().clearViewerViewFilters(routeKey, activeView.id)
+  }
+
+  function toggleViewerProjectDisplayProperty(property: DisplayProperty) {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .toggleViewerViewDisplayProperty(routeKey, activeView.id, property)
+  }
+
+  function reorderViewerProjectDisplayProperties(
+    displayProps: DisplayProperty[]
+  ) {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .reorderViewerViewDisplayProperties(routeKey, activeView.id, displayProps)
+  }
+
+  function clearViewerProjectDisplayProperties() {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .clearViewerViewDisplayProperties(routeKey, activeView.id)
+  }
+
   if (team && !teamHasFeature(team, "projects")) {
     return <MissingState title="Projects are disabled for this team" />
   }
@@ -1422,7 +1504,9 @@ export function ProjectsScreen({
         <Viewbar>
           <ProjectLayoutTabs
             view={effectiveProjectView}
-            onUpdateView={hasSavedProjectView ? undefined : updateProjectView}
+            onUpdateView={
+              hasSavedProjectView ? updateViewerProjectView : updateProjectView
+            }
           />
           <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
           <ProjectFilterPopover
@@ -1430,34 +1514,48 @@ export function ProjectsScreen({
             projects={projects}
             variant="chip"
             onToggleFilterValue={
-              hasSavedProjectView ? undefined : toggleProjectFilterValue
+              hasSavedProjectView
+                ? toggleViewerProjectFilterValue
+                : toggleProjectFilterValue
             }
             onClearFilters={
-              hasSavedProjectView ? undefined : clearProjectFilters
+              hasSavedProjectView
+                ? clearViewerProjectFilters
+                : clearProjectFilters
             }
           />
           <GroupChipPopover
             view={effectiveProjectView}
             getOptionLabel={getProjectGroupOptionLabel}
             groupOptions={PROJECT_GROUP_OPTIONS}
-            onUpdateView={hasSavedProjectView ? undefined : updateProjectView}
+            onUpdateView={
+              hasSavedProjectView ? updateViewerProjectView : updateProjectView
+            }
           />
           <ProjectSortChipPopover
             view={effectiveProjectView}
-            onUpdateView={hasSavedProjectView ? undefined : updateProjectView}
+            onUpdateView={
+              hasSavedProjectView ? updateViewerProjectView : updateProjectView
+            }
           />
           <PropertiesChipPopover
             view={effectiveProjectView}
             getPropertyLabel={getProjectPropertyLabel}
             propertyOptions={PROJECT_DISPLAY_PROPERTY_OPTIONS}
             onToggleDisplayProperty={
-              hasSavedProjectView ? undefined : toggleProjectDisplayProperty
+              hasSavedProjectView
+                ? toggleViewerProjectDisplayProperty
+                : toggleProjectDisplayProperty
             }
             onReorderDisplayProperties={
-              hasSavedProjectView ? undefined : reorderProjectDisplayProperties
+              hasSavedProjectView
+                ? reorderViewerProjectDisplayProperties
+                : reorderProjectDisplayProperties
             }
             onClearDisplayProperties={
-              hasSavedProjectView ? undefined : clearProjectDisplayProperties
+              hasSavedProjectView
+                ? clearViewerProjectDisplayProperties
+                : clearProjectDisplayProperties
             }
           />
           <div className="ml-auto flex items-center gap-1.5">
@@ -1623,18 +1721,61 @@ export function ViewsScreen({
       ),
     [viewContext, views]
   )
-  const [layout, setLayout] = useState<"list" | "board">("list")
-  const [sortBy, setSortBy] = useState<ViewsDirectorySortField>("updated")
-  const [filters, setFilters] = useState<ViewsDirectoryFilters>({
-    entityKinds: [],
-    scopes: [],
-  })
-  const [grouping, setGrouping] = useState<ViewsDirectoryGroupField>("none")
-  const [subGrouping, setSubGrouping] =
-    useState<ViewsDirectoryGroupField>("none")
-  const [properties, setProperties] = useState<ViewsDirectoryProperty[]>(
-    DEFAULT_VIEW_DIRECTORY_PROPERTIES
+  const directorySurfaceKey = `views-directory:${scopeType}:${scopeId}`
+  const directoryConfig = useAppStore(
+    useShallow(
+      (state) =>
+        state.ui.viewerDirectoryConfigByRoute[
+          getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
+        ]
+    )
   )
+  const defaultDirectoryConfig: ViewerDirectoryConfig & {
+    layout: "list" | "board"
+    ordering: ViewsDirectorySortField
+    grouping: ViewsDirectoryGroupField
+    subGrouping: ViewsDirectoryGroupField
+    filters: ViewsDirectoryFilters
+    displayProps: ViewsDirectoryProperty[]
+  } = {
+    layout: "list",
+    ordering: "updated",
+    grouping: "none",
+    subGrouping: "none",
+    filters: {
+      entityKinds: [],
+      scopes: [],
+    },
+    displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+  }
+  const resolvedDirectoryConfig = applyViewerDirectoryConfig(
+    defaultDirectoryConfig,
+    directoryConfig
+  )
+  const layout = (resolvedDirectoryConfig.layout ?? "list") as "list" | "board"
+  const sortBy =
+    (resolvedDirectoryConfig.ordering as ViewsDirectorySortField | undefined) ??
+    "updated"
+  const filters: ViewsDirectoryFilters = {
+    entityKinds:
+      (resolvedDirectoryConfig.filters
+        ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
+    scopes:
+      (resolvedDirectoryConfig.filters
+        ?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
+  }
+  const grouping =
+    (resolvedDirectoryConfig.grouping as
+      | ViewsDirectoryGroupField
+      | undefined) ?? "none"
+  const subGrouping =
+    (resolvedDirectoryConfig.subGrouping as
+      | ViewsDirectoryGroupField
+      | undefined) ?? "none"
+  const properties =
+    (resolvedDirectoryConfig.displayProps as
+      | ViewsDirectoryProperty[]
+      | undefined) ?? DEFAULT_VIEW_DIRECTORY_PROPERTIES
   const editable = useAppStore((state) =>
     scopeType === "team"
       ? canEditTeam(state, scopeId)
@@ -1653,71 +1794,59 @@ export function ViewsScreen({
       ] as ViewsDirectoryScopeFilter[],
     [scopeType, views]
   )
-  const filteredViews = useMemo(
-    () =>
-      views.filter((view) => {
-        if (
-          filters.entityKinds.length > 0 &&
-          !filters.entityKinds.includes(view.entityKind)
-        ) {
-          return false
-        }
+  const filteredViews = views.filter((view) => {
+    if (
+      filters.entityKinds.length > 0 &&
+      !filters.entityKinds.includes(view.entityKind)
+    ) {
+      return false
+    }
 
-        if (
-          filters.scopes.length > 0 &&
-          !filters.scopes.includes(getViewDirectoryScopeFilter(view, scopeType))
-        ) {
-          return false
-        }
+    if (
+      filters.scopes.length > 0 &&
+      !filters.scopes.includes(getViewDirectoryScopeFilter(view, scopeType))
+    ) {
+      return false
+    }
 
-        return true
-      }),
-    [filters.entityKinds, filters.scopes, scopeType, views]
-  )
-  const orderedViews = useMemo(
-    () =>
-      [...filteredViews].sort((left, right) => {
-        if (sortBy === "name") {
-          return left.name.localeCompare(right.name)
-        }
+    return true
+  })
+  const orderedViews = [...filteredViews].sort((left, right) => {
+    if (sortBy === "name") {
+      return left.name.localeCompare(right.name)
+    }
 
-        if (sortBy === "entity") {
-          return (
-            formatEntityKind(left.entityKind).localeCompare(
-              formatEntityKind(right.entityKind)
-            ) || left.name.localeCompare(right.name)
-          )
-        }
+    if (sortBy === "entity") {
+      return (
+        formatEntityKind(left.entityKind).localeCompare(
+          formatEntityKind(right.entityKind)
+        ) || left.name.localeCompare(right.name)
+      )
+    }
 
-        return right.updatedAt.localeCompare(left.updatedAt)
-      }),
-    [filteredViews, sortBy]
-  )
-  const viewSections = useMemo(
-    () =>
-      buildGroupedSections({
-        items: orderedViews,
-        grouping,
-        subGrouping,
-        getGroupKey: (view, field) =>
-          getViewDirectoryGroupKey(
-            view,
-            field as ViewsDirectoryGroupField,
-            scopeType,
-            viewScopeLabels
-          ),
-        getGroupLabel: (field, key) =>
-          getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, key),
-        compareGroupKeys: (field, left, right) =>
-          getViewDirectoryGroupLabel(
-            field as ViewsDirectoryGroupField,
-            left
-          ).localeCompare(
-            getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, right)
-          ),
-      }),
-    [grouping, orderedViews, scopeType, subGrouping, viewScopeLabels]
-  )
+    return right.updatedAt.localeCompare(left.updatedAt)
+  })
+  const viewSections = buildGroupedSections({
+    items: orderedViews,
+    grouping,
+    subGrouping,
+    getGroupKey: (view, field) =>
+      getViewDirectoryGroupKey(
+        view,
+        field as ViewsDirectoryGroupField,
+        scopeType,
+        viewScopeLabels
+      ),
+    getGroupLabel: (field, key) =>
+      getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, key),
+    compareGroupKeys: (field, left, right) =>
+      getViewDirectoryGroupLabel(
+        field as ViewsDirectoryGroupField,
+        left
+      ).localeCompare(
+        getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, right)
+      ),
+  })
   const showDescription = properties.includes("description")
   const showScope = properties.includes("scope")
   const showUpdated = properties.includes("updated")
@@ -1727,66 +1856,144 @@ export function ViewsScreen({
       ? "No saved views yet"
       : "No saved views match the current settings."
 
+  function updateDirectoryConfig(patch: ViewerDirectoryConfig) {
+    useAppStore
+      .getState()
+      .patchViewerDirectoryConfig(directorySurfaceKey, patch)
+  }
+
+  function getCurrentDirectoryFilters(): ViewsDirectoryFilters {
+    const state = useAppStore.getState()
+    const currentConfig = applyViewerDirectoryConfig(
+      defaultDirectoryConfig,
+      state.ui.viewerDirectoryConfigByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
+      ]
+    )
+
+    return {
+      entityKinds:
+        (currentConfig.filters
+          ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
+      scopes:
+        (currentConfig.filters?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
+    }
+  }
+
+  function getCurrentDirectoryProperties(): ViewsDirectoryProperty[] {
+    const state = useAppStore.getState()
+    const currentConfig = applyViewerDirectoryConfig(
+      defaultDirectoryConfig,
+      state.ui.viewerDirectoryConfigByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
+      ]
+    )
+
+    return (
+      (currentConfig.displayProps as ViewsDirectoryProperty[] | undefined) ??
+      DEFAULT_VIEW_DIRECTORY_PROPERTIES
+    )
+  }
+
+  function updateDirectoryFilters(
+    resolveNextFilters: (
+      current: ViewsDirectoryFilters
+    ) => ViewsDirectoryFilters
+  ) {
+    updateDirectoryConfig({
+      filters: resolveNextFilters(getCurrentDirectoryFilters()),
+    })
+  }
+
+  function updateDirectoryProperties(
+    resolveNextProperties: (
+      current: ViewsDirectoryProperty[]
+    ) => ViewsDirectoryProperty[]
+  ) {
+    updateDirectoryConfig({
+      displayProps: resolveNextProperties(getCurrentDirectoryProperties()),
+    })
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <Topbar>
         <HeaderTitle title={title} />
       </Topbar>
       <Viewbar>
-        <ViewsDirectoryLayoutTabs layout={layout} onLayoutChange={setLayout} />
+        <ViewsDirectoryLayoutTabs
+          layout={layout}
+          onLayoutChange={(nextLayout) =>
+            updateDirectoryConfig({ layout: nextLayout })
+          }
+        />
         <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
         <ViewsDirectoryFilterPopover
           availableEntityKinds={availableEntityKinds}
           availableScopes={availableScopes}
           filters={filters}
           onClearFilters={() =>
-            setFilters({
-              entityKinds: [],
-              scopes: [],
+            updateDirectoryConfig({
+              filters: {
+                entityKinds: [],
+                scopes: [],
+              },
             })
           }
           onToggleEntityKind={(entityKind) =>
-            setFilters((current) => ({
-              ...current,
-              entityKinds: current.entityKinds.includes(entityKind)
-                ? current.entityKinds.filter((value) => value !== entityKind)
-                : [...current.entityKinds, entityKind],
-            }))
+            updateDirectoryFilters((current) => {
+              return {
+                ...current,
+                entityKinds: current.entityKinds.includes(entityKind)
+                  ? current.entityKinds.filter((value) => value !== entityKind)
+                  : [...current.entityKinds, entityKind],
+              }
+            })
           }
           onToggleScope={(scope) =>
-            setFilters((current) => ({
-              ...current,
-              scopes: current.scopes.includes(scope)
-                ? current.scopes.filter((value) => value !== scope)
-                : [...current.scopes, scope],
-            }))
+            updateDirectoryFilters((current) => {
+              return {
+                ...current,
+                scopes: current.scopes.includes(scope)
+                  ? current.scopes.filter((value) => value !== scope)
+                  : [...current.scopes, scope],
+              }
+            })
           }
         />
         <ViewsDirectoryGroupChipPopover
           grouping={grouping}
           onGroupingChange={(nextGrouping) => {
-            setGrouping(nextGrouping)
-            if (nextGrouping !== "none" && subGrouping === nextGrouping) {
-              setSubGrouping("none")
-            }
+            updateDirectoryConfig({
+              grouping: nextGrouping,
+              ...(nextGrouping !== "none" && subGrouping === nextGrouping
+                ? { subGrouping: "none" }
+                : {}),
+            })
           }}
-          onSubGroupingChange={setSubGrouping}
+          onSubGroupingChange={(nextSubGrouping) =>
+            updateDirectoryConfig({ subGrouping: nextSubGrouping })
+          }
           subGrouping={subGrouping}
         />
         <ViewsDirectorySortChipPopover
           sortBy={sortBy}
-          onSortByChange={setSortBy}
+          onSortByChange={(nextSortBy) =>
+            updateDirectoryConfig({ ordering: nextSortBy })
+          }
         />
         <ViewsDirectoryPropertiesChipPopover
           onClearProperties={() =>
-            setProperties(DEFAULT_VIEW_DIRECTORY_PROPERTIES)
+            updateDirectoryConfig({
+              displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+            })
           }
           onToggleProperty={(property) =>
-            setProperties((current) =>
-              current.includes(property)
+            updateDirectoryProperties((current) => {
+              return current.includes(property)
                 ? current.filter((value) => value !== property)
                 : [...current, property]
-            )
+            })
           }
           properties={properties}
         />
@@ -1957,7 +2164,7 @@ export function DocsScreen({
   title: string
   description?: string
 }) {
-  const data = useAppStore((state) => state)
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),

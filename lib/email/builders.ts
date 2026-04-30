@@ -2,8 +2,6 @@ const APP_NAME = "Recipe Room"
 const APP_TAGLINE = "Plan work, ship work."
 const EMAIL_FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
-const EMAIL_MONO_STACK =
-  "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
 // Palette tuned to the app's neutral system. Values kept as
 // hex so email clients (notably Outlook) render them reliably.
@@ -334,7 +332,9 @@ function renderQuoteCard(input: { label: string; body: string }) {
 }
 
 // Neutral detail card for structured metadata (work items, role info, etc.).
-function renderDetailCard(input: { rows: Array<{ label: string; value: string; valueIsHtml?: boolean }> }) {
+function renderDetailCard(input: {
+  rows: Array<{ label: string; value: string; valueIsHtml?: boolean }>
+}) {
   return [
     '<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 20px;">',
     "<tr>",

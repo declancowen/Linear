@@ -26,7 +26,9 @@ type ScopedReadModelRefreshInput = {
 }
 
 function normalizeScopeKeys(scopeKeys: string[]) {
-  return [...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean))].sort()
+  return [
+    ...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean)),
+  ].sort()
 }
 
 function isExpectedScopedReadModelMiss(error: unknown) {
@@ -64,7 +66,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     [scopeKeySignature]
   )
   const activeScopeKeySignature =
-    scopedSyncEnabled && input.enabled && scopeKeys.length > 0
+    scopedSyncEnabled && input.enabled && scopeKeySignature.length > 0
       ? scopeKeySignature
       : ""
 
@@ -110,7 +112,9 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       })
       if (isExpectedScopedReadModelMiss(nextError)) {
         if (input.notFoundResult) {
-          const missingResult = normalizeReadModelFetchResult(input.notFoundResult)
+          const missingResult = normalizeReadModelFetchResult(
+            input.notFoundResult
+          )
           mergeReadModelData(missingResult.data, {
             replace: missingResult.replace,
           })
@@ -144,10 +148,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
         }
       }
 
-      if (
-        inFlightGenerationRef.current === null &&
-        queuedRef.current
-      ) {
+      if (inFlightGenerationRef.current === null && queuedRef.current) {
         queuedRef.current = false
         void refresh()
       }
@@ -175,6 +176,9 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   })
 
   useEffect(() => {
+    const effectScopeKeys =
+      scopeKeySignature.length > 0 ? scopeKeySignature.split("|") : []
+
     if (!scopedSyncEnabled) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
@@ -187,7 +191,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       return
     }
 
-    if (!input.enabled || scopeKeys.length === 0) {
+    if (!input.enabled || effectScopeKeys.length === 0) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
@@ -207,7 +211,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     let hasEnteredDegradedMode = false
 
     const closeStream = openScopedInvalidationStream({
-      scopeKeys,
+      scopeKeys: effectScopeKeys,
       onReady() {
         stopDegradedRefresh()
 
@@ -234,7 +238,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       onError() {
         // The scoped SSE route intentionally rolls connections periodically.
         // Refresh failures are surfaced by `fetchLatest`; routine reconnects are not actionable.
-        reportScopedStreamReconnectDiagnostic(scopeKeys)
+        reportScopedStreamReconnectDiagnostic(effectScopeKeys)
       },
     })
 

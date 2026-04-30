@@ -815,6 +815,27 @@ export async function sendChatMessageHandler(
     notifiedUserIds.add(mentionedUserId)
   }
 
+  for (const audienceUserId of audienceUserIds) {
+    if (
+      audienceUserId === args.currentUserId ||
+      notifiedUserIds.has(audienceUserId)
+    ) {
+      continue
+    }
+
+    const notification = createNotification(
+      audienceUserId,
+      args.currentUserId,
+      `${actor?.name ?? "Someone"} sent you a message in ${entityTitle}`,
+      "chat",
+      conversation.id,
+      "message"
+    )
+
+    await ctx.db.insert("notifications", notification)
+    notifiedUserIds.add(audienceUserId)
+  }
+
   await ctx.db.patch(conversation._id, {
     updatedAt: now,
     lastActivityAt: now,

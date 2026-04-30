@@ -8,6 +8,9 @@ const requireConvexUserMock = vi.fn()
 const deleteChannelPostServerMock = vi.fn()
 const toggleChatMessageReactionServerMock = vi.fn()
 const toggleChannelPostReactionServerMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
+const resolveChannelPostReadModelScopeKeysServerMock = vi.fn()
+const resolveChatMessageReadModelScopeKeysServerMock = vi.fn()
 const getSnapshotServerMock = vi.fn()
 const getSnapshotVersionServerMock = vi.fn()
 const updateWorkOSUserEmailMock = vi.fn()
@@ -24,8 +27,16 @@ vi.mock("@/lib/server/convex", () => ({
   deleteChannelPostServer: deleteChannelPostServerMock,
   toggleChatMessageReactionServer: toggleChatMessageReactionServerMock,
   toggleChannelPostReactionServer: toggleChannelPostReactionServerMock,
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
   getSnapshotServer: getSnapshotServerMock,
   getSnapshotVersionServer: getSnapshotVersionServerMock,
+}))
+
+vi.mock("@/lib/server/scoped-read-models", () => ({
+  resolveChannelPostReadModelScopeKeysServer:
+    resolveChannelPostReadModelScopeKeysServerMock,
+  resolveChatMessageReadModelScopeKeysServer:
+    resolveChatMessageReadModelScopeKeysServerMock,
 }))
 
 vi.mock("@/lib/server/provider-errors", () => ({
@@ -56,6 +67,9 @@ describe("platform route contracts", () => {
     deleteChannelPostServerMock.mockReset()
     toggleChatMessageReactionServerMock.mockReset()
     toggleChannelPostReactionServerMock.mockReset()
+    bumpScopedReadModelVersionsServerMock.mockReset()
+    resolveChannelPostReadModelScopeKeysServerMock.mockReset()
+    resolveChatMessageReadModelScopeKeysServerMock.mockReset()
     getSnapshotServerMock.mockReset()
     getSnapshotVersionServerMock.mockReset()
     updateWorkOSUserEmailMock.mockReset()
@@ -93,16 +107,21 @@ describe("platform route contracts", () => {
       version: 0,
       currentUserId: "user_1",
     })
+    bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    resolveChannelPostReadModelScopeKeysServerMock.mockResolvedValue([
+      "channel-post:post_1",
+    ])
+    resolveChatMessageReadModelScopeKeysServerMock.mockResolvedValue([
+      "chat-message:message_1",
+    ])
   })
 
   it("maps channel-post delete and reaction failures to typed error responses", async () => {
     const deleteRoute = await import("@/app/api/channel-posts/[postId]/route")
-    const chatReactionRoute = await import(
-      "@/app/api/chat-messages/[messageId]/reactions/route"
-    )
-    const reactionsRoute = await import(
-      "@/app/api/channel-posts/[postId]/reactions/route"
-    )
+    const chatReactionRoute =
+      await import("@/app/api/chat-messages/[messageId]/reactions/route")
+    const reactionsRoute =
+      await import("@/app/api/channel-posts/[postId]/reactions/route")
 
     deleteChannelPostServerMock.mockRejectedValue(
       new ApplicationError("You can only delete your own posts", 403, {
@@ -230,9 +249,8 @@ describe("platform route contracts", () => {
 
   it("maps WorkOS account failures to typed error responses", async () => {
     const emailRoute = await import("@/app/api/account/email/route")
-    const passwordResetRoute = await import(
-      "@/app/api/account/password-reset/route"
-    )
+    const passwordResetRoute =
+      await import("@/app/api/account/password-reset/route")
 
     updateWorkOSUserEmailMock.mockRejectedValue({ status: 409 })
     requestWorkOSPasswordResetMock.mockRejectedValue({

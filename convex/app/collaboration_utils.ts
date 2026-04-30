@@ -87,7 +87,13 @@ export function createNotification(
     | "team"
     | "workspace",
   entityId: string,
-  type: "mention" | "assignment" | "comment" | "invite" | "status-change"
+  type:
+    | "mention"
+    | "assignment"
+    | "comment"
+    | "message"
+    | "invite"
+    | "status-change"
 ) {
   return {
     id: createId("notification"),
@@ -120,7 +126,13 @@ export function createDeliveredNotification(
     | "team"
     | "workspace",
   entityId: string,
-  type: "mention" | "assignment" | "comment" | "invite" | "status-change"
+  type:
+    | "mention"
+    | "assignment"
+    | "comment"
+    | "message"
+    | "invite"
+    | "status-change"
 ) {
   return {
     ...createNotification(userId, actorId, message, entityType, entityId, type),

@@ -6,6 +6,7 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
+import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 
 const syncCreateViewMock = vi.fn()
 const syncReorderViewDisplayPropertiesMock = vi.fn()
@@ -65,6 +66,8 @@ function createViewTestState(): AppData {
       activeTeamId: "team_1",
       activeInboxNotificationId: null,
       selectedViewByRoute: {} as Record<string, string>,
+      viewerViewConfigByRoute: {},
+      viewerDirectoryConfigByRoute: {},
       activeCreateDialog: null,
     },
   }
@@ -372,8 +375,12 @@ describe("view slice", () => {
     )
 
     const state = createViewTestState()
+    const selectedViewKey = getViewerScopedDirectoryKey(
+      state.currentUserId,
+      "/team/platform/work"
+    )
     state.ui.selectedViewByRoute = {
-      "/team/platform/work": "view_existing",
+      [selectedViewKey]: "view_existing",
     }
     const refreshFromServerMock = vi
       .fn()
@@ -425,7 +432,7 @@ describe("view slice", () => {
       "View created, but failed to refresh from server"
     )
     expect(state.views.map((view) => view.id)).toContain(createdViewId)
-    expect(state.ui.selectedViewByRoute["/team/platform/work"]).toBe(createdViewId)
+    expect(state.ui.selectedViewByRoute[selectedViewKey]).toBe(createdViewId)
   })
 
   it("rolls back the optimistic view when server creation fails", async () => {
@@ -434,8 +441,12 @@ describe("view slice", () => {
     )
 
     const state = createViewTestState()
+    const selectedViewKey = getViewerScopedDirectoryKey(
+      state.currentUserId,
+      "/team/platform/work"
+    )
     state.ui.selectedViewByRoute = {
-      "/team/platform/work": "view_existing",
+      [selectedViewKey]: "view_existing",
     }
     let backgroundTask: Promise<unknown> | null = null
     const setState = vi.fn((update: unknown) => {
@@ -471,14 +482,12 @@ describe("view slice", () => {
 
     expect(createdViewId).toBeTruthy()
     expect(state.views.map((view) => view.id)).toContain(createdViewId)
-    expect(state.ui.selectedViewByRoute["/team/platform/work"]).toBe(createdViewId)
+    expect(state.ui.selectedViewByRoute[selectedViewKey]).toBe(createdViewId)
 
     await backgroundTask
 
     expect(state.views.map((view) => view.id)).not.toContain(createdViewId)
-    expect(state.ui.selectedViewByRoute["/team/platform/work"]).toBe(
-      "view_existing"
-    )
+    expect(state.ui.selectedViewByRoute[selectedViewKey]).toBe("view_existing")
   })
 
   it("keeps showCompleted inside filters when updating view config", async () => {

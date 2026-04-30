@@ -1,8 +1,7 @@
 describe("document presence normalization", () => {
   it("returns the stored presence payload without additional user resolution", async () => {
-    const { listDocumentPresenceViewers } = await import(
-      "@/convex/app/normalization"
-    )
+    const { listDocumentPresenceViewers } =
+      await import("@/convex/app/normalization")
 
     const ctx = {
       db: {
@@ -36,6 +35,7 @@ describe("document presence normalization", () => {
         name: "Sam Stored",
         avatarUrl: "SS",
         avatarImageUrl: "https://example.com/convex-photo.png",
+        activeBlockId: null,
         lastSeenAt: expect.any(String),
       },
     ])

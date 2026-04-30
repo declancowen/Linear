@@ -467,22 +467,93 @@ describe("ListView", () => {
     vi.clearAllMocks()
   })
 
-  it("does not expand empty groups into placeholder space", () => {
+  it("does not render empty read-only groups without item rows", () => {
+    const data = createData()
+
     render(
       <ListView
-        data={createData()}
-        items={createData().workItems}
+        data={data}
+        items={data.workItems}
         view={createView()}
         editable={false}
       />
     )
 
-    const backlogHeader = screen.getByRole("button", { name: /backlog/i })
+    expect(
+      screen.queryByRole("button", { name: /backlog/i })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("No items")).not.toBeInTheDocument()
+  })
 
+  it("keeps add item available for empty unfiltered editable groups", () => {
+    const data = {
+      ...createEditableData(),
+      workItems: [],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={[]}
+        view={createView("list", [], { grouping: "status" })}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+          defaultProjectId: "project_1",
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+        defaultValues: expect.objectContaining({
+          status: "backlog",
+        }),
+      })
+    )
+  })
+
+  it("does not synthesize create-context groups for read-only empty surfaces", () => {
+    const data = {
+      ...createEditableData(),
+      workItems: [],
+    }
+    const view = createView("list", [], { grouping: "status" })
+    const createContext = {
+      defaultTeamId: "team_1",
+      defaultProjectId: "project_1",
+    }
+
+    const { rerender } = render(
+      <ListView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={view}
+        editable={false}
+        createContext={createContext}
+      />
+    )
+
+    expect(screen.queryByText("Backlog")).not.toBeInTheDocument()
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
 
-    fireEvent.click(backlogHeader)
+    rerender(
+      <BoardView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={{ ...view, layout: "board" }}
+        editable={false}
+        createContext={createContext}
+      />
+    )
 
+    expect(screen.queryByText("Backlog")).not.toBeInTheDocument()
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
   })
 

@@ -52,7 +52,13 @@ type PendingDigestNotification = {
     | "document"
     | "invite"
     | "channelPost"
-  type: "mention" | "assignment" | "comment" | "invite" | "status-change"
+  type:
+    | "mention"
+    | "assignment"
+    | "comment"
+    | "message"
+    | "invite"
+    | "status-change"
   createdAt: string
 }
 
@@ -126,6 +132,7 @@ function filterClaimablePendingNotifications(
       !notification.readAt &&
       !notification.archivedAt &&
       !notification.emailedAt &&
+      notification.type !== "message" &&
       !isActiveDigestClaim(notification, nowMs)
   )
 }

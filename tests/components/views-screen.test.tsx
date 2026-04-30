@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain/types"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
+import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 
 vi.mock("next/link", () => ({
   default: ({
@@ -263,11 +264,16 @@ vi.mock("@/components/ui/template-primitives", () => ({
 vi.mock("@phosphor-icons/react", () => ({
   CalendarDots: () => null,
   ArrowSquareOut: () => null,
+  Briefcase: () => null,
+  BugBeetle: () => null,
   FunnelSimple: () => null,
   FileText: () => null,
+  CodesandboxLogo: () => null,
   PencilSimple: () => null,
   Plus: () => null,
+  Kanban: () => null,
   Rows: () => null,
+  Robot: () => null,
   SortAscending: () => null,
   Eye: () => null,
   CaretDown: () => null,
@@ -275,6 +281,7 @@ vi.mock("@phosphor-icons/react", () => ({
   MagnifyingGlass: () => null,
   SquaresFour: () => null,
   Trash: () => null,
+  UsersThree: () => null,
 }))
 
 function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
@@ -544,7 +551,10 @@ describe("ViewsScreen", () => {
         ...state.ui,
         selectedViewByRoute: {
           ...state.ui.selectedViewByRoute,
-          "/team/platform/projects": "team-view",
+          [getViewerScopedDirectoryKey(
+            state.currentUserId,
+            "/team/platform/projects"
+          )]: "team-view",
         },
       },
       views: state.views.map((view) =>

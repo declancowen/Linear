@@ -2,6 +2,7 @@
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppData } from "@/lib/domain/types"
+import { getViewerScopedDirectoryKey, getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
 import {
   selectReadModelForInstruction,
   type ScopedReadModelPatch,
@@ -16,7 +17,12 @@ import {
   normalizeNotifications,
   normalizeUsers,
 } from "../helpers"
-import type { AppStore, AppStoreSlice, PendingViewConfig } from "../types"
+import type {
+  AppStore,
+  AppStoreSlice,
+  PendingViewConfig,
+  ViewFilterValueKey,
+} from "../types"
 
 type UiSlice = Pick<
   AppStore,
@@ -29,8 +35,40 @@ type UiSlice = Pick<
   | "openCreateDialog"
   | "closeCreateDialog"
   | "setSelectedView"
+  | "patchViewerViewConfig"
+  | "toggleViewerViewFilterValue"
+  | "clearViewerViewFilters"
+  | "toggleViewerViewDisplayProperty"
+  | "reorderViewerViewDisplayProperties"
+  | "clearViewerViewDisplayProperties"
+  | "toggleViewerViewHiddenValue"
+  | "patchViewerDirectoryConfig"
   | "setActiveInboxNotification"
 >
+
+const FILTER_KEYS: ViewFilterValueKey[] = [
+  "status",
+  "priority",
+  "assigneeIds",
+  "creatorIds",
+  "leadIds",
+  "health",
+  "milestoneIds",
+  "relationTypes",
+  "projectIds",
+  "parentIds",
+  "itemTypes",
+  "labelIds",
+  "teamIds",
+]
+
+type RuntimeViewConfigPatch = PendingViewConfig["patch"] & {
+  filters?: Partial<AppData["views"][number]["filters"]>
+}
+
+function getSelectedViewStorageKey(userId: string, route: string) {
+  return getViewerScopedDirectoryKey(userId, route)
+}
 
 function getNextActiveTeamId(
   teams: AppData["teams"],
@@ -115,18 +153,22 @@ function applyPendingViewConfig(
   view: AppData["views"][number],
   patch: PendingViewConfig["patch"]
 ) {
-  const { showCompleted, ...viewPatch } = patch
+  const { showCompleted, filters, ...viewPatch } =
+    patch as RuntimeViewConfigPatch
+  const hasFilterPatch = filters !== undefined || showCompleted !== undefined
 
   return {
     ...view,
     ...viewPatch,
-    filters:
-      showCompleted === undefined
-        ? view.filters
-        : {
+    ...(hasFilterPatch
+      ? {
+          filters: {
             ...view.filters,
-            showCompleted,
+            ...filters,
+            ...(showCompleted === undefined ? {} : { showCompleted }),
           },
+        }
+      : {}),
   }
 }
 
@@ -597,15 +639,260 @@ export function createUiSlice(
       }))
     },
     setSelectedView(route, viewId) {
-      set((state) => ({
-        ui: {
-          ...state.ui,
-          selectedViewByRoute: {
-            ...state.ui.selectedViewByRoute,
-            [route]: viewId,
+      set((state) => {
+        const selectedViewByRoute = { ...state.ui.selectedViewByRoute }
+        delete selectedViewByRoute[route]
+
+        return {
+          ui: {
+            ...state.ui,
+            selectedViewByRoute: {
+              ...selectedViewByRoute,
+              [getSelectedViewStorageKey(state.currentUserId, route)]: viewId,
+            },
           },
-        },
-      }))
+        }
+      })
+    },
+    patchViewerViewConfig(surfaceKey, viewId, patch) {
+      set((state) => {
+        const key = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[key] ?? {}
+        const { showCompleted, filters, ...viewPatch } =
+          patch as RuntimeViewConfigPatch
+        const hasFilterPatch =
+          filters !== undefined || showCompleted !== undefined
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [key]: {
+                ...current,
+                ...viewPatch,
+                ...(!hasFilterPatch
+                  ? {}
+                  : {
+                      filters: {
+                        ...current.filters,
+                        ...filters,
+                        ...(showCompleted === undefined
+                          ? {}
+                          : { showCompleted }),
+                      },
+                    }),
+              },
+            },
+          },
+        }
+      })
+    },
+    toggleViewerViewFilterValue(surfaceKey, viewId, key, value) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const baseView = state.views.find((view) => view.id === viewId)
+        const currentFilters = current.filters ?? {}
+        const currentValues = (currentFilters[key] ??
+          baseView?.filters[key] ??
+          []) as string[]
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((entry) => entry !== value)
+          : [...currentValues, value]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                filters: {
+                  ...currentFilters,
+                  [key]: nextValues,
+                },
+              },
+            },
+          },
+        }
+      })
+    },
+    clearViewerViewFilters(surfaceKey, viewId) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const filters = { ...(current.filters ?? {}) }
+
+        for (const key of FILTER_KEYS) {
+          filters[key] = [] as never
+        }
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                filters,
+              },
+            },
+          },
+        }
+      })
+    },
+    toggleViewerViewDisplayProperty(surfaceKey, viewId, property) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const baseView = state.views.find((view) => view.id === viewId)
+        const displayProps = current.displayProps ?? baseView?.displayProps ?? []
+        const nextDisplayProps = displayProps.includes(property)
+          ? displayProps.filter((entry) => entry !== property)
+          : [...displayProps, property]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                displayProps: nextDisplayProps,
+              },
+            },
+          },
+        }
+      })
+    },
+    reorderViewerViewDisplayProperties(surfaceKey, viewId, displayProps) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                displayProps: [...new Set(displayProps)],
+              },
+            },
+          },
+        }
+      })
+    },
+    clearViewerViewDisplayProperties(surfaceKey, viewId) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                displayProps: [],
+              },
+            },
+          },
+        }
+      })
+    },
+    toggleViewerViewHiddenValue(surfaceKey, viewId, key, value) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+        const baseView = state.views.find((view) => view.id === viewId)
+        const currentHiddenState = current.hiddenState ??
+          baseView?.hiddenState ?? { groups: [], subgroups: [] }
+        const currentValues = currentHiddenState[key] ?? []
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((entry) => entry !== value)
+          : [...currentValues, value]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute: {
+              ...state.ui.viewerViewConfigByRoute,
+              [storageKey]: {
+                ...current,
+                hiddenState: {
+                  groups: [...currentHiddenState.groups],
+                  subgroups: [...currentHiddenState.subgroups],
+                  [key]: nextValues,
+                },
+              },
+            },
+          },
+        }
+      })
+    },
+    patchViewerDirectoryConfig(surfaceKey, patch) {
+      set((state) => {
+        const storageKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const current = state.ui.viewerDirectoryConfigByRoute[storageKey] ?? {}
+        const nextConfig = {
+          ...current,
+          ...patch,
+        }
+
+        if (patch.filters) {
+          nextConfig.filters = {
+            ...current.filters,
+            ...patch.filters,
+          }
+        } else if (!current.filters) {
+          delete nextConfig.filters
+        }
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryConfigByRoute: {
+              ...state.ui.viewerDirectoryConfigByRoute,
+              [storageKey]: nextConfig,
+            },
+          },
+        }
+      })
     },
     setActiveInboxNotification(notificationId) {
       set((state) => ({

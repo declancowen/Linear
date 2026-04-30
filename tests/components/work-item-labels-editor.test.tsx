@@ -106,7 +106,7 @@ describe("WorkItemLabelsEditor", () => {
         },
       ],
       createLabel: vi.fn(
-        (name: string) =>
+        () =>
           new Promise<typeof createdLabel | null>((resolve) => {
             resolveCreateLabel = (label) => {
               if (label) {
@@ -165,5 +165,19 @@ describe("WorkItemLabelsEditor", () => {
         "label_new",
       ])
     })
+  })
+
+  it("shows label color dots on selected pills and dropdown options", () => {
+    const item = useAppStore.getState().workItems[0]
+
+    if (!item) {
+      throw new Error("Expected seeded work item")
+    }
+
+    const { container } = render(<WorkItemLabelsEditor item={item} editable />)
+
+    expect(
+      container.querySelectorAll('[data-label-color="blue"]')
+    ).toHaveLength(2)
   })
 })

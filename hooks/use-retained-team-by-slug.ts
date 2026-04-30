@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable react-hooks/refs -- The retained team ref intentionally smooths transient route read-model gaps during render. */
+
 import { useEffect, useRef, useState } from "react"
 
 import { getTeamBySlug } from "@/lib/domain/selectors"

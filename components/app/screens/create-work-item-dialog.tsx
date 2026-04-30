@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarDots,
@@ -17,7 +17,6 @@ import {
 import {
   getEditableTeamsForFeature,
   getStatusOrderForTeam,
-  getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
 import {
   getTextInputLimitState,
@@ -216,10 +215,6 @@ export function CreateWorkItemDialog({
     initialTeam?.settings.experience
   )
   const initialStatuses = getStatusOrderForTeam(initialTeam)
-  const initialPriority = getTemplateDefaultsForTeam(
-    initialTeam,
-    initialTemplateType
-  ).defaultPriority
   const initialWorkspaceId = initialTeam?.workspaceId ?? null
   const initialTeamProjects = projects.filter(
     (project) =>
@@ -241,8 +236,7 @@ export function CreateWorkItemDialog({
       : initialStatuses.includes("todo")
         ? "todo"
         : (initialStatuses[0] ?? "backlog")
-  const initialSelectedPriority =
-    defaultValues?.priority ?? initialPriority
+  const initialSelectedPriority = defaultValues?.priority ?? "none"
   const initialTeamMemberIds = new Set(
     teamMemberships
       .filter((membership) => membership.teamId === initialTeamId)
@@ -350,10 +344,15 @@ export function CreateWorkItemDialog({
     projectId === "none"
       ? null
       : (teamProjects.find((project) => project.id === projectId) ?? null)
+  const effectiveAssigneeId =
+    assigneeId !== "none" &&
+    teamMembers.some((member) => member.id === assigneeId)
+      ? assigneeId
+      : "none"
   const selectedAssignee =
-    assigneeId === "none"
+    effectiveAssigneeId === "none"
       ? null
-      : (teamMembers.find((user) => user.id === assigneeId) ?? null)
+      : (teamMembers.find((user) => user.id === effectiveAssigneeId) ?? null)
   const workCopy = getWorkSurfaceCopy(team?.settings.experience)
   const teamStatuses = getStatusOrderForTeam(team)
   const defaultTemplateType = getDefaultTemplateTypeForTeamExperience(
@@ -429,15 +428,6 @@ export function CreateWorkItemDialog({
         : `${selectedLabels[0]?.name ?? "Label"} +${selectedLabels.length - 1}`
   const teamDotColor = getTeamDotColor(team?.id ?? null)
 
-  useEffect(() => {
-    if (
-      assigneeId !== "none" &&
-      !teamMembers.some((member) => member.id === assigneeId)
-    ) {
-      setAssigneeId("none")
-    }
-  }, [assigneeId, teamMembers])
-
   function syncTeamSelection(nextTeamId: string) {
     const nextTeam =
       filteredTeams.find((entry) => entry.id === nextTeamId) ?? null
@@ -445,10 +435,6 @@ export function CreateWorkItemDialog({
       nextTeam?.settings.experience
     )
     const nextStatuses = getStatusOrderForTeam(nextTeam)
-    const nextPriority = getTemplateDefaultsForTeam(
-      nextTeam,
-      nextTemplateType
-    ).defaultPriority
     const nextWorkspaceId = nextTeam?.workspaceId ?? null
     const nextProjects = projects.filter(
       (project) =>
@@ -470,7 +456,7 @@ export function CreateWorkItemDialog({
     setStatus(
       nextStatuses.includes("todo") ? "todo" : (nextStatuses[0] ?? "backlog")
     )
-    setPriority(nextPriority)
+    setPriority(defaultValues?.priority ?? "none")
     setAssigneeId("none")
     setStartDate(null)
     setDueDate(null)
@@ -531,7 +517,7 @@ export function CreateWorkItemDialog({
       priority,
       status,
       labelIds: selectedLabelIds,
-      assigneeId: assigneeId === "none" ? null : assigneeId,
+      assigneeId: effectiveAssigneeId === "none" ? null : effectiveAssigneeId,
       primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
       startDate,
       dueDate,
@@ -963,7 +949,7 @@ export function CreateWorkItemDialog({
                         <>
                           <PropertyPopoverGroup>Members</PropertyPopoverGroup>
                           {matches.map((user) => {
-                            const selected = user.id === assigneeId
+                            const selected = user.id === effectiveAssigneeId
                             return (
                               <PropertyPopoverItem
                                 key={user.id}
@@ -994,13 +980,13 @@ export function CreateWorkItemDialog({
                       )}
                       <PropertyPopoverItem
                         muted
-                        selected={assigneeId === "none"}
+                        selected={effectiveAssigneeId === "none"}
                         onClick={() => {
                           setAssigneeId("none")
                           setAssigneePickerOpen(false)
                         }}
                         trailing={
-                          assigneeId === "none" ? (
+                          effectiveAssigneeId === "none" ? (
                             <Check className="size-[14px] text-foreground" />
                           ) : null
                         }

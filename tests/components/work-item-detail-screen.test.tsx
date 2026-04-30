@@ -471,6 +471,8 @@ function seedState() {
       activeTeamId: "team_1",
       activeInboxNotificationId: null,
       selectedViewByRoute: {},
+      viewerViewConfigByRoute: {},
+      viewerDirectoryConfigByRoute: {},
       activeCreateDialog: null,
     },
   })
@@ -1035,7 +1037,7 @@ describe("work item detail screen", () => {
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
   })
 
-  it("keeps empty child-row assignee and project controls editable", () => {
+  it("hides empty child-row assignee and project controls", () => {
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -1090,10 +1092,10 @@ describe("work item detail screen", () => {
 
     expect(
       screen.getAllByRole("button", { name: "Assignee" }).length
-    ).toBeGreaterThan(1)
+    ).toBe(1)
     expect(
       screen.getAllByRole("button", { name: "Project" }).length
-    ).toBeGreaterThan(1)
+    ).toBe(1)
   })
 
   it("shows sidebar subtask progress above the child list", () => {

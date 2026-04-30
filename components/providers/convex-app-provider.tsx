@@ -29,12 +29,6 @@ type ConvexAppProviderProps = {
   initialWorkspaceId: string
 }
 
-type InitialShellSeedHydratorProps = {
-  initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>>
-  initialWorkspaceId: string
-  applyReadModelData: (patch: ReadModelFetchResult<Partial<AppSnapshot>>) => void
-}
-
 const STREAM_RECONNECT_BASE_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_DELAY_MS = 15000
 const INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS = 2000
@@ -54,29 +48,6 @@ function getInitialShellSeedSignature(
   })
 }
 
-function InitialShellSeedHydrator({
-  initialShellSeed,
-  initialWorkspaceId,
-  applyReadModelData,
-}: InitialShellSeedHydratorProps) {
-  const appliedSeedSignatureRef = useRef("")
-  const seedSignature = getInitialShellSeedSignature(
-    initialShellSeed,
-    initialWorkspaceId
-  )
-
-  useLayoutEffect(() => {
-    if (appliedSeedSignatureRef.current === seedSignature) {
-      return
-    }
-
-    applyReadModelData(initialShellSeed)
-    appliedSeedSignatureRef.current = seedSignature
-  }, [applyReadModelData, initialShellSeed, seedSignature])
-
-  return null
-}
-
 function ConvexStateSync({
   children,
   authenticatedUser,
@@ -91,7 +62,7 @@ function ConvexStateSync({
       const currentUserId = data.currentUserId ?? null
       const currentUser =
         currentUserId && data.users
-          ? data.users.find((user) => user.id === currentUserId) ?? null
+          ? (data.users.find((user) => user.id === currentUserId) ?? null)
           : null
 
       if (currentUser?.preferences.theme) {
@@ -120,6 +91,20 @@ function ConvexStateSync({
   const redirectToLogin = useEffectEvent(() => {
     redirectToExpiredSessionLogin()
   })
+  const appliedSeedSignatureRef = useRef("")
+  const seedSignature = getInitialShellSeedSignature(
+    initialShellSeed,
+    initialWorkspaceId
+  )
+
+  useLayoutEffect(() => {
+    if (appliedSeedSignatureRef.current === seedSignature) {
+      return
+    }
+
+    applyReadModelData(initialShellSeed)
+    appliedSeedSignatureRef.current = seedSignature
+  }, [initialShellSeed, seedSignature])
 
   useEffect(() => {
     let cancelled = false
@@ -378,16 +363,7 @@ function ConvexStateSync({
     }
   }, [authenticatedUser?.email, initialWorkspaceId])
 
-  return (
-    <>
-      <InitialShellSeedHydrator
-        applyReadModelData={applyReadModelData}
-        initialShellSeed={initialShellSeed}
-        initialWorkspaceId={initialWorkspaceId}
-      />
-      {children}
-    </>
-  )
+  return <>{children}</>
 }
 
 export function ConvexAppProvider({

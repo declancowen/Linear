@@ -1,8 +1,6 @@
 import { NextRequest } from "next/server"
 
-import {
-  ApplicationError,
-} from "@/lib/server/application-errors"
+import { isApplicationError } from "@/lib/server/application-errors"
 import {
   bumpScopedReadModelVersionsServer,
   startChatCallServer,
@@ -66,13 +64,17 @@ export async function POST(
       joinHref,
     })
   } catch (error) {
-    if (error instanceof ApplicationError) {
+    if (isApplicationError(error)) {
       return jsonApplicationError(error)
     }
 
     logProviderError("Failed to start chat call", error)
-    return jsonError(getConvexErrorMessage(error, "Failed to start call"), 500, {
-      code: "CHAT_CALL_START_FAILED",
-    })
+    return jsonError(
+      getConvexErrorMessage(error, "Failed to start call"),
+      500,
+      {
+        code: "CHAT_CALL_START_FAILED",
+      }
+    )
   }
 }

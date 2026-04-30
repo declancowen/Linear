@@ -13,19 +13,19 @@ import {
   createDefaultTeamFeatureSettings,
   getDefaultTeamIconForExperience,
   normalizeTeamIconToken,
+  teamExperienceMeta,
   type TeamFeatureSettings,
   type TeamExperienceType,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 
-import { SettingsScaffold } from "./shared"
+import {
+  SettingsHero,
+  SettingsScaffold,
+  SettingsSection,
+} from "./shared"
 import {
   defaultTeamSurfaceDisableReasons,
   TeamEditorFields,
@@ -62,24 +62,51 @@ export function CreateTeamScreen() {
     return (
       <SettingsScaffold
         title="Create team"
-        subtitle="Current workspace not found"
+        breadcrumb="Workspace"
+        subtitle="Workspace unavailable"
       >
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Workspace unavailable</CardTitle>
-            <CardDescription>
-              Select a workspace before creating a team.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          title="Workspace unavailable"
+          description="Select a workspace before creating a team."
+        >
+          <div />
+        </SettingsSection>
       </SettingsScaffold>
     )
   }
 
+  const previewName = name.trim() || "New team"
+  const previewSummary = summary.trim()
+  const previewIcon = normalizeTeamIconToken(icon, experience)
+
   return (
     <SettingsScaffold
       title="Create team"
-      subtitle=""
+      breadcrumb="Workspace"
+      hero={
+        <SettingsHero
+          leading={
+            <div className="flex size-14 items-center justify-center rounded-2xl border border-line bg-surface-2 text-fg-2">
+              <TeamIconGlyph icon={previewIcon} className="size-6" />
+            </div>
+          }
+          title={previewName}
+          description={
+            previewSummary ||
+            `New ${teamExperienceMeta[experience].label.toLowerCase()} team in ${workspace.name}.`
+          }
+          meta={[
+            {
+              key: "type",
+              label: teamExperienceMeta[experience].label,
+            },
+            {
+              key: "workspace",
+              label: workspace.name,
+            },
+          ]}
+        />
+      }
       footer={
         <Button
           disabled={!canCreateTeam || saving || !canSubmit}
@@ -106,45 +133,40 @@ export function CreateTeamScreen() {
       }
     >
       {!canCreateTeam ? (
-        <Card className="border-dashed shadow-none">
-          <CardHeader>
-            <CardTitle>Read-only access</CardTitle>
-            <CardDescription>
-              You need workspace admin access to create a new team.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          title="Read-only access"
+          description="You need workspace admin access to create a new team."
+          variant="card"
+        >
+          <div />
+        </SettingsSection>
       ) : null}
 
-      <div className="space-y-6">
-        <div className="space-y-10">
-          <TeamEditorFields
-            canChangeExperience
-            disabled={!canCreateTeam}
-            experience={experience}
-            features={features}
-            icon={icon}
-            joinCode=""
-            showJoinCode={false}
-            joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
-            name={name}
-            savedFeatures={features}
-            setFeatures={setFeatures}
-            setIcon={(value) =>
-              setIcon(normalizeTeamIconToken(value, experience))
-            }
-            setName={setName}
-            setSummary={setSummary}
-            summary={summary}
-            surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
-            onExperienceChange={(nextExperience) => {
-              setExperience(nextExperience)
-              setIcon(getDefaultTeamIconForExperience(nextExperience))
-              setFeatures(createDefaultTeamFeatureSettings(nextExperience))
-            }}
-          />
-        </div>
-      </div>
+      <TeamEditorFields
+        canChangeExperience
+        disabled={!canCreateTeam}
+        experience={experience}
+        features={features}
+        icon={icon}
+        joinCode=""
+        showJoinCode={false}
+        joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
+        name={name}
+        savedFeatures={features}
+        setFeatures={setFeatures}
+        setIcon={(value) =>
+          setIcon(normalizeTeamIconToken(value, experience))
+        }
+        setName={setName}
+        setSummary={setSummary}
+        summary={summary}
+        surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
+        onExperienceChange={(nextExperience) => {
+          setExperience(nextExperience)
+          setIcon(getDefaultTeamIconForExperience(nextExperience))
+          setFeatures(createDefaultTeamFeatureSettings(nextExperience))
+        }}
+      />
     </SettingsScaffold>
   )
 }

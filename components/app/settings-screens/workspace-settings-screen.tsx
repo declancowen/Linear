@@ -19,13 +19,6 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -37,34 +30,43 @@ import {
   SettingsGroupLabel,
   SettingsHero,
   SettingsNav,
+  SettingsRow,
+  SettingsRowGroup,
   SettingsScaffold,
   SettingsSection,
 } from "./shared"
-import { getUserInitials, uploadSettingsImage } from "./utils"
+import { getUserInitials } from "./utils"
+import { uploadSettingsImage } from "./utils"
 
 const workspaceAccentOptions = [
   {
     value: "emerald",
+    label: "Emerald",
     swatchClassName: "bg-emerald-500",
   },
   {
     value: "blue",
+    label: "Blue",
     swatchClassName: "bg-blue-500",
   },
   {
     value: "violet",
+    label: "Violet",
     swatchClassName: "bg-violet-500",
   },
   {
     value: "amber",
+    label: "Amber",
     swatchClassName: "bg-amber-500",
   },
   {
     value: "rose",
+    label: "Rose",
     swatchClassName: "bg-rose-500",
   },
   {
     value: "slate",
+    label: "Slate",
     swatchClassName: "bg-slate-500",
   },
 ] as const
@@ -93,8 +95,7 @@ export function WorkspaceSettingsScreen() {
     users,
     invites,
     currentUserId,
-  } =
-    useAppStore(
+  } = useAppStore(
     useShallow((state) => {
       return {
         teams: state.teams,
@@ -118,16 +119,14 @@ export function WorkspaceSettingsScreen() {
       workspaceTeams.map((team) => [team.id, team.name])
     )
     const workspaceTeamIds = new Set(workspaceTeams.map((team) => team.id))
-    const workspaceUserIds = new Set(
-      [
-        ...workspaceMemberships
-          .filter((membership) => membership.workspaceId === workspace.id)
-          .map((membership) => membership.userId),
-        ...teamMemberships
-          .filter((membership) => workspaceTeamIds.has(membership.teamId))
-          .map((membership) => membership.userId),
-      ]
-    )
+    const workspaceUserIds = new Set([
+      ...workspaceMemberships
+        .filter((membership) => membership.workspaceId === workspace.id)
+        .map((membership) => membership.userId),
+      ...teamMemberships
+        .filter((membership) => workspaceTeamIds.has(membership.teamId))
+        .map((membership) => membership.userId),
+    ])
 
     if (workspace.createdBy) {
       workspaceUserIds.add(workspace.createdBy)
@@ -182,7 +181,14 @@ export function WorkspaceSettingsScreen() {
 
         return left.name.localeCompare(right.name)
       })
-  }, [currentUserId, teamMemberships, teams, users, workspace, workspaceMemberships])
+  }, [
+    currentUserId,
+    teamMemberships,
+    teams,
+    users,
+    workspace,
+    workspaceMemberships,
+  ])
   const pendingInvites = useMemo(() => {
     if (!workspace) {
       return []
@@ -199,7 +205,7 @@ export function WorkspaceSettingsScreen() {
       {
         id: string
         email: string
-        role: typeof invites[number]["role"]
+        role: (typeof invites)[number]["role"]
         invitedByName: string
         teamNames: Set<string>
       }
@@ -271,7 +277,10 @@ export function WorkspaceSettingsScreen() {
   const [description, setDescription] = useState(
     workspace?.settings.description ?? ""
   )
-  const nameLimitState = getTextInputLimitState(name, workspaceBrandingNameConstraints)
+  const nameLimitState = getTextInputLimitState(
+    name,
+    workspaceBrandingNameConstraints
+  )
   const logoLimitState = getTextInputLimitState(
     logoUrl,
     workspaceFallbackBadgeConstraints
@@ -351,6 +360,7 @@ export function WorkspaceSettingsScreen() {
     return (
       <SettingsScaffold
         title="Workspace settings"
+        breadcrumb="Settings"
         subtitle="Current workspace not found"
       >
         <SettingsSection
@@ -367,6 +377,7 @@ export function WorkspaceSettingsScreen() {
     return (
       <SettingsScaffold
         title="Workspace settings"
+        breadcrumb="Settings"
         subtitle="Workspace owner access required"
       >
         <SettingsSection
@@ -479,6 +490,7 @@ export function WorkspaceSettingsScreen() {
   return (
     <SettingsScaffold
       title="Workspace settings"
+      breadcrumb="Settings"
       hero={
         <SettingsHero
           leading={
@@ -519,7 +531,7 @@ export function WorkspaceSettingsScreen() {
             disabled={!canManageWorkspace || saving || !canSaveWorkspace}
             onClick={() => void handleSave()}
           >
-            {saving ? "Saving..." : "Save workspace"}
+            {saving ? "Saving..." : "Save changes"}
           </Button>
         ) : null
       }
@@ -531,7 +543,7 @@ export function WorkspaceSettingsScreen() {
           { value: "workspace", label: "Workspace" },
           {
             value: "users",
-            label: "Users",
+            label: "Members",
             count: workspaceUsersCount,
           },
         ]}
@@ -542,32 +554,40 @@ export function WorkspaceSettingsScreen() {
           <SettingsSection
             title="Branding"
             description="Name, logo, and description for your workspace."
+            variant="plain"
           >
-            <div className="space-y-6">
-              <ImageUploadControl
+            <SettingsRowGroup>
+              <SettingsRow
+                label="Logo"
                 description="Square image used across the workspace."
-                disabled={!canManageWorkspace}
-                imageSrc={logoPreviewUrl}
-                onClear={() => {
-                  setLogoPreviewUrl(null)
-                  setLogoImageStorageId(undefined)
-                  setClearLogoImage(true)
-                }}
-                onSelect={handleLogoUpload}
-                preview={
-                  <span className="text-base font-semibold text-fg-2">
-                    {fallbackBadge}
-                  </span>
+                control={
+                  <ImageUploadControl
+                    description="Square image, at least 256px. PNG or JPG up to 10 MB."
+                    disabled={!canManageWorkspace}
+                    imageSrc={logoPreviewUrl}
+                    onClear={() => {
+                      setLogoPreviewUrl(null)
+                      setLogoImageStorageId(undefined)
+                      setClearLogoImage(true)
+                    }}
+                    onSelect={handleLogoUpload}
+                    preview={
+                      <span className="text-base font-semibold text-fg-2">
+                        {fallbackBadge}
+                      </span>
+                    }
+                    shape="square"
+                    title="Workspace logo"
+                    uploading={uploadingLogo}
+                  />
                 }
-                shape="square"
-                title="Workspace logo"
-                uploading={uploadingLogo}
               />
-
-              <FieldGroup className="gap-4">
-                <Field>
-                  <FieldLabel htmlFor="workspace-name">Name</FieldLabel>
-                  <FieldContent>
+              <SettingsRow
+                label="Name"
+                description="Visible across the workspace and in invite emails."
+                alignment="center"
+                control={
+                  <div>
                     <Input
                       id="workspace-name"
                       disabled={!canManageWorkspace}
@@ -579,13 +599,15 @@ export function WorkspaceSettingsScreen() {
                       state={nameLimitState}
                       limit={workspaceBrandingNameConstraints.max}
                     />
-                  </FieldContent>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="workspace-logo">
-                    Fallback badge
-                  </FieldLabel>
-                  <FieldContent>
+                  </div>
+                }
+              />
+              <SettingsRow
+                label="Fallback badge"
+                description="Used when no uploaded workspace image is available."
+                alignment="center"
+                control={
+                  <div>
                     <Input
                       id="workspace-logo"
                       disabled={!canManageWorkspace}
@@ -597,16 +619,14 @@ export function WorkspaceSettingsScreen() {
                       state={logoLimitState}
                       limit={workspaceFallbackBadgeConstraints.max}
                     />
-                  </FieldContent>
-                  <FieldDescription>
-                    Used when no uploaded workspace image is available.
-                  </FieldDescription>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="workspace-description">
-                    Description
-                  </FieldLabel>
-                  <FieldContent>
+                  </div>
+                }
+              />
+              <SettingsRow
+                label="Description"
+                description="Shown in the workspace summary and any discovery surfaces."
+                control={
+                  <div>
                     <Textarea
                       id="workspace-description"
                       className="min-h-24 resize-none"
@@ -619,20 +639,18 @@ export function WorkspaceSettingsScreen() {
                       state={descriptionLimitState}
                       limit={optionalWorkspaceDescriptionConstraints.max}
                     />
-                  </FieldContent>
-                  <FieldDescription>
-                    Shown in the workspace summary and any discovery surfaces.
-                  </FieldDescription>
-                </Field>
-              </FieldGroup>
-            </div>
+                  </div>
+                }
+              />
+            </SettingsRowGroup>
           </SettingsSection>
 
           <SettingsSection
             title="Accent color"
             description="Used on badges, highlights, and workspace surfaces."
+            variant="plain"
           >
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2 rounded-xl border border-line bg-surface px-5 py-4">
               {workspaceAccentOptions.map((option) => {
                 const selected = accent === option.value
 
@@ -640,22 +658,29 @@ export function WorkspaceSettingsScreen() {
                   <button
                     key={option.value}
                     type="button"
-                    aria-label={option.value}
+                    aria-pressed={selected}
+                    aria-label={option.label}
+                    title={option.label}
                     className={cn(
-                      "flex size-8 items-center justify-center rounded-full transition-transform hover:scale-105 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
-                      option.swatchClassName,
-                      selected &&
-                        "ring-2 ring-offset-2 ring-offset-background"
+                      "group inline-flex items-center gap-2 rounded-full border bg-background py-1 pr-3 pl-1 text-[12.5px] font-medium transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+                      selected
+                        ? "border-line text-foreground shadow-sm"
+                        : "border-transparent text-muted-foreground hover:border-line-soft hover:text-foreground"
                     )}
                     disabled={!canManageWorkspace}
                     onClick={() => setAccent(option.value)}
                   >
-                    {selected ? (
-                      <Check
-                        className="size-3.5 text-white"
-                        weight="bold"
-                      />
-                    ) : null}
+                    <span
+                      className={cn(
+                        "flex size-6 items-center justify-center rounded-full ring-1 ring-inset ring-foreground/10",
+                        option.swatchClassName
+                      )}
+                    >
+                      {selected ? (
+                        <Check className="size-3 text-white" weight="bold" />
+                      ) : null}
+                    </span>
+                    {option.label}
                   </button>
                 )
               })}
@@ -689,8 +714,9 @@ export function WorkspaceSettingsScreen() {
       ) : (
         <>
           <SettingsSection
-            title={`Workspace users · ${workspaceUsersCount}`}
+            title="Workspace members"
             description="People with access to this workspace through team memberships."
+            variant="plain"
           >
             <WorkspaceUsersList
               members={workspaceUsers}
@@ -706,8 +732,9 @@ export function WorkspaceSettingsScreen() {
           </SettingsSection>
 
           <SettingsSection
-            title={`Pending invites · ${pendingInvites.length}`}
+            title="Pending invites"
             description="Pending invites still grant access until you cancel them."
+            variant="plain"
           >
             <PendingInvitesList
               invites={pendingInvites}
