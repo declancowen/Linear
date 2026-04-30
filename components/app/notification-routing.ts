@@ -22,6 +22,29 @@ export function appendPendingNotificationToastIds(input: {
   }
 }
 
+export function initializePendingNotificationToastIds(input: {
+  candidates: Pick<Notification, "id" | "createdAt">[]
+  knownIds: Set<string>
+  pendingIds: string[]
+  startedAt: string
+}) {
+  const { candidates, knownIds, pendingIds, startedAt } = input
+
+  for (const notification of candidates) {
+    if (knownIds.has(notification.id)) {
+      continue
+    }
+
+    knownIds.add(notification.id)
+
+    if (!startedAt || notification.createdAt <= startedAt) {
+      continue
+    }
+
+    pendingIds.push(notification.id)
+  }
+}
+
 export function getNotificationHref(
   data: NotificationRouteData,
   notification: Notification

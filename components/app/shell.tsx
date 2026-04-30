@@ -78,6 +78,7 @@ import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import {
   appendPendingNotificationToastIds,
   getNotificationHref,
+  initializePendingNotificationToastIds,
   isViewingNotificationTarget,
 } from "@/components/app/notification-routing"
 import { useShortcutModifierLabel } from "@/components/app/shortcut-keys"
@@ -474,6 +475,7 @@ export function AppShell({ children }: AppShellProps) {
   const knownNotificationIdsRef = useRef<Set<string> | null>(null)
   const pendingNotificationToastIdsRef = useRef<string[]>([])
   const notificationToastUserIdRef = useRef<string | null>(null)
+  const notificationToastStartedAtRef = useRef("")
   const notificationToastFlushTimeoutRef = useRef<number | null>(null)
   const [notificationToastQueueTick, setNotificationToastQueueTick] =
     useState(0)
@@ -684,6 +686,7 @@ export function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     if (notificationToastUserIdRef.current !== currentUserId) {
       notificationToastUserIdRef.current = currentUserId
+      notificationToastStartedAtRef.current = new Date().toISOString()
       knownNotificationIdsRef.current = null
       pendingNotificationToastIdsRef.current = []
 
@@ -697,19 +700,24 @@ export function AppShell({ children }: AppShellProps) {
       return
     }
 
-    if (knownNotificationIdsRef.current === null) {
-      knownNotificationIdsRef.current = new Set(
-        notificationToastCandidates.map((notification) => notification.id)
-      )
-      return
-    }
+    let knownNotificationIds = knownNotificationIdsRef.current
 
-    const knownNotificationIds = knownNotificationIdsRef.current
-    appendPendingNotificationToastIds({
-      candidates: notificationToastCandidates,
-      knownIds: knownNotificationIds,
-      pendingIds: pendingNotificationToastIdsRef.current,
-    })
+    if (knownNotificationIds === null) {
+      knownNotificationIds = new Set()
+      knownNotificationIdsRef.current = knownNotificationIds
+      initializePendingNotificationToastIds({
+        candidates: notificationToastCandidates,
+        knownIds: knownNotificationIds,
+        pendingIds: pendingNotificationToastIdsRef.current,
+        startedAt: notificationToastStartedAtRef.current,
+      })
+    } else {
+      appendPendingNotificationToastIds({
+        candidates: notificationToastCandidates,
+        knownIds: knownNotificationIds,
+        pendingIds: pendingNotificationToastIdsRef.current,
+      })
+    }
 
     if (notificationToastFlushTimeoutRef.current !== null) {
       return

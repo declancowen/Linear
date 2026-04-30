@@ -1880,6 +1880,21 @@ export function ViewsScreen({
     }
   }
 
+  function getCurrentDirectoryProperties(): ViewsDirectoryProperty[] {
+    const state = useAppStore.getState()
+    const currentConfig = applyViewerDirectoryConfig(
+      defaultDirectoryConfig,
+      state.ui.viewerDirectoryConfigByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
+      ]
+    )
+
+    return (
+      (currentConfig.displayProps as ViewsDirectoryProperty[] | undefined) ??
+      DEFAULT_VIEW_DIRECTORY_PROPERTIES
+    )
+  }
+
   function updateDirectoryFilters(
     resolveNextFilters: (
       current: ViewsDirectoryFilters
@@ -1887,6 +1902,16 @@ export function ViewsScreen({
   ) {
     updateDirectoryConfig({
       filters: resolveNextFilters(getCurrentDirectoryFilters()),
+    })
+  }
+
+  function updateDirectoryProperties(
+    resolveNextProperties: (
+      current: ViewsDirectoryProperty[]
+    ) => ViewsDirectoryProperty[]
+  ) {
+    updateDirectoryConfig({
+      displayProps: resolveNextProperties(getCurrentDirectoryProperties()),
     })
   }
 
@@ -1964,10 +1989,10 @@ export function ViewsScreen({
             })
           }
           onToggleProperty={(property) =>
-            updateDirectoryConfig({
-              displayProps: properties.includes(property)
-                ? properties.filter((value) => value !== property)
-                : [...properties, property],
+            updateDirectoryProperties((current) => {
+              return current.includes(property)
+                ? current.filter((value) => value !== property)
+                : [...current, property]
             })
           }
           properties={properties}

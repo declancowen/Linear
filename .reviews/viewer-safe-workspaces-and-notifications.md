@@ -40,11 +40,81 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-29 21:03:34 BST` |
-| **Total turns** | `8` |
+| **Last reviewed** | `2026-04-30 07:13:46 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `35` |
+| **Resolved findings** | `37` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 9 — 2026-04-30 07:13:46 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `86467427` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest repeated review batch against the current tree. Two current-tree findings were live and fixed locally: views-directory display-property toggles now read current store state at action time, matching the filter toggle fix from Turn 7, and notification toast initialization now preserves notifications created after the shell starts while still treating older pre-load notifications as already known.
+
+**Outcome:** current live findings resolved locally; push pending
+**Risk score:** medium — notification delivery/read state and saved-view directory preferences affect shared user workflows
+**Change archetypes:** state preservation, notification lifecycle, fallback safety
+**Intended change:** close the remaining stale-state toggle and first-load toast-drop paths
+**Intent vs actual:** directory property toggles no longer compute from render-time arrays, and first-load toast tracking no longer marks session-new pre-load notifications as known without a toast
+**Confidence:** medium-high — notification helper coverage is direct; property toggle fix uses the same current-store pattern as the previously fixed filter toggles
+**Coverage note:** checked `components/app/screens.tsx`, `components/app/shell.tsx`, `components/app/notification-routing.ts`, and rich-text block presence rendering against the pasted findings
+**Finding triage:** stale current-tree claims: `useCollectionLayout` no longer subscribes to the entire store, shell notification data no longer selects the entire store, channel-post hash suppression is already fixed, toast queue burst draining is already fixed, and the block presence overflow badge already renders via a template string without JSX text-node spacing
+**Bug classes / invariants checked:** State Preservation (rapid toggles must compose), Lifecycle (notifications created during startup should not be silently dropped)
+**Branch totality:** no route/auth/port changes; this turn is limited to notification toast initialization, directory property toggles, and tests
+**Sibling closure:** verified filter toggles already use current-store reads; property toggles now match that pattern
+**Residual risk / unknowns:** startup notification classification uses `createdAt` compared with the shell's local start time to avoid backlogged toast spam while preserving session-new arrivals
+
+| Status | Count |
+|--------|-------|
+| New findings | `2` |
+| Resolved during Turn 9 | `2` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| User / PR notes | Views directory property toggle reads from render-time state | resolved in `F9-01` | State Preservation | property toggle should read current persisted config | fixed |
+| Codex PR review | Preserve pre-load notifications for first toast flush | resolved in `F9-02` | Lifecycle | session-new notification before inbox load should still toast | fixed |
+| User / PR notes | `useCollectionLayout` subscribes to entire store | stale | Performance | current code uses targeted selectors for selected view and active override | no code change |
+| User / PR notes | Shell notification data subscribes to entire store | stale | Performance | current code uses narrow notification candidates and route data selectors | no code change |
+| User / PR notes | Block presence badge renders `+ 3` | stale | Presentation | current code uses a template string, rendering `+3` | no code change |
+
+### Resolved during Turn 9
+
+#### F9-01 ~~[BUG] Low~~ → RESOLVED — Views directory property toggles could patch from stale render values
+**Where:** [components/app/screens.tsx](../components/app/screens.tsx)
+
+**What was wrong:** Display-property toggles still computed the next array from render-time `properties`, so rapid toggles could lose an intermediate change before React re-rendered.
+
+**How it was fixed:** Added a current-store `getCurrentDirectoryProperties()` path and updated property toggles through `updateDirectoryProperties()`, mirroring the current-store filter toggle pattern.
+
+#### F9-02 ~~[BUG] Medium~~ → RESOLVED — First toast flush could mark pre-load session notifications as known
+**Where:** [components/app/shell.tsx](../components/app/shell.tsx), [components/app/notification-routing.ts](../components/app/notification-routing.ts), [tests/components/notification-routing.test.ts](../tests/components/notification-routing.test.ts)
+
+**What was wrong:** The first notification-toast pass initialized known IDs from the full unread set after inbox load, so notifications created after shell start but before inbox load could be treated as known and never toasted.
+
+**How it was fixed:** The shell now records the toast session start time on user changes. Initial toast tracking marks notifications created before that time as known backlog, while notifications created after that time are queued for paced toasts.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/notification-routing.test.ts tests/lib/store/viewer-view-config.test.ts tests/components/field-character-limit.test.tsx` — passed.
+- `pnpm exec eslint components/app/notification-routing.ts components/app/shell.tsx components/app/screens.tsx tests/components/notification-routing.test.ts --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** push this follow-up and let PR checks/review rerun.
 
 ---
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   appendPendingNotificationToastIds,
+  initializePendingNotificationToastIds,
   isViewingNotificationTarget,
 } from "@/components/app/notification-routing"
 import type { Notification } from "@/lib/domain/types"
@@ -56,6 +57,30 @@ describe("notification routing", () => {
       "notification_first",
       "notification_second",
     ])
+  })
+
+  it("keeps existing pre-load notifications known while queueing session-new arrivals", () => {
+    const knownIds = new Set<string>()
+    const pendingIds: string[] = []
+
+    initializePendingNotificationToastIds({
+      candidates: [
+        {
+          id: "notification_existing",
+          createdAt: "2026-04-29T15:39:59.000Z",
+        },
+        {
+          id: "notification_new",
+          createdAt: "2026-04-29T15:40:01.000Z",
+        },
+      ],
+      knownIds,
+      pendingIds,
+      startedAt: "2026-04-29T15:40:00.000Z",
+    })
+
+    expect([...knownIds]).toEqual(["notification_existing", "notification_new"])
+    expect(pendingIds).toEqual(["notification_new"])
   })
 
   it("does not suppress workspace chat notifications for a different active chat", () => {
