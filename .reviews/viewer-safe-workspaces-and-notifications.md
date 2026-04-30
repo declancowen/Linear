@@ -23,7 +23,7 @@ Files and areas reviewed across all turns:
 - `lib/domain/selectors-internal/work-items.ts` — context-aware empty-group synthesis for unfiltered work surfaces
 - `components/app/rich-text-editor.tsx` and rich-text callsites — character-limit enforcement and stats presentation defaults
 - `components/app/field-character-limit.tsx` — character-limit interface after hiding count callouts
-- `components/app/screens/work-item-detail-screen.tsx` — explicit rich-text stats hiding and work item detail rendering paths
+- `components/app/screens/work-item-detail-screen.tsx` and `components/app/screens/project-detail-screen.tsx` — explicit rich-text stats hiding, work/project detail rendering paths, and viewer-local project item controls
 - `components/app/collaboration-screens/channel-ui.tsx` — explicit rich-text stats hiding in constrained composer surfaces
 - `app/api/chats/[chatId]/calls/route.ts` and API route tests — typed application-error handling with scoped invalidation side effects
 - `components/providers/convex-app-provider.tsx` and retained-value hooks — lint-safe React hook usage
@@ -41,11 +41,72 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-30 07:45:36 BST` |
-| **Total turns** | `11` |
+| **Last reviewed** | `2026-04-30 08:11:38 BST` |
+| **Total turns** | `12` |
 | **Open findings** | `0` |
-| **Resolved findings** | `40` |
+| **Resolved findings** | `41` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 12 — 2026-04-30 08:11:38 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `bb10ec11` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest P2 against current project-detail saved-view controls. The finding was live: `PropertiesChipPopover` on Project Detail routed toggle/reorder through viewer-local handlers for saved views, but did not pass a viewer-local clear handler. Clearing properties could therefore fall back to shared view mutation. Project Detail now passes explicit local and viewer clear handlers, and the regression test verifies saved-view clear writes only the viewer override.
+
+**Outcome:** current live finding resolved locally; push pending
+**Risk score:** medium — saved-view shared configuration must not be mutated by viewer-local controls
+**Change archetypes:** state ownership, shared-vs-viewer override routing, regression coverage
+**Intended change:** ensure every Project Detail property action follows the same shared/local routing as toggle and reorder
+**Intent vs actual:** saved project view property clear now calls `clearViewerViewDisplayProperties(projectRoute, activeSavedProjectView.id)`; builtin project tabs clear only local presentation state
+**Confidence:** high — targeted test exercises the exact clear action and asserts the shared view remains unchanged while the viewer override stores `displayProps: []`
+**Coverage note:** checked `project-detail-screen.tsx`, `PropertiesChipPopover` fallback behavior, sibling work-surface/screen property clear callsites, and repeated pasted findings against the current tree
+**Finding triage:** new project-detail property clear P2 resolved in `F12-01`; repeated persisted-map, CI, project popover, notification routing, stale toggles, migration, and interface findings are already fixed, stale, or accepted as documented in prior turns
+**Bug classes / invariants checked:** State Ownership (viewer-local UI must not mutate shared saved views), Preservation (clear action should only affect intended config layer), Sibling Closure (toggle/reorder/clear should share routing)
+**Branch totality:** rechecked the property-control family for work-surface and collection screens; those already pass viewer/local clear handlers
+**Sibling closure:** Project Detail now matches the existing `work-surface.tsx` and `screens.tsx` property clear pattern
+**Residual risk / unknowns:** clear semantics intentionally remain "show no properties" via `displayProps: []`, not "revert to base defaults"
+
+| Status | Count |
+|--------|-------|
+| New findings | `1` |
+| Resolved during Turn 12 | `1` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Route property-clear action through viewer override handlers | resolved in `F12-01` | State Ownership / Preservation | every property action must route to viewer override when saved view is active | fixed |
+| User / PR notes | Repeated clear-filter/display-property semantics, default priority, message digest, rich-text stats/API, child-row/sidebar display, and low-risk performance notes | accepted | Product UX / Performance | accepted tradeoffs already documented in Turn 4 | no code change |
+| User / PR notes | Repeated persisted-map growth, CI fallback, unused project popover, broad selectors, notification hash/fallback, stale directory toggles, migration key loss, field-limit interface, undefined directory filters, truthy override checks | stale / already fixed | State Preservation / Fallback Safety / Release Safety / Interface Hygiene | current tree contains previous fixes or the claimed behavior is absent | no code change |
+
+### Resolved during Turn 12
+
+#### F12-01 ~~[BUG] Medium~~ → RESOLVED — Project Detail property clear mutated the shared view instead of viewer override
+**Where:** [components/app/screens/project-detail-screen.tsx](../components/app/screens/project-detail-screen.tsx), [tests/components/project-detail-screen.test.tsx](../tests/components/project-detail-screen.test.tsx)
+
+**What was wrong:** For active saved project views, Project Detail passed viewer-local handlers for property toggle and reorder but omitted `onClearDisplayProperties`. `PropertiesChipPopover` therefore fell back to its shared-view mutation path.
+
+**How it was fixed:** Added explicit `clearProjectItemsDisplayProperties()` and `clearViewerProjectItemsDisplayProperties()` handlers and passed them into `PropertiesChipPopover` based on whether a saved project view is active.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/project-detail-screen.test.tsx` — passed.
+- `pnpm exec eslint components/app/screens/project-detail-screen.tsx tests/components/project-detail-screen.test.tsx --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** commit, push, and let PR checks/review rerun.
 
 ---
 

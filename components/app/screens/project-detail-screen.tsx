@@ -474,6 +474,10 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     setProjectItemsDisplayProps(displayProps)
   }
 
+  function clearProjectItemsDisplayProperties() {
+    setProjectItemsDisplayProps([])
+  }
+
   function updateViewerProjectItemsView(patch: ViewConfigPatch) {
     if (!activeSavedProjectView || !projectRoute) {
       return
@@ -491,7 +495,12 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
 
     useAppStore
       .getState()
-      .toggleViewerViewFilterValue(projectRoute, activeSavedProjectView.id, key, value)
+      .toggleViewerViewFilterValue(
+        projectRoute,
+        activeSavedProjectView.id,
+        key,
+        value
+      )
   }
 
   function clearViewerProjectItemsFilters() {
@@ -532,6 +541,16 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
         activeSavedProjectView.id,
         displayProps
       )
+  }
+
+  function clearViewerProjectItemsDisplayProperties() {
+    if (!activeSavedProjectView || !projectRoute) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .clearViewerViewDisplayProperties(projectRoute, activeSavedProjectView.id)
   }
 
   function toggleViewerProjectItemsHiddenValue(
@@ -699,6 +718,11 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
               activeSavedProjectView
                 ? reorderViewerProjectItemsDisplayProperties
                 : reorderProjectItemsDisplayProperties
+            }
+            onClearDisplayProperties={
+              activeSavedProjectView
+                ? clearViewerProjectItemsDisplayProperties
+                : clearProjectItemsDisplayProperties
             }
           />
           <div className="ml-auto flex items-center gap-1.5">
