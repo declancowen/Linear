@@ -29,7 +29,7 @@ Files and areas reviewed across all turns:
 - `components/providers/convex-app-provider.tsx` and retained-value hooks — lint-safe React hook usage
 - `components/app/notification-routing.ts` — notification href resolution and active-target suppression helpers
 - `components/app/screens/work-surface-view.tsx` — editable vs read-only group synthesis and empty surface behavior
-- `lib/store/app-store.ts` and `lib/domain/selectors-internal/content.ts` — persisted selected-view migration and legacy route fallback
+- `lib/store/app-store.ts` and `lib/domain/selectors-internal/content.ts` — persisted selected-view migration, localStorage retention caps, and legacy route fallback
 - `.github/workflows/ci.yml` — Convex codegen behavior when CI has no deployment secret
 - `hooks/use-scoped-read-model-refresh.ts` — stable scoped key effect dependencies
 - `package.json` and `pnpm-lock.yaml` — dependency audit overrides for high-severity transitive vulnerabilities
@@ -40,11 +40,72 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-29 16:16:33 BST` |
-| **Last reviewed** | `2026-04-30 07:13:46 BST` |
-| **Total turns** | `9` |
+| **Last reviewed** | `2026-04-30 07:27:47 BST` |
+| **Total turns** | `10` |
 | **Open findings** | `0` |
-| **Resolved findings** | `37` |
+| **Resolved findings** | `38` |
 | **Accepted findings** | `8` |
+
+---
+
+## Turn 10 — 2026-04-30 07:27:47 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `2df92e88` (working tree updated after this base) |
+| **IDE / Agent** | `unknown / Codex` |
+| **Risk score** | `Medium` |
+
+**Summary:** Imported the latest repeated review batch against the current tree. One new current-tree persistence finding was live: viewer-scoped config maps were persisted without a retention cap. The persisted UI slice now normalizes and bounds selected-view routes, viewer view overrides, and viewer directory overrides at migration, hydration merge, and localStorage partialization time.
+
+**Outcome:** current live finding resolved locally; push pending
+**Risk score:** medium — persisted local UI preferences can accumulate for every user/route/view combination and affect app startup/storage health
+**Change archetypes:** persistence hygiene, migration compatibility, local preference retention
+**Intended change:** prevent viewer-local preference maps from growing indefinitely in localStorage while preserving recent preferences
+**Intent vs actual:** oversized persisted maps now keep the newest configured entries up to explicit caps and drop older entries during migration/merge/persistence writes
+**Confidence:** high — the owning persistence boundary is centralized and the regression test covers oversized selected-view, viewer-view, and viewer-directory maps
+**Coverage note:** checked `lib/store/app-store.ts`, viewer config store tests, and repeated pasted findings against the current tree
+**Finding triage:** new persisted-map growth finding is resolved in `F10-01`; repeated filter/display-property semantics remain accepted product behavior; repeated broad-selector, routing, toast, migration, CI, and rich-text findings are stale, already fixed, or accepted as documented in earlier turns
+**Bug classes / invariants checked:** Persistence Hygiene (persisted maps must have a retention bound), Compatibility (legacy unscoped selected view keys must still survive migration), Variant State (missing or malformed persisted maps should hydrate to empty records)
+**Branch totality:** rechecked the app-store persistence hotspot after the notification and viewer-directory fixes from Turns 7-9; no new notification routing or create-dialog behavior changed in this turn
+**Sibling closure:** selected-view route persistence uses the same compacting boundary as the two viewer config maps so adjacent localStorage map growth is also bounded
+**Residual risk / unknowns:** caps preserve newest insertion-order entries, not a true LRU by latest access; that is acceptable for local preferences and avoids adding timestamp metadata to the persisted schema
+
+| Status | Count |
+|--------|-------|
+| New findings | `1` |
+| Resolved during Turn 10 | `1` |
+| Accepted / intentional | `0` |
+| Carried open | `0` |
+
+### External finding triage
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| User / PR notes | Viewer config maps grow unboundedly in localStorage | resolved in `F10-01` | Persistence Hygiene | local preference maps need a retention bound at the persistence boundary | fixed |
+| User / PR notes | Repeated clear-filter/display-property semantics, default priority, message digest, rich-text stats/API, child-row/sidebar display, and low-risk performance notes | accepted | Product UX / Performance | accepted tradeoffs already documented in Turn 4 | no code change |
+| User / PR notes | Repeated broad store selectors, notification target fallback/hash, toast queue, stale directory toggles, migration key loss, CI no-secret check, rich-text badge spacing, undefined directory filters | stale / already fixed | State Preservation / Fallback Safety / Release Safety / Presentation | current tree contains previous fixes or the claimed behavior is absent | no code change |
+
+### Resolved during Turn 10
+
+#### F10-01 ~~[BUG] Low~~ → RESOLVED — Persisted viewer preference maps could grow without bound
+**Where:** [lib/store/app-store.ts](../lib/store/app-store.ts), [tests/lib/store/viewer-view-config.test.ts](../tests/lib/store/viewer-view-config.test.ts)
+
+**What was wrong:** `viewerViewConfigByRoute` and `viewerDirectoryConfigByRoute` were persisted directly, so route/view/user combinations could accumulate indefinitely in localStorage. The adjacent `selectedViewByRoute` map had the same retention shape.
+
+**How it was fixed:** Added a compacted persisted UI boundary that validates record shapes and caps selected-view routes, viewer view overrides, and viewer directory overrides. The same compacting function is used for migration, hydration merge, and `partialize`, so new writes and old persisted state follow the same rule.
+
+### Validation
+
+- `pnpm exec vitest run tests/lib/store/viewer-view-config.test.ts` — passed.
+- `pnpm exec eslint lib/store/app-store.ts tests/lib/store/viewer-view-config.test.ts --max-warnings 0` — passed.
+- `pnpm exec tsc --noEmit --pretty false` — passed.
+- `git diff --check` — passed.
+
+### Recommendations
+
+1. **Fix first:** none locally.
+2. **Then address:** commit, push, and let PR checks/review rerun.
 
 ---
 

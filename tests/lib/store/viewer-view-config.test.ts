@@ -10,7 +10,13 @@ import {
   getViewerScopedDirectoryKey,
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
-import { migratePersistedAppStore, useAppStore } from "@/lib/store/app-store"
+import {
+  MAX_PERSISTED_SELECTED_VIEW_ROUTES,
+  MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS,
+  MAX_PERSISTED_VIEWER_VIEW_CONFIGS,
+  migratePersistedAppStore,
+  useAppStore,
+} from "@/lib/store/app-store"
 
 function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
   return {
@@ -107,6 +113,86 @@ describe("viewer-local view config", () => {
     expect(useAppStore.getState().ui.selectedViewByRoute).toEqual({
       [getViewerScopedDirectoryKey("user_1", route)]: "view_2",
     })
+  })
+
+  it("bounds persisted viewer config maps to prevent localStorage growth", () => {
+    const selectedViewByRoute = Object.fromEntries(
+      Array.from(
+        { length: MAX_PERSISTED_SELECTED_VIEW_ROUTES + 2 },
+        (_, index) => [`/route_${index}`, `view_${index}`]
+      )
+    )
+    const viewerViewConfigByRoute = Object.fromEntries(
+      Array.from(
+        { length: MAX_PERSISTED_VIEWER_VIEW_CONFIGS + 2 },
+        (_, index) => [
+          getViewerScopedViewKey("user_1", `/route_${index}`, `view_${index}`),
+          { layout: "list" },
+        ]
+      )
+    )
+    const viewerDirectoryConfigByRoute = Object.fromEntries(
+      Array.from(
+        { length: MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS + 2 },
+        (_, index) => [
+          getViewerScopedDirectoryKey("user_1", `/directory_${index}`),
+          { layout: "board" },
+        ]
+      )
+    )
+
+    const migrated = migratePersistedAppStore({
+      ui: {
+        selectedViewByRoute,
+        viewerViewConfigByRoute,
+        viewerDirectoryConfigByRoute,
+      },
+    })
+
+    expect(Object.keys(migrated.ui?.selectedViewByRoute ?? {})).toHaveLength(
+      MAX_PERSISTED_SELECTED_VIEW_ROUTES
+    )
+    expect(
+      Object.keys(migrated.ui?.viewerViewConfigByRoute ?? {})
+    ).toHaveLength(MAX_PERSISTED_VIEWER_VIEW_CONFIGS)
+    expect(
+      Object.keys(migrated.ui?.viewerDirectoryConfigByRoute ?? {})
+    ).toHaveLength(MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS)
+
+    expect(migrated.ui?.selectedViewByRoute?.["/route_0"]).toBeUndefined()
+    expect(
+      migrated.ui?.viewerViewConfigByRoute?.[
+        getViewerScopedViewKey("user_1", "/route_0", "view_0")
+      ]
+    ).toBeUndefined()
+    expect(
+      migrated.ui?.viewerDirectoryConfigByRoute?.[
+        getViewerScopedDirectoryKey("user_1", "/directory_0")
+      ]
+    ).toBeUndefined()
+
+    expect(
+      migrated.ui?.selectedViewByRoute?.[
+        `/route_${MAX_PERSISTED_SELECTED_VIEW_ROUTES + 1}`
+      ]
+    ).toBe(`view_${MAX_PERSISTED_SELECTED_VIEW_ROUTES + 1}`)
+    expect(
+      migrated.ui?.viewerViewConfigByRoute?.[
+        getViewerScopedViewKey(
+          "user_1",
+          `/route_${MAX_PERSISTED_VIEWER_VIEW_CONFIGS + 1}`,
+          `view_${MAX_PERSISTED_VIEWER_VIEW_CONFIGS + 1}`
+        )
+      ]
+    ).toEqual({ layout: "list" })
+    expect(
+      migrated.ui?.viewerDirectoryConfigByRoute?.[
+        getViewerScopedDirectoryKey(
+          "user_1",
+          `/directory_${MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS + 1}`
+        )
+      ]
+    ).toEqual({ layout: "board" })
   })
 
   it("stores viewer overrides without mutating the shared view definition", () => {
