@@ -1,0 +1,222 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "electron/preload.cjs",
+    "services/partykit/server.ts"
+  ],
+  "ignorePatterns": [
+    "convex/_generated/**",
+    ".next/**",
+    ".vercel/**",
+    ".partykit/**",
+    "coverage/**",
+    "linear/**",
+    "dist/**",
+    "next-env.d.ts",
+    "templates/**"
+  ],
+  "ignoreDependencies": [
+    "shadcn"
+  ],
+  "ignoreExports": [
+    {
+      "file": "components/app/screens/collection-boards.tsx",
+      "exports": [
+        "ProjectBoard",
+        "SavedViewsBoard"
+      ]
+    },
+    {
+      "file": "components/app/screens/inbox-ui.tsx",
+      "exports": [
+        "buildInboxNotificationSubtitle"
+      ]
+    },
+    {
+      "file": "components/app/screens/shared.tsx",
+      "exports": [
+        "ViewsDisplaySettingsPopover",
+        "CollapsibleSection",
+        "PropertySelect",
+        "WorkItemLabelsEditor",
+        "PropertyRow",
+        "PropertyDateField",
+        "getEntityKindIcon"
+      ]
+    },
+    {
+      "file": "components/app/screens/work-item-ui.tsx",
+      "exports": [
+        "CommentsInline"
+      ]
+    },
+    {
+      "file": "components/ui/template-primitives.tsx",
+      "exports": [
+        "Chip"
+      ]
+    },
+    {
+      "file": "electron/runtime-config.cjs",
+      "exports": [
+        "DEFAULT_RENDERER_URL",
+        "resolveConfiguredRendererUrl"
+      ]
+    },
+    {
+      "file": "lib/browser/browser-theme-metadata.ts",
+      "exports": [
+        "resolveBrowserThemeColor"
+      ]
+    },
+    {
+      "file": "lib/collaboration/awareness.ts",
+      "exports": [
+        "areCollaborationRangesEqual"
+      ]
+    },
+    {
+      "file": "lib/collaboration/config.ts",
+      "exports": [
+        "DEFAULT_COLLABORATION_REFRESH_TIMEOUT_MS"
+      ]
+    },
+    {
+      "file": "lib/collaboration/transport.ts",
+      "exports": [
+        "safeParseCollaborationSessionTokenClaims",
+        "createDocumentSessionBootstrap"
+      ]
+    },
+    {
+      "file": "lib/content/rich-text-mentions.ts",
+      "exports": [
+        "extractRichTextMentionUserIds"
+      ]
+    },
+    {
+      "file": "lib/convex/client/work.ts",
+      "exports": [
+        "syncUpdateDocument"
+      ]
+    },
+    {
+      "file": "lib/convex/client.ts",
+      "exports": [
+        "runRouteMutation",
+        "syncUpdateDocument"
+      ]
+    },
+    {
+      "file": "lib/date-input.ts",
+      "exports": [
+        "parseDateInputValue"
+      ]
+    },
+    {
+      "file": "lib/domain/invite-search.ts",
+      "exports": [
+        "InviteWorkspaceUserMatch"
+      ]
+    },
+    {
+      "file": "lib/domain/selectors-internal/search.ts",
+      "exports": [
+        "searchWorkspace"
+      ]
+    },
+    {
+      "file": "lib/email/queued-email-worker.ts",
+      "exports": [
+        "normalizeResendFrom"
+      ]
+    },
+    {
+      "file": "lib/realtime/feature-flags.ts",
+      "exports": [
+        "isLegacySnapshotStreamEnabled"
+      ]
+    },
+    {
+      "file": "lib/scoped-sync/scope-keys.ts",
+      "exports": [
+        "createReadModelScopeKey"
+      ]
+    },
+    {
+      "file": "lib/scoped-sync/read-models.ts",
+      "exports": [
+        "getProjectDetailScopeKeys"
+      ]
+    },
+    {
+      "file": "lib/server/collaboration-token.ts",
+      "exports": [
+        "verifySignedCollaborationToken"
+      ]
+    },
+    {
+      "file": "lib/server/convex/collaboration.ts",
+      "exports": [
+        "markCallJoinedServer",
+        "setCallRoomServer",
+        "setConversationRoomServer"
+      ]
+    },
+    {
+      "file": "lib/server/convex/documents.ts",
+      "exports": [
+        "updateDocumentContentServer"
+      ]
+    },
+    {
+      "file": "lib/server/convex/notifications.ts",
+      "exports": [
+        "enqueueMentionEmailJobsServer",
+        "enqueueEmailJobsServer"
+      ]
+    },
+    {
+      "file": "lib/server/convex/teams-projects.ts",
+      "exports": [
+        "renameProjectServer"
+      ]
+    },
+    {
+      "file": "lib/server/join-codes.ts",
+      "exports": [
+        "isJoinCodeConflict"
+      ]
+    },
+    {
+      "file": "lib/store/app-store.ts",
+      "exports": [
+        "MAX_PERSISTED_SELECTED_VIEW_ROUTES",
+        "MAX_PERSISTED_VIEWER_VIEW_CONFIGS",
+        "MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS",
+        "migratePersistedAppStore"
+      ]
+    }
+  ],
+  "workspaces": {
+    "packages": [
+      "."
+    ]
+  },
+  "rules": {
+    "unused-dependencies": "warn"
+  },
+  "duplicates": {
+    "ignoreImports": true
+  },
+  "overrides": [
+    {
+      "files": [
+        "app/globals.css"
+      ],
+      "rules": {
+        "unresolved-imports": "off"
+      }
+    }
+  ]
+}

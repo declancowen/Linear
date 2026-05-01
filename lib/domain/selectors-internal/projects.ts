@@ -1,11 +1,4 @@
-import type {
-  AppData,
-  Document,
-  Project,
-  Team,
-  UserProfile,
-  WorkItem,
-} from "@/lib/domain/types"
+import type { AppData, Project, UserProfile } from "@/lib/domain/types"
 import {
   normalizeTeamIconToken,
   teamExperienceMeta,
@@ -51,64 +44,43 @@ export function getProjectProgress(data: AppData, projectId: string) {
   }
 }
 
+function filterIsEmptyOrIncludes<T>(values: T[], value: T) {
+  return values.length === 0 || values.includes(value)
+}
+
+function getProjectFilterTeamId(project: Project) {
+  return project.scopeType === "team" ? project.scopeId : ""
+}
+
+function projectStatusIsVisible(
+  project: Project,
+  view: Pick<ViewDefinition, "filters">
+) {
+  return (
+    view.filters.showCompleted ||
+    (project.status !== "completed" && project.status !== "cancelled")
+  )
+}
+
 function projectMatchesView(
   project: Project,
   view: Pick<ViewDefinition, "filters">
 ) {
-  if (
-    view.filters.status.length > 0 &&
-    !view.filters.status.includes(project.status)
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.priority.length > 0 &&
-    !view.filters.priority.includes(project.priority)
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.leadIds.length > 0 &&
-    !view.filters.leadIds.includes(project.leadId)
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.health.length > 0 &&
-    !view.filters.health.includes(project.health)
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.projectIds.length > 0 &&
-    !view.filters.projectIds.includes(project.id)
-  ) {
-    return false
-  }
-
-  if (view.filters.teamIds.length > 0) {
-    const projectTeamId = project.scopeType === "team" ? project.scopeId : ""
-
-    if (!view.filters.teamIds.includes(projectTeamId)) {
-      return false
-    }
-  }
-
-  if (
-    !view.filters.showCompleted &&
-    (project.status === "completed" || project.status === "cancelled")
-  ) {
-    return false
-  }
-
-  return true
+  return (
+    filterIsEmptyOrIncludes(view.filters.status, project.status) &&
+    filterIsEmptyOrIncludes(view.filters.priority, project.priority) &&
+    filterIsEmptyOrIncludes(view.filters.leadIds, project.leadId) &&
+    filterIsEmptyOrIncludes(view.filters.health, project.health) &&
+    filterIsEmptyOrIncludes(view.filters.projectIds, project.id) &&
+    filterIsEmptyOrIncludes(
+      view.filters.teamIds,
+      getProjectFilterTeamId(project)
+    ) &&
+    projectStatusIsVisible(project, view)
+  )
 }
 
-export function sortProjects(projects: Project[], ordering: OrderingField) {
+function sortProjects(projects: Project[], ordering: OrderingField) {
   return [...projects].sort((left, right) => {
     if (ordering === "priority") {
       return comparePriority(left.priority, right.priority)
@@ -118,8 +90,7 @@ export function sortProjects(projects: Project[], ordering: OrderingField) {
       return left.name.localeCompare(right.name)
     }
 
-    const leftValue =
-      ordering === "dueDate" ? left.targetDate : left[ordering]
+    const leftValue = ordering === "dueDate" ? left.targetDate : left[ordering]
     const rightValue =
       ordering === "dueDate" ? right.targetDate : right[ordering]
 
@@ -140,9 +111,7 @@ export function sortProjects(projects: Project[], ordering: OrderingField) {
         ? rightValue.localeCompare(leftValue)
         : 0
 
-    return comparison !== 0
-      ? comparison
-      : left.name.localeCompare(right.name)
+    return comparison !== 0 ? comparison : left.name.localeCompare(right.name)
   })
 }
 
@@ -216,22 +185,4 @@ export function getProjectDetailModel(data: AppData, projectId: string) {
       ? teamExperienceMeta[team.settings.experience].label
       : null,
   }
-}
-
-export function isGuestVisible(
-  data: AppData,
-  team: Team,
-  entity: Project | Document | WorkItem
-) {
-  void data
-
-  if ("templateType" in entity) {
-    return team.settings.guestProjectIds.includes(entity.id)
-  }
-
-  if ("key" in entity) {
-    return team.settings.guestWorkItemIds.includes(entity.id)
-  }
-
-  return team.settings.guestDocumentIds.includes(entity.id)
 }

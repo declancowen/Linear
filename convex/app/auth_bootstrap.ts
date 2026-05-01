@@ -155,6 +155,29 @@ type ListWorkspacesForSyncArgs = {
   serverToken: string
 }
 
+type BootstrapTeamDoc = Awaited<ReturnType<typeof getTeamByWorkspaceAndSlug>>
+type BootstrapUserDoc = Awaited<ReturnType<typeof resolveActiveUserByIdentity>>
+type BootstrapWorkspaceDoc = NonNullable<
+  Awaited<ReturnType<typeof getWorkspaceBySlug>>
+>
+type BootstrapWorkspaceTeamDoc = NonNullable<
+  Awaited<ReturnType<typeof getTeamByWorkspaceAndSlug>>
+>
+type BootstrapWorkspaceUserDoc = NonNullable<
+  Awaited<ReturnType<typeof getUserByWorkOSUserId>>
+>
+type AuthContextUserDoc = NonNullable<
+  Awaited<ReturnType<typeof resolveUserFromServerArgs>>
+>
+type AuthContextTeamMembershipDoc = Awaited<
+  ReturnType<typeof listTeamMembershipsByUser>
+>[number]
+type AuthContextTeamDoc = Awaited<ReturnType<typeof listTeamsByIds>>[number]
+type AuthContextWorkspaceDoc = Awaited<
+  ReturnType<typeof listWorkspacesOwnedByUser>
+>[number]
+type TeamFeatureSettings = ReturnType<typeof createDefaultTeamFeatureSettings>
+
 async function hasAnyWorkspaceAccess(ctx: MutationCtx, userId: string) {
   const [workspaceMemberships, teamMemberships, ownedWorkspaces] =
     await Promise.all([
@@ -203,7 +226,9 @@ function resolveUserPresencePatch(
 }
 
 function dedupeById<T extends { id: string }>(entries: T[]) {
-  return [...new Map(entries.map((entry) => [entry.id, entry] as const)).values()]
+  return [
+    ...new Map(entries.map((entry) => [entry.id, entry] as const)).values(),
+  ]
 }
 
 function resolveWorkspaceMembershipWorkspaceId(input: {
@@ -240,11 +265,15 @@ function selectWorkspaceMembershipInviteEntries<
   return input.invites.filter((invite) => {
     const isPendingCurrentUserInvite =
       input.normalizedCurrentUserEmail.length > 0 &&
-      normalizeEmailAddress(invite.email) === input.normalizedCurrentUserEmail &&
+      normalizeEmailAddress(invite.email) ===
+        input.normalizedCurrentUserEmail &&
       !invite.acceptedAt &&
       !invite.declinedAt
 
-    return invite.workspaceId === input.resolvedWorkspaceId || isPendingCurrentUserInvite
+    return (
+      invite.workspaceId === input.resolvedWorkspaceId ||
+      isPendingCurrentUserInvite
+    )
   })
 }
 
@@ -257,7 +286,9 @@ async function buildWorkspaceMembershipBootstrap(
   }
 ) {
   const userAppState = await getUserAppState(ctx, input.currentUserId)
-  const normalizedCurrentUserEmail = normalizeEmailAddress(input.currentUserEmail)
+  const normalizedCurrentUserEmail = normalizeEmailAddress(
+    input.currentUserEmail
+  )
   const [accessibleWorkspaceMemberships, accessibleMemberships] =
     await Promise.all([
       listWorkspaceMembershipsByUser(ctx, input.currentUserId),
@@ -267,7 +298,10 @@ async function buildWorkspaceMembershipBootstrap(
     ...new Set(accessibleMemberships.map((membership) => membership.teamId)),
   ]
   const visibleTeams = await listTeamsByIds(ctx, accessibleTeamIdList)
-  const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, input.currentUserId)
+  const ownedWorkspaces = await listWorkspacesOwnedByUser(
+    ctx,
+    input.currentUserId
+  )
   const accessibleWorkspaceIds = new Set<string>(
     [
       ...accessibleWorkspaceMemberships.map(
@@ -332,9 +366,7 @@ async function buildWorkspaceMembershipBootstrap(
     .map((team) => normalizeTeam(team))
   const teamIds = teams.map((team) => team.id)
   const teamMemberships =
-    teamIds.length > 0
-      ? await listTeamMembershipsByTeams(ctx, teamIds)
-      : []
+    teamIds.length > 0 ? await listTeamMembershipsByTeams(ctx, teamIds) : []
   const invites = selectWorkspaceMembershipInviteEntries({
     invites: dedupeById([...teamInvites, ...currentUserInvites]),
     resolvedWorkspaceId,
@@ -348,10 +380,9 @@ async function buildWorkspaceMembershipBootstrap(
     ...invites.map((invite) => invite.invitedBy),
   ])
   const users = await Promise.all(
-    (
-      userIds.size > 0
-        ? await listUsersByIds(ctx, [...userIds].filter(Boolean))
-        : []
+    (userIds.size > 0
+      ? await listUsersByIds(ctx, [...userIds].filter(Boolean))
+      : []
     ).map((user) => resolveUserSnapshot(ctx, user))
   )
 
@@ -372,21 +403,14 @@ async function buildWorkspaceMembershipBootstrap(
   }
 }
 
-export async function bootstrapAppWorkspaceHandler(
+async function upsertBootstrapWorkspace(
   ctx: MutationCtx,
-  args: BootstrapAppWorkspaceArgs
+  args: BootstrapAppWorkspaceArgs,
+  workspaceSlug: string
 ) {
-  assertServerToken(args.serverToken)
-  const normalizedEmail = normalizeEmailAddress(args.email)
-  const workspaceSlug = createSlug(args.workspaceSlug)
-  const teamSlug = createSlug(args.teamSlug)
-  const joinCode = normalizeJoinCode(args.teamJoinCode)
-  const role = args.role ?? "admin"
-
   const workspace = await getWorkspaceBySlug(ctx, workspaceSlug)
   const workspaceId =
     workspace?.id ?? `workspace_${workspaceSlug.replace(/-/g, "_")}`
-  const workosOrganizationId = workspace?.workosOrganizationId ?? null
 
   if (workspace) {
     await ctx.db.patch(workspace._id, {
@@ -413,77 +437,152 @@ export async function bootstrapAppWorkspaceHandler(
     })
   }
 
-  const team = await getTeamByWorkspaceAndSlug(ctx, workspaceId, teamSlug)
-  const teamId = team?.id ?? `team_${teamSlug.replace(/-/g, "_")}`
-  const teamExperience =
+  return {
+    workspaceId,
+    workosOrganizationId: workspace?.workosOrganizationId ?? null,
+  }
+}
+
+function resolveBootstrapTeamExperience(
+  args: BootstrapAppWorkspaceArgs,
+  team: BootstrapTeamDoc
+) {
+  return (
     args.teamExperience ??
-    (
-      team?.settings as
-        | {
-            experience?:
-              | "software-development"
-              | "issue-analysis"
-              | "project-management"
-              | "community"
-          }
-        | undefined
-    )?.experience ??
+    (team?.settings as { experience?: TeamExperienceType } | undefined)
+      ?.experience ??
     "software-development"
+  )
+}
+
+function resolveBootstrapTeamFeatures(
+  team: BootstrapTeamDoc,
+  teamExperience: TeamExperienceType
+) {
+  if (!team) {
+    return createDefaultTeamFeatureSettings(teamExperience)
+  }
+
+  return normalizeTeamFeatures(
+    teamExperience,
+    (team.settings as { features?: TeamFeatureSettings }).features
+  )
+}
+
+async function upsertBootstrapTeam(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapAppWorkspaceArgs
+    joinCode: string
+    teamSlug: string
+    workspaceId: string
+  }
+) {
+  const team = await getTeamByWorkspaceAndSlug(
+    ctx,
+    input.workspaceId,
+    input.teamSlug
+  )
+  const teamId = team?.id ?? `team_${input.teamSlug.replace(/-/g, "_")}`
+  const teamExperience = resolveBootstrapTeamExperience(input.args, team)
   const workflow = team
     ? normalizeTeamWorkflowSettings(team.settings.workflow, teamExperience)
     : createDefaultTeamWorkflowSettings(teamExperience)
-  const teamIcon = normalizeTeamIcon(args.teamIcon, teamExperience)
+  const teamIcon = normalizeTeamIcon(input.args.teamIcon, teamExperience)
 
   if (team) {
     await ctx.db.patch(team._id, {
-      joinCodeNormalized: joinCode,
-      slug: teamSlug,
-      name: args.teamName,
+      joinCodeNormalized: input.joinCode,
+      slug: input.teamSlug,
+      name: input.args.teamName,
       icon: teamIcon,
       settings: {
         ...team.settings,
-        joinCode,
-        summary: args.teamSummary,
+        joinCode: input.joinCode,
+        summary: input.args.teamSummary,
         experience: teamExperience,
-        features: normalizeTeamFeatures(
-          teamExperience,
-          (
-            team.settings as {
-              features?: {
-                issues: boolean
-                projects: boolean
-                views: boolean
-                docs: boolean
-                chat: boolean
-                channels: boolean
-              }
-            }
-          ).features
-        ),
+        features: resolveBootstrapTeamFeatures(team, teamExperience),
         workflow,
       },
     })
   } else {
     await ctx.db.insert("teams", {
       id: teamId,
-      workspaceId,
-      joinCodeNormalized: joinCode,
-      slug: teamSlug,
-      name: args.teamName,
+      workspaceId: input.workspaceId,
+      joinCodeNormalized: input.joinCode,
+      slug: input.teamSlug,
+      name: input.args.teamName,
       icon: teamIcon,
       settings: {
-        joinCode,
-        summary: args.teamSummary,
+        joinCode: input.joinCode,
+        summary: input.args.teamSummary,
         guestProjectIds: [],
         guestDocumentIds: [],
         guestWorkItemIds: [],
         experience: teamExperience,
-        features: createDefaultTeamFeatureSettings(teamExperience),
+        features: resolveBootstrapTeamFeatures(team, teamExperience),
         workflow,
       },
     })
   }
 
+  return teamId
+}
+
+async function patchBootstrapUser(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapAppWorkspaceArgs
+    normalizedEmail: string
+    user: NonNullable<BootstrapUserDoc>
+  }
+) {
+  const resetPresence = !(await hasAnyWorkspaceAccess(ctx, input.user.id))
+
+  await ctx.db.patch(input.user._id, {
+    email: input.normalizedEmail,
+    emailNormalized: input.normalizedEmail,
+    name: input.args.userName,
+    avatarUrl: input.args.avatarUrl,
+    workosUserId: input.args.workosUserId,
+    handle: createHandle(input.normalizedEmail),
+    ...resolveUserPresencePatch(input.user, resetPresence),
+    preferences: {
+      ...defaultUserPreferences,
+      ...input.user.preferences,
+    },
+  })
+}
+
+async function insertBootstrapUser(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapAppWorkspaceArgs
+    normalizedEmail: string
+    userId: string
+  }
+) {
+  await ctx.db.insert("users", {
+    id: input.userId,
+    email: input.normalizedEmail,
+    emailNormalized: input.normalizedEmail,
+    name: input.args.userName,
+    avatarUrl: input.args.avatarUrl,
+    workosUserId: input.args.workosUserId,
+    handle: createHandle(input.normalizedEmail),
+    title: "Founder / Product",
+    status: defaultUserStatus,
+    statusMessage: defaultUserStatusMessage,
+    hasExplicitStatus: false,
+    preferences: defaultUserPreferences,
+  })
+}
+
+async function upsertBootstrapUser(
+  ctx: MutationCtx,
+  args: BootstrapAppWorkspaceArgs,
+  normalizedEmail: string
+) {
   const resolvedUser = await resolveActiveUserByIdentity(ctx, {
     workosUserId: args.workosUserId,
     email: normalizedEmail,
@@ -491,77 +590,128 @@ export async function bootstrapAppWorkspaceHandler(
   const userId = resolvedUser?.id ?? createId("user")
 
   if (resolvedUser) {
-    const resetPresence = !(await hasAnyWorkspaceAccess(ctx, resolvedUser.id))
-
-    await ctx.db.patch(resolvedUser._id, {
-      email: normalizedEmail,
-      emailNormalized: normalizedEmail,
-      name: args.userName,
-      avatarUrl: args.avatarUrl,
-      workosUserId: args.workosUserId,
-      handle: createHandle(normalizedEmail),
-      ...resolveUserPresencePatch(resolvedUser, resetPresence),
-      preferences: {
-        ...defaultUserPreferences,
-        ...resolvedUser.preferences,
-      },
+    await patchBootstrapUser(ctx, {
+      args,
+      normalizedEmail,
+      user: resolvedUser,
     })
   } else {
-    await ctx.db.insert("users", {
-      id: userId,
-      email: normalizedEmail,
-      emailNormalized: normalizedEmail,
-      name: args.userName,
-      avatarUrl: args.avatarUrl,
-      workosUserId: args.workosUserId,
-      handle: createHandle(normalizedEmail),
-      title: "Founder / Product",
-      status: defaultUserStatus,
-      statusMessage: defaultUserStatusMessage,
-      hasExplicitStatus: false,
-      preferences: defaultUserPreferences,
+    await insertBootstrapUser(ctx, {
+      args,
+      normalizedEmail,
+      userId,
     })
   }
 
+  return userId
+}
+
+async function upsertBootstrapTeamMembership(
+  ctx: MutationCtx,
+  input: {
+    role: Role
+    teamId: string
+    userId: string
+  }
+) {
   const membership = await ctx.db
     .query("teamMemberships")
     .withIndex("by_team_and_user", (q) =>
-      q.eq("teamId", teamId).eq("userId", userId)
+      q.eq("teamId", input.teamId).eq("userId", input.userId)
     )
     .unique()
 
   if (membership) {
     await ctx.db.patch(membership._id, {
-      role,
+      role: input.role,
     })
-  } else {
-    await ctx.db.insert("teamMemberships", {
-      teamId,
-      userId,
-      role,
-    })
+    return
   }
 
-  const persistedWorkspace = await getWorkspaceDoc(ctx, workspaceId)
+  await ctx.db.insert("teamMemberships", {
+    teamId: input.teamId,
+    userId: input.userId,
+    role: input.role,
+  })
+}
+
+async function ensureBootstrapWorkspaceCreator(
+  ctx: MutationCtx,
+  input: {
+    userId: string
+    workspaceId: string
+  }
+) {
+  const persistedWorkspace = await getWorkspaceDoc(ctx, input.workspaceId)
 
   if (persistedWorkspace && !persistedWorkspace.createdBy) {
     await ctx.db.patch(persistedWorkspace._id, {
-      createdBy: userId,
+      createdBy: input.userId,
     })
   }
+}
 
+async function finalizeBootstrapWorkspaceAccess(
+  ctx: MutationCtx,
+  input: {
+    role: Role
+    teamId: string
+    userId: string
+    workspaceId: string
+  }
+) {
   await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId,
-    userId,
-    fallbackRole: role,
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    fallbackRole: input.role,
   })
 
-  await syncTeamConversationMemberships(ctx, teamId)
+  await syncTeamConversationMemberships(ctx, input.teamId)
+  await setCurrentWorkspaceForUser(ctx, input.userId, input.workspaceId)
 
-  await setCurrentWorkspaceForUser(ctx, userId, workspaceId)
+  const team = await getTeamDoc(ctx, input.teamId)
+  await ensureTeamWorkViews(ctx, team)
+  await ensureTeamProjectViews(ctx, team)
+}
 
-  await ensureTeamWorkViews(ctx, await getTeamDoc(ctx, teamId))
-  await ensureTeamProjectViews(ctx, await getTeamDoc(ctx, teamId))
+export async function bootstrapAppWorkspaceHandler(
+  ctx: MutationCtx,
+  args: BootstrapAppWorkspaceArgs
+) {
+  assertServerToken(args.serverToken)
+  const normalizedEmail = normalizeEmailAddress(args.email)
+  const workspaceSlug = createSlug(args.workspaceSlug)
+  const teamSlug = createSlug(args.teamSlug)
+  const joinCode = normalizeJoinCode(args.teamJoinCode)
+  const role = args.role ?? "admin"
+  const { workspaceId, workosOrganizationId } = await upsertBootstrapWorkspace(
+    ctx,
+    args,
+    workspaceSlug
+  )
+  const teamId = await upsertBootstrapTeam(ctx, {
+    args,
+    joinCode,
+    teamSlug,
+    workspaceId,
+  })
+  const userId = await upsertBootstrapUser(ctx, args, normalizedEmail)
+
+  await upsertBootstrapTeamMembership(ctx, {
+    role,
+    teamId,
+    userId,
+  })
+  await ensureBootstrapWorkspaceCreator(ctx, {
+    userId,
+    workspaceId,
+  })
+  await finalizeBootstrapWorkspaceAccess(ctx, {
+    role,
+    teamId,
+    userId,
+    workspaceId,
+  })
 
   return {
     workspaceId,
@@ -572,6 +722,235 @@ export async function bootstrapAppWorkspaceHandler(
     role,
     workosOrganizationId,
   }
+}
+
+function addReactionUserIds(
+  visibleUserIds: Set<string>,
+  reactions?: Array<{ userIds: string[] }> | null
+) {
+  for (const reaction of reactions ?? []) {
+    for (const reactionUserId of reaction.userIds) {
+      visibleUserIds.add(reactionUserId)
+    }
+  }
+}
+
+function addMentionUserIds(
+  visibleUserIds: Set<string>,
+  mentionUserIds?: string[] | null
+) {
+  for (const mentionUserId of mentionUserIds ?? []) {
+    visibleUserIds.add(mentionUserId)
+  }
+}
+
+type SnapshotVisibleUserIdInput = {
+  visibleUserIds: Set<string>
+  currentUserId: string
+  visibleWorkspaces: Array<{ createdBy?: string | null }>
+  visibleProjects: Array<{ leadId: string; memberIds: string[] }>
+  visibleWorkItems: Array<{
+    creatorId: string
+    assigneeId?: string | null
+    subscriberIds: string[]
+  }>
+  visibleDocuments: Array<{ createdBy: string; updatedBy: string }>
+  visibleViews: Array<{
+    scopeType: string
+    scopeId: string
+    filters: {
+      assigneeIds: string[]
+      creatorIds: string[]
+      leadIds: string[]
+    }
+  }>
+  visibleComments: Array<{
+    createdBy: string
+    mentionUserIds?: string[] | null
+    reactions?: Array<{ userIds: string[] }> | null
+  }>
+  attachments: Array<{ uploadedBy: string }>
+  visibleNotifications: Array<{ userId: string; actorId: string }>
+  visibleInvites: Array<{ invitedBy: string }>
+  visibleProjectUpdates: Array<{ createdBy: string }>
+  visibleConversations: Array<{ createdBy: string; participantIds: string[] }>
+  visibleCalls: Array<{
+    startedBy: string
+    lastJoinedBy?: string | null
+    participantUserIds?: string[] | null
+  }>
+  visibleChatMessages: Array<{
+    createdBy: string
+    mentionUserIds?: string[] | null
+    reactions?: Array<{ userIds: string[] }> | null
+  }>
+  visibleChannelPosts: Array<{
+    createdBy: string
+    reactions?: Array<{ userIds: string[] }> | null
+  }>
+  visibleChannelPostComments: Array<{
+    createdBy: string
+    mentionUserIds?: string[] | null
+  }>
+}
+
+function addSnapshotWorkspaceUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const workspace of input.visibleWorkspaces) {
+    if (workspace.createdBy) {
+      input.visibleUserIds.add(workspace.createdBy)
+    }
+  }
+}
+
+function addSnapshotProjectUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const project of input.visibleProjects) {
+    input.visibleUserIds.add(project.leadId)
+
+    for (const memberId of project.memberIds) {
+      input.visibleUserIds.add(memberId)
+    }
+  }
+}
+
+function addSnapshotWorkItemUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const workItem of input.visibleWorkItems) {
+    input.visibleUserIds.add(workItem.creatorId)
+
+    if (workItem.assigneeId) {
+      input.visibleUserIds.add(workItem.assigneeId)
+    }
+
+    for (const subscriberId of workItem.subscriberIds) {
+      input.visibleUserIds.add(subscriberId)
+    }
+  }
+}
+
+function addSnapshotDocumentUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const document of input.visibleDocuments) {
+    input.visibleUserIds.add(document.createdBy)
+    input.visibleUserIds.add(document.updatedBy)
+  }
+}
+
+function addSnapshotViewUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const view of input.visibleViews) {
+    if (view.scopeType === "personal") {
+      input.visibleUserIds.add(view.scopeId)
+    }
+
+    for (const assigneeId of view.filters.assigneeIds) {
+      input.visibleUserIds.add(assigneeId)
+    }
+
+    for (const creatorId of view.filters.creatorIds) {
+      input.visibleUserIds.add(creatorId)
+    }
+
+    for (const leadId of view.filters.leadIds) {
+      input.visibleUserIds.add(leadId)
+    }
+  }
+}
+
+function addSnapshotCommentUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const comment of input.visibleComments) {
+    input.visibleUserIds.add(comment.createdBy)
+    addMentionUserIds(input.visibleUserIds, comment.mentionUserIds)
+    addReactionUserIds(input.visibleUserIds, comment.reactions)
+  }
+}
+
+function addSnapshotAttachmentUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const attachment of input.attachments) {
+    input.visibleUserIds.add(attachment.uploadedBy)
+  }
+}
+
+function addSnapshotNotificationUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const notification of input.visibleNotifications) {
+    input.visibleUserIds.add(notification.userId)
+    input.visibleUserIds.add(notification.actorId)
+  }
+}
+
+function addSnapshotInviteUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const invite of input.visibleInvites) {
+    input.visibleUserIds.add(invite.invitedBy)
+  }
+}
+
+function addSnapshotProjectUpdateUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const update of input.visibleProjectUpdates) {
+    input.visibleUserIds.add(update.createdBy)
+  }
+}
+
+function addSnapshotConversationUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const conversation of input.visibleConversations) {
+    input.visibleUserIds.add(conversation.createdBy)
+
+    for (const participantId of conversation.participantIds) {
+      input.visibleUserIds.add(participantId)
+    }
+  }
+}
+
+function addSnapshotCallUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const call of input.visibleCalls) {
+    input.visibleUserIds.add(call.startedBy)
+
+    if (call.lastJoinedBy) {
+      input.visibleUserIds.add(call.lastJoinedBy)
+    }
+
+    for (const participantUserId of call.participantUserIds ?? []) {
+      input.visibleUserIds.add(participantUserId)
+    }
+  }
+}
+
+function addSnapshotChatMessageUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const message of input.visibleChatMessages) {
+    input.visibleUserIds.add(message.createdBy)
+    addMentionUserIds(input.visibleUserIds, message.mentionUserIds)
+    addReactionUserIds(input.visibleUserIds, message.reactions)
+  }
+}
+
+function addSnapshotChannelPostUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const post of input.visibleChannelPosts) {
+    input.visibleUserIds.add(post.createdBy)
+    addReactionUserIds(input.visibleUserIds, post.reactions)
+  }
+}
+
+function addSnapshotChannelPostCommentUserIds(
+  input: SnapshotVisibleUserIdInput
+) {
+  for (const comment of input.visibleChannelPostComments) {
+    input.visibleUserIds.add(comment.createdBy)
+    addMentionUserIds(input.visibleUserIds, comment.mentionUserIds)
+  }
+}
+
+function collectSnapshotVisibleUserIds(input: SnapshotVisibleUserIdInput) {
+  input.visibleUserIds.add(input.currentUserId)
+  addSnapshotWorkspaceUserIds(input)
+  addSnapshotProjectUserIds(input)
+  addSnapshotWorkItemUserIds(input)
+  addSnapshotDocumentUserIds(input)
+  addSnapshotViewUserIds(input)
+  addSnapshotCommentUserIds(input)
+  addSnapshotAttachmentUserIds(input)
+  addSnapshotNotificationUserIds(input)
+  addSnapshotInviteUserIds(input)
+  addSnapshotProjectUpdateUserIds(input)
+  addSnapshotConversationUserIds(input)
+  addSnapshotCallUserIds(input)
+  addSnapshotChatMessageUserIds(input)
+  addSnapshotChannelPostUserIds(input)
+  addSnapshotChannelPostCommentUserIds(input)
 }
 
 export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
@@ -633,12 +1012,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       listWorkspaceMembershipsByWorkspaces(ctx, accessibleWorkspaceIdList),
       listTeamMembershipsByTeams(ctx, accessibleTeamIdList),
     ])
-  const visibleUserIds = new Set(
-    [
-      ...visibleWorkspaceMemberships.map((membership) => membership.userId),
-      ...visibleTeamMemberships.map((membership) => membership.userId),
-    ]
-  )
+  const visibleUserIds = new Set([
+    ...visibleWorkspaceMemberships.map((membership) => membership.userId),
+    ...visibleTeamMemberships.map((membership) => membership.userId),
+  ])
 
   if (currentUserId) {
     visibleUserIds.add(currentUserId)
@@ -663,7 +1040,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   )
   const visibleDocuments = [
     ...(await listTeamDocumentsByTeams(ctx, accessibleTeamIdList)),
-    ...(await listWorkspaceDocumentsByWorkspaces(ctx, accessibleWorkspaceIdList)),
+    ...(await listWorkspaceDocumentsByWorkspaces(
+      ctx,
+      accessibleWorkspaceIdList
+    )),
   ]
     .filter(
       (document, index, documents) =>
@@ -693,7 +1073,9 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     visibleDocuments.map((document) => document.id)
   )
   const visibleViews = [
-    ...(currentUserId ? await listPersonalViewsByUsers(ctx, [currentUserId]) : []),
+    ...(currentUserId
+      ? await listPersonalViewsByUsers(ctx, [currentUserId])
+      : []),
     ...(await listViewsByScopes(ctx, [
       ...accessibleTeamIdList.map((teamId) => ({
         scopeType: "team" as const,
@@ -735,10 +1117,12 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     }))
   )
   const visibleNotifications = currentUserId
-    ? (await listNotificationsByUser(ctx, currentUserId)).map((notification) => ({
-        ...notification,
-        archivedAt: notification.archivedAt ?? null,
-      }))
+    ? (await listNotificationsByUser(ctx, currentUserId)).map(
+        (notification) => ({
+          ...notification,
+          archivedAt: notification.archivedAt ?? null,
+        })
+      )
     : []
   const visibleInvites = [
     ...new Map(
@@ -768,23 +1152,27 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         scopeId: teamId,
       }))
     )),
-    ...(await listConversationsByScopes(
-      ctx,
-      accessibleWorkspaceIdList.map((workspaceId) => ({
-        scopeType: "workspace" as const,
-        scopeId: workspaceId,
-      }))
-    ))
-      .filter(
-        (conversation) =>
-          conversation.kind === "channel" ||
-          conversation.participantIds.includes(currentUserId)
-      ),
+    ...(
+      await listConversationsByScopes(
+        ctx,
+        accessibleWorkspaceIdList.map((workspaceId) => ({
+          scopeType: "workspace" as const,
+          scopeId: workspaceId,
+        }))
+      )
+    ).filter(
+      (conversation) =>
+        conversation.kind === "channel" ||
+        conversation.participantIds.includes(currentUserId)
+    ),
   ]
   const visibleConversationIds = new Set(
     visibleConversations.map((conversation) => conversation.id)
   )
-  const visibleCalls = await listCallsByConversations(ctx, visibleConversationIds)
+  const visibleCalls = await listCallsByConversations(
+    ctx,
+    visibleConversationIds
+  )
   const visibleChatMessages = (
     await listChatMessagesByConversations(ctx, visibleConversationIds)
   ).map((message) => ({
@@ -810,137 +1198,25 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     mentionUserIds: comment.mentionUserIds ?? [],
   }))
 
-  for (const workspace of visibleWorkspaces) {
-    if (workspace.createdBy) {
-      visibleUserIds.add(workspace.createdBy)
-    }
-  }
-
-  for (const project of visibleProjects) {
-    visibleUserIds.add(project.leadId)
-
-    for (const memberId of project.memberIds) {
-      visibleUserIds.add(memberId)
-    }
-  }
-
-  for (const workItem of visibleWorkItems) {
-    visibleUserIds.add(workItem.creatorId)
-
-    if (workItem.assigneeId) {
-      visibleUserIds.add(workItem.assigneeId)
-    }
-
-    for (const subscriberId of workItem.subscriberIds) {
-      visibleUserIds.add(subscriberId)
-    }
-  }
-
-  for (const document of visibleDocuments) {
-    visibleUserIds.add(document.createdBy)
-    visibleUserIds.add(document.updatedBy)
-  }
-
-  for (const view of visibleViews) {
-    if (view.scopeType === "personal") {
-      visibleUserIds.add(view.scopeId)
-    }
-
-    for (const assigneeId of view.filters.assigneeIds) {
-      visibleUserIds.add(assigneeId)
-    }
-
-    for (const creatorId of view.filters.creatorIds) {
-      visibleUserIds.add(creatorId)
-    }
-
-    for (const leadId of view.filters.leadIds) {
-      visibleUserIds.add(leadId)
-    }
-  }
-
-  for (const comment of visibleComments) {
-    visibleUserIds.add(comment.createdBy)
-
-    for (const mentionUserId of comment.mentionUserIds ?? []) {
-      visibleUserIds.add(mentionUserId)
-    }
-
-    for (const reaction of comment.reactions ?? []) {
-      for (const reactionUserId of reaction.userIds) {
-        visibleUserIds.add(reactionUserId)
-      }
-    }
-  }
-
-  for (const attachment of attachments) {
-    visibleUserIds.add(attachment.uploadedBy)
-  }
-
-  for (const notification of visibleNotifications) {
-    visibleUserIds.add(notification.userId)
-    visibleUserIds.add(notification.actorId)
-  }
-
-  for (const invite of visibleInvites) {
-    visibleUserIds.add(invite.invitedBy)
-  }
-
-  for (const update of visibleProjectUpdates) {
-    visibleUserIds.add(update.createdBy)
-  }
-
-  for (const conversation of visibleConversations) {
-    visibleUserIds.add(conversation.createdBy)
-
-    for (const participantId of conversation.participantIds) {
-      visibleUserIds.add(participantId)
-    }
-  }
-
-  for (const call of visibleCalls) {
-    visibleUserIds.add(call.startedBy)
-
-    if (call.lastJoinedBy) {
-      visibleUserIds.add(call.lastJoinedBy)
-    }
-
-    for (const participantUserId of call.participantUserIds ?? []) {
-      visibleUserIds.add(participantUserId)
-    }
-  }
-
-  for (const message of visibleChatMessages) {
-    visibleUserIds.add(message.createdBy)
-
-    for (const mentionUserId of message.mentionUserIds ?? []) {
-      visibleUserIds.add(mentionUserId)
-    }
-
-    for (const reaction of message.reactions ?? []) {
-      for (const reactionUserId of reaction.userIds) {
-        visibleUserIds.add(reactionUserId)
-      }
-    }
-  }
-
-  for (const post of visibleChannelPosts) {
-    visibleUserIds.add(post.createdBy)
-
-    for (const reaction of post.reactions ?? []) {
-      for (const reactionUserId of reaction.userIds) {
-        visibleUserIds.add(reactionUserId)
-      }
-    }
-  }
-
-  for (const comment of visibleChannelPostComments) {
-    visibleUserIds.add(comment.createdBy)
-
-    for (const mentionUserId of comment.mentionUserIds ?? []) {
-      visibleUserIds.add(mentionUserId)
-    }
-  }
+  collectSnapshotVisibleUserIds({
+    visibleUserIds,
+    currentUserId,
+    visibleWorkspaces,
+    visibleProjects,
+    visibleWorkItems,
+    visibleDocuments,
+    visibleViews,
+    visibleComments,
+    attachments,
+    visibleNotifications,
+    visibleInvites,
+    visibleProjectUpdates,
+    visibleConversations,
+    visibleCalls,
+    visibleChatMessages,
+    visibleChannelPosts,
+    visibleChannelPostComments,
+  })
 
   return {
     currentUserId,
@@ -1029,60 +1305,48 @@ export async function getSnapshotVersionHandler(
   }
 }
 
-export async function getAuthContextHandler(
-  ctx: QueryCtx,
-  args: AuthContextArgs
-) {
-  const user = await resolveUserFromServerArgs(ctx, args)
-
-  if (!user) {
-    return null
-  }
-
-  const userAppState = await getUserAppState(ctx, user.id)
-  const [workspaceMemberships, memberships] = await Promise.all([
-    listWorkspaceMembershipsByUser(ctx, user.id),
-    listTeamMembershipsByUser(ctx, user.id),
-  ])
-  const teams = await listTeamsByIds(
-    ctx,
-    memberships.map((membership) => membership.teamId)
-  )
-  const ownedWorkspaces = await listWorkspacesOwnedByUser(ctx, user.id)
-  const workspaceRoleMap = await getWorkspaceRoleMapForUser(ctx, user.id)
-  const pendingInvites = await getPendingInvitesForEmail(ctx, user.email)
-  const membershipWorkspaceIds = [
+function getAuthMembershipWorkspaceIds(input: {
+  memberships: AuthContextTeamMembershipDoc[]
+  teams: AuthContextTeamDoc[]
+}) {
+  return [
     ...new Set(
-      memberships
+      input.memberships
         .map(
           (membership) =>
-            teams.find((team) => team.id === membership.teamId)?.workspaceId
+            input.teams.find((team) => team.id === membership.teamId)
+              ?.workspaceId
         )
         .filter(isDefinedString)
     ),
   ]
-  const accessibleWorkspaceIds: string[] = [
+}
+
+function getAuthAccessibleWorkspaceIds(input: {
+  membershipWorkspaceIds: string[]
+  ownedWorkspaces: AuthContextWorkspaceDoc[]
+  workspaceMemberships: Array<{ workspaceId: string }>
+}) {
+  return [
     ...new Set([
-      ...workspaceMemberships.map((membership) => membership.workspaceId),
-      ...membershipWorkspaceIds,
-      ...ownedWorkspaces.map((workspace) => workspace.id),
+      ...input.workspaceMemberships.map((membership) => membership.workspaceId),
+      ...input.membershipWorkspaceIds,
+      ...input.ownedWorkspaces.map((workspace) => workspace.id),
     ]),
   ]
-  const preferredWorkspaceId = resolvePreferredWorkspaceId({
-    selectedWorkspaceId: userAppState?.currentWorkspaceId ?? null,
-    accessibleWorkspaceIds,
-    fallbackWorkspaceIds: [
-      membershipWorkspaceIds[0] ?? null,
-      accessibleWorkspaceIds[0] ?? null,
-    ],
-  })
-  const currentWorkspace = preferredWorkspaceId
-    ? await getWorkspaceDoc(ctx, preferredWorkspaceId)
-    : null
-  const pendingWorkspaceCandidates = (
+}
+
+async function listPendingAuthWorkspaces(
+  ctx: QueryCtx,
+  input: {
+    accessibleWorkspaceIds: string[]
+    ownedWorkspaces: AuthContextWorkspaceDoc[]
+  }
+) {
+  return (
     await Promise.all(
-      ownedWorkspaces.map(async (workspace) => {
-        if (accessibleWorkspaceIds.includes(workspace.id)) {
+      input.ownedWorkspaces.map(async (workspace) => {
+        if (input.accessibleWorkspaceIds.includes(workspace.id)) {
           return null
         }
 
@@ -1095,7 +1359,92 @@ export async function getAuthContextHandler(
         return workspace
       })
     )
-  ).filter((workspace) => workspace != null)
+  ).filter(
+    (workspace): workspace is AuthContextWorkspaceDoc => workspace != null
+  )
+}
+
+async function loadAuthContextAccess(ctx: QueryCtx, user: AuthContextUserDoc) {
+  const userAppState = await getUserAppState(ctx, user.id)
+  const [workspaceMemberships, memberships] = await Promise.all([
+    listWorkspaceMembershipsByUser(ctx, user.id),
+    listTeamMembershipsByUser(ctx, user.id),
+  ])
+  const [teams, ownedWorkspaces, workspaceRoleMap, pendingInvites] =
+    await Promise.all([
+      listTeamsByIds(
+        ctx,
+        memberships.map((membership) => membership.teamId)
+      ),
+      listWorkspacesOwnedByUser(ctx, user.id),
+      getWorkspaceRoleMapForUser(ctx, user.id),
+      getPendingInvitesForEmail(ctx, user.email),
+    ])
+  const membershipWorkspaceIds = getAuthMembershipWorkspaceIds({
+    memberships,
+    teams,
+  })
+  const accessibleWorkspaceIds = getAuthAccessibleWorkspaceIds({
+    membershipWorkspaceIds,
+    ownedWorkspaces,
+    workspaceMemberships,
+  })
+
+  return {
+    accessibleWorkspaceIds,
+    membershipWorkspaceIds,
+    memberships,
+    ownedWorkspaces,
+    pendingInvites,
+    userAppState,
+    workspaceRoleMap,
+  }
+}
+
+function toAuthWorkspacePayload(workspace: AuthContextWorkspaceDoc) {
+  return {
+    id: workspace.id,
+    slug: workspace.slug,
+    name: workspace.name,
+    logoUrl: workspace.logoUrl,
+    workosOrganizationId: workspace.workosOrganizationId ?? null,
+  }
+}
+
+export async function getAuthContextHandler(
+  ctx: QueryCtx,
+  args: AuthContextArgs
+) {
+  const user = await resolveUserFromServerArgs(ctx, args)
+
+  if (!user) {
+    return null
+  }
+
+  const {
+    accessibleWorkspaceIds,
+    membershipWorkspaceIds,
+    memberships,
+    ownedWorkspaces,
+    pendingInvites,
+    userAppState,
+    workspaceRoleMap,
+  } = await loadAuthContextAccess(ctx, user)
+  const preferredWorkspaceId = resolvePreferredWorkspaceId({
+    selectedWorkspaceId: userAppState?.currentWorkspaceId ?? null,
+    accessibleWorkspaceIds,
+    fallbackWorkspaceIds: [
+      membershipWorkspaceIds[0] ?? null,
+      accessibleWorkspaceIds[0] ?? null,
+    ],
+  })
+  const currentWorkspace = preferredWorkspaceId
+    ? await getWorkspaceDoc(ctx, preferredWorkspaceId)
+    : null
+  const pendingWorkspaceCandidates = await listPendingAuthWorkspaces(ctx, {
+    accessibleWorkspaceIds,
+    ownedWorkspaces,
+  })
   const pendingWorkspace =
     pendingWorkspaceCandidates.find(
       (workspace) => workspace.id === userAppState?.currentWorkspaceId
@@ -1120,22 +1469,10 @@ export async function getAuthContextHandler(
       role: membership.role,
     })),
     currentWorkspace: activeWorkspace
-      ? {
-          id: activeWorkspace.id,
-          slug: activeWorkspace.slug,
-          name: activeWorkspace.name,
-          logoUrl: activeWorkspace.logoUrl,
-          workosOrganizationId: activeWorkspace.workosOrganizationId ?? null,
-        }
+      ? toAuthWorkspacePayload(activeWorkspace)
       : null,
     pendingWorkspace: pendingWorkspace
-      ? {
-          id: pendingWorkspace.id,
-          slug: pendingWorkspace.slug,
-          name: pendingWorkspace.name,
-          logoUrl: pendingWorkspace.logoUrl,
-          workosOrganizationId: pendingWorkspace.workosOrganizationId ?? null,
-        }
+      ? toAuthWorkspacePayload(pendingWorkspace)
       : null,
     pendingInvites,
     onboardingState,
@@ -1206,12 +1543,13 @@ export async function ensureUserFromAuthHandler(
   }
 }
 
-export async function bootstrapWorkspaceUserHandler(
+async function resolveBootstrapWorkspaceUserScope(
   ctx: MutationCtx,
   args: BootstrapWorkspaceUserArgs
-) {
-  assertServerToken(args.serverToken)
-  const normalizedEmail = normalizeEmailAddress(args.email)
+): Promise<{
+  team: BootstrapWorkspaceTeamDoc
+  workspace: BootstrapWorkspaceDoc
+}> {
   const workspace = await getWorkspaceBySlug(ctx, args.workspaceSlug)
 
   if (!workspace) {
@@ -1224,27 +1562,38 @@ export async function bootstrapWorkspaceUserHandler(
     throw new Error("Team not found")
   }
 
+  return {
+    team,
+    workspace,
+  }
+}
+
+async function resolveBootstrapWorkspaceUser(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapWorkspaceUserArgs
+    normalizedEmail: string
+  }
+) {
   const existingByWorkOSUserId = await getUserByWorkOSUserId(
     ctx,
-    args.workosUserId
+    input.args.workosUserId
   )
   const workosLifecycleError = getAuthLifecycleError(existingByWorkOSUserId)
 
   if (workosLifecycleError) {
     throw new Error(workosLifecycleError)
   }
-  const existingByEmail = await getUserByEmail(ctx, normalizedEmail)
-  const preferredUser = args.existingUserId
-    ? await getUserDoc(ctx, args.existingUserId)
+
+  const existingByEmail = await getUserByEmail(ctx, input.normalizedEmail)
+  const preferredUser = input.args.existingUserId
+    ? await getUserDoc(ctx, input.args.existingUserId)
     : null
   const preferredLifecycleError = getAuthLifecycleError(preferredUser)
 
   if (preferredLifecycleError) {
     throw new Error(preferredLifecycleError)
   }
-
-  const resolvedUser =
-    preferredUser ?? existingByWorkOSUserId ?? existingByEmail ?? null
 
   if (
     preferredUser &&
@@ -1257,68 +1606,135 @@ export async function bootstrapWorkspaceUserHandler(
     )
   }
 
-  const userId = resolvedUser?.id ?? createId("user")
-  const role = args.role ?? "admin"
+  return preferredUser ?? existingByWorkOSUserId ?? existingByEmail ?? null
+}
 
-  if (resolvedUser) {
-    const resetPresence = !(await hasAnyWorkspaceAccess(ctx, resolvedUser.id))
+async function patchBootstrapWorkspaceUser(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapWorkspaceUserArgs
+    normalizedEmail: string
+    user: BootstrapWorkspaceUserDoc
+  }
+) {
+  const resetPresence = !(await hasAnyWorkspaceAccess(ctx, input.user.id))
 
-    await ctx.db.patch(resolvedUser._id, {
-      email: normalizedEmail,
-      emailNormalized: normalizedEmail,
-      name: args.name,
-      workosUserId: args.workosUserId,
-      ...resolveUserPresencePatch(resolvedUser, resetPresence),
-      preferences: {
-        ...defaultUserPreferences,
-        ...resolvedUser.preferences,
-      },
+  await ctx.db.patch(input.user._id, {
+    email: input.normalizedEmail,
+    emailNormalized: input.normalizedEmail,
+    name: input.args.name,
+    workosUserId: input.args.workosUserId,
+    ...resolveUserPresencePatch(input.user, resetPresence),
+    preferences: {
+      ...defaultUserPreferences,
+      ...input.user.preferences,
+    },
+  })
+}
+
+async function insertBootstrapWorkspaceUser(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapWorkspaceUserArgs
+    normalizedEmail: string
+    userId: string
+  }
+) {
+  await ctx.db.insert("users", {
+    id: input.userId,
+    email: input.normalizedEmail,
+    emailNormalized: input.normalizedEmail,
+    name: input.args.name,
+    avatarUrl: input.args.avatarUrl,
+    workosUserId: input.args.workosUserId,
+    handle: createHandle(input.normalizedEmail),
+    title: "Founder / Product",
+    status: defaultUserStatus,
+    statusMessage: defaultUserStatusMessage,
+    hasExplicitStatus: false,
+    preferences: defaultUserPreferences,
+  })
+}
+
+async function upsertBootstrapWorkspaceUser(
+  ctx: MutationCtx,
+  input: {
+    args: BootstrapWorkspaceUserArgs
+    normalizedEmail: string
+    resolvedUser: BootstrapWorkspaceUserDoc | null
+  }
+) {
+  const userId = input.resolvedUser?.id ?? createId("user")
+
+  if (input.resolvedUser) {
+    await patchBootstrapWorkspaceUser(ctx, {
+      args: input.args,
+      normalizedEmail: input.normalizedEmail,
+      user: input.resolvedUser,
     })
-  } else {
-    await ctx.db.insert("users", {
-      id: userId,
-      email: normalizedEmail,
-      emailNormalized: normalizedEmail,
-      name: args.name,
-      avatarUrl: args.avatarUrl,
-      workosUserId: args.workosUserId,
-      handle: createHandle(normalizedEmail),
-      title: "Founder / Product",
-      status: defaultUserStatus,
-      statusMessage: defaultUserStatusMessage,
-      hasExplicitStatus: false,
-      preferences: defaultUserPreferences,
-    })
+    return userId
   }
 
-  const existingMembership = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_team_and_user", (q) =>
-      q.eq("teamId", team.id).eq("userId", userId)
-    )
-    .unique()
-
-  if (existingMembership) {
-    await ctx.db.patch(existingMembership._id, {
-      role,
-    })
-  } else {
-    await ctx.db.insert("teamMemberships", {
-      teamId: team.id,
-      userId,
-      role,
-    })
-  }
-
-  await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId: workspace.id,
+  await insertBootstrapWorkspaceUser(ctx, {
+    args: input.args,
+    normalizedEmail: input.normalizedEmail,
     userId,
-    fallbackRole: role,
   })
 
-  await syncTeamConversationMemberships(ctx, team.id)
+  return userId
+}
 
-  await setCurrentWorkspaceForUser(ctx, userId, workspace.id)
+async function finalizeBootstrapWorkspaceUserAccess(
+  ctx: MutationCtx,
+  input: {
+    role: Role
+    teamId: string
+    userId: string
+    workspaceId: string
+  }
+) {
+  await upsertBootstrapTeamMembership(ctx, {
+    role: input.role,
+    teamId: input.teamId,
+    userId: input.userId,
+  })
+
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    fallbackRole: input.role,
+  })
+  await syncTeamConversationMemberships(ctx, input.teamId)
+  await setCurrentWorkspaceForUser(ctx, input.userId, input.workspaceId)
+}
+
+export async function bootstrapWorkspaceUserHandler(
+  ctx: MutationCtx,
+  args: BootstrapWorkspaceUserArgs
+) {
+  assertServerToken(args.serverToken)
+  const normalizedEmail = normalizeEmailAddress(args.email)
+  const { team, workspace } = await resolveBootstrapWorkspaceUserScope(
+    ctx,
+    args
+  )
+  const role = args.role ?? "admin"
+  const resolvedUser = await resolveBootstrapWorkspaceUser(ctx, {
+    args,
+    normalizedEmail,
+  })
+  const userId = await upsertBootstrapWorkspaceUser(ctx, {
+    args,
+    normalizedEmail,
+    resolvedUser,
+  })
+
+  await finalizeBootstrapWorkspaceUserAccess(ctx, {
+    role,
+    teamId: team.id,
+    userId,
+    workspaceId: workspace.id,
+  })
 
   return {
     userId,

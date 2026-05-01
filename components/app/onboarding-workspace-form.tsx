@@ -9,6 +9,7 @@ import {
   workspaceDescriptionConstraints,
   workspaceSetupNameConstraints,
 } from "@/lib/domain/input-constraints"
+import { getDisplayInitials } from "@/lib/display-initials"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,19 +31,6 @@ const DEFAULT_AVATAR_SIZE = 56
 const DEFAULT_WORKSPACE_NAME = "Product Development"
 const DEFAULT_WORKSPACE_DESCRIPTION =
   "Roadmaps, priorities, and release planning for the core product team."
-
-function getWorkspaceBadge(name: string) {
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("")
-      .slice(0, 2) || "PD"
-  )
-}
 
 async function uploadWorkspaceLogo(file: File) {
   if (!file.type.startsWith("image/")) {
@@ -160,7 +148,7 @@ export function OnboardingWorkspaceForm() {
           await syncUpdateWorkspaceBranding(
             "",
             normalizedName,
-            getWorkspaceBadge(normalizedName),
+            getDisplayInitials(normalizedName, "PD"),
             "emerald",
             normalizedDescription,
             {
@@ -243,7 +231,7 @@ export function OnboardingWorkspaceForm() {
               />
             ) : (
               <span className="flex h-full w-full items-center justify-center">
-                {getWorkspaceBadge(name)}
+                {getDisplayInitials(name, "PD")}
               </span>
             )}
           </button>

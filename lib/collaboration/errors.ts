@@ -25,7 +25,7 @@ export type CollaborationErrorResponse = {
   reloadRequired?: boolean
 }
 
-export const COLLABORATION_CLOSE_CODES = {
+const COLLABORATION_CLOSE_CODES = {
   unauthenticated: 4401,
   forbidden: 4403,
   notFound: 4404,

@@ -12,7 +12,7 @@ function readUrlEnv(value: string | undefined) {
   return trimmed ? trimTrailingSlash(trimmed) : null
 }
 
-export function getConfiguredAppOrigin() {
+function getConfiguredAppOrigin() {
   return (
     readUrlEnv(process.env.APP_URL) ??
     readUrlEnv(process.env.NEXT_PUBLIC_APP_URL) ??

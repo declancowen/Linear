@@ -383,34 +383,6 @@ export async function updateDocumentServer(input: {
   }
 }
 
-export async function persistCollaborationDocumentServer(input: {
-  currentUserId: string
-  documentId: string
-  title?: string
-  content?: string
-  expectedUpdatedAt?: string
-}) {
-  const preparedContent =
-    input.content !== undefined
-      ? prepareRichTextForStorage(input.content)
-      : null
-
-  try {
-    return await getConvexServerClient().mutation(
-      api.app.persistCollaborationDocument,
-      withServerToken({
-        ...input,
-        ...(preparedContent ? { content: preparedContent.sanitized } : {}),
-      })
-    )
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...DOCUMENT_MUTATION_ERROR_MAPPINGS]) ??
-      error
-    )
-  }
-}
-
 export async function sendDocumentMentionNotificationsServer(input: {
   currentUserId: string
   documentId: string
@@ -434,24 +406,6 @@ export async function sendDocumentMentionNotificationsServer(input: {
       coerceApplicationError(error, [
         ...DOCUMENT_MENTION_NOTIFICATION_ERROR_MAPPINGS,
       ]) ?? error
-    )
-  }
-}
-
-export async function renameDocumentServer(input: {
-  currentUserId: string
-  documentId: string
-  title: string
-}) {
-  try {
-    return await getConvexServerClient().mutation(
-      api.app.renameDocument,
-      withServerToken(input)
-    )
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...DOCUMENT_MUTATION_ERROR_MAPPINGS]) ??
-      error
     )
   }
 }
@@ -537,30 +491,6 @@ export async function updateItemDescriptionServer(input: {
       updatedAt: string
       documentId?: string
     }
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??
-      error
-    )
-  }
-}
-
-export async function persistCollaborationItemDescriptionServer(input: {
-  currentUserId: string
-  itemId: string
-  content: string
-  expectedUpdatedAt?: string
-}) {
-  const preparedContent = prepareRichTextForStorage(input.content)
-
-  try {
-    return await getConvexServerClient().mutation(
-      api.app.persistCollaborationItemDescription,
-      withServerToken({
-        ...input,
-        content: preparedContent.sanitized,
-      })
-    )
   } catch (error) {
     throw (
       coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??

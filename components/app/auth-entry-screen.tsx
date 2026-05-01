@@ -30,6 +30,156 @@ type AuthEntryScreenProps = {
   initialLastName?: string
 }
 
+function getAuthModeCopy(isLogin: boolean) {
+  return {
+    title: isLogin ? "Welcome back" : "Create your account",
+    description: isLogin
+      ? "Sign in to continue to Recipe Room."
+      : "Sign up to continue to Recipe Room.",
+    action: isLogin ? "Sign in" : "Create account",
+    passwordPlaceholder: isLogin ? "Enter your password" : "Create a password",
+    alternatePrompt: isLogin
+      ? "Don’t have an account?"
+      : "Already have an account?",
+    alternateLabel: isLogin ? "Sign up" : "Sign in",
+  }
+}
+
+function AuthEntryHeader({ isLogin }: { isLogin: boolean }) {
+  const copy = getAuthModeCopy(isLogin)
+
+  return (
+    <CardHeader className="text-center">
+      <CardTitle className="text-xl">{copy.title}</CardTitle>
+      <CardDescription>{copy.description}</CardDescription>
+    </CardHeader>
+  )
+}
+
+function SignupNameFields({
+  initialFirstName,
+  initialLastName,
+  isLogin,
+}: {
+  initialFirstName?: string
+  initialLastName?: string
+  isLogin: boolean
+}) {
+  if (isLogin) {
+    return null
+  }
+
+  return (
+    <>
+      <Field>
+        <FieldLabel htmlFor="firstName">First name</FieldLabel>
+        <Input
+          id="firstName"
+          name="firstName"
+          defaultValue={initialFirstName ?? ""}
+          placeholder="Taylor"
+          required
+        />
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor="lastName">Surname</FieldLabel>
+        <Input
+          id="lastName"
+          name="lastName"
+          defaultValue={initialLastName ?? ""}
+          placeholder="Morgan"
+          required
+        />
+      </Field>
+    </>
+  )
+}
+
+function AuthPasswordField({
+  initialEmail,
+  isLogin,
+  nextPath,
+}: {
+  initialEmail?: string
+  isLogin: boolean
+  nextPath: string
+}) {
+  const copy = getAuthModeCopy(isLogin)
+
+  return (
+    <Field>
+      <div className="flex items-center justify-between gap-3">
+        <FieldLabel htmlFor="password">Password</FieldLabel>
+        {isLogin ? (
+          <Link
+            href={`/forgot-password?${new URLSearchParams({
+              next: nextPath,
+              ...(initialEmail ? { email: initialEmail } : {}),
+            }).toString()}`}
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Forgot password?
+          </Link>
+        ) : null}
+      </div>
+      <Input
+        id="password"
+        name="password"
+        type="password"
+        placeholder={copy.passwordPlaceholder}
+        required
+      />
+      {!isLogin ? (
+        <FieldDescription>
+          Use a strong password. WorkOS requires a minimum length and rejects
+          weak or breached passwords.
+        </FieldDescription>
+      ) : null}
+    </Field>
+  )
+}
+
+function AuthFeedback({ error, notice }: { error?: string; notice?: string }) {
+  return (
+    <>
+      {notice ? (
+        <FieldDescription className="text-center">{notice}</FieldDescription>
+      ) : null}
+
+      {error ? <FieldError className="text-center">{error}</FieldError> : null}
+    </>
+  )
+}
+
+function GoogleAuthButton({ googleHref }: { googleHref: string }) {
+  return (
+    <Button asChild variant="outline" type="button">
+      <a href={googleHref}>
+        <GoogleLogo data-icon="inline-start" />
+        Continue with Google
+      </a>
+    </Button>
+  )
+}
+
+function AlternateAuthLink({
+  alternateHref,
+  isLogin,
+}: {
+  alternateHref: string
+  isLogin: boolean
+}) {
+  const copy = getAuthModeCopy(isLogin)
+
+  return (
+    <FieldDescription className="text-center">
+      {copy.alternatePrompt}{" "}
+      <Link href={alternateHref}>{copy.alternateLabel}</Link>
+    </FieldDescription>
+  )
+}
+
 export function AuthEntryScreen({
   mode,
   nextPath,
@@ -48,6 +198,7 @@ export function AuthEntryScreen({
   const alternateHref = `/${alternateMode}?${new URLSearchParams({
     next: nextPath,
   }).toString()}`
+  const copy = getAuthModeCopy(isLogin)
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -55,16 +206,7 @@ export function AuthEntryScreen({
         <AuthLogo />
 
         <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-xl">
-              {isLogin ? "Welcome back" : "Create your account"}
-            </CardTitle>
-            <CardDescription>
-              {isLogin
-                ? "Sign in to continue to Recipe Room."
-                : "Sign up to continue to Recipe Room."}
-            </CardDescription>
-          </CardHeader>
+          <AuthEntryHeader isLogin={isLogin} />
 
           <CardContent>
             <form
@@ -74,31 +216,11 @@ export function AuthEntryScreen({
               <input type="hidden" name="next" value={nextPath} />
 
               <FieldGroup>
-                {!isLogin ? (
-                  <>
-                    <Field>
-                      <FieldLabel htmlFor="firstName">First name</FieldLabel>
-                      <Input
-                        id="firstName"
-                        name="firstName"
-                        defaultValue={initialFirstName ?? ""}
-                        placeholder="Taylor"
-                        required
-                      />
-                    </Field>
-
-                    <Field>
-                      <FieldLabel htmlFor="lastName">Surname</FieldLabel>
-                      <Input
-                        id="lastName"
-                        name="lastName"
-                        defaultValue={initialLastName ?? ""}
-                        placeholder="Morgan"
-                        required
-                      />
-                    </Field>
-                  </>
-                ) : null}
+                <SignupNameFields
+                  initialFirstName={initialFirstName}
+                  initialLastName={initialLastName}
+                  isLogin={isLogin}
+                />
 
                 <Field>
                   <FieldLabel htmlFor="email">Email</FieldLabel>
@@ -112,69 +234,24 @@ export function AuthEntryScreen({
                   />
                 </Field>
 
-                <Field>
-                  <div className="flex items-center justify-between gap-3">
-                    <FieldLabel htmlFor="password">Password</FieldLabel>
-                    {isLogin ? (
-                      <Link
-                        href={`/forgot-password?${new URLSearchParams({
-                          next: nextPath,
-                          ...(initialEmail ? { email: initialEmail } : {}),
-                        }).toString()}`}
-                        className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        Forgot password?
-                      </Link>
-                    ) : null}
-                  </div>
-                  <Input
-                    id="password"
-                    name="password"
-                    type="password"
-                    placeholder={
-                      isLogin ? "Enter your password" : "Create a password"
-                    }
-                    required
-                  />
-                  {!isLogin ? (
-                    <FieldDescription>
-                      Use a strong password. WorkOS requires a minimum length
-                      and rejects weak or breached passwords.
-                    </FieldDescription>
-                  ) : null}
-                </Field>
+                <AuthPasswordField
+                  initialEmail={initialEmail}
+                  isLogin={isLogin}
+                  nextPath={nextPath}
+                />
 
-                {notice ? (
-                  <FieldDescription className="text-center">
-                    {notice}
-                  </FieldDescription>
-                ) : null}
+                <AuthFeedback error={error} notice={notice} />
 
-                {error ? (
-                  <FieldError className="text-center">{error}</FieldError>
-                ) : null}
-
-                <Button type="submit">
-                  {isLogin ? "Sign in" : "Create account"}
-                </Button>
+                <Button type="submit">{copy.action}</Button>
 
                 <FieldSeparator>Or continue with</FieldSeparator>
 
-                <Button asChild variant="outline" type="button">
-                  <a href={googleHref}>
-                    <GoogleLogo data-icon="inline-start" />
-                    Continue with Google
-                  </a>
-                </Button>
+                <GoogleAuthButton googleHref={googleHref} />
 
-                <FieldDescription className="text-center">
-                  {isLogin
-                    ? "Don’t have an account?"
-                    : "Already have an account?"}{" "}
-                  <Link href={alternateHref}>
-                    {isLogin ? "Sign up" : "Sign in"}
-                  </Link>
-                </FieldDescription>
+                <AlternateAuthLink
+                  alternateHref={alternateHref}
+                  isLogin={isLogin}
+                />
               </FieldGroup>
             </form>
           </CardContent>

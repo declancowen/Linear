@@ -52,6 +52,125 @@ function parseRequestJson(rawBody: string, message: string) {
   }
 }
 
+function assertFlushBodyWithinDeclaredLimit(
+  request: PartyRequest,
+  limits: CollaborationLimits
+) {
+  const contentLength = request.headers.get("content-length")
+
+  if (!contentLength) {
+    return
+  }
+
+  const parsedLength = Number(contentLength)
+
+  if (Number.isFinite(parsedLength) && parsedLength > limits.maxFlushBodyBytes) {
+    throw new PartyKitCollaborationError("collaboration_payload_too_large")
+  }
+}
+
+async function readFlushRequestBody(
+  request: PartyRequest,
+  limits: CollaborationLimits
+) {
+  assertFlushBodyWithinDeclaredLimit(request, limits)
+
+  const rawBody = await request.text()
+
+  if (!rawBody.trim()) {
+    throw invalidPayload("Invalid collaboration flush request")
+  }
+
+  if (getUtf8ByteLength(rawBody) > limits.maxFlushBodyBytes) {
+    throw new PartyKitCollaborationError("collaboration_payload_too_large")
+  }
+
+  return rawBody
+}
+
+function parseDocumentTitleFlushRequest(
+  parsed: Record<string, unknown>
+): CollaborationFlushRequest {
+  if (typeof parsed.documentTitle !== "string") {
+    throw invalidPayload("Invalid collaboration flush request")
+  }
+
+  return {
+    kind: "document-title",
+    documentTitle: parsed.documentTitle,
+  }
+}
+
+function parseTeardownContentFlushRequest(
+  parsed: Record<string, unknown>,
+  limits: CollaborationLimits
+): CollaborationFlushRequest {
+  if (!isRecord(parsed.contentJson)) {
+    throw invalidPayload("Invalid collaboration flush request")
+  }
+
+  if (getJsonByteLength(parsed.contentJson) > limits.maxContentJsonBytes) {
+    throw new PartyKitCollaborationError("collaboration_payload_too_large")
+  }
+
+  return {
+    kind: "teardown-content",
+    contentJson: parsed.contentJson as JSONContent,
+  }
+}
+
+function parseWorkItemMainFlushRequest(
+  parsed: Record<string, unknown>
+): CollaborationFlushRequest {
+  if (
+    typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
+    typeof parsed.workItemExpectedUpdatedAt !== "string"
+  ) {
+    throw invalidPayload("Invalid collaboration flush request")
+  }
+
+  if (
+    typeof parsed.workItemTitle !== "undefined" &&
+    typeof parsed.workItemTitle !== "string"
+  ) {
+    throw invalidPayload("Invalid collaboration flush request")
+  }
+
+  return {
+    kind: "work-item-main",
+    ...(typeof parsed.workItemExpectedUpdatedAt === "string"
+      ? {
+          workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
+        }
+      : {}),
+    ...(typeof parsed.workItemTitle === "string"
+      ? {
+          workItemTitle: parsed.workItemTitle,
+        }
+      : {}),
+  }
+}
+
+function parseFlushRequestPayload(
+  parsed: Record<string, unknown>,
+  limits: CollaborationLimits
+): CollaborationFlushRequest {
+  switch (parsed.kind) {
+    case "document-title":
+      return parseDocumentTitleFlushRequest(parsed)
+    case "content":
+      return {
+        kind: "content",
+      }
+    case "teardown-content":
+      return parseTeardownContentFlushRequest(parsed, limits)
+    case "work-item-main":
+      return parseWorkItemMainFlushRequest(parsed)
+    default:
+      throw invalidPayload("Invalid collaboration flush request")
+  }
+}
+
 export function isCollaborationFlushRequestUrl(url: URL) {
   return (
     url.searchParams.get("action") === COLLABORATION_FLUSH_PATH.replace("/", "")
@@ -69,29 +188,7 @@ export async function parseFlushRequest(
   request: PartyRequest,
   limits: CollaborationLimits
 ): Promise<CollaborationFlushRequest> {
-  const contentLength = request.headers.get("content-length")
-
-  if (contentLength) {
-    const parsedLength = Number(contentLength)
-
-    if (
-      Number.isFinite(parsedLength) &&
-      parsedLength > limits.maxFlushBodyBytes
-    ) {
-      throw new PartyKitCollaborationError("collaboration_payload_too_large")
-    }
-  }
-
-  const rawBody = await request.text()
-
-  if (!rawBody.trim()) {
-    throw invalidPayload("Invalid collaboration flush request")
-  }
-
-  if (getUtf8ByteLength(rawBody) > limits.maxFlushBodyBytes) {
-    throw new PartyKitCollaborationError("collaboration_payload_too_large")
-  }
-
+  const rawBody = await readFlushRequestBody(request, limits)
   const parsed = parseRequestJson(
     rawBody,
     "Invalid collaboration flush request"
@@ -101,69 +198,7 @@ export async function parseFlushRequest(
     throw invalidPayload("Invalid collaboration flush request")
   }
 
-  if (parsed.kind === "document-title") {
-    if (typeof parsed.documentTitle !== "string") {
-      throw invalidPayload("Invalid collaboration flush request")
-    }
-
-    return {
-      kind: "document-title",
-      documentTitle: parsed.documentTitle,
-    }
-  }
-
-  if (parsed.kind === "content") {
-    return {
-      kind: "content",
-    }
-  }
-
-  if (parsed.kind === "teardown-content") {
-    if (!isRecord(parsed.contentJson)) {
-      throw invalidPayload("Invalid collaboration flush request")
-    }
-
-    if (getJsonByteLength(parsed.contentJson) > limits.maxContentJsonBytes) {
-      throw new PartyKitCollaborationError("collaboration_payload_too_large")
-    }
-
-    return {
-      kind: "teardown-content",
-      contentJson: parsed.contentJson as JSONContent,
-    }
-  }
-
-  if (parsed.kind === "work-item-main") {
-    if (
-      typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
-      typeof parsed.workItemExpectedUpdatedAt !== "string"
-    ) {
-      throw invalidPayload("Invalid collaboration flush request")
-    }
-
-    if (
-      typeof parsed.workItemTitle !== "undefined" &&
-      typeof parsed.workItemTitle !== "string"
-    ) {
-      throw invalidPayload("Invalid collaboration flush request")
-    }
-
-    return {
-      kind: "work-item-main",
-      ...(typeof parsed.workItemExpectedUpdatedAt === "string"
-        ? {
-            workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
-          }
-        : {}),
-      ...(typeof parsed.workItemTitle === "string"
-        ? {
-            workItemTitle: parsed.workItemTitle,
-          }
-        : {}),
-    }
-  }
-
-  throw invalidPayload("Invalid collaboration flush request")
+  return parseFlushRequestPayload(parsed, limits)
 }
 
 export async function parseRefreshRequest(

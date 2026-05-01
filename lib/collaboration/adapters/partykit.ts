@@ -282,6 +282,40 @@ async function readCollaborationErrorResponse(response: Response) {
   }
 }
 
+function getCollaborationErrorReason(value: Record<string, unknown>) {
+  if (typeof value.reason === "string") {
+    return value.reason
+  }
+
+  return typeof value.message === "string" ? value.message : null
+}
+
+function getCollaborationErrorFromCloseCode(
+  value: Record<string, unknown>,
+  message?: string
+) {
+  const closeCode =
+    typeof value.code === "number"
+      ? getCollaborationErrorCodeForCloseCode(value.code)
+      : null
+
+  return closeCode ? createCollaborationErrorResponse(closeCode, message) : null
+}
+
+function parseCollaborationErrorReason(reason: string) {
+  if (isCollaborationErrorCode(reason)) {
+    return createCollaborationErrorResponse(reason)
+  }
+
+  try {
+    const parsed = JSON.parse(reason) as unknown
+
+    return isCollaborationErrorResponse(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function parseCollaborationErrorFromUnknown(value: unknown) {
   if (isCollaborationErrorResponse(value)) {
     return value
@@ -295,40 +329,16 @@ function parseCollaborationErrorFromUnknown(value: unknown) {
     return null
   }
 
-  const reason =
-    typeof value.reason === "string"
-      ? value.reason
-      : typeof value.message === "string"
-        ? value.message
-        : null
+  const reason = getCollaborationErrorReason(value)
 
   if (!reason?.trim()) {
-    const closeCode =
-      typeof value.code === "number"
-        ? getCollaborationErrorCodeForCloseCode(value.code)
-        : null
-
-    return closeCode ? createCollaborationErrorResponse(closeCode) : null
+    return getCollaborationErrorFromCloseCode(value)
   }
 
-  if (isCollaborationErrorCode(reason)) {
-    return createCollaborationErrorResponse(reason)
-  }
-
-  try {
-    const parsed = JSON.parse(reason) as unknown
-
-    return isCollaborationErrorResponse(parsed) ? parsed : null
-  } catch {
-    const closeCode =
-      typeof value.code === "number"
-        ? getCollaborationErrorCodeForCloseCode(value.code)
-        : null
-
-    return closeCode
-      ? createCollaborationErrorResponse(closeCode, reason)
-      : null
-  }
+  return (
+    parseCollaborationErrorReason(reason) ??
+    getCollaborationErrorFromCloseCode(value, reason)
+  )
 }
 
 function buildFlushRequestBody(doc: Y.Doc, input?: CollaborationFlushInput) {

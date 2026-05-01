@@ -32,7 +32,7 @@ type MemberIdentity = {
   status?: UserStatus | null
 }
 
-export const teamRoleOptions: Array<{
+const teamRoleOptions: Array<{
   value: Role
   label: string
 }> = [
@@ -61,7 +61,7 @@ export const teamRoleRank: Record<Role, number> = {
   guest: 3,
 }
 
-export function getRoleLabel(role: Role) {
+function getRoleLabel(role: Role) {
   return teamRoleOptions.find((option) => option.value === role)?.label ?? role
 }
 
@@ -289,6 +289,80 @@ function PendingInviteIdentityBlock({
   )
 }
 
+function canRemoveWorkspaceUser(
+  member: WorkspaceSettingsUser,
+  canManage: boolean
+) {
+  return (
+    canManage &&
+    !member.isOwner &&
+    !member.isWorkspaceAdmin &&
+    !member.isTeamAdmin &&
+    !member.isCurrentUser
+  )
+}
+
+function getWorkspaceUserScopeLabel(member: WorkspaceSettingsUser) {
+  return member.isOwner
+    ? "Workspace owner"
+    : `${member.teamNames.length} team${member.teamNames.length === 1 ? "" : "s"}`
+}
+
+function WorkspaceUserRow({
+  member,
+  canManage,
+  isBusy,
+  onRemove,
+}: {
+  member: WorkspaceSettingsUser
+  canManage: boolean
+  isBusy: boolean
+  onRemove?: (member: WorkspaceSettingsUser) => void
+}) {
+  const canRemove = canRemoveWorkspaceUser(member, canManage) && onRemove
+
+  return (
+    <MemberListRow
+      key={member.id}
+      identity={
+        <MemberIdentityBlock
+          member={member}
+          badge={
+            member.isOwner ? (
+              <Badge>Owner</Badge>
+            ) : member.isWorkspaceAdmin ? (
+              <Badge>Admin</Badge>
+            ) : member.isTeamAdmin ? (
+              <Badge variant="secondary">Team admin</Badge>
+            ) : member.isCurrentUser ? (
+              <Badge variant="outline">You</Badge>
+            ) : null
+          }
+          note={<MemberTeamNote teamNames={member.teamNames} />}
+        />
+      }
+      actions={
+        <>
+          <Badge variant="outline">{getWorkspaceUserScopeLabel(member)}</Badge>
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isBusy}
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => onRemove?.(member)}
+            >
+              <Trash className="size-3.5" />
+              {isBusy ? "Removing..." : "Remove"}
+            </Button>
+          ) : null}
+        </>
+      }
+    />
+  )
+}
+
 export function WorkspaceUsersList({
   members,
   canManage = false,
@@ -303,61 +377,15 @@ export function WorkspaceUsersList({
   return (
     <MemberList
       members={members}
-      renderRow={(member) => {
-        const canRemove =
-          canManage &&
-          !member.isOwner &&
-          !member.isWorkspaceAdmin &&
-          !member.isTeamAdmin &&
-          !member.isCurrentUser &&
-          onRemove
-        const isBusy = pendingMemberId === member.id
-
-        return (
-          <MemberListRow
-            key={member.id}
-            identity={
-              <MemberIdentityBlock
-                member={member}
-                badge={
-                  member.isOwner ? (
-                    <Badge>Owner</Badge>
-                  ) : member.isWorkspaceAdmin ? (
-                    <Badge>Admin</Badge>
-                  ) : member.isTeamAdmin ? (
-                    <Badge variant="secondary">Team admin</Badge>
-                  ) : member.isCurrentUser ? (
-                    <Badge variant="outline">You</Badge>
-                  ) : null
-                }
-                note={<MemberTeamNote teamNames={member.teamNames} />}
-              />
-            }
-            actions={
-              <>
-                <Badge variant="outline">
-                  {member.isOwner
-                    ? "Workspace owner"
-                    : `${member.teamNames.length} team${member.teamNames.length === 1 ? "" : "s"}`}
-                </Badge>
-                {canRemove ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isBusy}
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => onRemove?.(member)}
-                  >
-                    <Trash className="size-3.5" />
-                    {isBusy ? "Removing..." : "Remove"}
-                  </Button>
-                ) : null}
-              </>
-            }
-          />
-        )
-      }}
+      renderRow={(member) => (
+        <WorkspaceUserRow
+          key={member.id}
+          member={member}
+          canManage={canManage}
+          isBusy={pendingMemberId === member.id}
+          onRemove={onRemove}
+        />
+      )}
     />
   )
 }

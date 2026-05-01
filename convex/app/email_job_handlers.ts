@@ -1,12 +1,10 @@
+import type { Doc } from "../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { QueuedEmailJob } from "../../lib/email/builders"
 
 import { internal } from "../_generated/api"
 import { assertServerToken, createId, getNow } from "./core"
-import {
-  getDigestClaimRemainingMs,
-  isActiveDigestClaim,
-} from "./claim_utils"
+import { getDigestClaimRemainingMs, isActiveDigestClaim } from "./claim_utils"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -154,13 +152,11 @@ function isRetryCoolingDown(
 }
 
 function getRetiredNotificationTimestamp(
-  notification:
-    | {
-        readAt?: string | null
-        archivedAt?: string | null
-        emailedAt?: string | null
-      }
-    | null,
+  notification: {
+    readAt?: string | null
+    archivedAt?: string | null
+    emailedAt?: string | null
+  } | null,
   fallbackNow: string
 ) {
   return (
@@ -169,6 +165,81 @@ function getRetiredNotificationTimestamp(
     notification?.archivedAt ??
     fallbackNow
   )
+}
+
+async function getEmailJobNotification(
+  ctx: MutationCtx,
+  notificationId: string
+) {
+  return ctx.db
+    .query("notifications")
+    .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
+    .unique()
+}
+
+function notificationRetiresEmailJob(
+  notification: Doc<"notifications"> | null
+) {
+  return (
+    !notification ||
+    Boolean(notification.emailedAt) ||
+    Boolean(notification.readAt) ||
+    Boolean(notification.archivedAt)
+  )
+}
+
+async function retireEmailJobForNotification(
+  ctx: MutationCtx,
+  job: Doc<"emailJobs">,
+  notification: Doc<"notifications"> | null,
+  now: string
+) {
+  await ctx.db.patch(job._id, {
+    sentAt: getRetiredNotificationTimestamp(notification, now),
+    claimId: null,
+    claimedAt: null,
+    lastError: null,
+  })
+}
+
+async function shouldClaimEmailJob(
+  ctx: MutationCtx,
+  job: Doc<"emailJobs">,
+  now: string,
+  nowMs: number
+) {
+  if (isActiveClaim(job, nowMs) || isRetryCoolingDown(job, nowMs)) {
+    return false
+  }
+
+  if (!job.notificationId) {
+    return true
+  }
+
+  const notification = await getEmailJobNotification(ctx, job.notificationId)
+
+  if (notificationRetiresEmailJob(notification)) {
+    await retireEmailJobForNotification(ctx, job, notification, now)
+    return false
+  }
+
+  if (!notification) {
+    return false
+  }
+
+  return !isActiveDigestClaim(notification, nowMs)
+}
+
+function toClaimedEmailJob(job: Doc<"emailJobs">): ClaimedEmailJob {
+  return {
+    id: job.id,
+    kind: job.kind,
+    notificationId: job.notificationId,
+    toEmail: job.toEmail,
+    subject: job.subject,
+    text: job.text,
+    html: job.html,
+  }
 }
 
 export async function enqueueEmailJobsHandler(
@@ -183,10 +254,7 @@ export async function enqueueEmailJobsHandler(
   }
 }
 
-export async function queueEmailJobs(
-  ctx: MutationCtx,
-  jobs: QueuedEmailJob[]
-) {
+export async function queueEmailJobs(ctx: MutationCtx, jobs: QueuedEmailJob[]) {
   const now = getNow()
 
   for (const job of jobs) {
@@ -209,7 +277,11 @@ export async function queueEmailJobs(
   }
 
   if (jobs.length > 0) {
-    await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
+    await ctx.scheduler.runAfter(
+      0,
+      internal.email_jobs.processQueuedEmailJobs,
+      {}
+    )
   }
 
   return jobs.length
@@ -220,7 +292,11 @@ export async function triggerEmailJobProcessingHandler(
   args: ServerAccessArgs
 ) {
   assertServerToken(args.serverToken)
-  await ctx.scheduler.runAfter(0, internal.email_jobs.processQueuedEmailJobs, {})
+  await ctx.scheduler.runAfter(
+    0,
+    internal.email_jobs.processQueuedEmailJobs,
+    {}
+  )
 
   return {
     scheduled: true,
@@ -245,40 +321,8 @@ export async function claimPendingEmailJobs(
       break
     }
 
-    if (isActiveClaim(job, nowMs)) {
+    if (!(await shouldClaimEmailJob(ctx, job, now, nowMs))) {
       continue
-    }
-
-    if (isRetryCoolingDown(job, nowMs)) {
-      continue
-    }
-
-    const notificationId = job.notificationId
-
-    if (notificationId) {
-      const notification = await ctx.db
-        .query("notifications")
-        .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
-        .unique()
-
-      if (
-        !notification ||
-        notification.emailedAt ||
-        notification.readAt ||
-        notification.archivedAt
-      ) {
-        await ctx.db.patch(job._id, {
-          sentAt: getRetiredNotificationTimestamp(notification, now),
-          claimId: null,
-          claimedAt: null,
-          lastError: null,
-        })
-        continue
-      }
-
-      if (isActiveDigestClaim(notification, nowMs)) {
-        continue
-      }
     }
 
     await ctx.db.patch(job._id, {
@@ -287,15 +331,7 @@ export async function claimPendingEmailJobs(
       lastError: null,
     })
 
-    claimedJobs.push({
-      id: job.id,
-      kind: job.kind,
-      notificationId: job.notificationId,
-      toEmail: job.toEmail,
-      subject: job.subject,
-      text: job.text,
-      html: job.html,
-    })
+    claimedJobs.push(toClaimedEmailJob(job))
   }
 
   return claimedJobs
@@ -395,6 +431,99 @@ export async function releaseEmailJobClaim(
   return releasedClaims
 }
 
+function getEarlierWakeDelay(
+  currentDelayMs: number | null,
+  candidateDelayMs: number
+) {
+  return currentDelayMs === null
+    ? candidateDelayMs
+    : Math.min(currentDelayMs, candidateDelayMs)
+}
+
+async function getDigestClaimWakeDelayMs(
+  ctx: QueryCtx,
+  notificationId: string,
+  nowMs: number
+) {
+  const notification = await ctx.db
+    .query("notifications")
+    .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
+    .unique()
+
+  if (
+    !notification ||
+    notification.emailedAt ||
+    notification.readAt ||
+    notification.archivedAt
+  ) {
+    return 0
+  }
+
+  return getDigestClaimRemainingMs(notification, nowMs)
+}
+
+async function getUnclaimedEmailJobWakeDelayMs(
+  ctx: QueryCtx,
+  job: {
+    attemptCount?: number | null
+    lastAttemptAt?: string | null
+    notificationId?: string | null
+    sentAt?: string | null
+  },
+  nowMs: number
+) {
+  const retryCooldownRemainingMs = getRetryCooldownRemainingMs(job, nowMs)
+  const digestClaimRemainingMs = job.notificationId
+    ? await getDigestClaimWakeDelayMs(ctx, job.notificationId, nowMs)
+    : null
+
+  if (digestClaimRemainingMs === 0) {
+    return 0
+  }
+
+  if (retryCooldownRemainingMs === null && digestClaimRemainingMs === null) {
+    return 0
+  }
+
+  return Math.max(retryCooldownRemainingMs ?? 0, digestClaimRemainingMs ?? 0)
+}
+
+function getClaimedEmailJobWakeDelayMs(
+  job: {
+    claimedAt?: string | null
+  },
+  nowMs: number
+) {
+  const claimedAtMs = Date.parse(job.claimedAt ?? "")
+
+  if (Number.isNaN(claimedAtMs)) {
+    return 0
+  }
+
+  const activeClaimRemainingMs = EMAIL_JOB_CLAIM_TTL_MS - (nowMs - claimedAtMs)
+
+  return activeClaimRemainingMs <= 0 ? 0 : activeClaimRemainingMs
+}
+
+async function getEmailJobWakeDelayMs(
+  ctx: QueryCtx,
+  job: {
+    attemptCount?: number | null
+    claimId?: string | null
+    claimedAt?: string | null
+    lastAttemptAt?: string | null
+    notificationId?: string | null
+    sentAt?: string | null
+  },
+  nowMs: number
+) {
+  if (!job.claimId || !job.claimedAt) {
+    return getUnclaimedEmailJobWakeDelayMs(ctx, job, nowMs)
+  }
+
+  return getClaimedEmailJobWakeDelayMs(job, nowMs)
+}
+
 export async function getNextEmailJobWakeDelayMs(ctx: QueryCtx) {
   const nowMs = Date.now()
   let nextWakeDelayMs: number | null = null
@@ -408,65 +537,12 @@ export async function getNextEmailJobWakeDelayMs(ctx: QueryCtx) {
       continue
     }
 
-    if (!job.claimId || !job.claimedAt) {
-      const retryCooldownRemainingMs = getRetryCooldownRemainingMs(job, nowMs)
-      let digestClaimRemainingMs: number | null = null
-
-      if (job.notificationId) {
-        const notificationId = job.notificationId
-        const notification = await ctx.db
-          .query("notifications")
-          .withIndex("by_domain_id", (q) => q.eq("id", notificationId))
-          .unique()
-
-        if (
-          !notification ||
-          notification.emailedAt ||
-          notification.readAt ||
-          notification.archivedAt
-        ) {
-          return 0
-        }
-
-        digestClaimRemainingMs = getDigestClaimRemainingMs(notification, nowMs)
-      }
-
-      if (
-        retryCooldownRemainingMs === null &&
-        digestClaimRemainingMs === null
-      ) {
-        return 0
-      }
-
-      const jobWakeDelayMs = Math.max(
-        retryCooldownRemainingMs ?? 0,
-        digestClaimRemainingMs ?? 0
-      )
-
-      nextWakeDelayMs =
-        nextWakeDelayMs === null
-          ? jobWakeDelayMs
-          : Math.min(nextWakeDelayMs, jobWakeDelayMs)
-      continue
-    }
-
-    const claimedAtMs = Date.parse(job.claimedAt)
-
-    if (Number.isNaN(claimedAtMs)) {
+    const jobWakeDelayMs = await getEmailJobWakeDelayMs(ctx, job, nowMs)
+    if (jobWakeDelayMs === 0) {
       return 0
     }
 
-    const activeClaimRemainingMs =
-      EMAIL_JOB_CLAIM_TTL_MS - (nowMs - claimedAtMs)
-
-    if (activeClaimRemainingMs <= 0) {
-      return 0
-    }
-
-    nextWakeDelayMs =
-      nextWakeDelayMs === null
-        ? activeClaimRemainingMs
-        : Math.min(nextWakeDelayMs, activeClaimRemainingMs)
+    nextWakeDelayMs = getEarlierWakeDelay(nextWakeDelayMs, jobWakeDelayMs)
   }
 
   return nextWakeDelayMs

@@ -52,7 +52,7 @@ export function getAllowedWorkItemTypesForTemplate(
   return [...templateMeta[templateType].itemTypes]
 }
 
-export function getAllowedRootWorkItemTypesForTemplate(
+function getAllowedRootWorkItemTypesForTemplate(
   templateType: TemplateType
 ): WorkItemType[] {
   return getAllowedWorkItemTypesForTemplate(templateType).filter(
@@ -486,7 +486,7 @@ export const projectStatusMeta: Record<ProjectStatus, { label: string }> = {
   cancelled: { label: "Cancelled" },
 }
 
-export const workItemTypeMeta: Record<
+const workItemTypeMeta: Record<
   WorkItemType,
   { label: string; pluralLabel: string }
 > = {
@@ -677,7 +677,7 @@ export function getWorkSurfaceCopy(
   }
 }
 
-export const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {
+const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {
   epic: ["feature"],
   feature: ["requirement"],
   requirement: ["story"],
@@ -688,7 +688,7 @@ export const workItemChildTypeMeta: Record<WorkItemType, WorkItemType[]> = {
   "sub-issue": [],
 }
 
-export function getAllowedChildWorkItemTypes(parentType: WorkItemType) {
+function getAllowedChildWorkItemTypes(parentType: WorkItemType) {
   return [...workItemChildTypeMeta[parentType]]
 }
 

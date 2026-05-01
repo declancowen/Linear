@@ -8,7 +8,6 @@ import type {
   AppSnapshot,
   CommentTargetType,
   CreateDialogState,
-  Conversation,
   DisplayProperty,
   GroupField,
   Label,
@@ -480,12 +479,6 @@ export type WorkItemValidationInput = CreateWorkItemInput & {
   labelIds?: string[]
 }
 
-export type WorkItemProjectLinkResolution = {
-  cascadeItemIds: Set<string>
-  resolvedPrimaryProjectId: string | null
-  shouldCascadeProjectLink: boolean
-}
-
 export type WorkItemCascadeDeletePlan = {
   item: WorkItem
   deletedItemIds: Set<string>
@@ -494,36 +487,4 @@ export type WorkItemCascadeDeletePlan = {
   deletedNotificationIds: Set<string>
   nextWorkItems: WorkItem[]
   nextDocuments: AppData["documents"]
-}
-
-export type WorkspaceStateAccess = Pick<
-  AppData,
-  | "currentUserId"
-  | "currentWorkspaceId"
-  | "workspaces"
-  | "workspaceMemberships"
-  | "teams"
-  | "teamMemberships"
-  | "users"
-  | "labels"
-  | "projects"
-  | "milestones"
-  | "workItems"
-  | "documents"
-  | "views"
-  | "comments"
-  | "attachments"
-  | "notifications"
-  | "invites"
-  | "projectUpdates"
-  | "conversations"
-  | "calls"
-  | "chatMessages"
-  | "channelPosts"
-  | "channelPostComments"
-  | "ui"
->
-
-export type TeamScopedConversation = Conversation & {
-  scopeType: "team" | "workspace"
 }

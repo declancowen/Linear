@@ -1,28 +1,14 @@
 import { saveSession } from "@workos-inc/authkit-nextjs"
-import { NextResponse } from "next/server"
 
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { getRequestMetadata } from "@/lib/server/auth-request"
+import { redirectToRoute } from "@/lib/server/route-response"
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
   buildAuthPageHref,
   buildPostAuthPath,
   parseAuthState,
 } from "@/lib/auth-routing"
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url))
-}
-
-function getRequestMetadata(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for")
-  const ipAddress = forwardedFor?.split(",")[0]?.trim() || undefined
-  const userAgent = request.headers.get("user-agent") || undefined
-
-  return {
-    ipAddress,
-    userAgent,
-  }
-}
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -32,7 +18,7 @@ export async function GET(request: Request) {
   const errorDescription = url.searchParams.get("error_description")
 
   if (error) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref(state?.mode ?? "login", {
         nextPath: state?.nextPath,
@@ -44,7 +30,7 @@ export async function GET(request: Request) {
   }
 
   if (!code) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref(state?.mode ?? "login", {
         nextPath: state?.nextPath,
@@ -67,12 +53,12 @@ export async function GET(request: Request) {
       authenticationResponse.organizationId
     )
 
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildPostAuthPath(state?.nextPath)
     )
   } catch {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref(state?.mode ?? "login", {
         nextPath: state?.nextPath,

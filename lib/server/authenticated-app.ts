@@ -91,6 +91,23 @@ export async function ensureAuthenticatedAppContext(
   return loadAuthenticatedAppContext(sessionUser, organizationId)
 }
 
+export async function getWorkspaceEntryJoinState(
+  sessionUser: User,
+  organizationId?: string
+) {
+  const { authContext } = await ensureAuthenticatedAppContext(
+    sessionUser,
+    organizationId
+  )
+
+  return {
+    authContext,
+    pendingInvites: authContext?.pendingInvites ?? [],
+    joinedTeamIds: authContext?.memberships.map((entry) => entry.teamId) ?? [],
+    currentWorkspace: authContext?.currentWorkspace ?? null,
+  }
+}
+
 export async function reconcileAuthenticatedAppContext(
   sessionUser: User,
   organizationId?: string

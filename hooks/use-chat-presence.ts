@@ -11,7 +11,7 @@ import { COLLABORATION_PARTY_NAME } from "@/lib/collaboration/constants"
 import { syncCreateChatPresenceSession } from "@/lib/convex/client/chat-presence"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 
-export type ChatPresenceParticipant = {
+type ChatPresenceParticipant = {
   userId: string
   sessionId: string
   typing: boolean

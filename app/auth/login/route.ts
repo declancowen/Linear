@@ -1,5 +1,4 @@
 import { saveSession } from "@workos-inc/authkit-nextjs"
-import { NextResponse } from "next/server"
 
 import {
   pendingEmailVerificationCookieName,
@@ -18,23 +17,8 @@ import {
   buildPostAuthPath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
-
-function getRequestMetadata(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for")
-  const ipAddress = forwardedFor?.split(",")[0]?.trim() || undefined
-  const userAgent = request.headers.get("user-agent") || undefined
-
-  return {
-    ipAddress,
-    userAgent,
-  }
-}
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url), {
-    status: request.method === "POST" ? 303 : 307,
-  })
-}
+import { getRequestMetadata } from "@/lib/server/auth-request"
+import { redirectToRoute } from "@/lib/server/route-response"
 
 function mapLoginError(error: unknown) {
   switch (getWorkOSAuthErrorCode(error)) {
@@ -58,7 +42,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
 
-  return redirectTo(
+  return redirectToRoute(
     request,
     buildAuthPageHref("login", {
       nextPath,
@@ -73,7 +57,7 @@ export async function POST(request: Request) {
   const nextPath = normalizeAuthNextPath(String(formData.get("next") ?? ""))
 
   if (!email || !password) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref("login", {
         nextPath,
@@ -98,7 +82,7 @@ export async function POST(request: Request) {
       authenticationResponse.organizationId
     )
 
-    return redirectTo(request, buildPostAuthPath(nextPath))
+    return redirectToRoute(request, buildPostAuthPath(nextPath))
   } catch (error) {
     const pendingAuthentication = getWorkOSPendingAuthentication(error)
 
@@ -106,7 +90,7 @@ export async function POST(request: Request) {
       getWorkOSAuthErrorCode(error) === "email_verification_required" &&
       pendingAuthentication
     ) {
-      const response = redirectTo(
+      const response = redirectToRoute(
         request,
         buildEmailVerificationPageHref({
           mode: "login",
@@ -131,7 +115,7 @@ export async function POST(request: Request) {
       return response
     }
 
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref("login", {
         nextPath,

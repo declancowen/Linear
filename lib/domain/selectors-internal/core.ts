@@ -39,7 +39,7 @@ export function getAccessibleTeams(data: AppData) {
   return data.teams.filter((team) => membershipTeamIds.has(team.id))
 }
 
-export function getEditableTeams(data: AppData) {
+function getEditableTeams(data: AppData) {
   const editableTeamIds = new Set(
     data.teamMemberships
       .filter(
@@ -143,7 +143,7 @@ function getDirectOrFallbackWorkspaceRoleInCollections(
   )
 }
 
-export function getWorkspaceEditableRoleInCollections(
+function getWorkspaceEditableRoleInCollections(
   workspaces: AppData["workspaces"],
   workspaceMemberships: AppData["workspaceMemberships"],
   teams: AppData["teams"],
@@ -169,7 +169,7 @@ export function getWorkspaceEditableRoleInCollections(
   return teamRole ? mergeRole(workspaceRole, teamRole) : workspaceRole
 }
 
-export function getWorkspaceEffectiveRoleInCollections(
+function getWorkspaceEffectiveRoleInCollections(
   workspaces: AppData["workspaces"],
   workspaceMemberships: AppData["workspaceMemberships"],
   teams: AppData["teams"],
@@ -241,14 +241,6 @@ export function hasWorkspaceAccess(
   )
 }
 
-export function hasLeftWorkspace(
-  data: AppData,
-  workspaceId: string,
-  userId: string
-) {
-  return !hasWorkspaceAccess(data, workspaceId, userId)
-}
-
 export function canEditTeam(data: AppData, teamId: string) {
   const role = getTeamRole(data, teamId)
   return canEditRole(role)
@@ -267,10 +259,6 @@ export function canEditWorkspace(data: AppData, workspaceId: string) {
   return canEditRole(role)
 }
 
-export function canInviteToTeam(data: AppData, teamId: string) {
-  return canEditTeam(data, teamId)
-}
-
 export function canAdminTeam(data: AppData, teamId: string) {
   return getTeamRole(data, teamId) === "admin"
 }
@@ -285,12 +273,6 @@ export function canAdminWorkspace(data: AppData, workspaceId: string) {
       workspaceId,
       data.currentUserId
     ) === "admin"
-  )
-}
-
-export function canCreateWorkspace(data: AppData) {
-  return getAccessibleTeams(data).some(
-    (team) => getTeamRole(data, team.id) === "admin"
   )
 }
 
@@ -332,29 +314,6 @@ export function getWorkItemDescendantIds(data: AppData, itemId: string) {
   }
 
   return descendants
-}
-
-export function getWorkItemHierarchyIds(data: AppData, itemId: string) {
-  let root = getWorkItem(data, itemId)
-
-  if (!root) {
-    return new Set<string>()
-  }
-
-  const visited = new Set<string>([root.id])
-
-  while (root.parentId) {
-    const parent = getWorkItem(data, root.parentId)
-
-    if (!parent || visited.has(parent.id)) {
-      break
-    }
-
-    visited.add(parent.id)
-    root = parent
-  }
-
-  return new Set<string>([root.id, ...getWorkItemDescendantIds(data, root.id)])
 }
 
 export function getTeam(data: AppData, teamId: string) {
@@ -433,7 +392,7 @@ export function getConversationParticipants(
     .filter((user): user is UserProfile => Boolean(user))
 }
 
-export function getTeamWorkflowSettings(
+function getTeamWorkflowSettings(
   team: Team | null | undefined
 ): TeamWorkflowSettings {
   return (
@@ -463,10 +422,6 @@ export function getUser(data: AppData, userId: string | null) {
   }
 
   return data.users.find((user) => user.id === userId) ?? null
-}
-
-export function getLabelMap(data: AppData) {
-  return Object.fromEntries(data.labels.map((label) => [label.id, label]))
 }
 
 export function getLabelsForWorkspace(data: AppData, workspaceId: string) {
@@ -517,26 +472,6 @@ export function getProjectTeam(
   }
 
   return getTeam(data, resolvedProject.scopeId)
-}
-
-export function getProjectContextLabel(
-  data: AppData,
-  project: Project | string | null | undefined
-) {
-  const resolvedProject =
-    typeof project === "string" ? getProject(data, project) : project
-
-  if (!resolvedProject) {
-    return "Project"
-  }
-
-  const team = getProjectTeam(data, resolvedProject)
-
-  if (team) {
-    return team.name
-  }
-
-  return getCurrentWorkspace(data)?.name ?? "Workspace"
 }
 
 export function getProjectHref(

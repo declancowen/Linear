@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CaretDown,
@@ -38,6 +38,9 @@ import {
   getDefaultViewItemLevelForTeamExperience,
   type CreateDialogState,
   type DisplayProperty,
+  type ViewDefinition,
+  type WorkItem,
+  type Project,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
@@ -158,6 +161,474 @@ function createFreshDraftConfig(
     displayProps: [],
     ...(entityKind === "items" ? { showChildItems: false } : {}),
   }
+}
+
+function CreateViewProjectPicker({
+  showProjectPicker,
+  locked,
+  open,
+  onOpenChange,
+  query,
+  onQueryChange,
+  selectedProject,
+  selectedProjectId,
+  projectOptions,
+  onSelectProject,
+}: {
+  showProjectPicker: boolean
+  locked: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  query: string
+  onQueryChange: (query: string) => void
+  selectedProject: Project | null
+  selectedProjectId: string
+  projectOptions: Project[]
+  onSelectProject: (projectId: string) => void
+}) {
+  if (!showProjectPicker) {
+    return null
+  }
+
+  if (locked) {
+    return (
+      <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
+        <span className="truncate">{selectedProject?.name ?? "Project"}</span>
+      </div>
+    )
+  }
+
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredProjects = projectOptions.filter((project) =>
+    project.name.toLowerCase().includes(normalizedQuery)
+  )
+
+  function closePicker() {
+    onOpenChange(false)
+    onQueryChange("")
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen)
+        if (!nextOpen) {
+          onQueryChange("")
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Project"
+          className={cn(
+            chipSelectTriggerClass,
+            !selectedProject && chipTriggerDashedClass
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <FolderSimple className="size-[13px] shrink-0" />
+            <span
+              className={cn(
+                "truncate",
+                selectedProject && "font-medium text-foreground"
+              )}
+            >
+              {selectedProject?.name ?? "Project"}
+            </span>
+          </span>
+          <CaretDown className="size-3 shrink-0 opacity-60" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+      >
+        <PropertyPopoverSearch
+          icon={<MagnifyingGlass className="size-[14px]" />}
+          placeholder="Find project..."
+          value={query}
+          onChange={onQueryChange}
+        />
+        <PropertyPopoverList>
+          {filteredProjects.length > 0 ? (
+            <>
+              <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
+              {filteredProjects.map((project) => {
+                const selected = project.id === selectedProjectId
+                return (
+                  <PropertyPopoverItem
+                    key={project.id}
+                    selected={selected}
+                    onClick={() => {
+                      onSelectProject(project.id)
+                      closePicker()
+                    }}
+                    trailing={
+                      selected ? (
+                        <Check className="size-[14px] text-foreground" />
+                      ) : null
+                    }
+                  >
+                    <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+                    <span className="truncate">{project.name}</span>
+                  </PropertyPopoverItem>
+                )
+              })}
+            </>
+          ) : null}
+          <PropertyPopoverItem
+            selected={!selectedProject}
+            onClick={() => {
+              onSelectProject("")
+              closePicker()
+            }}
+            trailing={
+              !selectedProject ? (
+                <Check className="size-[14px] text-foreground" />
+              ) : null
+            }
+          >
+            <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
+            <span>Project</span>
+          </PropertyPopoverItem>
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function CreateViewDialogTopBar({
+  dialog,
+  selectedEntityKind,
+  availableEntityKinds,
+  onSelectEntityKind,
+  scopeOptions,
+  selectedScopeKey,
+  onSelectScope,
+  isProjectSpecificItemView,
+  selectedProject,
+}: {
+  dialog: CreateViewDialogState
+  selectedEntityKind: SelectableEntityKind
+  availableEntityKinds: SelectableEntityKind[]
+  onSelectEntityKind: (entityKind: SelectableEntityKind) => void
+  scopeOptions: ScopeOption[]
+  selectedScopeKey: string
+  onSelectScope: (scopeKey: string) => void
+  isProjectSpecificItemView: boolean
+  selectedProject: Project | null
+}) {
+  return (
+    <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
+      {!dialog.lockEntityKind ? (
+        <Select
+          value={selectedEntityKind}
+          onValueChange={(value) =>
+            onSelectEntityKind(value as SelectableEntityKind)
+          }
+        >
+          <SelectTrigger
+            aria-label="Entity kind"
+            className="h-7 w-[112px] border border-transparent bg-transparent px-2 text-[12.5px] text-fg-2 shadow-none hover:bg-surface-3 focus:ring-2 focus:ring-ring/40"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {availableEntityKinds.map((entityKind) => (
+              <SelectItem key={entityKind} value={entityKind}>
+                {ENTITY_KIND_LABEL[entityKind]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+      {!isProjectSpecificItemView ? (
+        <TeamSpaceCrumbPicker
+          options={scopeOptions.map((option) => ({
+            id: option.key,
+            label: option.label,
+            teamId: option.scopeId,
+          }))}
+          selectedId={selectedScopeKey}
+          onSelect={onSelectScope}
+          triggerClassName={crumbTriggerClass}
+        />
+      ) : (
+        <span className={crumbTriggerClass}>
+          <span className="font-medium text-foreground">
+            {selectedProject?.name ?? "Project"}
+          </span>
+        </span>
+      )}
+      <div className="ml-auto flex items-center gap-0.5">
+        <DialogClose asChild>
+          <button
+            type="button"
+            className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="size-[14px]" />
+          </button>
+        </DialogClose>
+      </div>
+    </div>
+  )
+}
+
+function CreateViewDialogFields({
+  name,
+  onNameChange,
+  description,
+  onDescriptionChange,
+  nameLimitState,
+  descriptionLimitState,
+  isProjectSpecificItemView,
+}: {
+  name: string
+  onNameChange: (name: string) => void
+  description: string
+  onDescriptionChange: (description: string) => void
+  nameLimitState: ReturnType<typeof getTextInputLimitState>
+  descriptionLimitState: ReturnType<typeof getTextInputLimitState>
+  isProjectSpecificItemView: boolean
+}) {
+  return (
+    <div className="px-[18px] pt-3 pb-0.5">
+      <Input
+        value={name}
+        onChange={(event) => onNameChange(event.target.value)}
+        placeholder="View name"
+        maxLength={viewNameConstraints.max}
+        className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+        autoFocus
+      />
+      <FieldCharacterLimit
+        state={nameLimitState}
+        limit={viewNameConstraints.max}
+        className="mt-1"
+      />
+      <Textarea
+        value={description}
+        onChange={(event) => onDescriptionChange(event.target.value)}
+        placeholder="What this view is for"
+        maxLength={viewDescriptionConstraints.max}
+        rows={3}
+        className="mt-0.5 min-h-[84px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+      />
+      <FieldCharacterLimit
+        state={descriptionLimitState}
+        limit={viewDescriptionConstraints.max}
+        className="mt-1"
+      />
+      <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
+        {isProjectSpecificItemView
+          ? "Set the layout, filters, grouping, sorting, and properties for this project view."
+          : "Start with a clean view, then choose its space, optional project scope, filters, grouping, sorting, and properties."}
+      </div>
+    </div>
+  )
+}
+
+function CreateViewControls({
+  selectedEntityKind,
+  draftView,
+  scopedItems,
+  scopedProjects,
+  groupOptions,
+  projectPicker,
+  onUpdateDraftView,
+  onToggleFilterValue,
+  onClearFilters,
+  onToggleDisplayProperty,
+  onReorderDisplayProperties,
+  onClearDisplayProperties,
+}: {
+  selectedEntityKind: SelectableEntityKind
+  draftView: ViewDefinition | null
+  scopedItems: WorkItem[]
+  scopedProjects: Project[]
+  groupOptions: ReturnType<typeof getAvailableGroupOptions>
+  projectPicker: ReactNode
+  onUpdateDraftView: (patch: ViewConfigPatch) => void
+  onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+  onClearFilters: () => void
+  onToggleDisplayProperty: (property: DisplayProperty) => void
+  onReorderDisplayProperties: (displayProps: DisplayProperty[]) => void
+  onClearDisplayProperties: () => void
+}) {
+  if (selectedEntityKind === "items") {
+    return (
+      <div className="border-t border-line-soft bg-background px-3.5 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {draftView ? (
+            <>
+              <LayoutChipPopover
+                view={draftView}
+                onUpdateView={onUpdateDraftView}
+              />
+              <FilterPopover
+                view={draftView}
+                items={scopedItems}
+                onToggleFilterValue={onToggleFilterValue}
+                onClearFilters={onClearFilters}
+                variant="chip"
+                chipTone="default"
+                dashedWhenEmpty
+              />
+              {projectPicker}
+              <LevelChipPopover
+                view={draftView}
+                onUpdateView={onUpdateDraftView}
+              />
+              <GroupChipPopover
+                view={draftView}
+                groupOptions={groupOptions}
+                onUpdateView={onUpdateDraftView}
+                tone="default"
+                showValue={false}
+              />
+              <SortChipPopover
+                view={draftView}
+                onUpdateView={onUpdateDraftView}
+                label="Sort"
+                showValue={false}
+              />
+              <PropertiesChipPopover
+                view={draftView}
+                onToggleDisplayProperty={onToggleDisplayProperty}
+                onReorderDisplayProperties={onReorderDisplayProperties}
+                onClearDisplayProperties={onClearDisplayProperties}
+                tone="default"
+                dashedWhenEmpty
+              />
+            </>
+          ) : (
+            projectPicker
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (selectedEntityKind === "projects" && draftView) {
+    return (
+      <div className="border-t border-line-soft bg-background px-3.5 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ProjectLayoutChipPopover
+            view={draftView}
+            onUpdateView={onUpdateDraftView}
+          />
+          <ProjectFilterPopover
+            view={draftView}
+            projects={scopedProjects}
+            onToggleFilterValue={onToggleFilterValue}
+            onClearFilters={onClearFilters}
+            variant="chip"
+            chipTone="default"
+            dashedWhenEmpty
+          />
+          <ProjectSortChipPopover
+            view={draftView}
+            onUpdateView={onUpdateDraftView}
+            label="Sort"
+            showValue={false}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function CreateViewRouteWarning({
+  selectedEntityKind,
+  selectedScope,
+  resolvedRoute,
+}: {
+  selectedEntityKind: SelectableEntityKind
+  selectedScope: ScopeOption | null
+  resolvedRoute: string | null
+}) {
+  if (resolvedRoute) {
+    return null
+  }
+
+  return (
+    <p className="px-[18px] pt-2 text-xs text-destructive">
+      {selectedEntityKind === "items" &&
+      selectedScope?.scopeType === "workspace"
+        ? "Select a project to create this workspace view."
+        : "Select a space to create this view."}
+    </p>
+  )
+}
+
+function CreateViewDialogFooter({
+  effectiveScope,
+  selectedProject,
+  selectedScope,
+  canCreate,
+  creating,
+  shortcutModifierLabel,
+  onCancel,
+  onCreate,
+}: {
+  effectiveScope: Pick<ScopeOption, "scopeType" | "scopeId"> | null
+  selectedProject: Project | null
+  selectedScope: ScopeOption | null
+  canCreate: boolean
+  creating: boolean
+  shortcutModifierLabel: string
+  onCancel: () => void
+  onCreate: () => void | Promise<void>
+}) {
+  return (
+    <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
+      <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
+        <FolderSimple className="size-[13px] shrink-0" />
+        <span className="truncate">
+          {effectiveScope ? (
+            <>
+              Saving in{" "}
+              <b className="font-medium text-foreground">
+                {selectedProject
+                  ? selectedProject.name
+                  : (selectedScope?.label ?? "Scope")}
+              </b>
+            </>
+          ) : (
+            "Select a space"
+          )}
+        </span>
+      </div>
+      <div className="ml-auto flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+          <ShortcutKeys
+            keys={["Esc"]}
+            className="ml-1"
+            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+          />
+        </Button>
+        <Button
+          size="sm"
+          disabled={!canCreate || creating}
+          onClick={onCreate}
+          className="gap-1"
+        >
+          Create view
+          <ShortcutKeys
+            keys={[shortcutModifierLabel, "Enter"]}
+            variant="inline"
+            className="ml-0.5 gap-0.5 text-background/65"
+          />
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export function CreateViewDialog({
@@ -547,7 +1018,7 @@ export function CreateViewDialog({
   const isProjectSpecificItemView =
     selectedEntityKind === "items" &&
     Boolean(selectedProject) &&
-    dialog.lockProject
+    Boolean(dialog.lockProject)
   const projectViewContainer =
     selectedEntityKind === "items" && selectedProject
       ? {
@@ -561,7 +1032,8 @@ export function CreateViewDialog({
     Boolean(effectiveScope) &&
     Boolean(resolvedRoute)
   const showProjectPicker =
-    !isProjectSpecificItemView && (selectedProject || projectOptions.length > 0)
+    !isProjectSpecificItemView &&
+    (Boolean(selectedProject) || projectOptions.length > 0)
 
   useEffect(() => {
     if (selectedEntityKind === "items") {
@@ -811,113 +1283,20 @@ export function CreateViewDialog({
     void handleCreate()
   })
 
-  const projectPicker = showProjectPicker ? (
-    !dialog.lockProject ? (
-      <Popover
-        open={projectPickerOpen}
-        onOpenChange={(nextOpen) => {
-          setProjectPickerOpen(nextOpen)
-          if (!nextOpen) {
-            setProjectQuery("")
-          }
-        }}
-      >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="Project"
-            className={cn(
-              chipSelectTriggerClass,
-              !selectedProject && chipTriggerDashedClass
-            )}
-          >
-            <span className="flex min-w-0 items-center gap-1.5">
-              <FolderSimple className="size-[13px] shrink-0" />
-              <span
-                className={cn(
-                  "truncate",
-                  selectedProject && "font-medium text-foreground"
-                )}
-              >
-                {selectedProject?.name ?? "Project"}
-              </span>
-            </span>
-            <CaretDown className="size-3 shrink-0 opacity-60" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
-        >
-          <PropertyPopoverSearch
-            icon={<MagnifyingGlass className="size-[14px]" />}
-            placeholder="Find project…"
-            value={projectQuery}
-            onChange={setProjectQuery}
-          />
-          <PropertyPopoverList>
-            {projectOptions.filter((project) =>
-              project.name
-                .toLowerCase()
-                .includes(projectQuery.trim().toLowerCase())
-            ).length > 0 ? (
-              <>
-                <PropertyPopoverGroup>Projects</PropertyPopoverGroup>
-                {projectOptions
-                  .filter((project) =>
-                    project.name
-                      .toLowerCase()
-                      .includes(projectQuery.trim().toLowerCase())
-                  )
-                  .map((project) => {
-                    const selected = project.id === selectedProjectId
-                    return (
-                      <PropertyPopoverItem
-                        key={project.id}
-                        selected={selected}
-                        onClick={() => {
-                          setSelectedProjectId(project.id)
-                          setProjectPickerOpen(false)
-                          setProjectQuery("")
-                        }}
-                        trailing={
-                          selected ? (
-                            <Check className="size-[14px] text-foreground" />
-                          ) : null
-                        }
-                      >
-                        <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
-                        <span className="truncate">{project.name}</span>
-                      </PropertyPopoverItem>
-                    )
-                  })}
-              </>
-            ) : null}
-            <PropertyPopoverItem
-              selected={!selectedProject}
-              onClick={() => {
-                setSelectedProjectId("")
-                setProjectPickerOpen(false)
-                setProjectQuery("")
-              }}
-              trailing={
-                !selectedProject ? (
-                  <Check className="size-[14px] text-foreground" />
-                ) : null
-              }
-            >
-              <FolderSimple className="size-[13px] shrink-0 text-fg-3" />
-              <span>Project</span>
-            </PropertyPopoverItem>
-          </PropertyPopoverList>
-        </PopoverContent>
-      </Popover>
-    ) : (
-      <div className={cn(chipSelectTriggerClass, "pointer-events-none")}>
-        <span className="truncate">{selectedProject?.name ?? "Project"}</span>
-      </div>
-    )
-  ) : null
+  const projectPicker = (
+    <CreateViewProjectPicker
+      showProjectPicker={Boolean(showProjectPicker)}
+      locked={Boolean(dialog.lockProject)}
+      open={projectPickerOpen}
+      onOpenChange={setProjectPickerOpen}
+      query={projectQuery}
+      onQueryChange={setProjectQuery}
+      selectedProject={selectedProject}
+      selectedProjectId={selectedProjectId}
+      projectOptions={projectOptions}
+      onSelectProject={setSelectedProjectId}
+    />
+  )
 
   return (
     <Dialog
@@ -941,225 +1320,59 @@ export function CreateViewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
-          {!dialog.lockEntityKind ? (
-            <Select
-              value={selectedEntityKind}
-              onValueChange={(value) =>
-                setSelectedEntityKind(value as SelectableEntityKind)
-              }
-            >
-              <SelectTrigger
-                aria-label="Entity kind"
-                className="h-7 w-[112px] border border-transparent bg-transparent px-2 text-[12.5px] text-fg-2 shadow-none hover:bg-surface-3 focus:ring-2 focus:ring-ring/40"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {availableEntityKinds.map((entityKind) => (
-                  <SelectItem key={entityKind} value={entityKind}>
-                    {ENTITY_KIND_LABEL[entityKind]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          {!isProjectSpecificItemView ? (
-            <TeamSpaceCrumbPicker
-              options={scopeOptions.map((option) => ({
-                id: option.key,
-                label: option.label,
-                teamId: option.scopeId,
-              }))}
-              selectedId={selectedScopeKey}
-              onSelect={setSelectedScopeKey}
-              triggerClassName={crumbTriggerClass}
-            />
-          ) : (
-            <span className={crumbTriggerClass}>
-              <span className="font-medium text-foreground">
-                {selectedProject?.name ?? "Project"}
-              </span>
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-0.5">
-            <DialogClose asChild>
-              <button
-                type="button"
-                className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-                aria-label="Close"
-              >
-                <X className="size-[14px]" />
-              </button>
-            </DialogClose>
-          </div>
-        </div>
+        <CreateViewDialogTopBar
+          dialog={dialog}
+          selectedEntityKind={selectedEntityKind}
+          availableEntityKinds={availableEntityKinds}
+          onSelectEntityKind={setSelectedEntityKind}
+          scopeOptions={scopeOptions}
+          selectedScopeKey={selectedScopeKey}
+          onSelectScope={setSelectedScopeKey}
+          isProjectSpecificItemView={isProjectSpecificItemView}
+          selectedProject={selectedProject}
+        />
 
-        <div className="px-[18px] pt-3 pb-0.5">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="View name"
-            maxLength={viewNameConstraints.max}
-            className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
-            autoFocus
-          />
-          <FieldCharacterLimit
-            state={nameLimitState}
-            limit={viewNameConstraints.max}
-            className="mt-1"
-          />
-          <Textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="What this view is for"
-            maxLength={viewDescriptionConstraints.max}
-            rows={3}
-            className="mt-0.5 min-h-[84px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
-          />
-          <FieldCharacterLimit
-            state={descriptionLimitState}
-            limit={viewDescriptionConstraints.max}
-            className="mt-1"
-          />
-          <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
-            {isProjectSpecificItemView
-              ? "Set the layout, filters, grouping, sorting, and properties for this project view."
-              : "Start with a clean view, then choose its space, optional project scope, filters, grouping, sorting, and properties."}
-          </div>
-        </div>
+        <CreateViewDialogFields
+          name={name}
+          onNameChange={setName}
+          description={description}
+          onDescriptionChange={setDescription}
+          nameLimitState={nameLimitState}
+          descriptionLimitState={descriptionLimitState}
+          isProjectSpecificItemView={isProjectSpecificItemView}
+        />
 
-        {selectedEntityKind === "items" ? (
-          <div className="border-t border-line-soft bg-background px-3.5 py-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {draftView ? (
-                <>
-                  <LayoutChipPopover
-                    view={draftView}
-                    onUpdateView={updateDraftView}
-                  />
-                  <FilterPopover
-                    view={draftView}
-                    items={scopedItems}
-                    onToggleFilterValue={toggleDraftFilterValue}
-                    onClearFilters={clearDraftFilters}
-                    variant="chip"
-                    chipTone="default"
-                    dashedWhenEmpty
-                  />
-                  {projectPicker}
-                  <LevelChipPopover
-                    view={draftView}
-                    onUpdateView={updateDraftView}
-                  />
-                  <GroupChipPopover
-                    view={draftView}
-                    groupOptions={groupOptions}
-                    onUpdateView={updateDraftView}
-                    tone="default"
-                    showValue={false}
-                  />
-                  <SortChipPopover
-                    view={draftView}
-                    onUpdateView={updateDraftView}
-                    label="Sort"
-                    showValue={false}
-                  />
-                  <PropertiesChipPopover
-                    view={draftView}
-                    onToggleDisplayProperty={toggleDraftDisplayProperty}
-                    onReorderDisplayProperties={reorderDraftDisplayProperties}
-                    onClearDisplayProperties={clearDraftDisplayProperties}
-                    tone="default"
-                    dashedWhenEmpty
-                  />
-                </>
-              ) : (
-                projectPicker
-              )}
-            </div>
-          </div>
-        ) : selectedEntityKind === "projects" && draftView ? (
-          <div className="border-t border-line-soft bg-background px-3.5 py-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <ProjectLayoutChipPopover
-                view={draftView}
-                onUpdateView={updateDraftView}
-              />
-              <ProjectFilterPopover
-                view={draftView}
-                projects={scopedProjects}
-                onToggleFilterValue={toggleDraftFilterValue}
-                onClearFilters={clearDraftFilters}
-                variant="chip"
-                chipTone="default"
-                dashedWhenEmpty
-              />
-              <ProjectSortChipPopover
-                view={draftView}
-                onUpdateView={updateDraftView}
-                label="Sort"
-                showValue={false}
-              />
-            </div>
-          </div>
-        ) : null}
+        <CreateViewControls
+          selectedEntityKind={selectedEntityKind}
+          draftView={draftView}
+          scopedItems={scopedItems}
+          scopedProjects={scopedProjects}
+          groupOptions={groupOptions}
+          projectPicker={projectPicker}
+          onUpdateDraftView={updateDraftView}
+          onToggleFilterValue={toggleDraftFilterValue}
+          onClearFilters={clearDraftFilters}
+          onToggleDisplayProperty={toggleDraftDisplayProperty}
+          onReorderDisplayProperties={reorderDraftDisplayProperties}
+          onClearDisplayProperties={clearDraftDisplayProperties}
+        />
 
-        {!resolvedRoute ? (
-          <p className="px-[18px] pt-2 text-xs text-destructive">
-            {selectedEntityKind === "items" &&
-            selectedScope?.scopeType === "workspace"
-              ? "Select a project to create this workspace view."
-              : "Select a space to create this view."}
-          </p>
-        ) : null}
+        <CreateViewRouteWarning
+          selectedEntityKind={selectedEntityKind}
+          selectedScope={selectedScope}
+          resolvedRoute={resolvedRoute}
+        />
 
-        <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
-            <FolderSimple className="size-[13px] shrink-0" />
-            <span className="truncate">
-              {effectiveScope ? (
-                <>
-                  Saving in{" "}
-                  <b className="font-medium text-foreground">
-                    {selectedProject
-                      ? selectedProject.name
-                      : (selectedScope?.label ?? "Scope")}
-                  </b>
-                </>
-              ) : (
-                "Select a space"
-              )}
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-              <ShortcutKeys
-                keys={["Esc"]}
-                className="ml-1"
-                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-              />
-            </Button>
-            <Button
-              size="sm"
-              disabled={!canCreate || creating}
-              onClick={handleCreate}
-              className="gap-1"
-            >
-              Create view
-              <ShortcutKeys
-                keys={[shortcutModifierLabel, "Enter"]}
-                variant="inline"
-                className="ml-0.5 gap-0.5 text-background/65"
-              />
-            </Button>
-          </div>
-        </div>
+        <CreateViewDialogFooter
+          effectiveScope={effectiveScope}
+          selectedProject={selectedProject}
+          selectedScope={selectedScope}
+          canCreate={canCreate}
+          creating={creating}
+          shortcutModifierLabel={shortcutModifierLabel}
+          onCancel={() => onOpenChange(false)}
+          onCreate={handleCreate}
+        />
       </DialogContent>
     </Dialog>
   )

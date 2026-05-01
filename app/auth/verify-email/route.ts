@@ -1,5 +1,5 @@
 import { saveSession } from "@workos-inc/authkit-nextjs"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 
 import {
   clearPendingEmailVerificationCookieOptions,
@@ -16,28 +16,13 @@ import {
   parseAuthMode,
 } from "@/lib/auth-routing"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { getRequestMetadata } from "@/lib/server/auth-request"
+import { redirectToRoute } from "@/lib/server/route-response"
 import {
   getWorkOSAuthErrorCode,
   getWorkOSClient,
   getWorkOSPendingAuthentication,
 } from "@/lib/server/workos"
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url), {
-    status: request.method === "POST" ? 303 : 307,
-  })
-}
-
-function getRequestMetadata(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for")
-  const ipAddress = forwardedFor?.split(",")[0]?.trim() || undefined
-  const userAgent = request.headers.get("user-agent") || undefined
-
-  return {
-    ipAddress,
-    userAgent,
-  }
-}
 
 function mapVerificationError(error: unknown) {
   switch (getWorkOSAuthErrorCode(error)) {
@@ -51,7 +36,7 @@ function mapVerificationError(error: unknown) {
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
 
-  return redirectTo(
+  return redirectToRoute(
     request,
     buildEmailVerificationPageHref({
       mode: parseAuthMode(url.searchParams.get("mode")) ?? "login",
@@ -76,7 +61,7 @@ export async function POST(request: NextRequest) {
   )
 
   if (!verificationState) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref(fallbackMode, {
         nextPath: fallbackNextPath,
@@ -87,7 +72,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!code) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildEmailVerificationPageHref({
         mode: verificationState.mode,
@@ -114,7 +99,7 @@ export async function POST(request: NextRequest) {
       authenticationResponse.organizationId
     )
 
-    const response = redirectTo(
+    const response = redirectToRoute(
       request,
       buildPostAuthPath(verificationState.nextPath)
     )
@@ -127,7 +112,7 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error) {
     const pendingAuthentication = getWorkOSPendingAuthentication(error)
-    const response = redirectTo(
+    const response = redirectToRoute(
       request,
       buildEmailVerificationPageHref({
         mode: verificationState.mode,

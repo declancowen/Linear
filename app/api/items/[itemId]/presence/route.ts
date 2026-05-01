@@ -1,93 +1,56 @@
 import { NextRequest } from "next/server"
-import { z } from "zod"
 
-import { ApplicationError } from "@/lib/server/application-errors"
 import {
   clearWorkItemPresenceServer,
   heartbeatWorkItemPresenceServer,
 } from "@/lib/server/convex"
-import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
-import { parseJsonBody } from "@/lib/server/route-body"
 import {
-  getConvexErrorMessage,
-  logProviderError,
-} from "@/lib/server/provider-errors"
-import {
-  isRouteResponse,
-  jsonApplicationError,
-  jsonError,
-  jsonOk,
-} from "@/lib/server/route-response"
-import { toAuthenticatedAppUser } from "@/lib/workos/auth"
-
-const workItemPresenceSchema = z.object({
-  action: z.enum(["heartbeat", "leave"]),
-  sessionId: z.string().trim().min(8).max(128),
-  activeBlockId: z.string().trim().min(1).max(256).nullable().optional(),
-})
+  createPresenceHeartbeatInput,
+  handleConvexUserJsonRoute,
+  presencePayloadSchema,
+} from "@/lib/server/route-handlers"
+import { jsonOk } from "@/lib/server/route-response"
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ itemId: string }> }
 ) {
-  const session = await requireSession()
-
-  if (isRouteResponse(session)) {
-    return session
-  }
-
   const { itemId } = await params
-  const parsed = await parseJsonBody(
-    request,
-    workItemPresenceSchema,
-    "Invalid work item presence payload"
-  )
 
-  if (isRouteResponse(parsed)) {
-    return parsed
-  }
+  return handleConvexUserJsonRoute(request, {
+    schema: presencePayloadSchema,
+    invalidMessage: "Invalid work item presence payload",
+    failureLogLabel: "Failed to update work item presence",
+    failureMessage: "Failed to update work item presence",
+    failureCode: "WORK_ITEM_PRESENCE_UPDATE_FAILED",
+    async handle({ authContext, authenticatedUser, parsed }) {
+      if (parsed.action === "leave") {
+        await clearWorkItemPresenceServer({
+          currentUserId: authContext.currentUser.id,
+          itemId,
+          workosUserId: authenticatedUser.workosUserId,
+          sessionId: parsed.sessionId,
+        })
 
-  try {
-    const authenticatedUser = toAuthenticatedAppUser(
-      session.user,
-      session.organizationId
-    )
-    const authContext = await requireConvexUser(session)
+        return jsonOk({
+          ok: true,
+        })
+      }
 
-    if (isRouteResponse(authContext)) {
-      return authContext
-    }
-
-    if (parsed.action === "leave") {
-      await clearWorkItemPresenceServer({
-        currentUserId: authContext.currentUser.id,
+      const viewers = await heartbeatWorkItemPresenceServer({
         itemId,
-        workosUserId: authenticatedUser.workosUserId,
-        sessionId: parsed.sessionId,
+        ...createPresenceHeartbeatInput({
+          authContext,
+          authenticatedUser,
+          parsed,
+        }),
       })
 
       return jsonOk({
-        ok: true,
+        viewers,
       })
-    }
-
-    const viewers = await heartbeatWorkItemPresenceServer({
-      currentUserId: authContext.currentUser.id,
-      itemId,
-      workosUserId: authenticatedUser.workosUserId,
-      email: authenticatedUser.email,
-      name: authContext.currentUser.name,
-      avatarUrl: authContext.currentUser.avatarUrl,
-      avatarImageUrl: authContext.currentUser.avatarImageUrl ?? null,
-      activeBlockId: parsed.activeBlockId ?? null,
-      sessionId: parsed.sessionId,
-    })
-
-    return jsonOk({
-      viewers,
-    })
-  } catch (error) {
-    if (error instanceof ApplicationError) {
+    },
+    handleApplicationError(error, { parsed }) {
       if (
         error.code === "WORK_ITEM_NOT_FOUND" ||
         error.code === "WORK_ITEM_PRESENCE_UNAVAILABLE"
@@ -103,16 +66,7 @@ export async function POST(
         })
       }
 
-      return jsonApplicationError(error)
-    }
-
-    logProviderError("Failed to update work item presence", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to update work item presence"),
-      500,
-      {
-        code: "WORK_ITEM_PRESENCE_UPDATE_FAILED",
-      }
-    )
-  }
+      return undefined
+    },
+  })
 }

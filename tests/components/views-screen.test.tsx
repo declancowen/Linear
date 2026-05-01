@@ -1,9 +1,6 @@
 import type {
   ButtonHTMLAttributes,
-  HTMLAttributes,
   ReactNode,
-  TdHTMLAttributes,
-  ThHTMLAttributes,
 } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
@@ -52,27 +49,6 @@ vi.mock("@/components/ui/button", () => ({
       {children}
     </button>
   ),
-}))
-
-vi.mock("@/components/ui/table", () => ({
-  Table: ({ children }: { children: ReactNode }) => <table>{children}</table>,
-  TableHeader: ({ children }: { children: ReactNode }) => (
-    <thead>{children}</thead>
-  ),
-  TableBody: ({ children }: { children: ReactNode }) => (
-    <tbody>{children}</tbody>
-  ),
-  TableRow: ({ children, ...props }: HTMLAttributes<HTMLTableRowElement>) => (
-    <tr {...props}>{children}</tr>
-  ),
-  TableHead: ({
-    children,
-    ...props
-  }: ThHTMLAttributes<HTMLTableCellElement>) => <th {...props}>{children}</th>,
-  TableCell: ({
-    children,
-    ...props
-  }: TdHTMLAttributes<HTMLTableCellElement>) => <td {...props}>{children}</td>,
 }))
 
 vi.mock("@/components/app/screens/shared", () => ({
@@ -127,10 +103,6 @@ vi.mock("@/components/app/screens/work-surface", () => ({
 
 vi.mock("@/components/app/screens/create-document-dialog", () => ({
   CreateDocumentDialog: () => null,
-}))
-
-vi.mock("@/components/app/team-workflow-settings-dialog", () => ({
-  TeamWorkflowSettingsDialog: () => null,
 }))
 
 vi.mock("@/components/app/screens/document-ui", () => ({

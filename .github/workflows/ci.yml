@@ -26,6 +26,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - name: Fallow static audit
+        run: pnpm exec fallow --ci --production
+        continue-on-error: true
       - run: pnpm audit:deps
       - name: Guard Convex generated bindings when codegen is unavailable
         if: ${{ env.CONVEX_DEPLOYMENT == '' }}

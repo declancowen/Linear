@@ -42,6 +42,8 @@ type ServerAccessArgs = {
 }
 
 type InviteRole = "admin" | "member" | "viewer" | "guest"
+type TokenInvite = Awaited<ReturnType<typeof listInvitesByToken>>[number]
+type InviteTeam = NonNullable<Awaited<ReturnType<typeof getTeamDoc>>>
 
 type CreateInviteArgs = ServerAccessArgs & {
   currentUserId: string
@@ -70,6 +72,13 @@ type InviteActionErrorResult = {
   error: "Invite not found"
   status: 404
   code: "INVITE_NOT_FOUND"
+}
+
+type TokenInviteScope = {
+  representativeInvite: TokenInvite
+  scopedTokenInvites: TokenInvite[]
+  pendingInvites: TokenInvite[]
+  acceptedInvites: TokenInvite[]
 }
 
 function isPendingInvite(invite: {
@@ -217,8 +226,9 @@ async function partitionPendingInvitesByExistingTeams<
     pendingInvites.map((invite) => getTeamDoc(ctx, invite.teamId))
   )
   const activePendingInvites: T[] = []
-  const activePendingTeams: Array<NonNullable<(typeof pendingInviteTeams)[number]>> =
-    []
+  const activePendingTeams: Array<
+    NonNullable<(typeof pendingInviteTeams)[number]>
+  > = []
   const stalePendingInvites: T[] = []
 
   for (const [index, invite] of pendingInvites.entries()) {
@@ -237,6 +247,153 @@ async function partitionPendingInvitesByExistingTeams<
     activePendingInvites,
     activePendingTeams,
     stalePendingInvites,
+  }
+}
+
+function resolveTokenInviteScope(
+  tokenInvites: TokenInvite[]
+): TokenInviteScope | null {
+  const firstPendingInvite = tokenInvites.find(isPendingInvite)
+  const firstAcceptedInvite = tokenInvites.find((invite) =>
+    Boolean(invite.acceptedAt)
+  )
+  const representativeInvite = firstPendingInvite ?? firstAcceptedInvite ?? null
+
+  if (!representativeInvite) {
+    return null
+  }
+
+  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
+    tokenInvites,
+    representativeInvite
+  )
+
+  return {
+    representativeInvite,
+    scopedTokenInvites,
+    pendingInvites: scopedTokenInvites.filter(isPendingInvite),
+    acceptedInvites: scopedTokenInvites.filter((invite) =>
+      Boolean(invite.acceptedAt)
+    ),
+  }
+}
+
+async function deleteInviteArtifactsForList(
+  ctx: MutationCtx,
+  invites: TokenInvite[]
+) {
+  for (const invite of invites) {
+    await deleteInviteArtifacts(ctx, invite)
+  }
+}
+
+async function upsertTeamMembershipForInvite(
+  ctx: MutationCtx,
+  invite: TokenInvite,
+  currentUserId: string
+) {
+  const existingMembership = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team_and_user", (q) =>
+      q.eq("teamId", invite.teamId).eq("userId", currentUserId)
+    )
+    .unique()
+  const resolvedRole = mergeMembershipRole(
+    existingMembership?.role,
+    invite.role
+  )
+
+  if (existingMembership) {
+    if (existingMembership.role !== resolvedRole) {
+      await ctx.db.patch(existingMembership._id, {
+        role: resolvedRole,
+      })
+    }
+
+    return
+  }
+
+  await ctx.db.insert("teamMemberships", {
+    teamId: invite.teamId,
+    userId: currentUserId,
+    role: resolvedRole,
+  })
+}
+
+async function markInviteAccepted(
+  ctx: MutationCtx,
+  invite: TokenInvite,
+  currentUserId: string
+) {
+  await ctx.db.patch(invite._id, {
+    acceptedAt: getNow(),
+  })
+
+  await insertAuditEvent(ctx, {
+    type: "invite.accepted",
+    actorUserId: currentUserId,
+    subjectUserId: currentUserId,
+    workspaceId: invite.workspaceId,
+    teamId: invite.teamId,
+    entityId: invite.id,
+    summary: `Invite ${invite.id} was accepted.`,
+    details: {
+      inviteRole: invite.role,
+      source: "convex",
+    },
+  })
+}
+
+async function acceptActivePendingInvites(
+  ctx: MutationCtx,
+  invites: TokenInvite[],
+  currentUserId: string
+) {
+  let fallbackRole: InviteRole | null = null
+
+  for (const invite of invites) {
+    await upsertTeamMembershipForInvite(ctx, invite, currentUserId)
+    await syncTeamConversationMemberships(ctx, invite.teamId)
+    await markInviteAccepted(ctx, invite, currentUserId)
+
+    fallbackRole = mergeMembershipRole(fallbackRole, invite.role)
+  }
+
+  return fallbackRole
+}
+
+async function finalizeAcceptedInvites(
+  ctx: MutationCtx,
+  args: TokenActionArgs,
+  representativeInvite: TokenInvite,
+  activePendingInvites: TokenInvite[],
+  activePendingTeams: InviteTeam[],
+  fallbackRole: InviteRole | null
+) {
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: representativeInvite.workspaceId,
+    userId: args.currentUserId,
+    fallbackRole: fallbackRole ?? representativeInvite.role,
+  })
+
+  const team = activePendingInvites.length === 1 ? activePendingTeams[0] : null
+  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
+  await setCurrentWorkspaceForUser(
+    ctx,
+    args.currentUserId,
+    representativeInvite.workspaceId
+  )
+
+  await archiveInviteNotifications(ctx, {
+    userId: args.currentUserId,
+    inviteIds: activePendingInvites.map((invite) => invite.id),
+  })
+
+  return {
+    teamSlug: team?.slug ?? null,
+    workspaceId: representativeInvite.workspaceId,
+    workspaceSlug: workspace?.slug ?? null,
+    workosOrganizationId: workspace?.workosOrganizationId ?? null,
   }
 }
 
@@ -263,9 +420,7 @@ export async function createInviteHandler(
   }
 
   const teams = loadedTeams.filter(
-    (
-      team
-    ): team is NonNullable<(typeof loadedTeams)[number]> => team !== null
+    (team): team is NonNullable<(typeof loadedTeams)[number]> => team !== null
   )
 
   if (teams.some((team) => team.workspaceId !== primaryTeam.workspaceId)) {
@@ -397,7 +552,11 @@ export async function cancelInviteHandler(
   let canCancelViaWorkspace = true
 
   try {
-    await requireWorkspaceAdminAccess(ctx, invite.workspaceId, args.currentUserId)
+    await requireWorkspaceAdminAccess(
+      ctx,
+      invite.workspaceId,
+      args.currentUserId
+    )
   } catch (error) {
     if (
       !(error instanceof Error) ||
@@ -419,8 +578,9 @@ export async function cancelInviteHandler(
   }
 
   const pendingInvites = canCancelViaWorkspace
-    ? (
-        invite.batchId ? await listInvitesByBatchId(ctx, invite.batchId) : [invite]
+    ? (invite.batchId
+        ? await listInvitesByBatchId(ctx, invite.batchId)
+        : [invite]
       ).filter(
         (entry) =>
           entry.workspaceId === invite.workspaceId && isPendingInvite(entry)
@@ -451,24 +611,18 @@ export async function acceptInviteHandler(
 ) {
   assertServerToken(args.serverToken)
   const tokenInvites = await listInvitesByToken(ctx, args.token)
-  const firstPendingInvite = tokenInvites.find(isPendingInvite)
-  const firstAcceptedInvite = tokenInvites.find((invite) =>
-    Boolean(invite.acceptedAt)
-  )
-  const representativeInvite = firstPendingInvite ?? firstAcceptedInvite ?? null
+  const inviteScope = resolveTokenInviteScope(tokenInvites)
 
-  if (!representativeInvite) {
+  if (!inviteScope) {
     throw new Error("Invite not found")
   }
 
-  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
-    tokenInvites,
-    representativeInvite
-  )
-  const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
-  const acceptedInvites = scopedTokenInvites.filter((invite) =>
-    Boolean(invite.acceptedAt)
-  )
+  const {
+    acceptedInvites,
+    pendingInvites,
+    representativeInvite,
+    scopedTokenInvites,
+  } = inviteScope
 
   if (
     pendingInvites.length === 0 &&
@@ -484,9 +638,7 @@ export async function acceptInviteHandler(
   const { activePendingInvites, activePendingTeams, stalePendingInvites } =
     await partitionPendingInvitesByExistingTeams(ctx, pendingInvites)
 
-  for (const invite of stalePendingInvites) {
-    await deleteInviteArtifacts(ctx, invite)
-  }
+  await deleteInviteArtifactsForList(ctx, stalePendingInvites)
 
   if (activePendingInvites.length === 0) {
     if (acceptedInvites.length > 0) {
@@ -500,82 +652,20 @@ export async function acceptInviteHandler(
     return buildInviteNotFoundResult()
   }
 
-  let fallbackRole: InviteRole | null = null
-
-  for (const invite of activePendingInvites) {
-    const existingMembership = await ctx.db
-      .query("teamMemberships")
-      .withIndex("by_team_and_user", (q) =>
-        q.eq("teamId", invite.teamId).eq("userId", args.currentUserId)
-      )
-      .unique()
-    const resolvedRole = mergeMembershipRole(
-      existingMembership?.role,
-      invite.role
-    )
-
-    if (existingMembership) {
-      if (existingMembership.role !== resolvedRole) {
-        await ctx.db.patch(existingMembership._id, {
-          role: resolvedRole,
-        })
-      }
-    } else {
-      await ctx.db.insert("teamMemberships", {
-        teamId: invite.teamId,
-        userId: args.currentUserId,
-        role: resolvedRole,
-      })
-    }
-
-    await syncTeamConversationMemberships(ctx, invite.teamId)
-
-    await ctx.db.patch(invite._id, {
-      acceptedAt: getNow(),
-    })
-
-    await insertAuditEvent(ctx, {
-      type: "invite.accepted",
-      actorUserId: args.currentUserId,
-      subjectUserId: args.currentUserId,
-      workspaceId: invite.workspaceId,
-      teamId: invite.teamId,
-      entityId: invite.id,
-      summary: `Invite ${invite.id} was accepted.`,
-      details: {
-        inviteRole: invite.role,
-        source: "convex",
-      },
-    })
-
-    fallbackRole = mergeMembershipRole(fallbackRole, invite.role)
-  }
-
-  await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId: representativeInvite.workspaceId,
-    userId: args.currentUserId,
-    fallbackRole: fallbackRole ?? representativeInvite.role,
-  })
-
-  const team = activePendingInvites.length === 1 ? activePendingTeams[0] : null
-  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
-  await setCurrentWorkspaceForUser(
+  const fallbackRole = await acceptActivePendingInvites(
     ctx,
-    args.currentUserId,
-    representativeInvite.workspaceId
+    activePendingInvites,
+    args.currentUserId
   )
 
-  await archiveInviteNotifications(ctx, {
-    userId: args.currentUserId,
-    inviteIds: activePendingInvites.map((invite) => invite.id),
-  })
-
-  return {
-    teamSlug: team?.slug ?? null,
-    workspaceId: representativeInvite.workspaceId,
-    workspaceSlug: workspace?.slug ?? null,
-    workosOrganizationId: workspace?.workosOrganizationId ?? null,
-  }
+  return finalizeAcceptedInvites(
+    ctx,
+    args,
+    representativeInvite,
+    activePendingInvites,
+    activePendingTeams,
+    fallbackRole
+  )
 }
 
 export async function declineInviteHandler(

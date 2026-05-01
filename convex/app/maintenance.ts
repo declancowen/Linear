@@ -314,23 +314,32 @@ function getNormalizedLookupStatus(input: {
       unresolved: unresolvedLabels,
     },
     remaining: {
-      total: remainingTeams + remainingUsers + remainingInvites + remainingLabels,
+      total:
+        remainingTeams + remainingUsers + remainingInvites + remainingLabels,
     },
   }
 }
 
 async function loadLookupTables(ctx: MutationCtx | QueryCtx) {
-  const [workspaces, teams, users, invites, labels, workItems, views, projects] =
-    await Promise.all([
-      ctx.db.query("workspaces").collect(),
-      ctx.db.query("teams").collect(),
-      ctx.db.query("users").collect(),
-      ctx.db.query("invites").collect(),
-      ctx.db.query("labels").collect(),
-      ctx.db.query("workItems").collect(),
-      ctx.db.query("views").collect(),
-      ctx.db.query("projects").collect(),
-    ])
+  const [
+    workspaces,
+    teams,
+    users,
+    invites,
+    labels,
+    workItems,
+    views,
+    projects,
+  ] = await Promise.all([
+    ctx.db.query("workspaces").collect(),
+    ctx.db.query("teams").collect(),
+    ctx.db.query("users").collect(),
+    ctx.db.query("invites").collect(),
+    ctx.db.query("labels").collect(),
+    ctx.db.query("workItems").collect(),
+    ctx.db.query("views").collect(),
+    ctx.db.query("projects").collect(),
+  ])
 
   return {
     workspaces,
@@ -361,43 +370,25 @@ async function loadWorkspaceMembershipTables(ctx: MutationCtx | QueryCtx) {
   }
 }
 
-export async function getLegacyLookupBackfillStatusHandler(
-  ctx: QueryCtx,
-  args: ServerAccessArgs
-) {
-  assertServerToken(args.serverToken)
+type LookupTables = Awaited<ReturnType<typeof loadLookupTables>>
 
-  return getNormalizedLookupStatus(await loadLookupTables(ctx))
+type BackfillPatchResult = {
+  patched: number
+  remainingCapacity: number
 }
 
-export async function getWorkspaceMembershipBackfillStatusHandler(
-  ctx: QueryCtx,
-  args: ServerAccessArgs
-) {
-  assertServerToken(args.serverToken)
-
-  return buildWorkspaceMembershipBackfillPlan(
-    await loadWorkspaceMembershipTables(ctx)
-  ).status
+function getBackfillBatchLimit(args: BackfillArgs) {
+  return Math.max(1, Math.min(args.limit ?? 250, 1000))
 }
 
-export async function backfillLegacyLookupFieldsHandler(
+async function backfillTeamJoinCodes(
   ctx: MutationCtx,
-  args: BackfillArgs
-) {
-  assertServerToken(args.serverToken)
+  teams: LookupTables["teams"],
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  let patched = 0
 
-  const batchLimit = Math.max(1, Math.min(args.limit ?? 250, 1000))
-  const tables = await loadLookupTables(ctx)
-  const patched = {
-    teams: 0,
-    users: 0,
-    invites: 0,
-    labels: 0,
-  }
-  let remainingCapacity = batchLimit
-
-  for (const team of tables.teams) {
+  for (const team of teams) {
     if (remainingCapacity <= 0) {
       break
     }
@@ -411,11 +402,24 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(team._id, {
       joinCodeNormalized: normalizedJoinCode,
     })
-    patched.teams += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
-  for (const user of tables.users) {
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+async function backfillUserEmails(
+  ctx: MutationCtx,
+  users: LookupTables["users"],
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  let patched = 0
+
+  for (const user of users) {
     if (remainingCapacity <= 0) {
       break
     }
@@ -429,11 +433,24 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(user._id, {
       emailNormalized: normalizedEmail,
     })
-    patched.users += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
-  for (const invite of tables.invites) {
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+async function backfillInviteEmails(
+  ctx: MutationCtx,
+  invites: LookupTables["invites"],
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  let patched = 0
+
+  for (const invite of invites) {
     if (remainingCapacity <= 0) {
       break
     }
@@ -447,11 +464,18 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(invite._id, {
       normalizedEmail,
     })
-    patched.invites += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
-  const inferredLabelWorkspaceIds = inferLabelWorkspaceIds({
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+function inferLegacyLabelWorkspaceIds(tables: LookupTables) {
+  return inferLabelWorkspaceIds({
     teams: tables.teams.map((team) => ({
       id: team.id,
       workspaceId: team.workspaceId,
@@ -480,8 +504,17 @@ export async function backfillLegacyLookupFieldsHandler(
         : undefined,
     })),
   })
+}
+
+async function backfillLabelWorkspaceIds(
+  ctx: MutationCtx,
+  tables: LookupTables,
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  const inferredLabelWorkspaceIds = inferLegacyLabelWorkspaceIds(tables)
   const onlyWorkspaceId =
     tables.workspaces.length === 1 ? (tables.workspaces[0]?.id ?? null) : null
+  let patched = 0
 
   for (const label of tables.labels) {
     if (remainingCapacity <= 0) {
@@ -503,17 +536,73 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(label._id, {
       workspaceId: inferredWorkspaceId,
     })
-    patched.labels += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+export async function getLegacyLookupBackfillStatusHandler(
+  ctx: QueryCtx,
+  args: ServerAccessArgs
+) {
+  assertServerToken(args.serverToken)
+
+  return getNormalizedLookupStatus(await loadLookupTables(ctx))
+}
+
+export async function getWorkspaceMembershipBackfillStatusHandler(
+  ctx: QueryCtx,
+  args: ServerAccessArgs
+) {
+  assertServerToken(args.serverToken)
+
+  return buildWorkspaceMembershipBackfillPlan(
+    await loadWorkspaceMembershipTables(ctx)
+  ).status
+}
+
+export async function backfillLegacyLookupFieldsHandler(
+  ctx: MutationCtx,
+  args: BackfillArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const batchLimit = getBackfillBatchLimit(args)
+  const tables = await loadLookupTables(ctx)
+  const teamPatch = await backfillTeamJoinCodes(ctx, tables.teams, batchLimit)
+  const userPatch = await backfillUserEmails(
+    ctx,
+    tables.users,
+    teamPatch.remainingCapacity
+  )
+  const invitePatch = await backfillInviteEmails(
+    ctx,
+    tables.invites,
+    userPatch.remainingCapacity
+  )
+  const labelPatch = await backfillLabelWorkspaceIds(
+    ctx,
+    tables,
+    invitePatch.remainingCapacity
+  )
+
   const status = getNormalizedLookupStatus(await loadLookupTables(ctx))
+  const patched = {
+    teams: teamPatch.patched,
+    users: userPatch.patched,
+    invites: invitePatch.patched,
+    labels: labelPatch.patched,
+  }
 
   return {
     patched: {
       ...patched,
-      total:
-        patched.teams + patched.users + patched.invites + patched.labels,
+      total: patched.teams + patched.users + patched.invites + patched.labels,
     },
     remaining: status.remaining,
     status,

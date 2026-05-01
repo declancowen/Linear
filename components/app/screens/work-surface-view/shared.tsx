@@ -12,6 +12,24 @@ import {
 
 import { StatusIcon } from "../shared"
 
+const STATUS_GROUP_ACCENT_BY_VALUE: Record<string, string> = {
+  backlog: "var(--status-backlog)",
+  canceled: "var(--priority-urgent)",
+  cancelled: "var(--priority-urgent)",
+  done: "var(--status-done)",
+  duplicate: "var(--status-cancel)",
+  "in progress": "var(--status-doing)",
+  "in-progress": "var(--status-doing)",
+  todo: "var(--status-todo)",
+}
+
+const PRIORITY_GROUP_ACCENT_BY_VALUE: Partial<Record<Priority, string>> = {
+  urgent: "var(--priority-urgent)",
+  high: "var(--priority-high)",
+  medium: "var(--priority-medium)",
+  low: "var(--priority-low)",
+}
+
 export function getGroupValueLabel(field: GroupField | null, value: string) {
   if (!field) {
     return "All"
@@ -32,7 +50,10 @@ export function getGroupValueLabel(field: GroupField | null, value: string) {
   return value
 }
 
-export function getGroupValueAdornment(field: GroupField | null, value: string) {
+export function getGroupValueAdornment(
+  field: GroupField | null,
+  value: string
+) {
   if (field === "status") {
     return <StatusIcon status={value as WorkItem["status"]} />
   }
@@ -45,40 +66,12 @@ export function getGroupAccentVar(
   value: string
 ): string | null {
   if (field === "status") {
-    const status = value.trim().toLowerCase()
-    if (status === "done") return "var(--status-done)"
-    if (status === "in-progress" || status === "in progress")
-      return "var(--status-doing)"
-    if (status === "todo") return "var(--status-todo)"
-    if (status === "cancelled" || status === "canceled")
-      return "var(--priority-urgent)"
-    if (status === "duplicate") return "var(--status-cancel)"
-    if (status === "backlog") return "var(--status-backlog)"
-    return null
+    return STATUS_GROUP_ACCENT_BY_VALUE[value.trim().toLowerCase()] ?? null
   }
 
   if (field === "priority") {
-    const priority = value as Priority
-    if (priority === "urgent") return "var(--priority-urgent)"
-    if (priority === "high") return "var(--priority-high)"
-    if (priority === "medium") return "var(--priority-medium)"
-    if (priority === "low") return "var(--priority-low)"
-    return null
+    return PRIORITY_GROUP_ACCENT_BY_VALUE[value as Priority] ?? null
   }
 
   return null
-}
-
-export function computeGroupDoneRatio(items: WorkItem[]): {
-  total: number
-  done: number
-  percent: number
-} {
-  const total = items.length
-  if (total === 0) {
-    return { total: 0, done: 0, percent: 0 }
-  }
-
-  const done = items.filter((item) => item.status === "done").length
-  return { total, done, percent: Math.round((done / total) * 100) }
 }

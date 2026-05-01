@@ -6,13 +6,13 @@ import {
   isRouteAllowedForViewContext,
   isSystemView,
 } from "../../lib/domain/default-views"
-import {
-  viewNameMaxLength,
-  viewNameMinLength,
-} from "../../lib/domain/types"
+import { viewNameMaxLength, viewNameMinLength } from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
 import { getTeamDoc } from "./data"
-import { requireEditableTeamAccess, requireEditableWorkspaceAccess } from "./access"
+import {
+  requireEditableTeamAccess,
+  requireEditableWorkspaceAccess,
+} from "./access"
 import { normalizeTeam } from "./normalization"
 import {
   assertWorkspaceLabelIds,
@@ -222,49 +222,72 @@ type DeleteViewArgs = ServerAccessArgs & {
   viewId: string
 }
 
-export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) {
-  assertServerToken(args.serverToken)
+type CreateViewAccess = {
+  experience: ReturnType<typeof normalizeTeam>["settings"]["experience"] | null
+  teamSlug: string | null
+  workspaceId: string
+}
 
-  let teamSlug: string | null = null
-  let experience = null
-  let workspaceId = args.scopeId
-
-  if (args.scopeType === "team") {
-    await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
-    const team = await getTeamDoc(ctx, args.scopeId)
-
-    if (!team) {
-      throw new Error("Team not found")
-    }
-
-    const normalizedTeam = normalizeTeam(team)
-
-    if (!normalizedTeam.settings.features.views) {
-      throw new Error("Views are disabled for this team")
-    }
-
-    if (args.entityKind === "items" && !normalizedTeam.settings.features.issues) {
-      throw new Error("Work views are disabled for this team")
-    }
-
-    if (
-      args.entityKind === "projects" &&
-      !normalizedTeam.settings.features.projects
-    ) {
-      throw new Error("Project views are disabled for this team")
-    }
-
-    if (args.entityKind === "docs" && !normalizedTeam.settings.features.docs) {
-      throw new Error("Document views are disabled for this team")
-    }
-
-    teamSlug = normalizedTeam.slug
-    experience = normalizedTeam.settings.experience
-    workspaceId = normalizedTeam.workspaceId
-  } else {
-    await requireEditableWorkspaceAccess(ctx, args.scopeId, args.currentUserId)
+function assertTeamViewFeatures(
+  team: ReturnType<typeof normalizeTeam>,
+  entityKind: CreateViewArgs["entityKind"]
+) {
+  if (!team.settings.features.views) {
+    throw new Error("Views are disabled for this team")
   }
 
+  if (entityKind === "items" && !team.settings.features.issues) {
+    throw new Error("Work views are disabled for this team")
+  }
+
+  if (entityKind === "projects" && !team.settings.features.projects) {
+    throw new Error("Project views are disabled for this team")
+  }
+
+  if (entityKind === "docs" && !team.settings.features.docs) {
+    throw new Error("Document views are disabled for this team")
+  }
+}
+
+async function requireTeamViewCreateAccess(
+  ctx: MutationCtx,
+  args: CreateViewArgs
+): Promise<CreateViewAccess> {
+  await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
+  const team = await getTeamDoc(ctx, args.scopeId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  const normalizedTeam = normalizeTeam(team)
+  assertTeamViewFeatures(normalizedTeam, args.entityKind)
+
+  return {
+    experience: normalizedTeam.settings.experience,
+    teamSlug: normalizedTeam.slug,
+    workspaceId: normalizedTeam.workspaceId,
+  }
+}
+
+async function requireViewCreateAccess(
+  ctx: MutationCtx,
+  args: CreateViewArgs
+): Promise<CreateViewAccess> {
+  if (args.scopeType === "team") {
+    return requireTeamViewCreateAccess(ctx, args)
+  }
+
+  await requireEditableWorkspaceAccess(ctx, args.scopeId, args.currentUserId)
+
+  return {
+    experience: null,
+    teamSlug: null,
+    workspaceId: args.scopeId,
+  }
+}
+
+function assertCreateViewRoute(args: CreateViewArgs, teamSlug: string | null) {
   if (
     !isRouteAllowedForViewContext({
       scopeType: args.scopeType,
@@ -275,7 +298,19 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
   ) {
     throw new Error("View route is not valid for the selected scope")
   }
+}
 
+export async function createViewHandler(
+  ctx: MutationCtx,
+  args: CreateViewArgs
+) {
+  assertServerToken(args.serverToken)
+  const { experience, teamSlug, workspaceId } = await requireViewCreateAccess(
+    ctx,
+    args
+  )
+
+  assertCreateViewRoute(args, teamSlug)
   await assertWorkspaceLabelIds(ctx, workspaceId, args.filters?.labelIds)
 
   const view = createViewDefinition({
@@ -428,7 +463,11 @@ export async function toggleViewFilterValueHandler(
     : [...current, args.value]
 
   if (args.key === "labelIds" && next.length > 0) {
-    const workspaceId = await resolveViewWorkspaceId(ctx, view, args.currentUserId)
+    const workspaceId = await resolveViewWorkspaceId(
+      ctx,
+      view,
+      args.currentUserId
+    )
 
     if (!workspaceId) {
       throw new Error("Workspace not found")
@@ -496,7 +535,9 @@ export async function renameViewHandler(
   const trimmedName = args.name.trim()
 
   if (trimmedName.length < viewNameMinLength) {
-    throw new Error(`View name must be at least ${viewNameMinLength} characters`)
+    throw new Error(
+      `View name must be at least ${viewNameMinLength} characters`
+    )
   }
 
   if (trimmedName.length > viewNameMaxLength) {

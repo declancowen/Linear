@@ -199,6 +199,84 @@ function buildGroupedWorkItemPatch({
   }
 }
 
+type CreateDefaultsForFieldResult = ReturnType<typeof getCreateDefaultsForField>
+
+function getSubgroupCreateDefaults({
+  data,
+  baseItem,
+  subgroupValue,
+  teamId,
+  view,
+}: {
+  data: AppData
+  baseItem: WorkItem | null
+  subgroupValue?: string
+  teamId: string | null
+  view: Pick<ViewDefinition, "subGrouping">
+}): CreateDefaultsForFieldResult | null {
+  if (subgroupValue === undefined) {
+    return null
+  }
+
+  return getCreateDefaultsForField(
+    data,
+    baseItem,
+    view.subGrouping,
+    subgroupValue,
+    { teamId }
+  )
+}
+
+function mergeCreateDefaultPatches(
+  groupDefaults: CreateDefaultsForFieldResult,
+  subgroupDefaults: CreateDefaultsForFieldResult | null
+) {
+  return {
+    ...groupDefaults.patch,
+    ...(subgroupDefaults?.patch ?? {}),
+  }
+}
+
+function getCreateDefaultTeamId({
+  baseItem,
+  createContext,
+  groupDefaults,
+  subgroupDefaults,
+}: {
+  baseItem: WorkItem | null
+  createContext?: WorkSurfaceCreateContext
+  groupDefaults: CreateDefaultsForFieldResult
+  subgroupDefaults: CreateDefaultsForFieldResult | null
+}) {
+  return (
+    subgroupDefaults?.defaultTeamId ??
+    groupDefaults.defaultTeamId ??
+    baseItem?.teamId ??
+    createContext?.defaultTeamId ??
+    null
+  )
+}
+
+function getCreateDefaultValues({
+  createContext,
+  groupedPatch,
+}: {
+  createContext?: WorkSurfaceCreateContext
+  groupedPatch: CreateDefaultsForFieldResult["patch"]
+}) {
+  return {
+    status: groupedPatch.status,
+    priority: groupedPatch.priority,
+    assigneeId: groupedPatch.assigneeId,
+    primaryProjectId:
+      groupedPatch.primaryProjectId !== undefined
+        ? groupedPatch.primaryProjectId
+        : (createContext?.defaultProjectId ?? null),
+    labelIds: groupedPatch.labelIds,
+    parentId: groupedPatch.parentId ?? null,
+  }
+}
+
 function buildCreateDefaultsForGroup({
   data,
   items,
@@ -223,41 +301,31 @@ function buildCreateDefaultsForGroup({
     groupValue,
     { teamId }
   )
-  const subgroupDefaults =
-    subgroupValue === undefined
-      ? null
-      : getCreateDefaultsForField(
-          data,
-          baseItem,
-          view.subGrouping,
-          subgroupValue,
-          { teamId }
-        )
-  const groupedPatch = {
-    ...groupDefaults.patch,
-    ...(subgroupDefaults?.patch ?? {}),
-  }
+  const subgroupDefaults = getSubgroupCreateDefaults({
+    data,
+    baseItem,
+    subgroupValue,
+    teamId,
+    view,
+  })
+  const groupedPatch = mergeCreateDefaultPatches(
+    groupDefaults,
+    subgroupDefaults
+  )
 
   return {
-    defaultTeamId:
-      subgroupDefaults?.defaultTeamId ??
-      groupDefaults.defaultTeamId ??
-      baseItem?.teamId ??
-      createContext?.defaultTeamId ??
-      null,
+    defaultTeamId: getCreateDefaultTeamId({
+      baseItem,
+      createContext,
+      groupDefaults,
+      subgroupDefaults,
+    }),
     initialType:
       subgroupDefaults?.initialType ?? groupDefaults.initialType ?? null,
-    defaultValues: {
-      status: groupedPatch.status,
-      priority: groupedPatch.priority,
-      assigneeId: groupedPatch.assigneeId,
-      primaryProjectId:
-        groupedPatch.primaryProjectId !== undefined
-          ? groupedPatch.primaryProjectId
-          : (createContext?.defaultProjectId ?? null),
-      labelIds: groupedPatch.labelIds,
-      parentId: groupedPatch.parentId ?? null,
-    },
+    defaultValues: getCreateDefaultValues({
+      createContext,
+      groupedPatch,
+    }),
   }
 }
 
@@ -405,16 +473,7 @@ function getDisplayedChildCountOverride(
   return childItems.length > 0 ? childItems.length : undefined
 }
 
-function renderWorkItemDisplayProperty({
-  data,
-  item,
-  property,
-  variant,
-  childProgress,
-  dueDateLabel,
-  isOverdue,
-  isSoon,
-}: {
+type WorkItemDisplayPropertyContext = {
   data: AppData
   item: WorkItem
   property: DisplayProperty
@@ -423,146 +482,157 @@ function renderWorkItemDisplayProperty({
   dueDateLabel: string | null
   isOverdue: boolean
   isSoon: boolean
-}) {
-  if (property === "id") {
-    return (
-      <span className="shrink-0 font-mono text-[11.5px] tracking-[0.01em] text-fg-3">
-        {item.key}
-      </span>
-    )
+}
+
+type WorkItemDisplayPropertyRenderer = (
+  context: WorkItemDisplayPropertyContext
+) => ReactNode | ReactNode[] | null
+
+function renderWorkItemIdProperty({ item }: WorkItemDisplayPropertyContext) {
+  return (
+    <span className="shrink-0 font-mono text-[11.5px] tracking-[0.01em] text-fg-3">
+      {item.key}
+    </span>
+  )
+}
+
+function renderInlineWorkItemProperty(
+  context: WorkItemDisplayPropertyContext,
+  property: "status" | "priority" | "project" | "assignee"
+) {
+  return (
+    <InlineWorkItemPropertyControl
+      data={context.data}
+      item={context.item}
+      property={property}
+      variant="surface"
+    />
+  )
+}
+
+function renderWorkItemTypeProperty({
+  data,
+  item,
+}: WorkItemDisplayPropertyContext) {
+  return (
+    <WorkItemTypeBadge
+      data={data}
+      item={item}
+      className="h-5 px-2 text-[11px] text-fg-2"
+    />
+  )
+}
+
+function renderWorkItemProgressProperty({
+  childProgress,
+  variant,
+}: WorkItemDisplayPropertyContext) {
+  return <WorkItemProgressProperty progress={childProgress} variant={variant} />
+}
+
+function renderWorkItemMilestoneProperty({
+  data,
+  item,
+}: WorkItemDisplayPropertyContext) {
+  const milestone = data.milestones.find(
+    (entry) => entry.id === item.milestoneId
+  )
+
+  if (!milestone) {
+    return null
   }
 
-  if (property === "status") {
-    return (
-      <InlineWorkItemPropertyControl
-        data={data}
-        item={item}
-        property="status"
-        variant="surface"
-      />
-    )
+  return <span className={META_CHIP_CLASS}>{milestone.name}</span>
+}
+
+function renderWorkItemLabelsProperty({
+  data,
+  item,
+  variant,
+}: WorkItemDisplayPropertyContext) {
+  if (item.labelIds.length === 0) {
+    return null
   }
 
-  if (property === "type") {
-    return (
-      <WorkItemTypeBadge
-        data={data}
-        item={item}
-        className="h-5 px-2 text-[11px] text-fg-2"
-      />
-    )
+  return item.labelIds
+    .slice(0, variant === "board" ? 3 : 2)
+    .map((labelId) => {
+      const label = data.labels.find((entry) => entry.id === labelId)
+
+      if (!label) {
+        return null
+      }
+
+      return (
+        <span key={labelId} className={META_CHIP_CLASS}>
+          <LabelColorDot color={label.color} className="size-[7px]" />
+          {label.name}
+        </span>
+      )
+    })
+    .filter(Boolean)
+}
+
+function renderWorkItemDueDateProperty({
+  dueDateLabel,
+  isOverdue,
+  isSoon,
+}: WorkItemDisplayPropertyContext) {
+  if (!dueDateLabel) {
+    return null
   }
 
-  if (property === "priority") {
-    return (
-      <InlineWorkItemPropertyControl
-        data={data}
-        item={item}
-        property="priority"
-        variant="surface"
-      />
-    )
-  }
+  return (
+    <span
+      className={cn(
+        META_TEXT_CLASS,
+        isOverdue && "text-[color:var(--priority-urgent)]",
+        !isOverdue && isSoon && "text-[color:var(--priority-high)]"
+      )}
+    >
+      {dueDateLabel}
+    </span>
+  )
+}
 
-  if (property === "progress") {
-    return (
-      <WorkItemProgressProperty progress={childProgress} variant={variant} />
-    )
-  }
+function renderWorkItemCreatedProperty({
+  item,
+}: WorkItemDisplayPropertyContext) {
+  const createdAt = formatWorkSurfaceTimestamp(item.createdAt, "Created")
 
-  if (property === "project") {
-    return (
-      <InlineWorkItemPropertyControl
-        data={data}
-        item={item}
-        property="project"
-        variant="surface"
-      />
-    )
-  }
+  return createdAt ? <span className={META_TEXT_CLASS}>{createdAt}</span> : null
+}
 
-  if (property === "milestone") {
-    const milestone = data.milestones.find(
-      (entry) => entry.id === item.milestoneId
-    )
+function renderWorkItemUpdatedProperty({
+  item,
+}: WorkItemDisplayPropertyContext) {
+  const updatedAt = formatWorkSurfaceTimestamp(item.updatedAt, "Updated")
 
-    if (!milestone) {
-      return null
-    }
+  return updatedAt ? <span className={META_TEXT_CLASS}>{updatedAt}</span> : null
+}
 
-    return <span className={META_CHIP_CLASS}>{milestone.name}</span>
-  }
+const workItemDisplayPropertyRenderers: Record<
+  DisplayProperty,
+  WorkItemDisplayPropertyRenderer
+> = {
+  id: renderWorkItemIdProperty,
+  status: (context) => renderInlineWorkItemProperty(context, "status"),
+  type: renderWorkItemTypeProperty,
+  priority: (context) => renderInlineWorkItemProperty(context, "priority"),
+  progress: renderWorkItemProgressProperty,
+  project: (context) => renderInlineWorkItemProperty(context, "project"),
+  milestone: renderWorkItemMilestoneProperty,
+  labels: renderWorkItemLabelsProperty,
+  dueDate: renderWorkItemDueDateProperty,
+  created: renderWorkItemCreatedProperty,
+  updated: renderWorkItemUpdatedProperty,
+  assignee: (context) => renderInlineWorkItemProperty(context, "assignee"),
+}
 
-  if (property === "labels") {
-    if (item.labelIds.length === 0) {
-      return null
-    }
-
-    return item.labelIds
-      .slice(0, variant === "board" ? 3 : 2)
-      .map((labelId) => {
-        const label = data.labels.find((entry) => entry.id === labelId)
-
-        if (!label) {
-          return null
-        }
-
-        return (
-          <span key={labelId} className={META_CHIP_CLASS}>
-            <LabelColorDot color={label.color} className="size-[7px]" />
-            {label.name}
-          </span>
-        )
-      })
-      .filter(Boolean)
-  }
-
-  if (property === "dueDate") {
-    if (!dueDateLabel) {
-      return null
-    }
-
-    return (
-      <span
-        className={cn(
-          META_TEXT_CLASS,
-          isOverdue && "text-[color:var(--priority-urgent)]",
-          !isOverdue && isSoon && "text-[color:var(--priority-high)]"
-        )}
-      >
-        {dueDateLabel}
-      </span>
-    )
-  }
-
-  if (property === "created") {
-    const createdAt = formatWorkSurfaceTimestamp(item.createdAt, "Created")
-
-    return createdAt ? (
-      <span className={META_TEXT_CLASS}>{createdAt}</span>
-    ) : null
-  }
-
-  if (property === "updated") {
-    const updatedAt = formatWorkSurfaceTimestamp(item.updatedAt, "Updated")
-
-    return updatedAt ? (
-      <span className={META_TEXT_CLASS}>{updatedAt}</span>
-    ) : null
-  }
-
-  if (property === "assignee") {
-    return (
-      <InlineWorkItemPropertyControl
-        data={data}
-        item={item}
-        property="assignee"
-        variant="surface"
-      />
-    )
-  }
-
-  return null
+function renderWorkItemDisplayProperty(
+  context: WorkItemDisplayPropertyContext
+) {
+  return workItemDisplayPropertyRenderers[context.property]?.(context) ?? null
 }
 
 function renderWorkItemDisplayProperties({
@@ -1298,7 +1368,7 @@ export function ListView({
 
                               return [
                                 parentRow,
-                                ...children.map((child) => (
+                                ...children.map((child) =>
                                   editable ? (
                                     <DraggableListRow
                                       key={child.id}
@@ -1316,7 +1386,7 @@ export function ListView({
                                       depth={1}
                                     />
                                   )
-                                )),
+                                ),
                               ]
                             })}
                             {editable ? (
@@ -1508,6 +1578,217 @@ function ListDropLane({
   )
 }
 
+type ListRowBodyProps = {
+  data: AppData
+  item: WorkItem
+  displayProps: DisplayProperty[]
+  depth: number
+  childCountOverride?: number
+  interactive?: boolean
+  hasChildren?: boolean
+  expanded?: boolean
+  onToggleExpanded?: () => void
+  isDropTarget?: boolean
+  dragAttributes?: DraggableBindings["attributes"]
+  dragListeners?: DraggableBindings["listeners"]
+}
+
+function getListRowDisplayState({
+  childCountOverride,
+  data,
+  displayProps,
+  item,
+}: Pick<
+  ListRowBodyProps,
+  "childCountOverride" | "data" | "displayProps" | "item"
+>) {
+  const dueDateLabel =
+    displayProps.includes("dueDate") && item.dueDate
+      ? formatWorkSurfaceDueDate(item.dueDate)
+      : null
+  const daysUntilDue = dueDateLabel
+    ? getCalendarDateDayOffset(item.dueDate)
+    : null
+  const isOverdue = daysUntilDue !== null && daysUntilDue < 0
+  const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
+  const childProgress = getChildProgressRollup(data, item)
+
+  return {
+    childProgress,
+    dueDateLabel,
+    idProperty: renderWorkItemDisplayProperty({
+      data,
+      item,
+      property: "id",
+      variant: "list",
+      childProgress,
+      dueDateLabel,
+      isOverdue,
+      isSoon,
+    }),
+    subCount: childCountOverride ?? childProgress?.totalChildren ?? 0,
+    visibleProperties: renderWorkItemDisplayProperties({
+      data,
+      item,
+      displayProps: displayProps.filter((property) => property !== "id"),
+      variant: "list",
+      childProgress,
+      dueDateLabel,
+      isOverdue,
+      isSoon,
+    }),
+  }
+}
+
+function ListRowDisclosure({
+  expanded,
+  hasChildren,
+  slotClassName,
+  onToggleExpanded,
+}: {
+  expanded: boolean
+  hasChildren: boolean
+  slotClassName: string
+  onToggleExpanded?: () => void
+}) {
+  if (!hasChildren) {
+    return <span aria-hidden className={slotClassName} />
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={expanded ? "Collapse sub-issues" : "Expand sub-issues"}
+      aria-expanded={expanded}
+      className={cn(
+        "inline-grid place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+        slotClassName
+      )}
+      onPointerDown={stopDragPropagation}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onToggleExpanded?.()
+      }}
+    >
+      <CollapseCaret open={expanded} className="size-3" />
+    </button>
+  )
+}
+
+function ListRowLinkedContent({
+  idProperty,
+  item,
+  subCount,
+}: {
+  idProperty: ReactNode
+  item: WorkItem
+  subCount: number
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+      {idProperty}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+        <div className="truncate text-[13px] text-foreground">{item.title}</div>
+        <WorkItemChildCount count={subCount} />
+      </div>
+    </div>
+  )
+}
+
+function ListRowLinkSlot({
+  children,
+  interactive,
+  itemId,
+}: {
+  children: ReactNode
+  interactive: boolean
+  itemId: string
+}) {
+  if (!interactive) {
+    return (
+      <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+        {children}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      href={`/items/${itemId}`}
+      className="flex min-w-0 flex-1 items-center overflow-hidden"
+    >
+      {children}
+    </Link>
+  )
+}
+
+function ListRowDisplayProperties({
+  interactive,
+  visibleProperties,
+}: {
+  interactive: boolean
+  visibleProperties: ReturnType<typeof renderWorkItemDisplayProperties>
+}) {
+  if (visibleProperties.length === 0) {
+    return interactive ? <div className="pr-10" /> : null
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5 overflow-hidden pr-10">
+      {visibleProperties.map(({ key, node }) => (
+        <span key={key} className="contents">
+          {node}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ListRowHoverActions({
+  data,
+  interactive,
+  item,
+}: {
+  data: AppData
+  interactive: boolean
+  item: WorkItem
+}) {
+  if (!interactive) {
+    return null
+  }
+
+  return (
+    <div className="absolute top-1/2 right-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100">
+      <IssueActionMenu
+        data={data}
+        item={item}
+        triggerClassName="rounded-md border border-line bg-surface px-1.5 py-0.5 shadow-sm hover:bg-surface-3"
+      />
+    </div>
+  )
+}
+
+function ListRowContextMenuSlot({
+  children,
+  data,
+  interactive,
+  item,
+}: {
+  children: ReactNode
+  data: AppData
+  interactive: boolean
+  item: WorkItem
+}) {
+  return interactive ? (
+    <IssueContextMenu data={data} item={item}>
+      {children}
+    </IssueContextMenu>
+  ) : (
+    children
+  )
+}
+
 function ListRowBody({
   data,
   item,
@@ -1521,62 +1802,14 @@ function ListRowBody({
   isDropTarget = false,
   dragAttributes,
   dragListeners,
-}: {
-  data: AppData
-  item: WorkItem
-  displayProps: DisplayProperty[]
-  depth: number
-  childCountOverride?: number
-  interactive?: boolean
-  hasChildren?: boolean
-  expanded?: boolean
-  onToggleExpanded?: () => void
-  isDropTarget?: boolean
-  dragAttributes?: DraggableBindings["attributes"]
-  dragListeners?: DraggableBindings["listeners"]
-}) {
-  const dueDateLabel =
-    displayProps.includes("dueDate") && item.dueDate
-      ? formatWorkSurfaceDueDate(item.dueDate)
-      : null
-  const daysUntilDue = dueDateLabel
-    ? getCalendarDateDayOffset(item.dueDate)
-    : null
-  const isOverdue = daysUntilDue !== null && daysUntilDue < 0
-  const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
-  const childProgress = getChildProgressRollup(data, item)
-  const subCount = childCountOverride ?? childProgress?.totalChildren ?? 0
-  const idProperty = renderWorkItemDisplayProperty({
+}: ListRowBodyProps) {
+  const { idProperty, subCount, visibleProperties } = getListRowDisplayState({
+    childCountOverride,
     data,
+    displayProps,
     item,
-    property: "id",
-    variant: "list",
-    childProgress,
-    dueDateLabel,
-    isOverdue,
-    isSoon,
-  })
-  const visibleProperties = renderWorkItemDisplayProperties({
-    data,
-    item,
-    displayProps: displayProps.filter((property) => property !== "id"),
-    variant: "list",
-    childProgress,
-    dueDateLabel,
-    isOverdue,
-    isSoon,
   })
   const disclosureSlotClass = depth === 0 ? "size-5" : "size-4"
-
-  const linkedContent = (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
-      {idProperty}
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-        <div className="truncate text-[13px] text-foreground">{item.title}</div>
-        <WorkItemChildCount count={subCount} />
-      </div>
-    </div>
-  )
 
   const body = (
     <div
@@ -1594,69 +1827,36 @@ function ListRowBody({
         <div className="flex items-center justify-center">
           <span aria-hidden className="size-4" />
         </div>
-        {hasChildren ? (
-          <button
-            type="button"
-            aria-label={expanded ? "Collapse sub-issues" : "Expand sub-issues"}
-            aria-expanded={expanded}
-            className={cn(
-              "inline-grid place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
-              disclosureSlotClass
-            )}
-            onPointerDown={stopDragPropagation}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onToggleExpanded?.()
-            }}
-          >
-            <CollapseCaret open={expanded} className="size-3" />
-          </button>
-        ) : (
-          <span aria-hidden className={disclosureSlotClass} />
-        )}
-        {interactive ? (
-          <Link
-            href={`/items/${item.id}`}
-            className="flex min-w-0 flex-1 items-center overflow-hidden"
-          >
-            {linkedContent}
-          </Link>
-        ) : (
-          <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-            {linkedContent}
-          </div>
-        )}
-        {visibleProperties.length > 0 ? (
-          <div className="flex shrink-0 items-center gap-1.5 overflow-hidden pr-10">
-            {visibleProperties.map(({ key, node }) => (
-              <span key={key} className="contents">
-                {node}
-              </span>
-            ))}
-          </div>
-        ) : interactive ? (
-          <div className="pr-10" />
-        ) : null}
-        {interactive ? (
-          <div className="absolute top-1/2 right-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100">
-            <IssueActionMenu
-              data={data}
-              item={item}
-              triggerClassName="rounded-md border border-line bg-surface px-1.5 py-0.5 shadow-sm hover:bg-surface-3"
-            />
-          </div>
-        ) : null}
+        <ListRowDisclosure
+          expanded={expanded}
+          hasChildren={hasChildren}
+          slotClassName={disclosureSlotClass}
+          onToggleExpanded={onToggleExpanded}
+        />
+        <ListRowLinkSlot interactive={interactive} itemId={item.id}>
+          <ListRowLinkedContent
+            idProperty={idProperty}
+            item={item}
+            subCount={subCount}
+          />
+        </ListRowLinkSlot>
+        <ListRowDisplayProperties
+          interactive={interactive}
+          visibleProperties={visibleProperties}
+        />
+        <ListRowHoverActions
+          data={data}
+          interactive={interactive}
+          item={item}
+        />
       </div>
     </div>
   )
 
-  return interactive ? (
-    <IssueContextMenu data={data} item={item}>
+  return (
+    <ListRowContextMenuSlot data={data} interactive={interactive} item={item}>
       {body}
-    </IssueContextMenu>
-  ) : (
-    body
+    </ListRowContextMenuSlot>
   )
 }
 
@@ -1718,10 +1918,9 @@ function DraggableListRow({
     setNodeRef: setDraggableNodeRef,
     transform,
     isDragging,
-  } =
-    useDraggable({
-      id: item.id,
-    })
+  } = useDraggable({
+    id: item.id,
+  })
   const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
     id: `list-item::${item.id}`,
   })
@@ -1834,10 +2033,9 @@ function DraggableWorkCard({
     setNodeRef: setDraggableNodeRef,
     transform,
     isDragging,
-  } =
-    useDraggable({
-      id: item.id,
-    })
+  } = useDraggable({
+    id: item.id,
+  })
   const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
     id: `board-item::${item.id}`,
   })
@@ -1923,7 +2121,7 @@ function BoardCardBody({
     <IssueContextMenu data={data} item={item}>
       <div
         className={cn(
-          "group/card relative flex touch-none cursor-grab flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm active:cursor-grabbing",
+          "group/card relative flex cursor-grab touch-none flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm active:cursor-grabbing",
           isDropTarget && "border-fg-4 bg-surface-2"
         )}
         {...dragAttributes}
@@ -1950,15 +2148,15 @@ function BoardCardBody({
             className="pointer-events-auto opacity-0 transition-opacity group-hover/card:opacity-100"
             onPointerDown={stopDragPropagation}
             onClick={stopMenuEvent}
-        >
-          <div className="flex items-center gap-1">
-            <IssueActionMenu
-              data={data}
-              item={item}
-              triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
-            />
+          >
+            <div className="flex items-center gap-1">
+              <IssueActionMenu
+                data={data}
+                item={item}
+                triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
+              />
+            </div>
           </div>
-        </div>
         </div>
         <div className="pointer-events-none relative z-10 flex min-w-0 flex-col gap-2">
           {visibleProperties.length > 0 ? (
@@ -2075,13 +2273,12 @@ function DraggableBoardChildItem({
     setNodeRef: setDraggableNodeRef,
     transform,
     isDragging,
-  } =
-    useDraggable({
-      id: item.id,
-      data: {
-        previewKind: "child",
-      },
-    })
+  } = useDraggable({
+    id: item.id,
+    data: {
+      previewKind: "child",
+    },
+  })
   const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
     id: `board-item::${item.id}`,
   })
@@ -2128,7 +2325,7 @@ function BoardChildItemRow({
   dragListeners?: DraggableBindings["listeners"]
 }) {
   const className = cn(
-    "flex touch-none cursor-grab items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
+    "flex cursor-grab touch-none items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
     isDropTarget && "bg-surface-3"
   )
 
@@ -2144,11 +2341,7 @@ function BoardChildItemRow({
   )
 
   if (!interactive || !href) {
-    return (
-      <div className={className}>
-        {content}
-      </div>
-    )
+    return <div className={className}>{content}</div>
   }
 
   return (

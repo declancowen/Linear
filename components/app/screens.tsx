@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { type ComponentProps, useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import {
@@ -40,6 +40,7 @@ import {
   templateMeta,
   type AppData,
   type DisplayProperty,
+  type Document as AppDocument,
   type GroupField,
   type Project,
   type ScopeType,
@@ -269,6 +270,49 @@ const DEFAULT_VIEW_DIRECTORY_PROPERTIES: ViewsDirectoryProperty[] = [
   "configuration",
 ]
 
+type ResolvedViewsDirectoryConfig = ViewerDirectoryConfig & {
+  layout: "list" | "board"
+  ordering: ViewsDirectorySortField
+  grouping: ViewsDirectoryGroupField
+  subGrouping: ViewsDirectoryGroupField
+  filters: ViewsDirectoryFilters
+  displayProps: ViewsDirectoryProperty[]
+}
+
+type ViewsDirectorySettings = {
+  layout: "list" | "board"
+  sortBy: ViewsDirectorySortField
+  filters: ViewsDirectoryFilters
+  grouping: ViewsDirectoryGroupField
+  subGrouping: ViewsDirectoryGroupField
+  properties: ViewsDirectoryProperty[]
+}
+
+type ViewDirectoryDisplayState = {
+  showConfiguration: boolean
+  showDescription: boolean
+  showScope: boolean
+  showUpdated: boolean
+}
+
+type CollectionLayoutState = ReturnType<typeof useCollectionLayout>
+type CreateDocumentDialogInput = ComponentProps<
+  typeof CreateDocumentDialog
+>["input"]
+type DocsTab = "workspace" | "private"
+
+const DEFAULT_VIEWS_DIRECTORY_CONFIG: ResolvedViewsDirectoryConfig = {
+  layout: "list",
+  ordering: "updated",
+  grouping: "none",
+  subGrouping: "none",
+  filters: {
+    entityKinds: [],
+    scopes: [],
+  },
+  displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+}
+
 function getProjectGroupOptionLabel(field: GroupField) {
   if (field === "assignee") {
     return "Lead"
@@ -494,6 +538,64 @@ function compareProjectGroupKeys(
   )
 }
 
+function getProjectDisplayToken(
+  data: AppData,
+  project: Project,
+  property: DisplayProperty
+) {
+  switch (property) {
+    case "id":
+      return {
+        key: property,
+        label: `ID ${project.id.slice(0, 8)}`,
+      }
+    case "status":
+      return {
+        key: property,
+        label:
+          projectStatusMeta[project.status as keyof typeof projectStatusMeta]
+            ?.label ?? "Status",
+      }
+    case "priority":
+      return {
+        key: property,
+        label: priorityMeta[project.priority].label,
+      }
+    case "assignee":
+      return {
+        key: property,
+        label: getUser(data, project.leadId)?.name ?? "Unassigned",
+      }
+    case "type":
+      return {
+        key: property,
+        label: templateMeta[project.templateType].label,
+      }
+    case "dueDate": {
+      const targetDateLabel = formatCalendarDateLabel(project.targetDate, "")
+
+      return targetDateLabel
+        ? {
+            key: property,
+            label: targetDateLabel,
+          }
+        : null
+    }
+    case "created":
+      return {
+        key: property,
+        label: `Created ${format(new Date(project.createdAt), "MMM d")}`,
+      }
+    case "updated":
+      return {
+        key: property,
+        label: `Updated ${format(new Date(project.updatedAt), "MMM d")}`,
+      }
+    default:
+      return null
+  }
+}
+
 function getProjectDisplayTokens(
   data: AppData,
   project: Project,
@@ -502,74 +604,10 @@ function getProjectDisplayTokens(
   const tokens: Array<{ key: string; label: string }> = []
 
   for (const property of displayProps) {
-    if (property === "id") {
-      tokens.push({
-        key: property,
-        label: `ID ${project.id.slice(0, 8)}`,
-      })
-      continue
-    }
+    const token = getProjectDisplayToken(data, project, property)
 
-    if (property === "status") {
-      tokens.push({
-        key: property,
-        label:
-          projectStatusMeta[project.status as keyof typeof projectStatusMeta]
-            ?.label ?? "Status",
-      })
-      continue
-    }
-
-    if (property === "priority") {
-      tokens.push({
-        key: property,
-        label: priorityMeta[project.priority].label,
-      })
-      continue
-    }
-
-    if (property === "assignee") {
-      tokens.push({
-        key: property,
-        label: getUser(data, project.leadId)?.name ?? "Unassigned",
-      })
-      continue
-    }
-
-    if (property === "type") {
-      tokens.push({
-        key: property,
-        label: templateMeta[project.templateType].label,
-      })
-      continue
-    }
-
-    if (property === "dueDate") {
-      const targetDateLabel = formatCalendarDateLabel(project.targetDate, "")
-
-      if (targetDateLabel) {
-        tokens.push({
-          key: property,
-          label: targetDateLabel,
-        })
-      }
-      continue
-    }
-
-    if (property === "created") {
-      tokens.push({
-        key: property,
-        label: `Created ${format(new Date(project.createdAt), "MMM d")}`,
-      })
-      continue
-    }
-
-    if (property === "updated") {
-      tokens.push({
-        key: property,
-        label: `Updated ${format(new Date(project.updatedAt), "MMM d")}`,
-      })
-      continue
+    if (token) {
+      tokens.push(token)
     }
   }
 
@@ -635,41 +673,277 @@ function getViewDirectoryGroupLabel(
   return key
 }
 
+function getResolvedViewsDirectorySettings(
+  directoryConfig: ViewerDirectoryConfig | null | undefined
+): ViewsDirectorySettings {
+  const resolvedDirectoryConfig = applyViewerDirectoryConfig(
+    DEFAULT_VIEWS_DIRECTORY_CONFIG,
+    directoryConfig
+  )
+
+  return {
+    layout: (resolvedDirectoryConfig.layout ?? "list") as "list" | "board",
+    sortBy:
+      (resolvedDirectoryConfig.ordering as
+        | ViewsDirectorySortField
+        | undefined) ?? "updated",
+    filters: {
+      entityKinds:
+        (resolvedDirectoryConfig.filters
+          ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
+      scopes:
+        (resolvedDirectoryConfig.filters
+          ?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
+    },
+    grouping:
+      (resolvedDirectoryConfig.grouping as
+        | ViewsDirectoryGroupField
+        | undefined) ?? "none",
+    subGrouping:
+      (resolvedDirectoryConfig.subGrouping as
+        | ViewsDirectoryGroupField
+        | undefined) ?? "none",
+    properties:
+      (resolvedDirectoryConfig.displayProps as
+        | ViewsDirectoryProperty[]
+        | undefined) ?? DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+  }
+}
+
+function getCurrentViewsDirectorySettings(
+  directorySurfaceKey: string
+): ViewsDirectorySettings {
+  const state = useAppStore.getState()
+  const directoryConfig =
+    state.ui.viewerDirectoryConfigByRoute[
+      getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
+    ]
+
+  return getResolvedViewsDirectorySettings(directoryConfig)
+}
+
+function getAvailableViewEntityKinds(views: ViewDefinition[]) {
+  return [...new Set(views.map((view) => view.entityKind))]
+}
+
+function getAvailableViewScopes(
+  views: ViewDefinition[],
+  scopeType: "team" | "workspace"
+) {
+  return [
+    ...new Set(
+      views.map((view) => getViewDirectoryScopeFilter(view, scopeType))
+    ),
+  ] as ViewsDirectoryScopeFilter[]
+}
+
+function getFilteredDirectoryViews({
+  filters,
+  scopeType,
+  views,
+}: {
+  filters: ViewsDirectoryFilters
+  scopeType: "team" | "workspace"
+  views: ViewDefinition[]
+}) {
+  return views.filter((view) => {
+    if (
+      filters.entityKinds.length > 0 &&
+      !filters.entityKinds.includes(view.entityKind)
+    ) {
+      return false
+    }
+
+    if (
+      filters.scopes.length > 0 &&
+      !filters.scopes.includes(getViewDirectoryScopeFilter(view, scopeType))
+    ) {
+      return false
+    }
+
+    return true
+  })
+}
+
+function compareDirectoryViews(
+  sortBy: ViewsDirectorySortField,
+  left: ViewDefinition,
+  right: ViewDefinition
+) {
+  if (sortBy === "name") {
+    return left.name.localeCompare(right.name)
+  }
+
+  if (sortBy === "entity") {
+    return (
+      formatEntityKind(left.entityKind).localeCompare(
+        formatEntityKind(right.entityKind)
+      ) || left.name.localeCompare(right.name)
+    )
+  }
+
+  return right.updatedAt.localeCompare(left.updatedAt)
+}
+
+function getOrderedDirectoryViews(input: {
+  filters: ViewsDirectoryFilters
+  scopeType: "team" | "workspace"
+  sortBy: ViewsDirectorySortField
+  views: ViewDefinition[]
+}) {
+  return getFilteredDirectoryViews(input).sort((left, right) =>
+    compareDirectoryViews(input.sortBy, left, right)
+  )
+}
+
+function getViewsDirectorySections({
+  grouping,
+  orderedViews,
+  scopeLabels,
+  scopeType,
+  subGrouping,
+}: {
+  grouping: ViewsDirectoryGroupField
+  orderedViews: ViewDefinition[]
+  scopeLabels: Record<string, string>
+  scopeType: "team" | "workspace"
+  subGrouping: ViewsDirectoryGroupField
+}) {
+  return buildGroupedSections({
+    items: orderedViews,
+    grouping,
+    subGrouping,
+    getGroupKey: (view, field) =>
+      getViewDirectoryGroupKey(
+        view,
+        field as ViewsDirectoryGroupField,
+        scopeType,
+        scopeLabels
+      ),
+    getGroupLabel: (field, key) =>
+      getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, key),
+    compareGroupKeys: (field, left, right) =>
+      getViewDirectoryGroupLabel(
+        field as ViewsDirectoryGroupField,
+        left
+      ).localeCompare(
+        getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, right)
+      ),
+  })
+}
+
+function getViewDirectoryDisplayState(
+  properties: ViewsDirectoryProperty[]
+): ViewDirectoryDisplayState {
+  return {
+    showConfiguration: properties.includes("configuration"),
+    showDescription: properties.includes("description"),
+    showScope: properties.includes("scope"),
+    showUpdated: properties.includes("updated"),
+  }
+}
+
+function toggleArrayValue<T>(values: T[], value: T) {
+  return values.includes(value)
+    ? values.filter((current) => current !== value)
+    : [...values, value]
+}
+
+function getDocsLayoutState({
+  activeTab,
+  isWorkspaceDocs,
+  privateLayoutState,
+  teamLayoutState,
+  workspaceLayoutState,
+}: {
+  activeTab: DocsTab
+  isWorkspaceDocs: boolean
+  privateLayoutState: CollectionLayoutState
+  teamLayoutState: CollectionLayoutState
+  workspaceLayoutState: CollectionLayoutState
+}) {
+  if (!isWorkspaceDocs) {
+    return teamLayoutState
+  }
+
+  return activeTab === "workspace" ? workspaceLayoutState : privateLayoutState
+}
+
+function getDocsDialogInput({
+  activeTab,
+  activeTeamId,
+  isWorkspaceDocs,
+  scopeId,
+  team,
+}: {
+  activeTab: DocsTab
+  activeTeamId: string
+  isWorkspaceDocs: boolean
+  scopeId: string
+  team?: Team | null
+}): CreateDocumentDialogInput {
+  if (isWorkspaceDocs) {
+    return activeTab === "workspace"
+      ? { kind: "workspace-document", workspaceId: scopeId }
+      : { kind: "private-document", workspaceId: scopeId }
+  }
+
+  return {
+    kind: "team-document",
+    teamId: team?.id ?? activeTeamId,
+  }
+}
+
+function getDocsEmptyTitle(isWorkspaceDocs: boolean, activeTab: DocsTab) {
+  if (!isWorkspaceDocs) {
+    return "No documents yet"
+  }
+
+  return activeTab === "workspace"
+    ? "No workspace documents yet"
+    : "No private documents yet"
+}
+
+const PROJECT_HEALTH_PILL_CLASS: Record<Project["health"], string> = {
+  "at-risk":
+    "bg-[color:color-mix(in_oklch,var(--priority-high)_14%,transparent)] text-[color:var(--priority-high)]",
+  "no-update": "bg-surface-2 text-fg-3",
+  "off-track":
+    "bg-[color:color-mix(in_oklch,var(--priority-urgent)_14%,transparent)] text-[color:var(--priority-urgent)]",
+  "on-track":
+    "bg-[color:color-mix(in_oklch,var(--status-done)_14%,transparent)] text-[color:var(--status-done)]",
+}
+
+const PROJECT_HEALTH_DOT_COLOR: Record<Project["health"], string> = {
+  "at-risk": "var(--priority-high)",
+  "no-update": "var(--text-4)",
+  "off-track": "var(--priority-urgent)",
+  "on-track": "var(--status-done)",
+}
+
+const PROJECT_HEALTH_LABEL: Record<Project["health"], string> = {
+  "at-risk": "At risk",
+  "no-update": "No update",
+  "off-track": "Off track",
+  "on-track": "On track",
+}
+
 function ProjectHealthPill({ project }: { project: Project }) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]",
-        project.health === "on-track" &&
-          "bg-[color:color-mix(in_oklch,var(--status-done)_14%,transparent)] text-[color:var(--status-done)]",
-        project.health === "at-risk" &&
-          "bg-[color:color-mix(in_oklch,var(--priority-high)_14%,transparent)] text-[color:var(--priority-high)]",
-        project.health === "off-track" &&
-          "bg-[color:color-mix(in_oklch,var(--priority-urgent)_14%,transparent)] text-[color:var(--priority-urgent)]",
-        project.health === "no-update" && "bg-surface-2 text-fg-3"
+        PROJECT_HEALTH_PILL_CLASS[project.health]
       )}
     >
       <span
         aria-hidden
         className="size-1.5 rounded-full"
         style={{
-          background:
-            project.health === "on-track"
-              ? "var(--status-done)"
-              : project.health === "at-risk"
-                ? "var(--priority-high)"
-                : project.health === "off-track"
-                  ? "var(--priority-urgent)"
-                  : "var(--text-4)",
+          background: PROJECT_HEALTH_DOT_COLOR[project.health],
         }}
       />
-      {project.health === "no-update"
-        ? "No update"
-        : project.health === "on-track"
-          ? "On track"
-          : project.health === "at-risk"
-            ? "At risk"
-            : "Off track"}
+      {PROJECT_HEALTH_LABEL[project.health]}
     </span>
   )
 }
@@ -1039,6 +1313,959 @@ function SavedViewCard({
         {showConfiguration ? <ViewConfigurationBadges view={view} /> : null}
       </Link>
     </ViewContextMenu>
+  )
+}
+
+type ViewsDirectoryItemDisplay = ViewDirectoryDisplayState & {
+  scopeLabels: Record<string, string>
+  scopeType: "team" | "workspace"
+}
+
+function getSavedViewItemProps(
+  view: ViewDefinition,
+  display: ViewsDirectoryItemDisplay
+) {
+  return {
+    scopeLabel: getViewDirectoryScopeLabel({
+      view,
+      scopeLabels: display.scopeLabels,
+      scopeType: display.scopeType,
+    }),
+    showConfiguration: display.showConfiguration,
+    showDescription: display.showDescription,
+    showScope: display.showScope,
+    showUpdated: display.showUpdated,
+    view,
+  }
+}
+
+function SavedViewCardGrid({
+  display,
+  views,
+}: {
+  display: ViewsDirectoryItemDisplay
+  views: ViewDefinition[]
+}) {
+  return (
+    <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+      {views.map((view) => (
+        <SavedViewCard
+          key={view.id}
+          {...getSavedViewItemProps(view, display)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SavedViewRowList({
+  display,
+  views,
+}: {
+  display: ViewsDirectoryItemDisplay
+  views: ViewDefinition[]
+}) {
+  return (
+    <>
+      {views.map((view) => (
+        <SavedViewRow key={view.id} {...getSavedViewItemProps(view, display)} />
+      ))}
+    </>
+  )
+}
+
+function ViewsDirectoryBoardSection({
+  display,
+  grouping,
+  section,
+}: {
+  display: ViewsDirectoryItemDisplay
+  grouping: ViewsDirectoryGroupField
+  section: GroupedSection<ViewDefinition>
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      {grouping !== "none" ? (
+        <GroupHeading label={section.label} count={section.items.length} />
+      ) : null}
+      {section.children ? (
+        <div className="flex flex-col gap-4">
+          {section.children.map((child) => (
+            <div key={child.key} className="flex flex-col gap-2">
+              <GroupHeading
+                className="pl-1"
+                label={child.label}
+                count={child.items.length}
+              />
+              <SavedViewCardGrid display={display} views={child.items} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <SavedViewCardGrid display={display} views={section.items} />
+      )}
+    </section>
+  )
+}
+
+function ViewsDirectoryListSection({
+  display,
+  grouping,
+  section,
+}: {
+  display: ViewsDirectoryItemDisplay
+  grouping: ViewsDirectoryGroupField
+  section: GroupedSection<ViewDefinition>
+}) {
+  return (
+    <section className="flex flex-col">
+      {grouping !== "none" ? (
+        <GroupHeading
+          className="px-7 py-3"
+          label={section.label}
+          count={section.items.length}
+        />
+      ) : null}
+      {section.children ? (
+        <div className="flex flex-col">
+          {section.children.map((child) => (
+            <div key={child.key} className="flex flex-col">
+              <GroupHeading
+                className="border-y border-line-soft px-7 py-2.5"
+                label={child.label}
+                count={child.items.length}
+              />
+              <SavedViewRowList display={display} views={child.items} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <SavedViewRowList display={display} views={section.items} />
+      )}
+    </section>
+  )
+}
+
+function ViewsDirectoryBoardContent({
+  display,
+  grouping,
+  sections,
+}: {
+  display: ViewsDirectoryItemDisplay
+  grouping: ViewsDirectoryGroupField
+  sections: GroupedSection<ViewDefinition>[]
+}) {
+  return (
+    <div className="flex flex-col gap-6 px-7 py-4">
+      {sections.map((section) => (
+        <ViewsDirectoryBoardSection
+          key={section.key}
+          display={display}
+          grouping={grouping}
+          section={section}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ViewsDirectoryListContent({
+  display,
+  grouping,
+  sections,
+}: {
+  display: ViewsDirectoryItemDisplay
+  grouping: ViewsDirectoryGroupField
+  sections: GroupedSection<ViewDefinition>[]
+}) {
+  return (
+    <div className="flex flex-col pb-4">
+      {sections.map((section) => (
+        <ViewsDirectoryListSection
+          key={section.key}
+          display={display}
+          grouping={grouping}
+          section={section}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ViewsDirectoryContent({
+  display,
+  emptyTitle,
+  grouping,
+  hasLoadedOnce,
+  layout,
+  orderedViews,
+  sections,
+}: {
+  display: ViewsDirectoryItemDisplay
+  emptyTitle: string
+  grouping: ViewsDirectoryGroupField
+  hasLoadedOnce: boolean
+  layout: "list" | "board"
+  orderedViews: ViewDefinition[]
+  sections: GroupedSection<ViewDefinition>[]
+}) {
+  if (!hasLoadedOnce && orderedViews.length === 0) {
+    return <ScopedScreenLoading label="Loading views..." />
+  }
+
+  if (orderedViews.length === 0) {
+    return <MissingState title={emptyTitle} />
+  }
+
+  if (layout === "board") {
+    return (
+      <ViewsDirectoryBoardContent
+        display={display}
+        grouping={grouping}
+        sections={sections}
+      />
+    )
+  }
+
+  return (
+    <ViewsDirectoryListContent
+      display={display}
+      grouping={grouping}
+      sections={sections}
+    />
+  )
+}
+
+function ViewsDirectoryViewbar({
+  availableEntityKinds,
+  availableScopes,
+  editable,
+  filters,
+  grouping,
+  layout,
+  onUpdateConfig,
+  onUpdateFilters,
+  onUpdateProperties,
+  properties,
+  scopeId,
+  scopeType,
+  sortBy,
+  subGrouping,
+}: {
+  availableEntityKinds: ViewDefinition["entityKind"][]
+  availableScopes: ViewsDirectoryScopeFilter[]
+  editable: boolean
+  filters: ViewsDirectoryFilters
+  grouping: ViewsDirectoryGroupField
+  layout: "list" | "board"
+  onUpdateConfig: (patch: ViewerDirectoryConfig) => void
+  onUpdateFilters: (
+    resolveNextFilters: (
+      current: ViewsDirectoryFilters
+    ) => ViewsDirectoryFilters
+  ) => void
+  onUpdateProperties: (
+    resolveNextProperties: (
+      current: ViewsDirectoryProperty[]
+    ) => ViewsDirectoryProperty[]
+  ) => void
+  properties: ViewsDirectoryProperty[]
+  scopeId: string
+  scopeType: "team" | "workspace"
+  sortBy: ViewsDirectorySortField
+  subGrouping: ViewsDirectoryGroupField
+}) {
+  return (
+    <Viewbar>
+      <ViewsDirectoryLayoutTabs
+        layout={layout}
+        onLayoutChange={(nextLayout) => onUpdateConfig({ layout: nextLayout })}
+      />
+      <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
+      <ViewsDirectoryFilterPopover
+        availableEntityKinds={availableEntityKinds}
+        availableScopes={availableScopes}
+        filters={filters}
+        onClearFilters={() =>
+          onUpdateConfig({
+            filters: {
+              entityKinds: [],
+              scopes: [],
+            },
+          })
+        }
+        onToggleEntityKind={(entityKind) =>
+          onUpdateFilters((current) => ({
+            ...current,
+            entityKinds: toggleArrayValue(current.entityKinds, entityKind),
+          }))
+        }
+        onToggleScope={(scope) =>
+          onUpdateFilters((current) => ({
+            ...current,
+            scopes: toggleArrayValue(current.scopes, scope),
+          }))
+        }
+      />
+      <ViewsDirectoryGroupChipPopover
+        grouping={grouping}
+        onGroupingChange={(nextGrouping) =>
+          onUpdateConfig({
+            grouping: nextGrouping,
+            ...(nextGrouping !== "none" && subGrouping === nextGrouping
+              ? { subGrouping: "none" }
+              : {}),
+          })
+        }
+        onSubGroupingChange={(nextSubGrouping) =>
+          onUpdateConfig({ subGrouping: nextSubGrouping })
+        }
+        subGrouping={subGrouping}
+      />
+      <ViewsDirectorySortChipPopover
+        sortBy={sortBy}
+        onSortByChange={(nextSortBy) =>
+          onUpdateConfig({ ordering: nextSortBy })
+        }
+      />
+      <ViewsDirectoryPropertiesChipPopover
+        onClearProperties={() =>
+          onUpdateConfig({
+            displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+          })
+        }
+        onToggleProperty={(property) =>
+          onUpdateProperties((current) => toggleArrayValue(current, property))
+        }
+        properties={properties}
+      />
+      <div className="ml-auto flex items-center gap-1.5">
+        {editable ? (
+          <Button
+            size="sm"
+            variant="default"
+            className="h-7 gap-1.5 px-2.5 text-[12px]"
+            onClick={() =>
+              openManagedCreateDialog({
+                kind: "view",
+                defaultScopeType: scopeType,
+                defaultScopeId: scopeId,
+                ...(scopeType === "team" ? { lockScope: true } : {}),
+              })
+            }
+          >
+            <Plus className="size-3.5" />
+            New
+          </Button>
+        ) : null}
+      </div>
+    </Viewbar>
+  )
+}
+
+const DOCS_TABS = ["workspace", "private"] as const
+
+function getDocsTabLabel(tab: DocsTab) {
+  return tab === "workspace" ? "Workspace" : "Private"
+}
+
+function DocsHeaderActions({
+  layout,
+  onCreateDocument,
+  onLayoutChange,
+}: {
+  layout: "list" | "board"
+  onCreateDocument: () => void
+  onLayoutChange: (layout: "list" | "board") => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <CollectionDisplaySettingsPopover
+        layout={layout}
+        onLayoutChange={onLayoutChange}
+      />
+      <Button size="icon-xs" variant="ghost" onClick={onCreateDocument}>
+        <Plus className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+function WorkspaceDocsTabs({
+  activeTab,
+  onActiveTabChange,
+}: {
+  activeTab: DocsTab
+  onActiveTabChange: (tab: DocsTab) => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {DOCS_TABS.map((tab) => (
+        <button
+          key={tab}
+          className={cn(
+            "h-6 rounded-sm px-2 text-xs transition-colors",
+            tab === activeTab
+              ? "bg-accent font-medium"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => onActiveTabChange(tab)}
+        >
+          {getDocsTabLabel(tab)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function DocsHeader({
+  activeTab,
+  isWorkspaceDocs,
+  layout,
+  onActiveTabChange,
+  onCreateDocument,
+  onLayoutChange,
+  title,
+}: {
+  activeTab: DocsTab
+  isWorkspaceDocs: boolean
+  layout: "list" | "board"
+  onActiveTabChange: (tab: DocsTab) => void
+  onCreateDocument: () => void
+  onLayoutChange: (layout: "list" | "board") => void
+  title: string
+}) {
+  const actions = (
+    <DocsHeaderActions
+      layout={layout}
+      onCreateDocument={onCreateDocument}
+      onLayoutChange={onLayoutChange}
+    />
+  )
+
+  if (!isWorkspaceDocs) {
+    return <ScreenHeader title={title} actions={actions} />
+  }
+
+  return (
+    <div className={SCREEN_HEADER_CLASS_NAME}>
+      <div className="flex min-w-0 items-center gap-2">
+        <HeaderTitle title={title} />
+        <WorkspaceDocsTabs
+          activeTab={activeTab}
+          onActiveTabChange={onActiveTabChange}
+        />
+      </div>
+      {actions}
+    </div>
+  )
+}
+
+function DocumentListRow({
+  data,
+  document,
+}: {
+  data: AppData
+  document: AppDocument
+}) {
+  const preview = getDocumentPreview(document)
+  const author = getUser(data, document.updatedBy ?? document.createdBy)
+
+  return (
+    <DocumentContextMenu data={data} document={document}>
+      <Link
+        className="flex items-start px-6 py-3.5 transition-colors hover:bg-accent/40"
+        href={`/docs/${document.id}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium">
+              {document.title}
+            </span>
+          </div>
+          {preview ? (
+            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+              {preview}
+            </p>
+          ) : null}
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span>{author?.name ?? "Unknown"}</span>
+            <span>·</span>
+            <span>{format(new Date(document.updatedAt), "MMM d")}</span>
+          </div>
+        </div>
+      </Link>
+    </DocumentContextMenu>
+  )
+}
+
+function DocumentList({
+  data,
+  documents,
+}: {
+  data: AppData
+  documents: AppDocument[]
+}) {
+  return (
+    <div className="flex flex-col divide-y">
+      {documents.map((document) => (
+        <DocumentListRow key={document.id} data={data} document={document} />
+      ))}
+    </div>
+  )
+}
+
+function DocsContent({
+  data,
+  documents,
+  emptyTitle,
+  hasLoadedOnce,
+  layout,
+}: {
+  data: AppData
+  documents: AppDocument[]
+  emptyTitle: string
+  hasLoadedOnce: boolean
+  layout: "list" | "board"
+}) {
+  if (!hasLoadedOnce && documents.length === 0) {
+    return <ScopedScreenLoading label="Loading documents..." />
+  }
+
+  if (documents.length === 0) {
+    return <MissingState icon={FileText} title={emptyTitle} />
+  }
+
+  if (layout === "board") {
+    return <DocumentBoard data={data} documents={documents} />
+  }
+
+  return <DocumentList data={data} documents={documents} />
+}
+
+function ProjectViewTabButton({
+  active,
+  onSelect,
+  view,
+}: {
+  active: boolean
+  onSelect: () => void
+  view: ViewDefinition
+}) {
+  return (
+    <button
+      className={cn(
+        "h-7 rounded-md px-2 text-[12px] transition-colors",
+        active
+          ? "bg-surface-3 font-medium text-foreground"
+          : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
+      )}
+      onClick={onSelect}
+    >
+      {view.name}
+    </button>
+  )
+}
+
+function ProjectViewTabs({
+  activeView,
+  displayedProjectViews,
+  editable,
+  effectiveProjectView,
+  persistedProjectViewIds,
+  routeKey,
+  scopeId,
+  team,
+}: {
+  activeView: ViewDefinition | null
+  displayedProjectViews: ViewDefinition[]
+  editable: boolean
+  effectiveProjectView: ViewDefinition | null
+  persistedProjectViewIds: Set<string>
+  routeKey: string
+  scopeId: string
+  team?: Team | null
+}) {
+  if (displayedProjectViews.length === 0) {
+    return null
+  }
+
+  function selectView(viewId: string) {
+    if (!activeView) {
+      return
+    }
+
+    useAppStore.getState().setSelectedView(routeKey, viewId)
+  }
+
+  return (
+    <div className="ml-2 flex items-center gap-0.5">
+      {displayedProjectViews.map((view) => {
+        const button = (
+          <ProjectViewTabButton
+            key={view.id}
+            active={view.id === effectiveProjectView?.id}
+            onSelect={() => selectView(view.id)}
+            view={view}
+          />
+        )
+
+        if (isSystemView(view) || !persistedProjectViewIds.has(view.id)) {
+          return button
+        }
+
+        return (
+          <ViewContextMenu key={view.id} view={view}>
+            {button}
+          </ViewContextMenu>
+        )
+      })}
+      {editable ? (
+        <IconButton
+          className="size-6"
+          onClick={() =>
+            openManagedCreateDialog({
+              kind: "view",
+              defaultScopeType: team ? "team" : "workspace",
+              defaultScopeId: scopeId,
+              defaultEntityKind: "projects",
+              defaultRoute: routeKey,
+              ...(team ? { lockScope: true } : {}),
+              lockEntityKind: true,
+            })
+          }
+        >
+          <Plus className="size-3.5" />
+        </IconButton>
+      ) : null}
+    </div>
+  )
+}
+
+function ProjectsTopbar({
+  activeView,
+  displayedProjectViews,
+  editable,
+  effectiveProjectView,
+  persistedProjectViewIds,
+  routeKey,
+  scopeId,
+  team,
+  title,
+}: {
+  activeView: ViewDefinition | null
+  displayedProjectViews: ViewDefinition[]
+  editable: boolean
+  effectiveProjectView: ViewDefinition | null
+  persistedProjectViewIds: Set<string>
+  routeKey: string
+  scopeId: string
+  team?: Team | null
+  title: string
+}) {
+  return (
+    <Topbar>
+      <HeaderTitle title={title} />
+      <ProjectViewTabs
+        activeView={activeView}
+        displayedProjectViews={displayedProjectViews}
+        editable={editable}
+        effectiveProjectView={effectiveProjectView}
+        persistedProjectViewIds={persistedProjectViewIds}
+        routeKey={routeKey}
+        scopeId={scopeId}
+        team={team}
+      />
+    </Topbar>
+  )
+}
+
+type ProjectViewbarHandlers = {
+  onClearDisplayProperties: () => void
+  onClearFilters: () => void
+  onReorderDisplayProperties: (displayProps: DisplayProperty[]) => void
+  onToggleDisplayProperty: (property: DisplayProperty) => void
+  onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+  onUpdateView: (patch: ViewConfigPatch) => void
+}
+
+function ProjectsViewbar({
+  canCreateProject,
+  handlers,
+  projects,
+  team,
+  view,
+}: {
+  canCreateProject: boolean
+  handlers: ProjectViewbarHandlers
+  projects: Project[]
+  team?: Team | null
+  view: ViewDefinition
+}) {
+  return (
+    <Viewbar>
+      <ProjectLayoutTabs view={view} onUpdateView={handlers.onUpdateView} />
+      <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
+      <ProjectFilterPopover
+        view={view}
+        projects={projects}
+        variant="chip"
+        onToggleFilterValue={handlers.onToggleFilterValue}
+        onClearFilters={handlers.onClearFilters}
+      />
+      <GroupChipPopover
+        view={view}
+        getOptionLabel={getProjectGroupOptionLabel}
+        groupOptions={PROJECT_GROUP_OPTIONS}
+        onUpdateView={handlers.onUpdateView}
+      />
+      <ProjectSortChipPopover
+        view={view}
+        onUpdateView={handlers.onUpdateView}
+      />
+      <PropertiesChipPopover
+        view={view}
+        getPropertyLabel={getProjectPropertyLabel}
+        propertyOptions={PROJECT_DISPLAY_PROPERTY_OPTIONS}
+        onToggleDisplayProperty={handlers.onToggleDisplayProperty}
+        onReorderDisplayProperties={handlers.onReorderDisplayProperties}
+        onClearDisplayProperties={handlers.onClearDisplayProperties}
+      />
+      <div className="ml-auto flex items-center gap-1.5">
+        {canCreateProject ? (
+          <Button
+            size="sm"
+            variant="default"
+            className="h-7 gap-1.5 px-2.5 text-[12px]"
+            onClick={() => {
+              openManagedCreateDialog({
+                kind: "project",
+                ...(team ? { defaultTeamId: team.id } : {}),
+              })
+            }}
+          >
+            <Plus className="size-3.5" />
+            New
+          </Button>
+        ) : null}
+      </div>
+    </Viewbar>
+  )
+}
+
+function ProjectBoardSection({
+  data,
+  displayProps,
+  section,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  section: GroupedSection<Project>
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <GroupHeading label={section.label} count={section.items.length} />
+      {section.children ? (
+        <div className="flex flex-col gap-4">
+          {section.children.map((child) => (
+            <div key={child.key} className="flex flex-col gap-2">
+              <GroupHeading
+                className="pl-1"
+                label={child.label}
+                count={child.items.length}
+              />
+              <ProjectCardGrid
+                data={data}
+                displayProps={displayProps}
+                projects={child.items}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <ProjectCardGrid
+          data={data}
+          displayProps={displayProps}
+          projects={section.items}
+        />
+      )}
+    </section>
+  )
+}
+
+function ProjectCardGrid({
+  data,
+  displayProps,
+  projects,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  projects: Project[]
+}) {
+  return (
+    <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+      {projects.map((project) => (
+        <ProjectCard
+          key={project.id}
+          data={data}
+          displayProps={displayProps}
+          project={project}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProjectBoardContent({
+  data,
+  displayProps,
+  sections,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  sections: GroupedSection<Project>[]
+}) {
+  return (
+    <div className="flex flex-col gap-6 px-7 py-4">
+      {sections.map((section) => (
+        <ProjectBoardSection
+          key={section.key}
+          data={data}
+          displayProps={displayProps}
+          section={section}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProjectListSection({
+  data,
+  displayProps,
+  section,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  section: GroupedSection<Project>
+}) {
+  return (
+    <section className="flex flex-col">
+      <GroupHeading
+        className="px-7 py-3"
+        label={section.label}
+        count={section.items.length}
+      />
+      {section.children ? (
+        <div className="flex flex-col">
+          {section.children.map((child) => (
+            <div key={child.key} className="flex flex-col">
+              <GroupHeading
+                className="border-y border-line-soft px-7 py-2.5"
+                label={child.label}
+                count={child.items.length}
+              />
+              <ProjectRows
+                data={data}
+                displayProps={displayProps}
+                projects={child.items}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <ProjectRows
+          data={data}
+          displayProps={displayProps}
+          projects={section.items}
+        />
+      )}
+    </section>
+  )
+}
+
+function ProjectRows({
+  data,
+  displayProps,
+  projects,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  projects: Project[]
+}) {
+  return projects.map((project) => (
+    <ProjectRow
+      key={project.id}
+      data={data}
+      displayProps={displayProps}
+      project={project}
+    />
+  ))
+}
+
+function ProjectListContent({
+  data,
+  displayProps,
+  sections,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  sections: GroupedSection<Project>[]
+}) {
+  return (
+    <div className="flex flex-col pb-4">
+      {sections.map((section) => (
+        <ProjectListSection
+          key={section.key}
+          data={data}
+          displayProps={displayProps}
+          section={section}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProjectsContent({
+  data,
+  displayProps,
+  emptyProjectsLabel,
+  hasLoadedOnce,
+  layout,
+  sections,
+  visibleProjects,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  emptyProjectsLabel: string
+  hasLoadedOnce: boolean
+  layout: ViewDefinition["layout"]
+  sections: GroupedSection<Project>[]
+  visibleProjects: Project[]
+}) {
+  if (!hasLoadedOnce && visibleProjects.length === 0) {
+    return <ScopedScreenLoading label="Loading projects..." />
+  }
+
+  if (visibleProjects.length === 0) {
+    return <MissingState title={emptyProjectsLabel} />
+  }
+
+  if (layout === "board") {
+    return (
+      <ProjectBoardContent
+        data={data}
+        displayProps={displayProps}
+        sections={sections}
+      />
+    )
+  }
+
+  return (
+    <ProjectListContent
+      data={data}
+      displayProps={displayProps}
+      sections={sections}
+    />
   )
 }
 
@@ -1427,254 +2654,60 @@ export function ProjectsScreen({
       .clearViewerViewDisplayProperties(routeKey, activeView.id)
   }
 
+  const projectViewbarHandlers: ProjectViewbarHandlers = hasSavedProjectView
+    ? {
+        onUpdateView: updateViewerProjectView,
+        onToggleFilterValue: toggleViewerProjectFilterValue,
+        onClearFilters: clearViewerProjectFilters,
+        onToggleDisplayProperty: toggleViewerProjectDisplayProperty,
+        onReorderDisplayProperties: reorderViewerProjectDisplayProperties,
+        onClearDisplayProperties: clearViewerProjectDisplayProperties,
+      }
+    : {
+        onUpdateView: updateProjectView,
+        onToggleFilterValue: toggleProjectFilterValue,
+        onClearFilters: clearProjectFilters,
+        onToggleDisplayProperty: toggleProjectDisplayProperty,
+        onReorderDisplayProperties: reorderProjectDisplayProperties,
+        onClearDisplayProperties: clearProjectDisplayProperties,
+      }
+
   if (team && !teamHasFeature(team, "projects")) {
     return <MissingState title="Projects are disabled for this team" />
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <Topbar>
-        <HeaderTitle title={title} />
-        {displayedProjectViews.length > 0 ? (
-          <div className="ml-2 flex items-center gap-0.5">
-            {displayedProjectViews.map((view) =>
-              isSystemView(view) || !persistedProjectViewIds.has(view.id) ? (
-                <button
-                  key={view.id}
-                  className={cn(
-                    "h-7 rounded-md px-2 text-[12px] transition-colors",
-                    view.id === effectiveProjectView?.id
-                      ? "bg-surface-3 font-medium text-foreground"
-                      : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
-                  )}
-                  onClick={() => {
-                    if (!activeView) {
-                      return
-                    }
-
-                    useAppStore.getState().setSelectedView(routeKey, view.id)
-                  }}
-                >
-                  {view.name}
-                </button>
-              ) : (
-                <ViewContextMenu key={view.id} view={view}>
-                  <button
-                    className={cn(
-                      "h-7 rounded-md px-2 text-[12px] transition-colors",
-                      view.id === effectiveProjectView?.id
-                        ? "bg-surface-3 font-medium text-foreground"
-                        : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
-                    )}
-                    onClick={() => {
-                      if (!activeView) {
-                        return
-                      }
-
-                      useAppStore.getState().setSelectedView(routeKey, view.id)
-                    }}
-                  >
-                    {view.name}
-                  </button>
-                </ViewContextMenu>
-              )
-            )}
-            {editable ? (
-              <IconButton
-                className="size-6"
-                onClick={() =>
-                  openManagedCreateDialog({
-                    kind: "view",
-                    defaultScopeType: team ? "team" : "workspace",
-                    defaultScopeId: scopeId,
-                    defaultEntityKind: "projects",
-                    defaultRoute: routeKey,
-                    ...(team ? { lockScope: true } : {}),
-                    lockEntityKind: true,
-                  })
-                }
-              >
-                <Plus className="size-3.5" />
-              </IconButton>
-            ) : null}
-          </div>
-        ) : null}
-      </Topbar>
+      <ProjectsTopbar
+        activeView={activeView}
+        displayedProjectViews={displayedProjectViews}
+        editable={editable}
+        effectiveProjectView={effectiveProjectView}
+        persistedProjectViewIds={persistedProjectViewIds}
+        routeKey={routeKey}
+        scopeId={scopeId}
+        team={team}
+        title={title}
+      />
       {effectiveProjectView ? (
-        <Viewbar>
-          <ProjectLayoutTabs
-            view={effectiveProjectView}
-            onUpdateView={
-              hasSavedProjectView ? updateViewerProjectView : updateProjectView
-            }
-          />
-          <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
-          <ProjectFilterPopover
-            view={effectiveProjectView}
-            projects={projects}
-            variant="chip"
-            onToggleFilterValue={
-              hasSavedProjectView
-                ? toggleViewerProjectFilterValue
-                : toggleProjectFilterValue
-            }
-            onClearFilters={
-              hasSavedProjectView
-                ? clearViewerProjectFilters
-                : clearProjectFilters
-            }
-          />
-          <GroupChipPopover
-            view={effectiveProjectView}
-            getOptionLabel={getProjectGroupOptionLabel}
-            groupOptions={PROJECT_GROUP_OPTIONS}
-            onUpdateView={
-              hasSavedProjectView ? updateViewerProjectView : updateProjectView
-            }
-          />
-          <ProjectSortChipPopover
-            view={effectiveProjectView}
-            onUpdateView={
-              hasSavedProjectView ? updateViewerProjectView : updateProjectView
-            }
-          />
-          <PropertiesChipPopover
-            view={effectiveProjectView}
-            getPropertyLabel={getProjectPropertyLabel}
-            propertyOptions={PROJECT_DISPLAY_PROPERTY_OPTIONS}
-            onToggleDisplayProperty={
-              hasSavedProjectView
-                ? toggleViewerProjectDisplayProperty
-                : toggleProjectDisplayProperty
-            }
-            onReorderDisplayProperties={
-              hasSavedProjectView
-                ? reorderViewerProjectDisplayProperties
-                : reorderProjectDisplayProperties
-            }
-            onClearDisplayProperties={
-              hasSavedProjectView
-                ? clearViewerProjectDisplayProperties
-                : clearProjectDisplayProperties
-            }
-          />
-          <div className="ml-auto flex items-center gap-1.5">
-            {canCreateProject ? (
-              <Button
-                size="sm"
-                variant="default"
-                className="h-7 gap-1.5 px-2.5 text-[12px]"
-                onClick={() => {
-                  openManagedCreateDialog({
-                    kind: "project",
-                    ...(team ? { defaultTeamId: team.id } : {}),
-                  })
-                }}
-              >
-                <Plus className="size-3.5" />
-                New
-              </Button>
-            ) : null}
-          </div>
-        </Viewbar>
+        <ProjectsViewbar
+          canCreateProject={canCreateProject}
+          handlers={projectViewbarHandlers}
+          projects={projects}
+          team={team}
+          view={effectiveProjectView}
+        />
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {!hasLoadedOnce && visibleProjects.length === 0 ? (
-          <ScopedScreenLoading label="Loading projects..." />
-        ) : visibleProjects.length === 0 ? (
-          <MissingState title={emptyProjectsLabel} />
-        ) : (
-          <>
-            {projectLayout === "board" ? (
-              <div className="flex flex-col gap-6 px-7 py-4">
-                {projectSections.map((section) => (
-                  <section key={section.key} className="flex flex-col gap-3">
-                    <GroupHeading
-                      label={section.label}
-                      count={section.items.length}
-                    />
-                    {section.children ? (
-                      <div className="flex flex-col gap-4">
-                        {section.children.map((child) => (
-                          <div key={child.key} className="flex flex-col gap-2">
-                            <GroupHeading
-                              className="pl-1"
-                              label={child.label}
-                              count={child.items.length}
-                            />
-                            <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
-                              {child.items.map((project) => (
-                                <ProjectCard
-                                  key={project.id}
-                                  data={data}
-                                  displayProps={projectDisplayProps}
-                                  project={project}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
-                        {section.items.map((project) => (
-                          <ProjectCard
-                            key={project.id}
-                            data={data}
-                            displayProps={projectDisplayProps}
-                            project={project}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col pb-4">
-                {projectSections.map((section) => (
-                  <section key={section.key} className="flex flex-col">
-                    <GroupHeading
-                      className="px-7 py-3"
-                      label={section.label}
-                      count={section.items.length}
-                    />
-                    {section.children ? (
-                      <div className="flex flex-col">
-                        {section.children.map((child) => (
-                          <div key={child.key} className="flex flex-col">
-                            <GroupHeading
-                              className="border-y border-line-soft px-7 py-2.5"
-                              label={child.label}
-                              count={child.items.length}
-                            />
-                            {child.items.map((project) => (
-                              <ProjectRow
-                                key={project.id}
-                                data={data}
-                                displayProps={projectDisplayProps}
-                                project={project}
-                              />
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      section.items.map((project) => (
-                        <ProjectRow
-                          key={project.id}
-                          data={data}
-                          displayProps={projectDisplayProps}
-                          project={project}
-                        />
-                      ))
-                    )}
-                  </section>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        <ProjectsContent
+          data={data}
+          displayProps={projectDisplayProps}
+          emptyProjectsLabel={emptyProjectsLabel}
+          hasLoadedOnce={hasLoadedOnce}
+          layout={projectLayout}
+          sections={projectSections}
+          visibleProjects={visibleProjects}
+        />
       </div>
     </div>
   )
@@ -1730,127 +2763,35 @@ export function ViewsScreen({
         ]
     )
   )
-  const defaultDirectoryConfig: ViewerDirectoryConfig & {
-    layout: "list" | "board"
-    ordering: ViewsDirectorySortField
-    grouping: ViewsDirectoryGroupField
-    subGrouping: ViewsDirectoryGroupField
-    filters: ViewsDirectoryFilters
-    displayProps: ViewsDirectoryProperty[]
-  } = {
-    layout: "list",
-    ordering: "updated",
-    grouping: "none",
-    subGrouping: "none",
-    filters: {
-      entityKinds: [],
-      scopes: [],
-    },
-    displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
-  }
-  const resolvedDirectoryConfig = applyViewerDirectoryConfig(
-    defaultDirectoryConfig,
-    directoryConfig
-  )
-  const layout = (resolvedDirectoryConfig.layout ?? "list") as "list" | "board"
-  const sortBy =
-    (resolvedDirectoryConfig.ordering as ViewsDirectorySortField | undefined) ??
-    "updated"
-  const filters: ViewsDirectoryFilters = {
-    entityKinds:
-      (resolvedDirectoryConfig.filters
-        ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
-    scopes:
-      (resolvedDirectoryConfig.filters
-        ?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
-  }
-  const grouping =
-    (resolvedDirectoryConfig.grouping as
-      | ViewsDirectoryGroupField
-      | undefined) ?? "none"
-  const subGrouping =
-    (resolvedDirectoryConfig.subGrouping as
-      | ViewsDirectoryGroupField
-      | undefined) ?? "none"
-  const properties =
-    (resolvedDirectoryConfig.displayProps as
-      | ViewsDirectoryProperty[]
-      | undefined) ?? DEFAULT_VIEW_DIRECTORY_PROPERTIES
+  const { filters, grouping, layout, properties, sortBy, subGrouping } =
+    getResolvedViewsDirectorySettings(directoryConfig)
   const editable = useAppStore((state) =>
     scopeType === "team"
       ? canEditTeam(state, scopeId)
       : canEditWorkspace(state, scopeId)
   )
   const availableEntityKinds = useMemo(
-    () => [...new Set(views.map((view) => view.entityKind))],
+    () => getAvailableViewEntityKinds(views),
     [views]
   )
   const availableScopes = useMemo(
-    () =>
-      [
-        ...new Set(
-          views.map((view) => getViewDirectoryScopeFilter(view, scopeType))
-        ),
-      ] as ViewsDirectoryScopeFilter[],
+    () => getAvailableViewScopes(views, scopeType),
     [scopeType, views]
   )
-  const filteredViews = views.filter((view) => {
-    if (
-      filters.entityKinds.length > 0 &&
-      !filters.entityKinds.includes(view.entityKind)
-    ) {
-      return false
-    }
-
-    if (
-      filters.scopes.length > 0 &&
-      !filters.scopes.includes(getViewDirectoryScopeFilter(view, scopeType))
-    ) {
-      return false
-    }
-
-    return true
+  const orderedViews = getOrderedDirectoryViews({
+    filters,
+    scopeType,
+    sortBy,
+    views,
   })
-  const orderedViews = [...filteredViews].sort((left, right) => {
-    if (sortBy === "name") {
-      return left.name.localeCompare(right.name)
-    }
-
-    if (sortBy === "entity") {
-      return (
-        formatEntityKind(left.entityKind).localeCompare(
-          formatEntityKind(right.entityKind)
-        ) || left.name.localeCompare(right.name)
-      )
-    }
-
-    return right.updatedAt.localeCompare(left.updatedAt)
-  })
-  const viewSections = buildGroupedSections({
-    items: orderedViews,
+  const viewSections = getViewsDirectorySections({
     grouping,
+    orderedViews,
+    scopeLabels: viewScopeLabels,
+    scopeType,
     subGrouping,
-    getGroupKey: (view, field) =>
-      getViewDirectoryGroupKey(
-        view,
-        field as ViewsDirectoryGroupField,
-        scopeType,
-        viewScopeLabels
-      ),
-    getGroupLabel: (field, key) =>
-      getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, key),
-    compareGroupKeys: (field, left, right) =>
-      getViewDirectoryGroupLabel(
-        field as ViewsDirectoryGroupField,
-        left
-      ).localeCompare(
-        getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, right)
-      ),
   })
-  const showDescription = properties.includes("description")
-  const showScope = properties.includes("scope")
-  const showUpdated = properties.includes("updated")
-  const showConfiguration = properties.includes("configuration")
+  const displayState = getViewDirectoryDisplayState(properties)
   const emptyTitle =
     views.length === 0
       ? "No saved views yet"
@@ -1862,46 +2803,15 @@ export function ViewsScreen({
       .patchViewerDirectoryConfig(directorySurfaceKey, patch)
   }
 
-  function getCurrentDirectoryFilters(): ViewsDirectoryFilters {
-    const state = useAppStore.getState()
-    const currentConfig = applyViewerDirectoryConfig(
-      defaultDirectoryConfig,
-      state.ui.viewerDirectoryConfigByRoute[
-        getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
-      ]
-    )
-
-    return {
-      entityKinds:
-        (currentConfig.filters
-          ?.entityKinds as ViewDefinition["entityKind"][]) ?? [],
-      scopes:
-        (currentConfig.filters?.scopes as ViewsDirectoryScopeFilter[]) ?? [],
-    }
-  }
-
-  function getCurrentDirectoryProperties(): ViewsDirectoryProperty[] {
-    const state = useAppStore.getState()
-    const currentConfig = applyViewerDirectoryConfig(
-      defaultDirectoryConfig,
-      state.ui.viewerDirectoryConfigByRoute[
-        getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
-      ]
-    )
-
-    return (
-      (currentConfig.displayProps as ViewsDirectoryProperty[] | undefined) ??
-      DEFAULT_VIEW_DIRECTORY_PROPERTIES
-    )
-  }
-
   function updateDirectoryFilters(
     resolveNextFilters: (
       current: ViewsDirectoryFilters
     ) => ViewsDirectoryFilters
   ) {
     updateDirectoryConfig({
-      filters: resolveNextFilters(getCurrentDirectoryFilters()),
+      filters: resolveNextFilters(
+        getCurrentViewsDirectorySettings(directorySurfaceKey).filters
+      ),
     })
   }
 
@@ -1911,7 +2821,9 @@ export function ViewsScreen({
     ) => ViewsDirectoryProperty[]
   ) {
     updateDirectoryConfig({
-      displayProps: resolveNextProperties(getCurrentDirectoryProperties()),
+      displayProps: resolveNextProperties(
+        getCurrentViewsDirectorySettings(directorySurfaceKey).properties
+      ),
     })
   }
 
@@ -1920,233 +2832,36 @@ export function ViewsScreen({
       <Topbar>
         <HeaderTitle title={title} />
       </Topbar>
-      <Viewbar>
-        <ViewsDirectoryLayoutTabs
-          layout={layout}
-          onLayoutChange={(nextLayout) =>
-            updateDirectoryConfig({ layout: nextLayout })
-          }
-        />
-        <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
-        <ViewsDirectoryFilterPopover
-          availableEntityKinds={availableEntityKinds}
-          availableScopes={availableScopes}
-          filters={filters}
-          onClearFilters={() =>
-            updateDirectoryConfig({
-              filters: {
-                entityKinds: [],
-                scopes: [],
-              },
-            })
-          }
-          onToggleEntityKind={(entityKind) =>
-            updateDirectoryFilters((current) => {
-              return {
-                ...current,
-                entityKinds: current.entityKinds.includes(entityKind)
-                  ? current.entityKinds.filter((value) => value !== entityKind)
-                  : [...current.entityKinds, entityKind],
-              }
-            })
-          }
-          onToggleScope={(scope) =>
-            updateDirectoryFilters((current) => {
-              return {
-                ...current,
-                scopes: current.scopes.includes(scope)
-                  ? current.scopes.filter((value) => value !== scope)
-                  : [...current.scopes, scope],
-              }
-            })
-          }
-        />
-        <ViewsDirectoryGroupChipPopover
-          grouping={grouping}
-          onGroupingChange={(nextGrouping) => {
-            updateDirectoryConfig({
-              grouping: nextGrouping,
-              ...(nextGrouping !== "none" && subGrouping === nextGrouping
-                ? { subGrouping: "none" }
-                : {}),
-            })
-          }}
-          onSubGroupingChange={(nextSubGrouping) =>
-            updateDirectoryConfig({ subGrouping: nextSubGrouping })
-          }
-          subGrouping={subGrouping}
-        />
-        <ViewsDirectorySortChipPopover
-          sortBy={sortBy}
-          onSortByChange={(nextSortBy) =>
-            updateDirectoryConfig({ ordering: nextSortBy })
-          }
-        />
-        <ViewsDirectoryPropertiesChipPopover
-          onClearProperties={() =>
-            updateDirectoryConfig({
-              displayProps: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
-            })
-          }
-          onToggleProperty={(property) =>
-            updateDirectoryProperties((current) => {
-              return current.includes(property)
-                ? current.filter((value) => value !== property)
-                : [...current, property]
-            })
-          }
-          properties={properties}
-        />
-        <div className="ml-auto flex items-center gap-1.5">
-          {editable ? (
-            <Button
-              size="sm"
-              variant="default"
-              className="h-7 gap-1.5 px-2.5 text-[12px]"
-              onClick={() =>
-                openManagedCreateDialog({
-                  kind: "view",
-                  defaultScopeType: scopeType,
-                  defaultScopeId: scopeId,
-                  ...(scopeType === "team" ? { lockScope: true } : {}),
-                })
-              }
-            >
-              <Plus className="size-3.5" />
-              New
-            </Button>
-          ) : null}
-        </div>
-      </Viewbar>
+      <ViewsDirectoryViewbar
+        availableEntityKinds={availableEntityKinds}
+        availableScopes={availableScopes}
+        editable={editable}
+        filters={filters}
+        grouping={grouping}
+        layout={layout}
+        onUpdateConfig={updateDirectoryConfig}
+        onUpdateFilters={updateDirectoryFilters}
+        onUpdateProperties={updateDirectoryProperties}
+        properties={properties}
+        scopeId={scopeId}
+        scopeType={scopeType}
+        sortBy={sortBy}
+        subGrouping={subGrouping}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {!hasLoadedOnce && orderedViews.length === 0 ? (
-          <ScopedScreenLoading label="Loading views..." />
-        ) : orderedViews.length === 0 ? (
-          <MissingState title={emptyTitle} />
-        ) : (
-          <>
-            {layout === "board" ? (
-              <div className="flex flex-col gap-6 px-7 py-4">
-                {viewSections.map((section) => (
-                  <section key={section.key} className="flex flex-col gap-3">
-                    {grouping !== "none" ? (
-                      <GroupHeading
-                        label={section.label}
-                        count={section.items.length}
-                      />
-                    ) : null}
-                    {section.children ? (
-                      <div className="flex flex-col gap-4">
-                        {section.children.map((child) => (
-                          <div key={child.key} className="flex flex-col gap-2">
-                            <GroupHeading
-                              className="pl-1"
-                              label={child.label}
-                              count={child.items.length}
-                            />
-                            <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
-                              {child.items.map((view) => (
-                                <SavedViewCard
-                                  key={view.id}
-                                  scopeLabel={getViewDirectoryScopeLabel({
-                                    view,
-                                    scopeLabels: viewScopeLabels,
-                                    scopeType,
-                                  })}
-                                  showConfiguration={showConfiguration}
-                                  showDescription={showDescription}
-                                  showScope={showScope}
-                                  showUpdated={showUpdated}
-                                  view={view}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
-                        {section.items.map((view) => (
-                          <SavedViewCard
-                            key={view.id}
-                            scopeLabel={getViewDirectoryScopeLabel({
-                              view,
-                              scopeLabels: viewScopeLabels,
-                              scopeType,
-                            })}
-                            showConfiguration={showConfiguration}
-                            showDescription={showDescription}
-                            showScope={showScope}
-                            showUpdated={showUpdated}
-                            view={view}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col pb-4">
-                {viewSections.map((section) => (
-                  <section key={section.key} className="flex flex-col">
-                    {grouping !== "none" ? (
-                      <GroupHeading
-                        className="px-7 py-3"
-                        label={section.label}
-                        count={section.items.length}
-                      />
-                    ) : null}
-                    {section.children ? (
-                      <div className="flex flex-col">
-                        {section.children.map((child) => (
-                          <div key={child.key} className="flex flex-col">
-                            <GroupHeading
-                              className="border-y border-line-soft px-7 py-2.5"
-                              label={child.label}
-                              count={child.items.length}
-                            />
-                            {child.items.map((view) => (
-                              <SavedViewRow
-                                key={view.id}
-                                scopeLabel={getViewDirectoryScopeLabel({
-                                  view,
-                                  scopeLabels: viewScopeLabels,
-                                  scopeType,
-                                })}
-                                showConfiguration={showConfiguration}
-                                showDescription={showDescription}
-                                showScope={showScope}
-                                showUpdated={showUpdated}
-                                view={view}
-                              />
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      section.items.map((view) => (
-                        <SavedViewRow
-                          key={view.id}
-                          scopeLabel={getViewDirectoryScopeLabel({
-                            view,
-                            scopeLabels: viewScopeLabels,
-                            scopeType,
-                          })}
-                          showConfiguration={showConfiguration}
-                          showDescription={showDescription}
-                          showScope={showScope}
-                          showUpdated={showUpdated}
-                          view={view}
-                        />
-                      ))
-                    )}
-                  </section>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        <ViewsDirectoryContent
+          display={{
+            ...displayState,
+            scopeLabels: viewScopeLabels,
+            scopeType,
+          }}
+          emptyTitle={emptyTitle}
+          grouping={grouping}
+          hasLoadedOnce={hasLoadedOnce}
+          layout={layout}
+          orderedViews={orderedViews}
+          sections={viewSections}
+        />
       </div>
     </div>
   )
@@ -2185,9 +2900,7 @@ export function DocsScreen({
     )
   )
   const isWorkspaceDocs = scopeType === "workspace" && !team
-  const [activeTab, setActiveTab] = useState<"workspace" | "private">(
-    "workspace"
-  )
+  const [activeTab, setActiveTab] = useState<DocsTab>("workspace")
   const [dialogOpen, setDialogOpen] = useState(false)
   const teamRouteKey = team ? `/team/${team.slug}/docs` : "/workspace/docs/team"
   const teamLayoutState = useCollectionLayout(teamRouteKey, teamDocViews)
@@ -2205,27 +2918,24 @@ export function DocsScreen({
         : getTeamDocuments(state, scopeId)
     )
   )
-  const { layout, setLayout } = isWorkspaceDocs
-    ? activeTab === "workspace"
-      ? workspaceLayoutState
-      : privateLayoutState
-    : teamLayoutState
-  const dialogInput = isWorkspaceDocs
-    ? activeTab === "workspace"
-      ? ({ kind: "workspace-document", workspaceId: scopeId } as const)
-      : ({ kind: "private-document", workspaceId: scopeId } as const)
-    : ({
-        kind: "team-document",
-        teamId: team?.id ?? activeTeamId,
-      } as const)
+  const { layout, setLayout } = getDocsLayoutState({
+    activeTab,
+    isWorkspaceDocs,
+    privateLayoutState,
+    teamLayoutState,
+    workspaceLayoutState,
+  })
+  const dialogInput = getDocsDialogInput({
+    activeTab,
+    activeTeamId,
+    isWorkspaceDocs,
+    scopeId,
+    team,
+  })
   const editable = useAppStore((state) =>
     team ? canEditTeam(state, team.id) : true
   )
-  const emptyTitle = isWorkspaceDocs
-    ? activeTab === "workspace"
-      ? "No workspace documents yet"
-      : "No private documents yet"
-    : "No documents yet"
+  const emptyTitle = getDocsEmptyTitle(isWorkspaceDocs, activeTab)
 
   if (team && !teamHasFeature(team, "docs")) {
     return <MissingState title="Docs are disabled for this team" />
@@ -2233,61 +2943,15 @@ export function DocsScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      {isWorkspaceDocs ? (
-        <div className={SCREEN_HEADER_CLASS_NAME}>
-          <div className="flex min-w-0 items-center gap-2">
-            <HeaderTitle title={title} />
-            <div className="flex items-center gap-1">
-              {(["workspace", "private"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  className={cn(
-                    "h-6 rounded-sm px-2 text-xs transition-colors",
-                    tab === activeTab
-                      ? "bg-accent font-medium"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  onClick={() => setActiveTab(tab)}
-                >
-                  {tab === "workspace" ? "Workspace" : "Private"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <CollectionDisplaySettingsPopover
-              layout={layout}
-              onLayoutChange={setLayout}
-            />
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <ScreenHeader
-          title={title}
-          actions={
-            <div className="flex items-center gap-1">
-              <CollectionDisplaySettingsPopover
-                layout={layout}
-                onLayoutChange={setLayout}
-              />
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                onClick={() => setDialogOpen(true)}
-              >
-                <Plus className="size-3.5" />
-              </Button>
-            </div>
-          }
-        />
-      )}
+      <DocsHeader
+        activeTab={activeTab}
+        isWorkspaceDocs={isWorkspaceDocs}
+        layout={layout}
+        onActiveTabChange={setActiveTab}
+        onCreateDocument={() => setDialogOpen(true)}
+        onLayoutChange={setLayout}
+        title={title}
+      />
       <CreateDocumentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -2295,55 +2959,13 @@ export function DocsScreen({
         disabled={!editable}
       />
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {!hasLoadedOnce && documents.length === 0 ? (
-          <ScopedScreenLoading label="Loading documents..." />
-        ) : documents.length === 0 ? (
-          <MissingState icon={FileText} title={emptyTitle} />
-        ) : layout === "board" ? (
-          <DocumentBoard data={data} documents={documents} />
-        ) : (
-          <div className="flex flex-col divide-y">
-            {documents.map((document) => {
-              const preview = getDocumentPreview(document)
-              const author = getUser(
-                data,
-                document.updatedBy ?? document.createdBy
-              )
-              return (
-                <DocumentContextMenu
-                  key={document.id}
-                  data={data}
-                  document={document}
-                >
-                  <Link
-                    className="flex items-start px-6 py-3.5 transition-colors hover:bg-accent/40"
-                    href={`/docs/${document.id}`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium">
-                          {document.title}
-                        </span>
-                      </div>
-                      {preview ? (
-                        <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                          {preview}
-                        </p>
-                      ) : null}
-                      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <span>{author?.name ?? "Unknown"}</span>
-                        <span>·</span>
-                        <span>
-                          {format(new Date(document.updatedAt), "MMM d")}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                </DocumentContextMenu>
-              )
-            })}
-          </div>
-        )}
+        <DocsContent
+          data={data}
+          documents={documents}
+          emptyTitle={emptyTitle}
+          hasLoadedOnce={hasLoadedOnce}
+          layout={layout}
+        />
       </div>
     </div>
   )

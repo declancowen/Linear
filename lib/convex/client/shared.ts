@@ -1,8 +1,5 @@
 "use client"
 
-export const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? ""
-export const hasConvex = convexUrl.length > 0
-
 export class RouteMutationError extends Error {
   status: number
   code: string | null

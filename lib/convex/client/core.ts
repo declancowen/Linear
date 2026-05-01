@@ -1,7 +1,6 @@
 "use client"
 
 import type {
-  AppSnapshot,
   DocumentPresenceViewer,
   UserStatus,
 } from "@/lib/domain/types"
@@ -12,11 +11,6 @@ import {
   normalizeSnapshotRoutePayload,
 } from "./contracts"
 import { runRouteMutation } from "./shared"
-
-export type SnapshotRoutePayload = {
-  snapshot: AppSnapshot
-  version: number
-}
 
 export async function fetchSnapshotState() {
   const payload = await runRouteMutation<unknown>("/api/snapshot", {

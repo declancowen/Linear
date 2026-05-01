@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 import { OnboardingWorkspaceForm } from "@/components/app/onboarding-workspace-form"
 import { WorkspaceEntryJoinSection } from "@/components/app/workspace-entry-join-section"
 import { buildAuthHref, buildSessionResolvePath } from "@/lib/auth-routing"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { getWorkspaceEntryJoinState } from "@/lib/server/authenticated-app"
 
 type OnboardingPageProps = {
   searchParams: Promise<{
@@ -50,15 +50,11 @@ export default async function OnboardingPage({
     redirect(loginHref)
   }
 
-  const { authContext } = await ensureAuthenticatedAppContext(
-    auth.user,
-    auth.organizationId
-  )
-
-  const pendingInvites = authContext?.pendingInvites ?? []
-  const joinedTeamIds =
-    authContext?.memberships.map((entry) => entry.teamId) ?? []
-  const currentWorkspace = authContext?.currentWorkspace ?? null
+  const { currentWorkspace, joinedTeamIds, pendingInvites } =
+    await getWorkspaceEntryJoinState(
+      auth.user,
+      auth.organizationId
+    )
 
   if (
     currentWorkspace &&

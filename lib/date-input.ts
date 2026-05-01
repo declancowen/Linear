@@ -40,7 +40,7 @@ export function parseDateInputValue(
   return { year, month, day }
 }
 
-export function parseCalendarDateValue(
+function parseCalendarDateValue(
   value: string | null | undefined
 ): DateInputValue | null {
   return parseDateInputValue(getCalendarDatePrefix(value))

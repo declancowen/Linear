@@ -9,10 +9,7 @@ import {
   syncToggleChannelPostReaction,
 } from "@/lib/convex/client"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
-import {
-  channelPostCommentSchema,
-  channelPostSchema,
-} from "@/lib/domain/types"
+import { channelPostCommentSchema, channelPostSchema } from "@/lib/domain/types"
 
 import {
   createId,
@@ -30,6 +27,169 @@ import type {
   CollaborationSlice,
   CollaborationSliceFactoryArgs,
 } from "./collaboration-shared"
+import type { AppStore } from "../types"
+
+type ChannelConversation = AppStore["conversations"][number]
+type ChannelPost = AppStore["channelPosts"][number]
+type NotificationRecord = AppStore["notifications"][number]
+
+function getEditableChannelConversation(
+  state: AppStore,
+  conversationId: string,
+  options: {
+    requireWorkspaceEdit: boolean
+  }
+): ChannelConversation | null {
+  const conversation = state.conversations.find(
+    (entry) => entry.id === conversationId
+  )
+
+  if (!conversation || conversation.kind !== "channel") {
+    return null
+  }
+
+  if (conversation.scopeType === "team") {
+    const role = effectiveRole(state, conversation.scopeId)
+
+    if (role === "viewer" || role === "guest" || !role) {
+      toast.error("Your current role is read-only")
+      return null
+    }
+  } else if (
+    options.requireWorkspaceEdit &&
+    !canEditWorkspaceDocuments(state, conversation.scopeId)
+  ) {
+    toast.error("Your current role is read-only")
+    return null
+  }
+
+  return conversation
+}
+
+function getChannelMentionUserIds(
+  state: AppStore,
+  content: string,
+  audienceUserIds: string[]
+) {
+  return createMentionIds(content, state.users, audienceUserIds).filter(
+    (userId) => userId !== state.currentUserId
+  )
+}
+
+function addChannelMentionNotifications(
+  notifications: NotificationRecord[],
+  input: {
+    actorName: string
+    currentUserId: string
+    entityId: string
+    entityTitle: string
+    mentionUserIds: string[]
+    notifiedUserIds: Set<string>
+  }
+) {
+  for (const mentionedUserId of input.mentionUserIds) {
+    if (
+      mentionedUserId === input.currentUserId ||
+      input.notifiedUserIds.has(mentionedUserId)
+    ) {
+      continue
+    }
+
+    notifications.unshift(
+      createNotification(
+        mentionedUserId,
+        input.currentUserId,
+        `${input.actorName} mentioned you in ${input.entityTitle}`,
+        "channelPost",
+        input.entityId,
+        "mention"
+      )
+    )
+
+    input.notifiedUserIds.add(mentionedUserId)
+  }
+}
+
+function addChannelFollowerNotifications(
+  notifications: NotificationRecord[],
+  input: {
+    actorName: string
+    audienceUserIds: string[]
+    currentUserId: string
+    entityId: string
+    entityTitle: string
+    followerIds: string[]
+    notifiedUserIds: Set<string>
+  }
+) {
+  for (const followerId of input.followerIds) {
+    if (
+      !followerId ||
+      !input.audienceUserIds.includes(followerId) ||
+      followerId === input.currentUserId ||
+      input.notifiedUserIds.has(followerId)
+    ) {
+      continue
+    }
+
+    notifications.unshift(
+      createNotification(
+        followerId,
+        input.currentUserId,
+        `${input.actorName} commented on ${input.entityTitle}`,
+        "channelPost",
+        input.entityId,
+        "comment"
+      )
+    )
+    input.notifiedUserIds.add(followerId)
+  }
+}
+
+function getChannelCommentFollowerIds(state: AppStore, post: ChannelPost) {
+  return [
+    post.createdBy,
+    ...state.channelPostComments
+      .filter((entry) => entry.postId === post.id)
+      .map((entry) => entry.createdBy),
+  ]
+}
+
+function buildChannelCommentNotifications(
+  state: AppStore,
+  input: {
+    audienceUserIds: string[]
+    mentionUserIds: string[]
+    post: ChannelPost
+  }
+) {
+  const notifications = [...state.notifications]
+  const actor = state.users.find((user) => user.id === state.currentUserId)
+  const actorName = actor?.name ?? "Someone"
+  const entityTitle = input.post.title.trim() || "a channel post"
+  const notifiedUserIds = new Set<string>()
+
+  addChannelMentionNotifications(notifications, {
+    actorName,
+    currentUserId: state.currentUserId,
+    entityId: input.post.id,
+    entityTitle,
+    mentionUserIds: input.mentionUserIds,
+    notifiedUserIds,
+  })
+
+  addChannelFollowerNotifications(notifications, {
+    actorName,
+    audienceUserIds: input.audienceUserIds,
+    currentUserId: state.currentUserId,
+    entityId: input.post.id,
+    entityTitle,
+    followerIds: getChannelCommentFollowerIds(state, input.post),
+    notifiedUserIds,
+  })
+
+  return notifications
+}
 
 export function createCollaborationChannelActions({
   runtime,
@@ -83,7 +243,9 @@ export function createCollaborationChannelActions({
 
         const now = getNow()
         const postId = createId("channel_post")
-        const actor = state.users.find((user) => user.id === state.currentUserId)
+        const actor = state.users.find(
+          (user) => user.id === state.currentUserId
+        )
         const mentionUserIds = createMentionIds(
           preparedContent.sanitized,
           state.users,
@@ -173,93 +335,39 @@ export function createCollaborationChannelActions({
       }
 
       set((state) => {
-        const post = state.channelPosts.find((entry) => entry.id === parsed.data.postId)
+        const post = state.channelPosts.find(
+          (entry) => entry.id === parsed.data.postId
+        )
         if (!post) {
           return state
         }
 
-        const conversation = state.conversations.find(
-          (entry) => entry.id === post.conversationId
-        )
-        if (!conversation || conversation.kind !== "channel") {
-          return state
-        }
-
-        if (conversation.scopeType === "team") {
-          const role = effectiveRole(state, conversation.scopeId)
-          if (role === "viewer" || role === "guest" || !role) {
-            toast.error("Your current role is read-only")
-            return state
+        const conversation = getEditableChannelConversation(
+          state,
+          post.conversationId,
+          {
+            requireWorkspaceEdit: true,
           }
-        } else if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
-          toast.error("Your current role is read-only")
+        )
+        if (!conversation) {
           return state
         }
 
         const now = getNow()
-        const actor = state.users.find((user) => user.id === state.currentUserId)
         const audienceUserIds = getConversationAudienceUserIds(
           state,
           conversation
         )
-        const mentionUserIds = createMentionIds(
+        const mentionUserIds = getChannelMentionUserIds(
+          state,
           preparedContent.sanitized,
-          state.users,
           audienceUserIds
-        ).filter((userId) => userId !== state.currentUserId)
-        const notifications = [...state.notifications]
-        const notifiedUserIds = new Set<string>()
-        const followerIds = [
-          post.createdBy,
-          ...state.channelPostComments
-            .filter((entry) => entry.postId === post.id)
-            .map((entry) => entry.createdBy),
-        ]
-        const entityTitle = post.title.trim() || "a channel post"
-
-        for (const mentionedUserId of mentionUserIds) {
-          if (
-            mentionedUserId === state.currentUserId ||
-            notifiedUserIds.has(mentionedUserId)
-          ) {
-            continue
-          }
-
-          notifications.unshift(
-            createNotification(
-              mentionedUserId,
-              state.currentUserId,
-              `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
-              "channelPost",
-              post.id,
-              "mention"
-            )
-          )
-          notifiedUserIds.add(mentionedUserId)
-        }
-
-        for (const followerId of followerIds) {
-          if (
-            !followerId ||
-            !audienceUserIds.includes(followerId) ||
-            followerId === state.currentUserId ||
-            notifiedUserIds.has(followerId)
-          ) {
-            continue
-          }
-
-          notifications.unshift(
-            createNotification(
-              followerId,
-              state.currentUserId,
-              `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
-              "channelPost",
-              post.id,
-              "comment"
-            )
-          )
-          notifiedUserIds.add(followerId)
-        }
+        )
+        const notifications = buildChannelCommentNotifications(state, {
+          audienceUserIds,
+          mentionUserIds,
+          post,
+        })
 
         return {
           ...state,
@@ -315,7 +423,9 @@ export function createCollaborationChannelActions({
 
         return {
           ...state,
-          channelPosts: state.channelPosts.filter((entry) => entry.id !== postId),
+          channelPosts: state.channelPosts.filter(
+            (entry) => entry.id !== postId
+          ),
           channelPostComments: state.channelPostComments.filter(
             (entry) => entry.postId !== postId
           ),

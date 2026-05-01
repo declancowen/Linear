@@ -1,64 +1,16 @@
-import type { AppSnapshot } from "@/lib/domain/types"
-import { getSnapshotServer } from "@/lib/server/convex"
-import {
-  getConvexErrorMessage,
-  logProviderError,
-} from "@/lib/server/provider-errors"
-import { requireSession } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import { handleCollectionReadModelGet } from "@/lib/server/scoped-read-model-route-handlers"
 import { selectViewCatalogReadModel } from "@/lib/scoped-sync/read-models"
 
-function parseScope(searchParams: URLSearchParams) {
-  const scopeType = searchParams.get("scopeType")
-  const scopeId = searchParams.get("scopeId")
-
-  if ((scopeType !== "team" && scopeType !== "workspace") || !scopeId?.trim()) {
-    return null
-  }
-
-  return {
-    scopeType,
-    scopeId: scopeId.trim(),
-  } as const
-}
+const VIEW_CATALOG_SCOPE_TYPES = new Set(["team", "workspace"] as const)
 
 export async function GET(request: Request) {
-  const session = await requireSession()
-
-  if (isRouteResponse(session)) {
-    return session
-  }
-
-  const scope = parseScope(new URL(request.url).searchParams)
-
-  if (!scope) {
-    return jsonError("Invalid view catalog read model scope", 400, {
-      code: "VIEW_CATALOG_SCOPE_INVALID",
-    })
-  }
-
-  try {
-    const snapshot = (await getSnapshotServer({
-      workosUserId: session.user.id,
-      email: session.user.email ?? undefined,
-    })) as AppSnapshot
-
-    return jsonOk({
-      data: selectViewCatalogReadModel(
-        snapshot,
-        scope.scopeType,
-        scope.scopeId
-      ),
-    })
-  } catch (error) {
-    logProviderError("Failed to load view catalog read model", error)
-
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to load view catalog read model"),
-      500,
-      {
-        code: "VIEW_CATALOG_READ_MODEL_LOAD_FAILED",
-      }
-    )
-  }
+  return handleCollectionReadModelGet(request, {
+    allowedScopeTypes: VIEW_CATALOG_SCOPE_TYPES,
+    invalidScopeMessage: "Invalid view catalog read model scope",
+    invalidScopeCode: "VIEW_CATALOG_SCOPE_INVALID",
+    failureLogLabel: "Failed to load view catalog read model",
+    failureMessage: "Failed to load view catalog read model",
+    failureCode: "VIEW_CATALOG_READ_MODEL_LOAD_FAILED",
+    select: selectViewCatalogReadModel,
+  })
 }

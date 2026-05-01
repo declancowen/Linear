@@ -41,7 +41,241 @@ import {
   getWorkItemCascadeDeletePlan,
   getWorkItemValidationMessage,
 } from "../validation"
+import type { AppStore } from "../types"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
+
+type CreateWorkItemInput = Parameters<AppStore["createWorkItem"]>[0]
+type CreateWorkItemDates = {
+  dueDate: string
+  startDate: string
+  targetDate: string
+}
+type CreateWorkItemScope = {
+  keyPrefix: string
+  nextNumber: number
+  parent: AppStore["workItems"][number] | null
+  resolvedPrimaryProjectId: string | null
+  team: AppStore["teams"][number] | null
+  workspaceId: string
+}
+
+function resolveCreateWorkItemDates(
+  input: CreateWorkItemInput
+): CreateWorkItemDates {
+  return {
+    startDate: input.startDate ?? formatLocalCalendarDate(),
+    dueDate: input.dueDate ?? addLocalCalendarDays(7),
+    targetDate: input.targetDate ?? addLocalCalendarDays(10),
+  }
+}
+
+function resolveCreateWorkItemScope(
+  state: AppStore,
+  input: CreateWorkItemInput
+): CreateWorkItemScope | null {
+  const role = effectiveRole(state, input.teamId)
+
+  if (role === "viewer" || role === "guest" || !role) {
+    toast.error("Your current role is read-only")
+    return null
+  }
+
+  const parent = input.parentId
+    ? (state.workItems.find((item) => item.id === input.parentId) ?? null)
+    : null
+  const team = state.teams.find((entry) => entry.id === input.teamId) ?? null
+  const teamItems = state.workItems.filter(
+    (item) => item.teamId === input.teamId
+  )
+
+  return {
+    keyPrefix: toTeamKeyPrefix(team?.name, input.teamId),
+    nextNumber: 1 + teamItems.length + 100,
+    parent,
+    resolvedPrimaryProjectId: parent
+      ? (parent.primaryProjectId ?? null)
+      : input.primaryProjectId,
+    team,
+    workspaceId: team?.workspaceId ?? "",
+  }
+}
+
+function buildOptimisticDescriptionDocument(input: {
+  currentUserId: string
+  descriptionDocId: string
+  parsedInput: CreateWorkItemInput
+  scope: CreateWorkItemScope
+  title: string
+}) {
+  const now = getNow()
+
+  return {
+    id: input.descriptionDocId,
+    kind: "item-description" as const,
+    workspaceId: input.scope.workspaceId,
+    teamId: input.parsedInput.teamId,
+    title: `${input.title} description`,
+    content: "<p></p>",
+    linkedProjectIds: input.scope.resolvedPrimaryProjectId
+      ? [input.scope.resolvedPrimaryProjectId]
+      : [],
+    linkedWorkItemIds: [],
+    createdBy: input.currentUserId,
+    updatedBy: input.currentUserId,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function buildOptimisticWorkItem(input: {
+  currentUserId: string
+  dates: CreateWorkItemDates
+  descriptionDocId: string
+  itemId: string
+  parsedInput: CreateWorkItemInput
+  scope: CreateWorkItemScope
+}) {
+  const now = getNow()
+
+  return {
+    id: input.itemId,
+    key: `${input.scope.keyPrefix}-${input.scope.nextNumber}`,
+    teamId: input.parsedInput.teamId,
+    type: input.parsedInput.type,
+    title: input.parsedInput.title,
+    descriptionDocId: input.descriptionDocId,
+    status: input.parsedInput.status ?? ("backlog" as const),
+    priority: input.parsedInput.priority,
+    assigneeId: input.parsedInput.assigneeId,
+    creatorId: input.currentUserId,
+    parentId: input.scope.parent?.id ?? null,
+    primaryProjectId: input.scope.resolvedPrimaryProjectId,
+    linkedProjectIds: [],
+    linkedDocumentIds: [],
+    labelIds: input.parsedInput.labelIds ?? [],
+    milestoneId: null,
+    startDate: input.dates.startDate,
+    dueDate: input.dates.dueDate,
+    targetDate: input.dates.targetDate,
+    subscriberIds: [input.currentUserId],
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function buildCreateWorkItemNotifications(
+  state: AppStore,
+  input: {
+    parsedInput: CreateWorkItemInput
+    scope: CreateWorkItemScope
+    workItemId: string
+  }
+) {
+  if (!input.parsedInput.assigneeId) {
+    return state.notifications
+  }
+
+  const actor = state.users.find((user) => user.id === state.currentUserId)
+
+  return [
+    createNotification(
+      input.parsedInput.assigneeId,
+      state.currentUserId,
+      buildWorkItemAssignmentNotificationMessage(
+        actor?.name ?? "Someone",
+        input.parsedInput.title,
+        input.scope.team?.name
+      ),
+      "workItem",
+      input.workItemId,
+      "assignment"
+    ),
+    ...state.notifications,
+  ]
+}
+
+function buildOptimisticWorkItemCreationState(
+  state: AppStore,
+  input: {
+    dates: CreateWorkItemDates
+    parsedInput: CreateWorkItemInput
+  }
+) {
+  const scope = resolveCreateWorkItemScope(state, input.parsedInput)
+
+  if (!scope) {
+    return null
+  }
+
+  const descriptionDocId = createId("doc")
+  const workItem = buildOptimisticWorkItem({
+    currentUserId: state.currentUserId,
+    dates: input.dates,
+    descriptionDocId,
+    itemId: createId("item"),
+    parsedInput: input.parsedInput,
+    scope,
+  })
+  const descriptionDoc = buildOptimisticDescriptionDocument({
+    currentUserId: state.currentUserId,
+    descriptionDocId,
+    parsedInput: input.parsedInput,
+    scope,
+    title: input.parsedInput.title,
+  })
+
+  return {
+    createdDescriptionDocId: descriptionDocId,
+    createdItemId: workItem.id,
+    state: {
+      ...state,
+      documents: [descriptionDoc, ...state.documents],
+      notifications: buildCreateWorkItemNotifications(state, {
+        parsedInput: input.parsedInput,
+        scope,
+        workItemId: workItem.id,
+      }),
+      workItems: [workItem, ...state.workItems],
+    },
+  }
+}
+
+function reconcileCreatedWorkItem(input: {
+  createdDescriptionDocId: string | null
+  createdItemId: string
+  result: Awaited<ReturnType<typeof syncCreateWorkItem>>
+  set: WorkSliceFactoryArgs["set"]
+}) {
+  input.set((state) => {
+    const nextDescriptionDocId =
+      input.result?.descriptionDocId ?? input.createdDescriptionDocId ?? null
+
+    return {
+      ...state,
+      documents: state.documents.map((document) =>
+        document.id === input.createdDescriptionDocId ||
+        document.id === nextDescriptionDocId
+          ? {
+              ...document,
+              id: nextDescriptionDocId ?? document.id,
+              updatedAt:
+                input.result?.descriptionUpdatedAt ?? document.updatedAt,
+              updatedBy: state.currentUserId,
+            }
+          : document
+      ),
+      workItems: state.workItems.map((item) =>
+        item.id === input.createdItemId
+          ? {
+              ...item,
+              descriptionDocId: nextDescriptionDocId ?? item.descriptionDocId,
+              updatedAt: input.result?.itemUpdatedAt ?? item.updatedAt,
+            }
+          : item
+      ),
+    }
+  })
+}
 
 export function createWorkItemActions({
   get,
@@ -70,10 +304,7 @@ export function createWorkItemActions({
         return null
       }
 
-      const existing = getLabelsForWorkspace(
-        get(),
-        resolvedWorkspaceId
-      ).find(
+      const existing = getLabelsForWorkspace(get(), resolvedWorkspaceId).find(
         (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
       )
 
@@ -116,10 +347,7 @@ export function createWorkItemActions({
         }
       }
 
-      const {
-        expectedUpdatedAt,
-        ...localPatch
-      } = patch
+      const { expectedUpdatedAt, ...localPatch } = patch
 
       const {
         cascadeItemIds,
@@ -167,9 +395,9 @@ export function createWorkItemActions({
             .filter((item) => cascadeItemIds.has(item.id))
             .some(
               (item) =>
-                !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-                  item.type
-                )
+                !getAllowedWorkItemTypesForTemplate(
+                  project.templateType
+                ).includes(item.type)
             )
         ) {
           toast.error(
@@ -201,7 +429,9 @@ export function createWorkItemActions({
       }
 
       set((currentState) => {
-        const currentItem = currentState.workItems.find((item) => item.id === itemId)
+        const currentItem = currentState.workItems.find(
+          (item) => item.id === itemId
+        )
         if (!currentItem) {
           return currentState
         }
@@ -475,108 +705,21 @@ export function createWorkItemActions({
 
       let createdItemId: string | null = null
       let createdDescriptionDocId: string | null = null
-      const resolvedStartDate =
-        parsed.data.startDate ?? formatLocalCalendarDate()
-      const resolvedDueDate = parsed.data.dueDate ?? addLocalCalendarDays(7)
-      const resolvedTargetDate =
-        parsed.data.targetDate ?? addLocalCalendarDays(10)
+      const dates = resolveCreateWorkItemDates(parsed.data)
 
       set((state) => {
-        const role = effectiveRole(state, parsed.data.teamId)
-        if (role === "viewer" || role === "guest" || !role) {
-          toast.error("Your current role is read-only")
+        const optimisticCreation = buildOptimisticWorkItemCreationState(state, {
+          dates,
+          parsedInput: parsed.data,
+        })
+
+        if (!optimisticCreation) {
           return state
         }
 
-        const parent = parsed.data.parentId
-          ? (state.workItems.find((item) => item.id === parsed.data.parentId) ??
-              null)
-          : null
-        const team =
-          state.teams.find((entry) => entry.id === parsed.data.teamId) ?? null
-        const teamItems = state.workItems.filter(
-          (item) => item.teamId === parsed.data.teamId
-        )
-        const keyPrefix = toTeamKeyPrefix(team?.name, parsed.data.teamId)
-        const nextNumber = 1 + teamItems.length + 100
-        const descriptionDocId = createId("doc")
-        const resolvedPrimaryProjectId = parent
-          ? (parent.primaryProjectId ?? null)
-          : parsed.data.primaryProjectId
-
-        const descriptionDoc = {
-          id: descriptionDocId,
-          kind: "item-description" as const,
-          workspaceId:
-            state.teams.find((teamEntry) => teamEntry.id === parsed.data.teamId)
-              ?.workspaceId ?? "",
-          teamId: parsed.data.teamId,
-          title: `${parsed.data.title} description`,
-          content: "<p></p>",
-          linkedProjectIds: resolvedPrimaryProjectId
-            ? [resolvedPrimaryProjectId]
-            : [],
-          linkedWorkItemIds: [],
-          createdBy: state.currentUserId,
-          updatedBy: state.currentUserId,
-          createdAt: getNow(),
-          updatedAt: getNow(),
-        }
-
-        const workItem = {
-          id: createId("item"),
-          key: `${keyPrefix}-${nextNumber}`,
-          teamId: parsed.data.teamId,
-          type: parsed.data.type,
-          title: parsed.data.title,
-          descriptionDocId,
-          status: parsed.data.status ?? ("backlog" as const),
-          priority: parsed.data.priority,
-          assigneeId: parsed.data.assigneeId,
-          creatorId: state.currentUserId,
-          parentId: parent?.id ?? null,
-          primaryProjectId: resolvedPrimaryProjectId,
-          linkedProjectIds: [],
-          linkedDocumentIds: [],
-          labelIds: parsed.data.labelIds ?? [],
-          milestoneId: null,
-          startDate: resolvedStartDate,
-          dueDate: resolvedDueDate,
-          targetDate: resolvedTargetDate,
-          subscriberIds: [state.currentUserId],
-          createdAt: getNow(),
-          updatedAt: getNow(),
-        }
-
-        const actor = state.users.find((user) => user.id === state.currentUserId)
-        const notifications =
-          parsed.data.assigneeId
-            ? [
-                createNotification(
-                  parsed.data.assigneeId,
-                  state.currentUserId,
-                  buildWorkItemAssignmentNotificationMessage(
-                    actor?.name ?? "Someone",
-                    parsed.data.title,
-                    team?.name
-                  ),
-                  "workItem",
-                  workItem.id,
-                  "assignment"
-                ),
-                ...state.notifications,
-              ]
-            : state.notifications
-
-        createdItemId = workItem.id
-        createdDescriptionDocId = descriptionDocId
-
-        return {
-          ...state,
-          documents: [descriptionDoc, ...state.documents],
-          notifications,
-          workItems: [workItem, ...state.workItems],
-        }
+        createdItemId = optimisticCreation.createdItemId
+        createdDescriptionDocId = optimisticCreation.createdDescriptionDocId
+        return optimisticCreation.state
       })
 
       if (!createdItemId) {
@@ -587,42 +730,19 @@ export function createWorkItemActions({
         ...parsed.data,
         id: createdItemId,
         descriptionDocId: createdDescriptionDocId ?? undefined,
-        startDate: resolvedStartDate,
-        dueDate: resolvedDueDate,
-        targetDate: resolvedTargetDate,
+        startDate: dates.startDate,
+        dueDate: dates.dueDate,
+        targetDate: dates.targetDate,
       }).then((result) => {
         if (!createdItemId) {
           return result
         }
 
-        set((state) => {
-          const nextDescriptionDocId =
-            result?.descriptionDocId ?? createdDescriptionDocId ?? null
-
-          return {
-            ...state,
-            documents: state.documents.map((document) =>
-              document.id === createdDescriptionDocId ||
-              document.id === nextDescriptionDocId
-                ? {
-                    ...document,
-                    id: nextDescriptionDocId ?? document.id,
-                    updatedAt:
-                      result?.descriptionUpdatedAt ?? document.updatedAt,
-                    updatedBy: state.currentUserId,
-                  }
-                : document
-            ),
-            workItems: state.workItems.map((item) =>
-              item.id === createdItemId
-                ? {
-                    ...item,
-                    descriptionDocId: nextDescriptionDocId ?? item.descriptionDocId,
-                    updatedAt: result?.itemUpdatedAt ?? item.updatedAt,
-                  }
-                : item
-            ),
-          }
+        reconcileCreatedWorkItem({
+          createdDescriptionDocId,
+          createdItemId,
+          result,
+          set,
         })
 
         return result

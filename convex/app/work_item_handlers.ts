@@ -42,6 +42,7 @@ import {
   listWorkspaceDocuments,
 } from "./data"
 import { listDocumentPresenceViewers, normalizeTeam } from "./normalization"
+import { upsertDocumentPresenceForActor } from "./presence_helpers"
 import {
   assertWorkspaceLabelIds,
   collectWorkItemCascadeIds,
@@ -153,16 +154,271 @@ function assertWorkItemScheduleDate(
   value: string | null | undefined,
   label: "Start date" | "Due date" | "Target date"
 ) {
-  if (value !== undefined && value !== null && !isValidCalendarDateString(value)) {
+  if (
+    value !== undefined &&
+    value !== null &&
+    !isValidCalendarDateString(value)
+  ) {
     throw new Error(`${label} must be a valid calendar date`)
   }
 }
 
-export async function updateWorkItemHandler(
+type WorkItemDoc = NonNullable<Awaited<ReturnType<typeof getWorkItemDoc>>>
+type TeamDoc = NonNullable<Awaited<ReturnType<typeof getTeamDoc>>>
+
+function assertExpectedWorkItemVersion(
+  existing: WorkItemDoc,
+  patch: WorkItemPatch
+) {
+  if (
+    patch.expectedUpdatedAt !== undefined &&
+    existing.updatedAt !== patch.expectedUpdatedAt
+  ) {
+    throw new Error("Work item changed while you were editing")
+  }
+}
+
+function getNextWorkItemTitle(existing: WorkItemDoc, patch: WorkItemPatch) {
+  const nextTitle = patch.title?.trim() || existing.title
+
+  if (nextTitle.length < 2 || nextTitle.length > 96) {
+    throw new Error("Work item title must be between 2 and 96 characters")
+  }
+
+  return nextTitle
+}
+
+function getNormalizedWorkItemType(existing: WorkItemDoc, team: TeamDoc) {
+  return normalizeStoredWorkItemType(
+    existing.type as StoredWorkItemType,
+    normalizeTeam(team).settings.experience,
+    {
+      parentId: existing.parentId,
+    }
+  )
+}
+
+function assertWorkItemSchedulePatch(
+  existing: WorkItemDoc,
+  patch: WorkItemPatch
+) {
+  assertWorkItemScheduleDate(patch.startDate, "Start date")
+  assertWorkItemScheduleDate(patch.dueDate, "Due date")
+  assertWorkItemScheduleDate(patch.targetDate, "Target date")
+
+  const nextStartDate =
+    patch.startDate === undefined ? existing.startDate : patch.startDate
+  const nextTargetDate =
+    patch.targetDate === undefined ? existing.targetDate : patch.targetDate
+  const nextStartDatePrefix = getCalendarDatePrefix(nextStartDate)
+  const nextTargetDatePrefix = getCalendarDatePrefix(nextTargetDate)
+
+  if (
+    nextStartDatePrefix &&
+    nextTargetDatePrefix &&
+    nextTargetDatePrefix < nextStartDatePrefix
+  ) {
+    throw new Error("Target date must be on or after the start date")
+  }
+}
+
+async function validateWorkItemParentPatch(
+  ctx: MutationCtx,
+  existing: WorkItemDoc,
+  patch: WorkItemPatch,
+  itemType: WorkItemType
+) {
+  await validateWorkItemParent(ctx, {
+    teamId: existing.teamId,
+    itemType,
+    parentId: patch.parentId === undefined ? existing.parentId : patch.parentId,
+    currentItemId: existing.id,
+  })
+}
+
+async function listTeamWorkItemsForUpdate(ctx: MutationCtx, teamId: string) {
+  return ctx.db
+    .query("workItems")
+    .withIndex("by_team_id", (q) => q.eq("teamId", teamId))
+    .collect()
+}
+
+function resolveProjectLinkForUpdate(
+  teamItems: WorkItemDoc[],
+  existing: WorkItemDoc,
+  patch: WorkItemPatch
+) {
+  return getResolvedProjectLinkForWorkItemUpdate(
+    teamItems.map((item) => ({
+      id: item.id,
+      parentId: item.parentId,
+      primaryProjectId: item.primaryProjectId,
+    })),
+    existing,
+    existing.id,
+    patch
+  )
+}
+
+function isWorkItemAllowedForProjectTemplate(
+  item: WorkItemDoc,
+  projectTemplateType: Parameters<typeof getAllowedWorkItemTypesForTemplate>[0],
+  experience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+) {
+  return getAllowedWorkItemTypesForTemplate(projectTemplateType).includes(
+    normalizeStoredWorkItemType(item.type as StoredWorkItemType, experience, {
+      parentId: item.parentId,
+    })
+  )
+}
+
+async function assertProjectLinkPatchAllowed(
+  ctx: MutationCtx,
+  input: {
+    team: TeamDoc
+    teamItems: WorkItemDoc[]
+    existing: WorkItemDoc
+    normalizedExistingType: WorkItemType
+    normalizedExperience: ReturnType<
+      typeof normalizeTeam
+    >["settings"]["experience"]
+    cascadeItemIds: Set<string>
+    resolvedPrimaryProjectId: string | null
+    shouldCascadeProjectLink: boolean
+  }
+) {
+  if (!input.resolvedPrimaryProjectId) {
+    return
+  }
+
+  const project = await getProjectDoc(ctx, input.resolvedPrimaryProjectId)
+
+  if (!project) {
+    throw new Error("Project not found")
+  }
+
+  if (!projectBelongsToTeamScope(input.team, project)) {
+    throw new Error("Project must belong to the same team or workspace")
+  }
+
+  if (
+    !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+      input.normalizedExistingType
+    )
+  ) {
+    throw new Error(
+      "Work item type is not allowed for the selected project template"
+    )
+  }
+
+  if (
+    input.shouldCascadeProjectLink &&
+    input.teamItems.some(
+      (item) =>
+        item.id !== input.existing.id &&
+        input.cascadeItemIds.has(item.id) &&
+        !isWorkItemAllowedForProjectTemplate(
+          item,
+          project.templateType,
+          input.normalizedExperience
+        )
+    )
+  ) {
+    throw new Error(
+      "A work item type in this hierarchy is not allowed for the selected project template"
+    )
+  }
+}
+
+async function patchWorkItemDescriptionDocument(
+  ctx: MutationCtx,
+  input: {
+    existing: WorkItemDoc
+    nextTitle: string
+    nextDescription: string | undefined
+    currentUserId: string
+    now: string
+    titleChanged: boolean
+  }
+) {
+  if (!input.titleChanged && input.nextDescription === undefined) {
+    return
+  }
+
+  const descriptionDocument = await getDocumentDoc(
+    ctx,
+    input.existing.descriptionDocId
+  )
+
+  if (!descriptionDocument) {
+    return
+  }
+
+  await ctx.db.patch(descriptionDocument._id, {
+    ...(input.nextDescription !== undefined
+      ? {
+          content: input.nextDescription,
+          notifiedMentionCounts: getClampedNotifiedMentionCounts(
+            input.nextDescription,
+            descriptionDocument.notifiedMentionCounts
+          ),
+        }
+      : {}),
+    title: `${input.nextTitle} description`,
+    updatedAt: input.now,
+    updatedBy: input.currentUserId,
+  })
+}
+
+async function cascadeProjectLinkToWorkItemHierarchy(
+  ctx: MutationCtx,
+  input: {
+    teamItems: WorkItemDoc[]
+    existing: WorkItemDoc
+    cascadeItemIds: Set<string>
+    resolvedPrimaryProjectId: string | null
+    currentUserId: string
+    now: string
+  }
+) {
+  for (const item of input.teamItems) {
+    if (item.id === input.existing.id || !input.cascadeItemIds.has(item.id)) {
+      continue
+    }
+
+    await ctx.db.patch(item._id, {
+      primaryProjectId: input.resolvedPrimaryProjectId,
+      updatedAt: input.now,
+    })
+  }
+
+  const cascadeDescriptionDocIds = new Set(
+    input.teamItems
+      .filter((item) => input.cascadeItemIds.has(item.id))
+      .map((item) => item.descriptionDocId)
+  )
+
+  for (const documentId of cascadeDescriptionDocIds) {
+    const document = await getDocumentDoc(ctx, documentId)
+
+    if (!document) {
+      continue
+    }
+
+    await ctx.db.patch(document._id, {
+      linkedProjectIds: input.resolvedPrimaryProjectId
+        ? [input.resolvedPrimaryProjectId]
+        : [],
+      updatedBy: input.currentUserId,
+      updatedAt: input.now,
+    })
+  }
+}
+
+async function loadWorkItemUpdateTarget(
   ctx: MutationCtx,
   args: UpdateWorkItemArgs
 ) {
-  assertServerToken(args.serverToken)
   const existing = await getWorkItemDoc(ctx, args.itemId)
 
   if (!existing) {
@@ -176,261 +432,266 @@ export async function updateWorkItemHandler(
     throw new Error("Team not found")
   }
 
-  const normalizedExperience = normalizeTeam(team).settings.experience
-  const normalizedExistingType = normalizeStoredWorkItemType(
-    existing.type as StoredWorkItemType,
-    normalizedExperience,
-    {
-      parentId: existing.parentId,
-    }
-  )
-
-  if (
-    args.patch.expectedUpdatedAt !== undefined &&
-    existing.updatedAt !== args.patch.expectedUpdatedAt
-  ) {
-    throw new Error("Work item changed while you were editing")
+  return {
+    existing,
+    team,
+    normalizedExperience: normalizeTeam(team).settings.experience,
+    normalizedExistingType: getNormalizedWorkItemType(existing, team),
+    nextTitle: getNextWorkItemTitle(existing, args.patch),
   }
+}
 
-  const nextTitle = args.patch.title?.trim() || existing.title
-
-  if (nextTitle.length < 2 || nextTitle.length > 96) {
-    throw new Error("Work item title must be between 2 and 96 characters")
+async function resolveWorkItemProjectPatch(
+  ctx: MutationCtx,
+  input: {
+    existing: WorkItemDoc
+    patch: WorkItemPatch
   }
-
-  assertWorkItemScheduleDate(args.patch.startDate, "Start date")
-  assertWorkItemScheduleDate(args.patch.dueDate, "Due date")
-  assertWorkItemScheduleDate(args.patch.targetDate, "Target date")
-
-  const nextStartDate =
-    args.patch.startDate === undefined ? existing.startDate : args.patch.startDate
-  const nextTargetDate =
-    args.patch.targetDate === undefined
-      ? existing.targetDate
-      : args.patch.targetDate
-  const nextStartDatePrefix = getCalendarDatePrefix(nextStartDate)
-  const nextTargetDatePrefix = getCalendarDatePrefix(nextTargetDate)
-
-  if (
-    nextStartDatePrefix &&
-    nextTargetDatePrefix &&
-    nextTargetDatePrefix < nextStartDatePrefix
-  ) {
-    throw new Error("Target date must be on or after the start date")
-  }
-
-  const parent = await validateWorkItemParent(ctx, {
-    teamId: existing.teamId,
-    itemType: normalizedExistingType,
-    parentId:
-      args.patch.parentId === undefined
-        ? existing.parentId
-        : args.patch.parentId,
-    currentItemId: existing.id,
-  })
-  const teamItems = await ctx.db
-    .query("workItems")
-    .withIndex("by_team_id", (q) => q.eq("teamId", existing.teamId))
-    .collect()
+) {
+  const teamItems = await listTeamWorkItemsForUpdate(ctx, input.existing.teamId)
   const { cascadeItemIds, resolvedPrimaryProjectId, shouldCascadeProjectLink } =
-    getResolvedProjectLinkForWorkItemUpdate(
-      teamItems.map((item) => ({
-        id: item.id,
-        parentId: item.parentId,
-        primaryProjectId: item.primaryProjectId,
-      })),
-      existing,
-      parent,
-      existing.id,
-      args.patch
-    )
+    resolveProjectLinkForUpdate(teamItems, input.existing, input.patch)
 
+  return {
+    teamItems,
+    cascadeItemIds,
+    resolvedPrimaryProjectId,
+    shouldCascadeProjectLink,
+  }
+}
+
+async function assertWorkItemAssigneePatchAllowed(
+  ctx: MutationCtx,
+  existing: WorkItemDoc,
+  patch: WorkItemPatch
+) {
   if (
-    args.patch.assigneeId !== undefined &&
-    args.patch.assigneeId &&
-    !(await isTeamMember(ctx, existing.teamId, args.patch.assigneeId))
+    patch.assigneeId !== undefined &&
+    patch.assigneeId &&
+    !(await isTeamMember(ctx, existing.teamId, patch.assigneeId))
   ) {
     throw new Error("Assignee must belong to the selected team")
   }
+}
 
-  if (args.patch.labelIds !== undefined) {
-    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.patch.labelIds)
+async function assertWorkItemLabelPatchAllowed(
+  ctx: MutationCtx,
+  team: TeamDoc,
+  patch: WorkItemPatch
+) {
+  if (patch.labelIds !== undefined) {
+    await assertWorkspaceLabelIds(ctx, team.workspaceId, patch.labelIds)
   }
+}
 
-  if (resolvedPrimaryProjectId) {
-    const project = await getProjectDoc(ctx, resolvedPrimaryProjectId)
-
-    if (!project) {
-      throw new Error("Project not found")
-    }
-
-    if (!projectBelongsToTeamScope(team, project)) {
-      throw new Error("Project must belong to the same team or workspace")
-    }
-
-    if (
-      !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-        normalizedExistingType
-      )
-    ) {
-      throw new Error(
-        "Work item type is not allowed for the selected project template"
-      )
-    }
-
-    if (shouldCascadeProjectLink) {
-      if (
-        teamItems.some(
-          (item) =>
-            item.id !== existing.id &&
-            cascadeItemIds.has(item.id) &&
-            !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-              normalizeStoredWorkItemType(
-                item.type as StoredWorkItemType,
-                normalizedExperience,
-                {
-                  parentId: item.parentId,
-                }
-              )
-            )
-        )
-      ) {
-        throw new Error(
-          "A work item type in this hierarchy is not allowed for the selected project template"
-        )
-      }
-    }
+function buildPersistedWorkItemPatch(
+  patch: WorkItemPatch,
+  input: {
+    nextTitle: string
+    resolvedPrimaryProjectId: string | null
+    now: string
   }
+) {
+  const persistedPatch = { ...patch }
 
-  const actor = await getUserDoc(ctx, args.currentUserId)
-  const assignmentEmails: AssignmentEmail[] = []
-  const now = getNow()
-  const { description: nextDescription, ...persistedPatch } = args.patch
-
+  delete persistedPatch.description
   delete persistedPatch.expectedUpdatedAt
 
-  await ctx.db.patch(existing._id, {
+  return {
     ...persistedPatch,
-    title: nextTitle,
-    primaryProjectId: resolvedPrimaryProjectId,
-    updatedAt: now,
-  })
+    title: input.nextTitle,
+    primaryProjectId: input.resolvedPrimaryProjectId,
+    updatedAt: input.now,
+  }
+}
 
-  if (args.patch.title !== undefined || nextDescription !== undefined) {
-    const descriptionDocument = await getDocumentDoc(ctx, existing.descriptionDocId)
-
-    if (descriptionDocument) {
-      await ctx.db.patch(descriptionDocument._id, {
-        ...(nextDescription !== undefined
-          ? {
-              content: nextDescription,
-              notifiedMentionCounts: getClampedNotifiedMentionCounts(
-                nextDescription,
-                descriptionDocument.notifiedMentionCounts
-              ),
-            }
-          : {}),
-        title: `${nextTitle} description`,
-        updatedAt: now,
-        updatedBy: args.currentUserId,
-      })
-    }
+async function createAssignmentNotificationForWorkItemUpdate(
+  ctx: MutationCtx,
+  input: {
+    args: UpdateWorkItemArgs
+    existing: WorkItemDoc
+    actorName: string
+    teamName: string
+    nextTitle: string
+  }
+): Promise<AssignmentEmail | null> {
+  if (
+    input.args.patch.assigneeId === undefined ||
+    !input.args.patch.assigneeId ||
+    input.args.patch.assigneeId === input.existing.assigneeId
+  ) {
+    return null
   }
 
-  if (shouldCascadeProjectLink) {
-    for (const item of teamItems) {
-      if (item.id === existing.id || !cascadeItemIds.has(item.id)) {
-        continue
-      }
+  const assignee = await getUserDoc(ctx, input.args.patch.assigneeId)
+  const notification = createNotification(
+    input.args.patch.assigneeId,
+    input.args.currentUserId,
+    buildWorkItemAssignmentNotificationMessage(
+      input.actorName,
+      input.nextTitle,
+      input.teamName
+    ),
+    "workItem",
+    input.existing.id,
+    "assignment"
+  )
 
-      await ctx.db.patch(item._id, {
-        primaryProjectId: resolvedPrimaryProjectId,
-        updatedAt: now,
-      })
-    }
+  await ctx.db.insert("notifications", notification)
 
-    const cascadeDescriptionDocIds = new Set(
-      teamItems
-        .filter((item) => cascadeItemIds.has(item.id))
-        .map((item) => item.descriptionDocId)
-    )
-
-    for (const documentId of cascadeDescriptionDocIds) {
-      const document = await getDocumentDoc(ctx, documentId)
-
-      if (!document) {
-        continue
-      }
-
-      await ctx.db.patch(document._id, {
-        linkedProjectIds: resolvedPrimaryProjectId
-          ? [resolvedPrimaryProjectId]
-          : [],
-        updatedBy: args.currentUserId,
-        updatedAt: now,
-      })
-    }
+  if (!assignee?.preferences.emailAssignments) {
+    return null
   }
+
+  return {
+    notificationId: notification.id,
+    email: assignee.email,
+    name: assignee.name,
+    itemTitle: input.nextTitle,
+    itemId: input.existing.id,
+    actorName: input.actorName,
+    teamName: input.teamName,
+  }
+}
+
+async function createStatusChangeNotificationForWorkItemUpdate(
+  ctx: MutationCtx,
+  input: {
+    args: UpdateWorkItemArgs
+    existing: WorkItemDoc
+    actorName: string
+    teamName: string
+    nextTitle: string
+  }
+) {
+  const resolvedAssigneeId =
+    input.args.patch.assigneeId === undefined
+      ? input.existing.assigneeId
+      : input.args.patch.assigneeId
 
   if (
-    args.patch.assigneeId !== undefined &&
-    args.patch.assigneeId &&
-    args.patch.assigneeId !== existing.assigneeId
+    !input.args.patch.status ||
+    input.args.patch.status === input.existing.status ||
+    !resolvedAssigneeId
   ) {
-    const assignee = await getUserDoc(ctx, args.patch.assigneeId)
-    const notification = createNotification(
-      args.patch.assigneeId,
-      args.currentUserId,
-      buildWorkItemAssignmentNotificationMessage(
-        actor?.name ?? "Someone",
-        nextTitle,
-        team.name
+    return
+  }
+
+  await ctx.db.insert(
+    "notifications",
+    createNotification(
+      resolvedAssigneeId,
+      input.args.currentUserId,
+      buildWorkItemStatusChangeNotificationMessage(
+        input.actorName,
+        input.nextTitle,
+        statusMeta[input.args.patch.status].label,
+        input.teamName
       ),
       "workItem",
-      existing.id,
-      "assignment"
+      input.existing.id,
+      "status-change"
     )
+  )
+}
 
-    await ctx.db.insert("notifications", notification)
+export async function updateWorkItemHandler(
+  ctx: MutationCtx,
+  args: UpdateWorkItemArgs
+) {
+  assertServerToken(args.serverToken)
+  const {
+    existing,
+    team,
+    normalizedExperience,
+    normalizedExistingType,
+    nextTitle,
+  } = await loadWorkItemUpdateTarget(ctx, args)
 
-    if (assignee?.preferences.emailAssignments) {
-      assignmentEmails.push({
-        notificationId: notification.id,
-        email: assignee.email,
-        name: assignee.name,
-        itemTitle: nextTitle,
-        itemId: existing.id,
-        actorName: actor?.name ?? "Someone",
-        teamName: team.name,
-      })
+  assertExpectedWorkItemVersion(existing, args.patch)
+  assertWorkItemSchedulePatch(existing, args.patch)
+  await validateWorkItemParentPatch(
+    ctx,
+    existing,
+    args.patch,
+    normalizedExistingType
+  )
+
+  const {
+    teamItems,
+    cascadeItemIds,
+    resolvedPrimaryProjectId,
+    shouldCascadeProjectLink,
+  } = await resolveWorkItemProjectPatch(ctx, {
+    existing,
+    patch: args.patch,
+  })
+
+  await assertWorkItemAssigneePatchAllowed(ctx, existing, args.patch)
+  await assertWorkItemLabelPatchAllowed(ctx, team, args.patch)
+  await assertProjectLinkPatchAllowed(ctx, {
+    team,
+    teamItems,
+    existing,
+    normalizedExistingType,
+    normalizedExperience,
+    cascadeItemIds,
+    resolvedPrimaryProjectId,
+    shouldCascadeProjectLink,
+  })
+
+  const actor = await getUserDoc(ctx, args.currentUserId)
+  const actorName = actor?.name ?? "Someone"
+  const now = getNow()
+  const nextDescription = args.patch.description
+
+  await ctx.db.patch(existing._id, {
+    ...buildPersistedWorkItemPatch(args.patch, {
+      nextTitle,
+      resolvedPrimaryProjectId,
+      now,
+    }),
+  })
+
+  await patchWorkItemDescriptionDocument(ctx, {
+    existing,
+    nextTitle,
+    nextDescription,
+    currentUserId: args.currentUserId,
+    now,
+    titleChanged: args.patch.title !== undefined,
+  })
+
+  if (shouldCascadeProjectLink) {
+    await cascadeProjectLinkToWorkItemHierarchy(ctx, {
+      teamItems,
+      existing,
+      cascadeItemIds,
+      resolvedPrimaryProjectId,
+      currentUserId: args.currentUserId,
+      now,
+    })
+  }
+
+  const assignmentEmail = await createAssignmentNotificationForWorkItemUpdate(
+    ctx,
+    {
+      args,
+      existing,
+      actorName,
+      teamName: team.name,
+      nextTitle,
     }
-  }
+  )
+  const assignmentEmails = assignmentEmail ? [assignmentEmail] : []
 
-  const resolvedAssigneeId =
-    args.patch.assigneeId === undefined ? existing.assigneeId : args.patch.assigneeId
-
-  if (
-    args.patch.status &&
-    args.patch.status !== existing.status &&
-    resolvedAssigneeId
-  ) {
-    await ctx.db.insert(
-      "notifications",
-      createNotification(
-        resolvedAssigneeId,
-        args.currentUserId,
-        buildWorkItemStatusChangeNotificationMessage(
-          actor?.name ?? "Someone",
-          nextTitle,
-          statusMeta[args.patch.status].label,
-          team.name
-        ),
-        "workItem",
-        existing.id,
-        "status-change"
-      )
-    )
-  }
+  await createStatusChangeNotificationForWorkItemUpdate(ctx, {
+    args,
+    existing,
+    actorName,
+    teamName: team.name,
+    nextTitle,
+  })
 
   await queueEmailJobs(
     ctx,
@@ -445,11 +706,10 @@ export async function updateWorkItemHandler(
   }
 }
 
-export async function persistCollaborationWorkItemHandler(
+async function requireCollaborationWorkItem(
   ctx: MutationCtx,
   args: PersistCollaborationWorkItemArgs
 ) {
-  assertServerToken(args.serverToken)
   const existing = await getWorkItemDoc(ctx, args.itemId)
 
   if (!existing) {
@@ -465,19 +725,71 @@ export async function persistCollaborationWorkItemHandler(
     throw new Error("Work item changed while you were editing")
   }
 
+  return existing
+}
+
+function getCollaborationWorkItemTitle(
+  existing: WorkItemDoc,
+  args: PersistCollaborationWorkItemArgs
+) {
+  return args.patch.title !== undefined
+    ? args.patch.title.trim()
+    : existing.title
+}
+
+function assertWorkItemTitleLength(title: string) {
+  if (title.length < 2 || title.length > 96) {
+    throw new Error("Work item title must be between 2 and 96 characters")
+  }
+}
+
+async function patchCollaborationDescriptionDocument(
+  ctx: MutationCtx,
+  args: PersistCollaborationWorkItemArgs,
+  existing: WorkItemDoc,
+  nextTitle: string,
+  updatedAt: string
+) {
+  const descriptionDocument = await getDocumentDoc(
+    ctx,
+    existing.descriptionDocId
+  )
+
+  if (!descriptionDocument) {
+    return
+  }
+
+  await ctx.db.patch(descriptionDocument._id, {
+    ...(args.patch.description !== undefined
+      ? {
+          content: args.patch.description,
+          notifiedMentionCounts: getClampedNotifiedMentionCounts(
+            args.patch.description,
+            descriptionDocument.notifiedMentionCounts
+          ),
+        }
+      : {}),
+    title: `${nextTitle} description`,
+    updatedAt,
+    updatedBy: args.currentUserId,
+  })
+}
+
+export async function persistCollaborationWorkItemHandler(
+  ctx: MutationCtx,
+  args: PersistCollaborationWorkItemArgs
+) {
+  assertServerToken(args.serverToken)
+  const existing = await requireCollaborationWorkItem(ctx, args)
+
   if (args.patch.title === undefined && args.patch.description === undefined) {
     return {
       updatedAt: existing.updatedAt,
     }
   }
 
-  const nextTitle =
-    args.patch.title !== undefined ? args.patch.title.trim() : existing.title
-
-  if (nextTitle.length < 2 || nextTitle.length > 96) {
-    throw new Error("Work item title must be between 2 and 96 characters")
-  }
-
+  const nextTitle = getCollaborationWorkItemTitle(existing, args)
+  assertWorkItemTitleLength(nextTitle)
   const updatedAt = getNow()
 
   await ctx.db.patch(existing._id, {
@@ -486,24 +798,13 @@ export async function persistCollaborationWorkItemHandler(
   })
 
   if (args.patch.title !== undefined || args.patch.description !== undefined) {
-    const descriptionDocument = await getDocumentDoc(ctx, existing.descriptionDocId)
-
-    if (descriptionDocument) {
-      await ctx.db.patch(descriptionDocument._id, {
-        ...(args.patch.description !== undefined
-          ? {
-              content: args.patch.description,
-              notifiedMentionCounts: getClampedNotifiedMentionCounts(
-                args.patch.description,
-                descriptionDocument.notifiedMentionCounts
-              ),
-            }
-          : {}),
-        title: `${nextTitle} description`,
-        updatedAt,
-        updatedBy: args.currentUserId,
-      })
-    }
+    await patchCollaborationDescriptionDocument(
+      ctx,
+      args,
+      existing,
+      nextTitle,
+      updatedAt
+    )
   }
 
   return {
@@ -525,70 +826,13 @@ export async function heartbeatWorkItemPresenceHandler(
 
   await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
 
-  const existingPresenceEntries = await ctx.db
-    .query("documentPresence")
-    .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-    .collect()
   const currentTime = getNow()
-  const existingPresence = [...existingPresenceEntries]
-    .filter(
-      (entry) =>
-        entry.workosUserId === args.workosUserId ||
-        (!entry.workosUserId && entry.userId === args.currentUserId)
-    )
-    .sort(
-      (left, right) =>
-        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
-    )[0]
-
-  const conflictingPresenceEntries = existingPresenceEntries.filter((entry) =>
-    entry.workosUserId
-      ? entry.workosUserId !== args.workosUserId
-      : entry.userId !== args.currentUserId
+  await upsertDocumentPresenceForActor(
+    ctx,
+    item.descriptionDocId,
+    args,
+    currentTime
   )
-
-  if (conflictingPresenceEntries.length > 0) {
-    throw new Error("Document presence session is already in use")
-  }
-
-  if (existingPresence) {
-    await ctx.db.patch(existingPresence._id, {
-      activeBlockId: args.activeBlockId ?? null,
-      avatarUrl: args.avatarUrl,
-      avatarImageUrl: args.avatarImageUrl ?? null,
-      documentId: item.descriptionDocId,
-      email: args.email,
-      lastSeenAt: currentTime,
-      name: args.name,
-      userId: args.currentUserId,
-      workosUserId: args.workosUserId,
-    })
-
-    for (const duplicateEntry of existingPresenceEntries) {
-      if (
-        duplicateEntry._id !== existingPresence._id &&
-        (duplicateEntry.workosUserId
-          ? duplicateEntry.workosUserId === args.workosUserId
-          : duplicateEntry.userId === args.currentUserId)
-      ) {
-        await ctx.db.delete(duplicateEntry._id)
-      }
-    }
-  } else {
-    await ctx.db.insert("documentPresence", {
-      activeBlockId: args.activeBlockId ?? null,
-      avatarUrl: args.avatarUrl,
-      avatarImageUrl: args.avatarImageUrl ?? null,
-      documentId: item.descriptionDocId,
-      userId: args.currentUserId,
-      email: args.email,
-      name: args.name,
-      sessionId: args.sessionId,
-      createdAt: currentTime,
-      lastSeenAt: currentTime,
-      workosUserId: args.workosUserId,
-    })
-  }
 
   return listDocumentPresenceViewers(
     ctx,
@@ -642,11 +886,10 @@ export async function clearWorkItemPresenceHandler(
   return { ok: true }
 }
 
-export async function deleteWorkItemHandler(
+async function requireWorkItemDeleteTarget(
   ctx: MutationCtx,
   args: DeleteWorkItemArgs
 ) {
-  assertServerToken(args.serverToken)
   const item = await getWorkItemDoc(ctx, args.itemId)
 
   if (!item) {
@@ -660,6 +903,13 @@ export async function deleteWorkItemHandler(
     throw new Error("Team not found")
   }
 
+  return {
+    item,
+    team,
+  }
+}
+
+async function getWorkItemDeleteCascade(ctx: MutationCtx, item: WorkItemDoc) {
   const teamItems = await ctx.db
     .query("workItems")
     .withIndex("by_team_id", (q) => q.eq("teamId", item.teamId))
@@ -671,6 +921,20 @@ export async function deleteWorkItemHandler(
   const deletedDescriptionDocIds = new Set(
     deletedWorkItems.map((entry) => entry.descriptionDocId)
   )
+
+  return {
+    deletedDescriptionDocIds,
+    deletedItemIds,
+    deletedWorkItems,
+    teamItems,
+  }
+}
+
+async function listWorkItemDeleteRecords(
+  ctx: MutationCtx,
+  team: TeamDoc,
+  cascade: Awaited<ReturnType<typeof getWorkItemDeleteCascade>>
+) {
   const [
     workItemComments,
     documentComments,
@@ -682,26 +946,26 @@ export async function deleteWorkItemHandler(
   ] = await Promise.all([
     listCommentsByTargets(ctx, {
       targetType: "workItem",
-      targetIds: deletedItemIds,
+      targetIds: cascade.deletedItemIds,
     }),
     listCommentsByTargets(ctx, {
       targetType: "document",
-      targetIds: deletedDescriptionDocIds,
+      targetIds: cascade.deletedDescriptionDocIds,
     }),
     listAttachmentsByTargets(ctx, {
       targetType: "workItem",
-      targetIds: deletedItemIds,
+      targetIds: cascade.deletedItemIds,
     }),
     listAttachmentsByTargets(ctx, {
       targetType: "document",
-      targetIds: deletedDescriptionDocIds,
+      targetIds: cascade.deletedDescriptionDocIds,
     }),
     listNotificationsByEntities(ctx, [
-      ...[...deletedItemIds].map((entityId) => ({
+      ...[...cascade.deletedItemIds].map((entityId) => ({
         entityType: "workItem" as const,
         entityId,
       })),
-      ...[...deletedDescriptionDocIds].map((entityId) => ({
+      ...[...cascade.deletedDescriptionDocIds].map((entityId) => ({
         entityType: "document" as const,
         entityId,
       })),
@@ -709,37 +973,51 @@ export async function deleteWorkItemHandler(
     listWorkspaceDocuments(ctx, team.workspaceId),
     listTeamDocuments(ctx, team.id),
   ])
-  const documents = [
-    ...new Map(
-      [...workspaceDocuments, ...teamDocuments].map((document) => [
-        document.id,
-        document,
-      ])
-    ).values(),
-  ]
-  const comments = [...workItemComments, ...documentComments]
-  const attachments = [...workItemAttachments, ...documentAttachments]
 
-  for (const attachment of attachments) {
+  return {
+    attachments: [...workItemAttachments, ...documentAttachments],
+    comments: [...workItemComments, ...documentComments],
+    documents: [
+      ...new Map(
+        [...workspaceDocuments, ...teamDocuments].map((document) => [
+          document.id,
+          document,
+        ])
+      ).values(),
+    ],
+    notifications,
+  }
+}
+
+async function deleteWorkItemRelatedRecords(
+  ctx: MutationCtx,
+  records: Awaited<ReturnType<typeof listWorkItemDeleteRecords>>
+) {
+  for (const attachment of records.attachments) {
     await ctx.storage.delete(attachment.storageId)
     await ctx.db.delete(attachment._id)
   }
 
-  for (const comment of comments) {
+  for (const comment of records.comments) {
     await ctx.db.delete(comment._id)
   }
 
-  for (const notification of notifications) {
+  for (const notification of records.notifications) {
     await ctx.db.delete(notification._id)
   }
+}
 
-  for (const workItem of teamItems) {
-    if (deletedItemIds.has(workItem.id)) {
+async function unlinkDeletedDescriptionDocumentsFromWorkItems(
+  ctx: MutationCtx,
+  cascade: Awaited<ReturnType<typeof getWorkItemDeleteCascade>>
+) {
+  for (const workItem of cascade.teamItems) {
+    if (cascade.deletedItemIds.has(workItem.id)) {
       continue
     }
 
     const nextLinkedDocumentIds = workItem.linkedDocumentIds.filter(
-      (documentId) => !deletedDescriptionDocIds.has(documentId)
+      (documentId) => !cascade.deletedDescriptionDocIds.has(documentId)
     )
 
     if (nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length) {
@@ -751,15 +1029,22 @@ export async function deleteWorkItemHandler(
       updatedAt: getNow(),
     })
   }
+}
 
-  for (const document of documents) {
-    if (deletedDescriptionDocIds.has(document.id)) {
+async function deleteOrUnlinkWorkItemDocuments(
+  ctx: MutationCtx,
+  records: Awaited<ReturnType<typeof listWorkItemDeleteRecords>>,
+  cascade: Awaited<ReturnType<typeof getWorkItemDeleteCascade>>,
+  currentUserId: string
+) {
+  for (const document of records.documents) {
+    if (cascade.deletedDescriptionDocIds.has(document.id)) {
       await ctx.db.delete(document._id)
       continue
     }
 
     const nextLinkedWorkItemIds = document.linkedWorkItemIds.filter(
-      (linkedItemId) => !deletedItemIds.has(linkedItemId)
+      (linkedItemId) => !cascade.deletedItemIds.has(linkedItemId)
     )
 
     if (nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length) {
@@ -769,10 +1054,15 @@ export async function deleteWorkItemHandler(
     await ctx.db.patch(document._id, {
       linkedWorkItemIds: nextLinkedWorkItemIds,
       updatedAt: getNow(),
-      updatedBy: args.currentUserId,
+      updatedBy: currentUserId,
     })
   }
+}
 
+async function deleteCascadedWorkItems(
+  ctx: MutationCtx,
+  deletedWorkItems: WorkItemDoc[]
+) {
   for (const workItem of deletedWorkItems) {
     const workItemDoc = await getWorkItemDoc(ctx, workItem.id)
 
@@ -780,10 +1070,30 @@ export async function deleteWorkItemHandler(
       await ctx.db.delete(workItemDoc._id)
     }
   }
+}
+
+export async function deleteWorkItemHandler(
+  ctx: MutationCtx,
+  args: DeleteWorkItemArgs
+) {
+  assertServerToken(args.serverToken)
+  const { item, team } = await requireWorkItemDeleteTarget(ctx, args)
+  const cascade = await getWorkItemDeleteCascade(ctx, item)
+  const records = await listWorkItemDeleteRecords(ctx, team, cascade)
+
+  await deleteWorkItemRelatedRecords(ctx, records)
+  await unlinkDeletedDescriptionDocumentsFromWorkItems(ctx, cascade)
+  await deleteOrUnlinkWorkItemDocuments(
+    ctx,
+    records,
+    cascade,
+    args.currentUserId
+  )
+  await deleteCascadedWorkItems(ctx, cascade.deletedWorkItems)
 
   return {
-    deletedItemIds: [...deletedItemIds],
-    deletedDescriptionDocIds: [...deletedDescriptionDocIds],
+    deletedItemIds: [...cascade.deletedItemIds],
+    deletedDescriptionDocIds: [...cascade.deletedDescriptionDocIds],
   }
 }
 
@@ -821,20 +1131,7 @@ export async function shiftTimelineItemHandler(
   })
 }
 
-export async function createWorkItemHandler(
-  ctx: MutationCtx,
-  args: CreateWorkItemArgs
-) {
-  assertServerToken(args.serverToken)
-  await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-  const team = await getTeamDoc(ctx, args.teamId)
-
-  if (!team) {
-    throw new Error("Team not found")
-  }
-
-  const normalizedTeam = normalizeTeam(team)
-
+function assertCreateWorkItemSchedule(args: CreateWorkItemArgs) {
   assertWorkItemScheduleDate(args.startDate, "Start date")
   assertWorkItemScheduleDate(args.dueDate, "Due date")
   assertWorkItemScheduleDate(args.targetDate, "Target date")
@@ -849,55 +1146,92 @@ export async function createWorkItemHandler(
   ) {
     throw new Error("Target date must be on or after the start date")
   }
+}
 
-  const parent = await validateWorkItemParent(ctx, {
-    teamId: args.teamId,
-    itemType: args.type,
-    parentId: args.parentId ?? null,
-  })
-  const resolvedPrimaryProjectId = parent
-    ? (parent.primaryProjectId ?? null)
-    : args.primaryProjectId
-
-  if (!normalizedTeam.settings.features.issues) {
-    throw new Error(
-      getWorkSurfaceCopy(normalizedTeam.settings.experience).disabledLabel
-    )
+function assertTeamSupportsWorkItems(team: ReturnType<typeof normalizeTeam>) {
+  if (!team.settings.features.issues) {
+    throw new Error(getWorkSurfaceCopy(team.settings.experience).disabledLabel)
   }
+}
 
+async function assertCreateWorkItemAssignee(
+  ctx: MutationCtx,
+  args: CreateWorkItemArgs
+) {
   if (
     args.assigneeId &&
     !(await isTeamMember(ctx, args.teamId, args.assigneeId))
   ) {
     throw new Error("Assignee must belong to the selected team")
   }
+}
 
+async function assertCreateWorkItemLabels(
+  ctx: MutationCtx,
+  team: TeamDoc,
+  args: CreateWorkItemArgs
+) {
   if (args.labelIds !== undefined) {
     await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
   }
+}
 
-  if (resolvedPrimaryProjectId) {
-    const project = await getProjectDoc(ctx, resolvedPrimaryProjectId)
+async function resolveCreateWorkItemParent(
+  ctx: MutationCtx,
+  args: CreateWorkItemArgs
+) {
+  return validateWorkItemParent(ctx, {
+    teamId: args.teamId,
+    itemType: args.type,
+    parentId: args.parentId ?? null,
+  })
+}
 
-    if (!project) {
-      throw new Error("Project not found")
-    }
+function getCreateWorkItemProjectId({
+  args,
+  parent,
+}: {
+  args: CreateWorkItemArgs
+  parent: Awaited<ReturnType<typeof validateWorkItemParent>>
+}) {
+  return parent ? (parent.primaryProjectId ?? null) : args.primaryProjectId
+}
 
-    if (!projectBelongsToTeamScope(team, project)) {
-      throw new Error("Project must belong to the same team or workspace")
-    }
-
-    if (
-      !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-        args.type
-      )
-    ) {
-      throw new Error(
-        "Work item type is not allowed for the selected project template"
-      )
-    }
+async function assertCreateWorkItemProject(
+  ctx: MutationCtx,
+  team: TeamDoc,
+  args: CreateWorkItemArgs,
+  resolvedPrimaryProjectId: string | null
+) {
+  if (!resolvedPrimaryProjectId) {
+    return
   }
 
+  const project = await getProjectDoc(ctx, resolvedPrimaryProjectId)
+
+  if (!project) {
+    throw new Error("Project not found")
+  }
+
+  if (!projectBelongsToTeamScope(team, project)) {
+    throw new Error("Project must belong to the same team or workspace")
+  }
+
+  if (
+    !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+      args.type
+    )
+  ) {
+    throw new Error(
+      "Work item type is not allowed for the selected project template"
+    )
+  }
+}
+
+async function assertCreateWorkItemIdsAvailable(
+  ctx: MutationCtx,
+  args: CreateWorkItemArgs
+) {
   if (args.descriptionDocId) {
     const existingDescriptionDocument = await getDocumentDoc(
       ctx,
@@ -916,17 +1250,39 @@ export async function createWorkItemHandler(
       throw new Error("Work item id already exists")
     }
   }
+}
 
+async function getCreateWorkItemNumbering(
+  ctx: MutationCtx,
+  team: TeamDoc,
+  args: CreateWorkItemArgs
+) {
   const teamItems = await ctx.db
     .query("workItems")
     .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))
     .collect()
 
-  const prefix = toTeamKeyPrefix(team.name, args.teamId)
-  const nextNumber = 1 + teamItems.length + 100
-  const descriptionDocId = args.descriptionDocId ?? createId("doc")
-  const now = getNow()
+  return {
+    prefix: toTeamKeyPrefix(team.name, args.teamId),
+    nextNumber: 1 + teamItems.length + 100,
+  }
+}
 
+async function insertCreatedWorkItemDescription({
+  ctx,
+  args,
+  team,
+  descriptionDocId,
+  resolvedPrimaryProjectId,
+  now,
+}: {
+  ctx: MutationCtx
+  args: CreateWorkItemArgs
+  team: TeamDoc
+  descriptionDocId: string
+  resolvedPrimaryProjectId: string | null
+  now: string
+}) {
   await ctx.db.insert("documents", {
     id: descriptionDocId,
     kind: "item-description",
@@ -943,8 +1299,26 @@ export async function createWorkItemHandler(
     createdAt: now,
     updatedAt: now,
   })
+}
 
-  const workItem = {
+function buildCreatedWorkItem({
+  args,
+  parent,
+  resolvedPrimaryProjectId,
+  descriptionDocId,
+  prefix,
+  nextNumber,
+  now,
+}: {
+  args: CreateWorkItemArgs
+  parent: Awaited<ReturnType<typeof validateWorkItemParent>>
+  resolvedPrimaryProjectId: string | null
+  descriptionDocId: string
+  prefix: string
+  nextNumber: number
+  now: string
+}) {
+  return {
     id: args.id ?? createId("item"),
     key: `${prefix}-${nextNumber}`,
     teamId: args.teamId,
@@ -968,41 +1342,113 @@ export async function createWorkItemHandler(
     createdAt: now,
     updatedAt: now,
   }
+}
+
+async function notifyCreatedWorkItemAssignee({
+  ctx,
+  args,
+  team,
+  workItemId,
+}: {
+  ctx: MutationCtx
+  args: CreateWorkItemArgs
+  team: TeamDoc
+  workItemId: string
+}) {
+  const assignmentEmails: AssignmentEmail[] = []
+
+  if (!args.assigneeId) {
+    return assignmentEmails
+  }
+
+  const actor = await getUserDoc(ctx, args.currentUserId)
+  const assignee = await getUserDoc(ctx, args.assigneeId)
+  const notification = createNotification(
+    args.assigneeId,
+    args.currentUserId,
+    buildWorkItemAssignmentNotificationMessage(
+      actor?.name ?? "Someone",
+      args.title,
+      team.name
+    ),
+    "workItem",
+    workItemId,
+    "assignment"
+  )
+
+  await ctx.db.insert("notifications", notification)
+
+  if (assignee?.preferences.emailAssignments) {
+    assignmentEmails.push({
+      notificationId: notification.id,
+      email: assignee.email,
+      name: assignee.name,
+      itemTitle: args.title,
+      itemId: workItemId,
+      actorName: actor?.name ?? "Someone",
+      teamName: team.name,
+    })
+  }
+
+  return assignmentEmails
+}
+
+export async function createWorkItemHandler(
+  ctx: MutationCtx,
+  args: CreateWorkItemArgs
+) {
+  assertServerToken(args.serverToken)
+  await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+  const team = await getTeamDoc(ctx, args.teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  const normalizedTeam = normalizeTeam(team)
+
+  assertCreateWorkItemSchedule(args)
+  assertTeamSupportsWorkItems(normalizedTeam)
+  await assertCreateWorkItemAssignee(ctx, args)
+  await assertCreateWorkItemLabels(ctx, team, args)
+  const parent = await resolveCreateWorkItemParent(ctx, args)
+  const resolvedPrimaryProjectId = getCreateWorkItemProjectId({ args, parent })
+  await assertCreateWorkItemProject(ctx, team, args, resolvedPrimaryProjectId)
+  await assertCreateWorkItemIdsAvailable(ctx, args)
+  const { prefix, nextNumber } = await getCreateWorkItemNumbering(
+    ctx,
+    team,
+    args
+  )
+  const descriptionDocId = args.descriptionDocId ?? createId("doc")
+  const now = getNow()
+
+  await insertCreatedWorkItemDescription({
+    ctx,
+    args,
+    team,
+    descriptionDocId,
+    resolvedPrimaryProjectId,
+    now,
+  })
+  const workItem = buildCreatedWorkItem({
+    args,
+    parent,
+    resolvedPrimaryProjectId,
+    descriptionDocId,
+    prefix,
+    nextNumber,
+    now,
+  })
 
   await ctx.db.insert("workItems", workItem)
 
-  const assignmentEmails: AssignmentEmail[] = []
-
-  if (args.assigneeId) {
-    const actor = await getUserDoc(ctx, args.currentUserId)
-    const assignee = await getUserDoc(ctx, args.assigneeId)
-    const notification = createNotification(
-      args.assigneeId,
-      args.currentUserId,
-      buildWorkItemAssignmentNotificationMessage(
-        actor?.name ?? "Someone",
-        args.title,
-        team.name
-      ),
-      "workItem",
-      workItem.id,
-      "assignment"
-    )
-
-    await ctx.db.insert("notifications", notification)
-
-    if (assignee?.preferences.emailAssignments) {
-      assignmentEmails.push({
-        notificationId: notification.id,
-        email: assignee.email,
-        name: assignee.name,
-        itemTitle: args.title,
-        itemId: workItem.id,
-        actorName: actor?.name ?? "Someone",
-        teamName: team.name,
-      })
-    }
-  }
+  const assignmentEmails = await notifyCreatedWorkItemAssignee({
+    ctx,
+    args,
+    team,
+    workItemId: workItem.id,
+  })
 
   await queueEmailJobs(
     ctx,

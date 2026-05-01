@@ -1021,6 +1021,242 @@ async function handleRefreshRequest(
   })
 }
 
+function createCollaborationOkJsonResponse(headers: HeadersInit) {
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: {
+      ...headers,
+      "Content-Type": "application/json",
+    },
+  })
+}
+
+function createCollaborationOptionsResponse(headers: HeadersInit) {
+  return new Response(null, {
+    status: 204,
+    headers,
+  })
+}
+
+function createCollaborationNotFoundResponse(headers?: HeadersInit) {
+  return new Response("Not found", {
+    status: 404,
+    headers,
+  })
+}
+
+function getCollaborationHttpRequestKind(url: URL) {
+  if (isCollaborationFlushRequestUrl(url)) {
+    return "flush" as const
+  }
+
+  if (isCollaborationRefreshRequestUrl(url)) {
+    return "refresh" as const
+  }
+
+  return null
+}
+
+async function verifyHttpRequestClaims(
+  room: Room,
+  req: PartyRequest,
+  requestKind: "flush" | "refresh",
+  corsHeaders: HeadersInit
+) {
+  try {
+    return await verifyRequestClaims(room, req, {
+      requireClientVersionParams: requestKind === "flush",
+    })
+  } catch (error) {
+    return createCollaborationErrorJsonResponse(error, corsHeaders)
+  }
+}
+
+async function handleCollaborationRefreshHttpRequest(
+  req: PartyRequest,
+  room: Room,
+  claims: CollaborationSessionTokenClaims,
+  corsHeaders: HeadersInit
+) {
+  if (claims.kind !== "internal-refresh") {
+    return createCollaborationErrorJsonResponse(
+      new PartyKitCollaborationError("collaboration_forbidden"),
+      corsHeaders
+    )
+  }
+
+  try {
+    await handleRefreshRequest(room, claims, await parseRefreshRequest(req))
+
+    return createCollaborationOkJsonResponse(corsHeaders)
+  } catch (error) {
+    return createCollaborationErrorJsonResponse(error, corsHeaders)
+  }
+}
+
+function assertFlushRequestClaims(
+  claims: CollaborationSessionTokenClaims
+): asserts claims is DocumentCollaborationSessionTokenClaims {
+  if (claims.kind !== "doc") {
+    throw new PartyKitCollaborationError("collaboration_forbidden")
+  }
+
+  if (claims.role !== "editor") {
+    throw new PartyKitCollaborationError(
+      "collaboration_forbidden",
+      "Collaboration flush requires editor access"
+    )
+  }
+}
+
+function recordFlushStarted(
+  room: Room,
+  claims: DocumentCollaborationSessionTokenClaims
+) {
+  recordCollaborationEvent({
+    event: "flush_started",
+    roomId: room.id,
+    documentId: claims.documentId,
+    sessionId: claims.sessionId,
+    userId: claims.sub,
+  })
+}
+
+function recordFlushSucceeded(
+  room: Room,
+  claims: DocumentCollaborationSessionTokenClaims,
+  startedAt: number
+) {
+  recordCollaborationEvent({
+    event: "flush_succeeded",
+    roomId: room.id,
+    documentId: claims.documentId,
+    sessionId: claims.sessionId,
+    userId: claims.sub,
+    durationMs: Date.now() - startedAt,
+  })
+}
+
+function recordFlushFailed(
+  room: Room,
+  claims: DocumentCollaborationSessionTokenClaims,
+  error: unknown
+) {
+  const collaborationError = toCollaborationError(error)
+
+  recordLimitRejection(collaborationError, {
+    roomId: room.id,
+    documentId: claims.documentId,
+    sessionId: claims.sessionId,
+    userId: claims.sub,
+  })
+  recordCollaborationEvent({
+    event: "flush_failed",
+    level: "error",
+    roomId: room.id,
+    documentId: claims.documentId,
+    sessionId: claims.sessionId,
+    userId: claims.sub,
+    code: collaborationError.code,
+    message: collaborationError.message,
+  })
+}
+
+async function persistTeardownFlushRequest(
+  room: Room,
+  yDoc: Doc,
+  claims: DocumentCollaborationSessionTokenClaims,
+  flushRequest: Extract<
+    Awaited<ReturnType<typeof parseFlushRequest>>,
+    { kind: "teardown-content" }
+  >
+) {
+  const hasOtherActiveEditors =
+    countOtherActiveDocumentEditors(room, claims.sessionId) > 0
+
+  if (hasOtherActiveEditors) {
+    console.warn(
+      "[collaboration] skipped teardown flush because other editors remain",
+      {
+        roomId: room.id,
+        documentId: claims.documentId,
+        sessionId: claims.sessionId,
+      }
+    )
+    recordCollaborationEvent({
+      event: "teardown_flush_skipped",
+      level: "warn",
+      roomId: room.id,
+      documentId: claims.documentId,
+      sessionId: claims.sessionId,
+      userId: claims.sub,
+    })
+    return
+  }
+
+  applyFlushContentJson(yDoc, flushRequest.contentJson)
+  await persistCanonicalDocument(room, yDoc, "manual")
+}
+
+async function persistFlushRequest(
+  room: Room,
+  yDoc: Doc,
+  claims: DocumentCollaborationSessionTokenClaims,
+  flushRequest: Awaited<ReturnType<typeof parseFlushRequest>>
+) {
+  if (flushRequest.kind === "document-title") {
+    await persistDocumentTitle(room, flushRequest.documentTitle)
+    return
+  }
+
+  if (flushRequest.kind === "teardown-content") {
+    await persistTeardownFlushRequest(room, yDoc, claims, flushRequest)
+    return
+  }
+
+  await persistCanonicalDocument(room, yDoc, "manual", {
+    ...(flushRequest.kind === "work-item-main"
+      ? {
+          workItemExpectedUpdatedAt: flushRequest.workItemExpectedUpdatedAt,
+          workItemTitle: flushRequest.workItemTitle,
+        }
+      : {}),
+  })
+}
+
+async function handleCollaborationFlushHttpRequest(
+  req: PartyRequest,
+  room: Room,
+  claims: CollaborationSessionTokenClaims,
+  corsHeaders: HeadersInit
+) {
+  try {
+    assertFlushRequestClaims(claims)
+  } catch (error) {
+    return createCollaborationErrorJsonResponse(error, corsHeaders)
+  }
+
+  setRoomSessionClaims(room.id, claims)
+
+  try {
+    const startedAt = Date.now()
+    recordFlushStarted(room, claims)
+    const flushRequest = await parseFlushRequest(
+      req,
+      resolveCollaborationLimits(room.env as Record<string, unknown>)
+    )
+    const { yDoc } = await ensureCanonicalDocumentSeeded(room, claims)
+
+    await persistFlushRequest(room, yDoc, claims, flushRequest)
+    recordFlushSucceeded(room, claims, startedAt)
+
+    return createCollaborationOkJsonResponse(corsHeaders)
+  } catch (error) {
+    recordFlushFailed(room, claims, error)
+    return createCollaborationErrorJsonResponse(error, corsHeaders)
+  }
+}
+
 function createYPartyKitOptions(room: Room): YPartyKitOptions {
   return {
     gc: false,
@@ -1287,170 +1523,35 @@ const collaboration = {
   },
   async onRequest(req: PartyRequest, room: Room) {
     const url = new URL(req.url)
-    const isFlushRequest = isCollaborationFlushRequestUrl(url)
-    const isRefreshRequest = isCollaborationRefreshRequestUrl(url)
+    const requestKind = getCollaborationHttpRequestKind(url)
     const corsHeaders = createCollaborationRequestCorsHeaders()
 
-    if (!isFlushRequest && !isRefreshRequest) {
-      return new Response("Not found", { status: 404 })
+    if (!requestKind) {
+      return createCollaborationNotFoundResponse()
     }
 
     if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders,
-      })
+      return createCollaborationOptionsResponse(corsHeaders)
     }
 
     if (req.method !== "POST") {
-      return new Response("Not found", {
-        status: 404,
-        headers: corsHeaders,
-      })
+      return createCollaborationNotFoundResponse(corsHeaders)
     }
 
-    let claims: CollaborationSessionTokenClaims
+    const claims = await verifyHttpRequestClaims(
+      room,
+      req,
+      requestKind,
+      corsHeaders
+    )
 
-    try {
-      claims = await verifyRequestClaims(room, req, {
-        requireClientVersionParams: isFlushRequest,
-      })
-    } catch (error) {
-      return createCollaborationErrorJsonResponse(error, corsHeaders)
+    if (claims instanceof Response) {
+      return claims
     }
 
-    if (isRefreshRequest) {
-      if (claims.kind !== "internal-refresh") {
-        return createCollaborationErrorJsonResponse(
-          new PartyKitCollaborationError("collaboration_forbidden"),
-          corsHeaders
-        )
-      }
-
-      try {
-        await handleRefreshRequest(room, claims, await parseRefreshRequest(req))
-
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-          },
-        })
-      } catch (error) {
-        return createCollaborationErrorJsonResponse(error, corsHeaders)
-      }
-    }
-
-    if (claims.kind !== "doc") {
-      return createCollaborationErrorJsonResponse(
-        new PartyKitCollaborationError("collaboration_forbidden"),
-        corsHeaders
-      )
-    }
-
-    if (claims.role !== "editor") {
-      return createCollaborationErrorJsonResponse(
-        new PartyKitCollaborationError(
-          "collaboration_forbidden",
-          "Collaboration flush requires editor access"
-        ),
-        corsHeaders
-      )
-    }
-
-    setRoomSessionClaims(room.id, claims)
-
-    try {
-      const startedAt = Date.now()
-      recordCollaborationEvent({
-        event: "flush_started",
-        roomId: room.id,
-        documentId: claims.documentId,
-        sessionId: claims.sessionId,
-        userId: claims.sub,
-      })
-      const flushRequest = await parseFlushRequest(
-        req,
-        resolveCollaborationLimits(room.env as Record<string, unknown>)
-      )
-      const { yDoc } = await ensureCanonicalDocumentSeeded(room, claims)
-
-      if (flushRequest.kind === "document-title") {
-        await persistDocumentTitle(room, flushRequest.documentTitle)
-      } else if (flushRequest.kind === "teardown-content") {
-        const hasOtherActiveEditors =
-          countOtherActiveDocumentEditors(room, claims.sessionId) > 0
-
-        if (hasOtherActiveEditors) {
-          console.warn(
-            "[collaboration] skipped teardown flush because other editors remain",
-            {
-              roomId: room.id,
-              documentId: claims.documentId,
-              sessionId: claims.sessionId,
-            }
-          )
-          recordCollaborationEvent({
-            event: "teardown_flush_skipped",
-            level: "warn",
-            roomId: room.id,
-            documentId: claims.documentId,
-            sessionId: claims.sessionId,
-            userId: claims.sub,
-          })
-        } else {
-          applyFlushContentJson(yDoc, flushRequest.contentJson)
-          await persistCanonicalDocument(room, yDoc, "manual")
-        }
-      } else {
-        await persistCanonicalDocument(room, yDoc, "manual", {
-          ...(flushRequest.kind === "work-item-main"
-            ? {
-                workItemExpectedUpdatedAt:
-                  flushRequest.workItemExpectedUpdatedAt,
-                workItemTitle: flushRequest.workItemTitle,
-              }
-            : {}),
-        })
-      }
-
-      recordCollaborationEvent({
-        event: "flush_succeeded",
-        roomId: room.id,
-        documentId: claims.documentId,
-        sessionId: claims.sessionId,
-        userId: claims.sub,
-        durationMs: Date.now() - startedAt,
-      })
-
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      })
-    } catch (error) {
-      const collaborationError = toCollaborationError(error)
-      recordLimitRejection(collaborationError, {
-        roomId: room.id,
-        documentId: claims.documentId,
-        sessionId: claims.sessionId,
-        userId: claims.sub,
-      })
-      recordCollaborationEvent({
-        event: "flush_failed",
-        level: "error",
-        roomId: room.id,
-        documentId: claims.documentId,
-        sessionId: claims.sessionId,
-        userId: claims.sub,
-        code: collaborationError.code,
-        message: collaborationError.message,
-      })
-      return createCollaborationErrorJsonResponse(error, corsHeaders)
-    }
+    return requestKind === "refresh"
+      ? handleCollaborationRefreshHttpRequest(req, room, claims, corsHeaders)
+      : handleCollaborationFlushHttpRequest(req, room, claims, corsHeaders)
   },
 } satisfies PartyKitServer
 

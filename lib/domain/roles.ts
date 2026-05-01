@@ -1,6 +1,6 @@
 import type { Role } from "@/lib/domain/types"
 
-export const rolePriority: Record<Role, number> = {
+const rolePriority: Record<Role, number> = {
   guest: 0,
   viewer: 1,
   member: 2,

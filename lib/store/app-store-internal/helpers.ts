@@ -7,7 +7,13 @@ import type {
   AttachmentTargetType,
   UserStatus,
 } from "@/lib/domain/types"
+import { haveSameIds } from "@/lib/domain/collaboration-utils"
+export {
+  createMentionIds,
+  toggleReactionUsers,
+} from "@/lib/domain/collaboration-utils"
 import { userStatuses } from "@/lib/domain/types"
+export { toTeamKeyPrefix } from "@/lib/domain/team-key-prefix"
 
 export function getNow() {
   return new Date().toISOString()
@@ -21,143 +27,6 @@ export const noopStorage: StateStorage = {
 
 export function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
-}
-
-export function extractDocumentTitleFromContent(content: string) {
-  const match = content.match(/<h1[^>]*>(.*?)<\/h1>/)
-
-  if (!match?.[1]) {
-    return null
-  }
-
-  const plainTitle = match[1].replace(/<[^>]*>/g, "").trim()
-  return plainTitle.length > 0 ? plainTitle : null
-}
-
-function escapeDocumentHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
-}
-
-export function replaceDocumentHeading(content: string, title: string) {
-  const escapedTitle = escapeDocumentHtml(title)
-  const headingPattern = /(<h1[^>]*>)[\s\S]*?(<\/h1>)/i
-
-  if (headingPattern.test(content)) {
-    return content.replace(headingPattern, `$1${escapedTitle}$2`)
-  }
-
-  return `<h1>${escapedTitle}</h1>${content}`
-}
-
-export function toKeyPrefix(teamId: string) {
-  const alphanumeric = teamId.replace(/[^a-z0-9]+/gi, "").toUpperCase()
-  return alphanumeric.slice(0, 3) || "TEA"
-}
-
-export function toTeamKeyPrefix(
-  teamName: string | null | undefined,
-  teamId: string
-) {
-  const words = (teamName ?? "")
-    .split(/[^a-z0-9]+/gi)
-    .map((word) => word.trim())
-    .filter(Boolean)
-
-  if (words.length >= 2) {
-    return words
-      .slice(0, 3)
-      .map((word) => word[0] ?? "")
-      .join("")
-      .toUpperCase()
-  }
-
-  if (words.length === 1) {
-    const compact = words[0].replace(/[^a-z0-9]+/gi, "").toUpperCase()
-
-    if (compact.length > 0) {
-      return compact.slice(0, 3)
-    }
-  }
-
-  return toKeyPrefix(teamId)
-}
-
-export function createMentionIds(
-  content: string,
-  users: AppData["users"],
-  allowedUserIds?: Iterable<string>
-) {
-  const audience = allowedUserIds ? new Set(allowedUserIds) : null
-  const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
-    match[1]?.toLowerCase()
-  )
-
-  return [
-    ...new Set(
-      users
-        .filter((user) => handles.includes(user.handle.toLowerCase()))
-        .filter((user) => (audience ? audience.has(user.id) : true))
-        .map((user) => user.id)
-    ),
-  ]
-}
-
-export function toggleReactionUsers(
-  reactions: Array<{ emoji: string; userIds: string[] }> | undefined,
-  emoji: string,
-  userId: string
-) {
-  const nextReactions = [...(reactions ?? [])]
-  const reactionIndex = nextReactions.findIndex(
-    (entry) => entry.emoji === emoji
-  )
-
-  if (reactionIndex === -1) {
-    return [
-      ...nextReactions,
-      {
-        emoji,
-        userIds: [userId],
-      },
-    ]
-  }
-
-  const reaction = nextReactions[reactionIndex]
-  const hasReacted = reaction.userIds.includes(userId)
-  const userIds = hasReacted
-    ? reaction.userIds.filter((entry) => entry !== userId)
-    : [...reaction.userIds, userId]
-
-  if (userIds.length === 0) {
-    nextReactions.splice(reactionIndex, 1)
-    return nextReactions
-  }
-
-  nextReactions[reactionIndex] = {
-    ...reaction,
-    userIds,
-  }
-
-  return nextReactions
-}
-
-export function normalizeUniqueIds(ids: string[]) {
-  return [...new Set(ids)].sort()
-}
-
-export function haveSameIds(left: string[], right: string[]) {
-  const normalizedLeft = normalizeUniqueIds(left)
-  const normalizedRight = normalizeUniqueIds(right)
-
-  return (
-    normalizedLeft.length === normalizedRight.length &&
-    normalizedLeft.every((value, index) => value === normalizedRight[index])
-  )
 }
 
 export function createNotification(
