@@ -134,10 +134,10 @@ function parseGeneratedApiMap(apiText) {
 
 function assertNoSchemaDriftWithoutDeployment(changedFiles, diffRange) {
   if (!diffRange) {
-    console.warn(
-      "No reliable diff base was available; schema drift cannot be checked in fallback mode."
+    console.error(
+      "CONVEX_DEPLOYMENT is unavailable and no reliable diff base could be resolved, so schema drift cannot be checked in fallback mode."
     )
-    return
+    process.exit(1)
   }
 
   if (!changedFiles.includes(SCHEMA_PATH)) {

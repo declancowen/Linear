@@ -28,17 +28,94 @@
 - Local audit/tooling artifacts accidentally entering the branch - added Turn 1
 - Route auth imports crossing into pure read-model authorization tests - added Turn 2
 - Convex generated binding verification when deployment secrets are absent - added Turn 3
+- No-secret CI fallback must fail closed when it cannot resolve a schema diff base - added Turn 4
 
 ## Review status
 
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-01 22:08 BST |
-| **Last reviewed**     | 2026-05-01 22:23 BST |
-| **Total turns**       | 3                    |
+| **Last reviewed**     | 2026-05-01 22:32 BST |
+| **Total turns**       | 4                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 5                    |
+| **Resolved findings** | 6                    |
 | **Accepted findings** | 1                    |
+
+## Turn 4 - 2026-05-01 22:32 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `58b0eee0` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Imported the Codex PR review finding against the no-secret Convex fallback. The fallback now fails closed when no reliable diff base can be resolved, preventing schema changes from passing without deployment-backed codegen verification.
+**Outcome:** all clear with low-risk unknowns
+**Risk score:** high - the finding involved CI policy that protects Convex generated data-model correctness.
+**Change archetypes:** external finding import, CI fail-closed guard, generated contract verification.
+**Intended change:** Preserve the fallback's ability to verify module roster freshness while refusing unprovable schema-drift cases.
+**Intent vs actual:** `assertNoSchemaDriftWithoutDeployment` now exits 1 when `diffRange` is unavailable. Normal branch mode still passes with the resolved merge base; the forced missing-base local check fails as expected.
+**Confidence:** high for this fix - the live review comment maps directly to one branch in the script, and both positive and negative verifier paths were exercised.
+**Coverage note:** This turn focused only on the Codex review finding and its sibling no-diff-base path.
+**Finding triage:** One external P1 finding from `chatgpt-codex-connector[bot]` was live and is resolved locally.
+**Static/analyzer evidence:** Not an analyzer-count issue; this is CI fitness-function correctness. Fallow gate passed after the fix.
+**Architecture impact:** Strengthens operations-owned CI policy by making unverifiable safety checks fail closed instead of warning.
+**Bug classes / invariants checked:** Authority and Compatibility. The CI fallback must not claim generated-contract safety when it cannot determine whether the schema changed.
+**Branch totality:** Rechecked the current PR review comments, latest review metadata, CI status, and the fallback script.
+**Sibling closure:** Checked both fallback variants: normal merge-base resolution and forced missing-base resolution. Schema-change verification remains deployment-backed or fail-closed.
+**Remediation impact surface:** One script branch only; no product runtime behavior changed.
+**Residual risk / unknowns:** The next push will trigger another automatic Codex review; no further push should happen until that review completes.
+
+### External finding import
+
+| Source                 | Finding                                                    | Current status   | Bug class                 | Missed invariant/variant                                          | Action |
+| ---------------------- | ---------------------------------------------------------- | ---------------- | ------------------------- | ----------------------------------------------------------------- | ------ |
+| Codex PR review on #30 | P1: fail fallback when schema diff base cannot be resolved | live -> resolved | Authority / Compatibility | no-secret CI must fail closed when schema drift cannot be checked | fixed  |
+
+### Validation
+
+- `node scripts/verify-convex-generated-fallback.mjs` - passed, 35 modules
+- `DIFF_BASE=0000000000000000000000000000000000000000 DEFAULT_BRANCH=definitely-missing-branch DIFF_HEAD=HEAD node scripts/verify-convex-generated-fallback.mjs` - expected failure verified, exit 1
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm test` - passed, 140 files and 739 tests
+- `pnpm fallow:gate` - passed
+- `pnpm exec fallow --ci --production --format json` - passed, total issues 0
+- `git diff --check` - passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PR review comments, latest review metadata, CI status, and `scripts/verify-convex-generated-fallback.mjs`.
+- **Prior open findings rechecked:** FSR-06 is strengthened so its no-secret fallback cannot skip schema verification when no base exists.
+- **Prior resolved/adjacent areas revalidated:** Generated API roster remains valid in the normal branch path.
+- **Hotspots or sibling paths revisited:** Missing-base path and normal-base path were both tested.
+- **Dependency/adjacent surfaces revalidated:** No new dependencies were added.
+- **Why this is enough:** The Codex finding identified a single fail-open branch; the fix converts that branch to a hard failure and verifies it.
+
+### Challenger pass
+
+- `done` - Assumed the fallback might still pass an unprovable state. The forced missing-base test now fails, proving the fail-closed behavior.
+
+### Resolved / Carried / New findings
+
+#### FSR-07 - Resolved - No-secret Convex fallback skipped schema-drift enforcement without a diff base
+
+- **Severity:** High
+- **Files:** `scripts/verify-convex-generated-fallback.mjs`
+- **External source:** Codex PR review on #30
+- **Root cause:** `assertNoSchemaDriftWithoutDeployment` logged a warning and returned when `diffRange` was unavailable.
+- **Impact:** A CI context with no resolvable base could pass no-secret fallback mode without checking whether `convex/schema.ts` changed.
+- **Fix:** Changed the unavailable-diff-base branch to print an error and exit 1.
+- **Architecture decision:** Generated contract safety is an operations-owned invariant. When CI cannot prove the schema did not change and lacks deployment-backed codegen, it must fail closed.
+- **Verification:** Positive fallback path passes; forced missing-base path fails with exit 1.
+
+### Recommendations
+
+1. **Fix first:** Commit and push this single fix round.
+2. **Then address:** Wait for the new auto-review to finish before making any further changes.
+3. **Patterns noticed:** Fallback CI modes need explicit fail-closed behavior for evidence gaps.
+4. **Suggested approach:** Keep future CI fallbacks small enough that both positive and negative paths are easy to exercise locally.
+5. **Architecture transition:** The generated-contract gate now has a clear proof boundary.
+6. **Defer on purpose:** Deployment-backed schema/data-model codegen still requires repository secrets.
 
 ## Turn 3 - 2026-05-01 22:23 BST
 
