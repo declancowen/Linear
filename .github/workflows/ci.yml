@@ -30,38 +30,13 @@ jobs:
         run: pnpm exec fallow --ci --production
         continue-on-error: true
       - run: pnpm audit:deps
-      - name: Guard Convex generated bindings when codegen is unavailable
+      - name: Verify Convex generated bindings without deployment
         if: ${{ env.CONVEX_DEPLOYMENT == '' }}
-        shell: bash
         env:
           DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           DIFF_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          if [ -z "$DIFF_BASE" ] || [ "$DIFF_BASE" = "0000000000000000000000000000000000000000" ]; then
-            echo "::error::CONVEX_DEPLOYMENT is unavailable and no reliable diff base exists for Convex codegen verification."
-            exit 1
-          fi
-
-          if ! git cat-file -e "$DIFF_BASE^{commit}" || ! git cat-file -e "$DIFF_HEAD^{commit}"; then
-            echo "::error::CONVEX_DEPLOYMENT is unavailable and the Convex codegen diff range cannot be resolved."
-            exit 1
-          fi
-
-          if ! diff_base="$(git merge-base "$DIFF_BASE" "$DIFF_HEAD")" || [ -z "$diff_base" ]; then
-            echo "::error::CONVEX_DEPLOYMENT is unavailable and no merge-base exists for Convex codegen verification."
-            exit 1
-          fi
-
-          convex_source_changes="$(git diff --name-only "$diff_base" "$DIFF_HEAD" -- convex ':!convex/_generated/**')"
-          generated_changes="$(git diff --name-only "$diff_base" "$DIFF_HEAD" -- convex/_generated)"
-
-          if [ -n "$convex_source_changes" ] || [ -n "$generated_changes" ]; then
-            echo "::error::CONVEX_DEPLOYMENT is unavailable, so CI cannot verify Convex generated bindings for these changes."
-            printf '%s\n' "$convex_source_changes" "$generated_changes" | sed '/^$/d'
-            exit 1
-          fi
-
-          echo "CONVEX_DEPLOYMENT unavailable; no Convex source or generated binding changes detected."
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/verify-convex-generated-fallback.mjs
       - name: Generate Convex bindings
         if: ${{ env.CONVEX_DEPLOYMENT != '' }}
         run: pnpm convex:codegen
