@@ -10,6 +10,10 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
+import {
+  getViewerScopedDirectoryKey,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
 import { useAppStore } from "@/lib/store/app-store"
 
 vi.mock("next/link", () => ({
@@ -70,7 +74,15 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
     <div>{showLabel === false ? "level:value-only" : "level:label"}</div>
   ),
-  PropertiesChipPopover: () => null,
+  PropertiesChipPopover: ({
+    onClearDisplayProperties,
+  }: {
+    onClearDisplayProperties?: () => void
+  }) => (
+    <button type="button" onClick={() => onClearDisplayProperties?.()}>
+      Clear properties
+    </button>
+  ),
   SortChipPopover: () => null,
   getAvailableGroupOptions: () => [],
   ViewConfigPopover: ({
@@ -334,6 +346,59 @@ describe("ProjectDetailScreen", () => {
 
     expect(screen.getByText("Board layout")).toBeInTheDocument()
     expect(screen.queryByText("List layout")).not.toBeInTheDocument()
+  })
+
+  it("clears saved project view properties through viewer overrides", () => {
+    const projectRoute = "/team/platform/projects/project_1"
+    const savedProjectView = createViewDefinition({
+      id: "saved_project_view",
+      name: "Saved list",
+      description: "",
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: projectRoute,
+      teamSlug: "platform",
+      defaultItemLevelExperience: "software-development",
+      createdAt: "2026-04-18T10:00:00.000Z",
+      updatedAt: "2026-04-18T10:00:00.000Z",
+      overrides: {
+        displayProps: ["id", "status", "priority"],
+      },
+    })
+
+    if (!savedProjectView) {
+      throw new Error("Expected saved project view to be created")
+    }
+
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [savedProjectView],
+      ui: {
+        ...state.ui,
+        selectedViewByRoute: {
+          [getViewerScopedDirectoryKey("user_1", projectRoute)]:
+            savedProjectView.id,
+        },
+      },
+    }))
+
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear properties" }))
+
+    expect(useAppStore.getState().views[0]?.displayProps).toEqual([
+      "id",
+      "status",
+      "priority",
+    ])
+    expect(
+      useAppStore.getState().ui.viewerViewConfigByRoute[
+        getViewerScopedViewKey("user_1", projectRoute, savedProjectView.id)
+      ]?.displayProps
+    ).toEqual([])
   })
 
   it("restores the stable all-items template after switching between builtin tabs", async () => {

@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  miniflare>undici: 6.24.0
+  plist>@xmldom/xmldom: 0.8.13
+
 importers:
 
   .:
@@ -917,10 +921,6 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
-
-  '@fastify/busboy@2.1.1':
-    resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
-    engines: {node: '>=14'}
 
   '@floating-ui/core@1.7.5':
     resolution: {integrity: sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==}
@@ -2835,8 +2835,8 @@ packages:
     resolution: {integrity: sha512-jOYaZACPGb4o1QYvy7NbbBBaDhGUitU6oH//vSYWMh3p2Le5yOt4Q01RQPl78fUKjG7CVtGhVcLi4QLB1+cAtA==}
     engines: {node: '>=20.15.0'}
 
-  '@xmldom/xmldom@0.8.12':
-    resolution: {integrity: sha512-9k/gHF6n/pAi/9tqr3m3aqkuiNosYTurLLUtc7xQ9sxB/wm7WPygCv8GYa6mS0fLJEHhqMC1ATYhz++U/lRHqg==}
+  '@xmldom/xmldom@0.8.13':
+    resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
 
   abbrev@3.0.1:
@@ -6152,9 +6152,9 @@ packages:
   undici-types@7.25.0:
     resolution: {integrity: sha512-AXNgS1Byr27fTI+2bsPEkV9CxkT8H6xNyRI68b3TatlZo3RkzlqQBLL+w7SmGPVpokjHbcuNVQUWE7FRTg+LRA==}
 
-  undici@5.29.0:
-    resolution: {integrity: sha512-raqeBD6NQK4SkWhQzeYKd1KmIG6dllBOTt55Rmkt4HtI9mwdWtJljnrXjAFUBLTSN67HWrOIZ3EPF4kjUw80Bg==}
-    engines: {node: '>=14.0'}
+  undici@6.24.0:
+    resolution: {integrity: sha512-lVLNosgqo5EkGqh5XUDhGfsMSoO8K0BAN0TyJLvwNRSl4xWGZlCVYsAIpa/OpA3TvmnM01GWcoKmc3ZWo5wKKA==}
+    engines: {node: '>=18.17'}
 
   undici@7.25.0:
     resolution: {integrity: sha512-xXnp4kTyor2Zq+J1FfPI6Eq3ew5h6Vl0F/8d9XU5zZQf1tX9s2Su1/3PiMmUANFULpmksxkClamIZcaUqryHsQ==}
@@ -7199,8 +7199,6 @@ snapshots:
   '@exodus/bytes@1.15.0(@noble/hashes@1.8.0)':
     optionalDependencies:
       '@noble/hashes': 1.8.0
-
-  '@fastify/busboy@2.1.1': {}
 
   '@floating-ui/core@1.7.5':
     dependencies:
@@ -9063,7 +9061,7 @@ snapshots:
     dependencies:
       eventemitter3: 5.0.4
 
-  '@xmldom/xmldom@0.8.12': {}
+  '@xmldom/xmldom@0.8.13': {}
 
   abbrev@3.0.1: {}
 
@@ -11355,7 +11353,7 @@ snapshots:
       exit-hook: 2.2.1
       glob-to-regexp: 0.4.1
       stoppable: 1.1.0
-      undici: 5.29.0
+      undici: 6.24.0
       workerd: 1.20240718.0
       ws: 8.18.0
       youch: 3.3.4
@@ -11782,7 +11780,7 @@ snapshots:
 
   plist@3.1.0:
     dependencies:
-      '@xmldom/xmldom': 0.8.12
+      '@xmldom/xmldom': 0.8.13
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
@@ -12882,9 +12880,7 @@ snapshots:
 
   undici-types@7.25.0: {}
 
-  undici@5.29.0:
-    dependencies:
-      '@fastify/busboy': 2.1.1
+  undici@6.24.0: {}
 
   undici@7.25.0: {}
 

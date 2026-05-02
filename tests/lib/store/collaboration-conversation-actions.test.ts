@@ -251,4 +251,103 @@ describe("collaboration conversation actions", () => {
     )
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
+
+  it("adds optimistic generic message notifications for other participants", async () => {
+    const { createCollaborationConversationActions } = await import(
+      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
+    )
+
+    const state = createConversationTestState()
+    const backgroundTasks: Array<Promise<unknown> | null> = []
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncSendChatMessageMock.mockResolvedValueOnce(null)
+
+    const slice = createCollaborationConversationActions({
+      set: setState as never,
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn().mockResolvedValue(undefined),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTasks.push(task)
+        },
+      } as never,
+    })
+
+    slice.sendChatMessage({
+      conversationId: "conversation_1",
+      content: "<p>Hello</p>",
+    })
+
+    expect(state.notifications).toEqual([
+      expect.objectContaining({
+        userId: "user_2",
+        actorId: "user_1",
+        entityType: "chat",
+        entityId: "conversation_1",
+        type: "message",
+      }),
+    ])
+    expect(state.notifications.map((notification) => notification.userId)).not.toContain(
+      "user_1"
+    )
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("does not add duplicate optimistic message notifications for mentions", async () => {
+    const { createCollaborationConversationActions } = await import(
+      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
+    )
+
+    const state = createConversationTestState()
+    const backgroundTasks: Array<Promise<unknown> | null> = []
+    const setState = vi.fn((update: unknown) => {
+      const patch =
+        typeof update === "function"
+          ? update(state as never)
+          : update
+
+      Object.assign(state, patch)
+    })
+
+    syncSendChatMessageMock.mockResolvedValueOnce(null)
+
+    const slice = createCollaborationConversationActions({
+      set: setState as never,
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: vi.fn().mockResolvedValue(undefined),
+        syncInBackground(task: Promise<unknown> | null) {
+          backgroundTasks.push(task)
+        },
+      } as never,
+    })
+
+    slice.sendChatMessage({
+      conversationId: "conversation_1",
+      content:
+        '<p><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span> hello</p>',
+    })
+
+    expect(state.notifications).toEqual([
+      expect.objectContaining({
+        userId: "user_2",
+        type: "mention",
+      }),
+    ])
+    expect(
+      state.notifications.filter(
+        (notification) =>
+          notification.userId === "user_2" && notification.type === "message"
+      )
+    ).toEqual([])
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
 })

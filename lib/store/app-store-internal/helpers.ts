@@ -172,7 +172,13 @@ export function createNotification(
     | "channelPost"
     | "chat",
   entityId: string,
-  type: "mention" | "assignment" | "comment" | "invite" | "status-change"
+  type:
+    | "mention"
+    | "assignment"
+    | "comment"
+    | "message"
+    | "invite"
+    | "status-change"
 ) {
   return {
     id: createId("notification"),

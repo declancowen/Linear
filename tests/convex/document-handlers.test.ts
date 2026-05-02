@@ -568,6 +568,7 @@ describe("document presence handlers", () => {
     expect(ctx.db.patch).toHaveBeenCalledWith("presence_newest", {
       avatarUrl: "https://example.com/alex.png",
       avatarImageUrl: "https://example.com/alex-photo.png",
+      activeBlockId: null,
       documentId: "document_1",
       email: "alex@example.com",
       lastSeenAt: "2026-04-17T20:24:45.000Z",
@@ -653,6 +654,7 @@ describe("document presence handlers", () => {
     expect(core.createId).not.toHaveBeenCalled()
     expect(result).toEqual({
       documentId: "document_custom",
+      workspaceId: "workspace_1",
     })
 
     vi.mocked(access.requireEditableWorkspaceAccess).mockReset()

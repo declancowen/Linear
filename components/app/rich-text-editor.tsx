@@ -20,9 +20,7 @@ import {
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
 } from "@tiptap/y-tiptap"
-import Collaboration, {
-  isChangeOrigin,
-} from "@tiptap/extension-collaboration"
+import Collaboration, { isChangeOrigin } from "@tiptap/extension-collaboration"
 import FileHandler from "@tiptap/extension-file-handler"
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model"
 import * as Y from "yjs"
@@ -254,7 +252,11 @@ function areBlockPresenceMarkersEqual(
       return false
     }
 
-    for (let viewerIndex = 0; viewerIndex < leftMarker.viewers.length; viewerIndex += 1) {
+    for (
+      let viewerIndex = 0;
+      viewerIndex < leftMarker.viewers.length;
+      viewerIndex += 1
+    ) {
       const leftViewer = leftMarker.viewers[viewerIndex]
       const rightViewer = rightMarker.viewers[viewerIndex]
 
@@ -309,9 +311,9 @@ function normalizeCollaborationRelativeRange(
 }
 
 function getYSyncEditorState(currentEditor: Editor) {
-  return ySyncPluginKey.getState(
-    currentEditor.state
-  ) as YSyncEditorState | undefined
+  return ySyncPluginKey.getState(currentEditor.state) as
+    | YSyncEditorState
+    | undefined
 }
 
 function createSerializedRelativePosition(
@@ -407,7 +409,10 @@ function updateEditorCollaborationUser(
     return
   }
 
-  collaboration.binding.provider.awareness.setLocalStateField("user", mergedUser)
+  collaboration.binding.provider.awareness.setLocalStateField(
+    "user",
+    mergedUser
+  )
 }
 
 function insertUploadedAttachment(input: {
@@ -471,7 +476,10 @@ function collectBlockPresenceMarkers(input: {
     return [] as BlockPresenceMarker[]
   }
 
-  const viewersByBlockId = new Map<string, Map<string, DocumentPresenceViewer>>()
+  const viewersByBlockId = new Map<
+    string,
+    Map<string, DocumentPresenceViewer>
+  >()
 
   for (const viewer of input.viewers) {
     const activeBlockId = viewer.activeBlockId?.trim()
@@ -481,7 +489,8 @@ function collectBlockPresenceMarkers(input: {
     }
 
     const blockViewerMap =
-      viewersByBlockId.get(activeBlockId) ?? new Map<string, DocumentPresenceViewer>()
+      viewersByBlockId.get(activeBlockId) ??
+      new Map<string, DocumentPresenceViewer>()
     blockViewerMap.set(viewer.userId, viewer)
     viewersByBlockId.set(activeBlockId, blockViewerMap)
   }
@@ -500,7 +509,9 @@ function collectBlockPresenceMarkers(input: {
 
     const blockId = `${node.type.name}:${position}`
     const blockViewerMap = viewersByBlockId.get(blockId)
-    const blockViewers = blockViewerMap ? Array.from(blockViewerMap.values()) : null
+    const blockViewers = blockViewerMap
+      ? Array.from(blockViewerMap.values())
+      : null
 
     if (!blockViewers || blockViewers.length === 0) {
       return
@@ -705,7 +716,9 @@ function getCollaborationAwarenessSelectionRange(
     }
   }
 
-  const selectionValue = isRecord(userValue.selection) ? userValue.selection : null
+  const selectionValue = isRecord(userValue.selection)
+    ? userValue.selection
+    : null
   const anchor = selectionValue?.anchor
   const head = selectionValue?.head
 
@@ -727,7 +740,7 @@ type YSyncEditorState = {
   doc: Y.Doc | null
   type: Y.XmlFragment | null
   binding: {
-    mapping: Map<Y.AbstractType<any>, ProsemirrorNode | ProsemirrorNode[]>
+    mapping: Map<Y.AbstractType<unknown>, ProsemirrorNode | ProsemirrorNode[]>
   } | null
   snapshot?: unknown
   prevSnapshot?: unknown
@@ -1056,7 +1069,9 @@ function getLocalTextblockBoundarySide(
       return "after"
     }
 
-    if (resolvedPosition.parentOffset === resolvedPosition.parent.content.size) {
+    if (
+      resolvedPosition.parentOffset === resolvedPosition.parent.content.size
+    ) {
       return "before"
     }
   } catch {
@@ -1140,9 +1155,9 @@ function collectCollaborationCursorMarkers(input: {
     return [] as CollaborationCursorMarker[]
   }
 
-  const yState = ySyncPluginKey.getState(
-    input.currentEditor.state
-  ) as YSyncEditorState | undefined
+  const yState = ySyncPluginKey.getState(input.currentEditor.state) as
+    | YSyncEditorState
+    | undefined
 
   if (
     !yState?.doc ||
@@ -1179,10 +1194,6 @@ function collectCollaborationCursorMarkers(input: {
         return
       }
 
-      const cursorValue =
-        isRecord(value) && isRecord(value.cursor) ? value.cursor : null
-      const headJson = cursorValue?.head
-
       const head = getCollaborationAwarenessCursorHead(
         input.currentEditor,
         value
@@ -1202,7 +1213,10 @@ function collectCollaborationCursorMarkers(input: {
       }
 
       try {
-        const coordinates = resolveCollaborationCaretCoordinates(input.currentEditor, head)
+        const coordinates = resolveCollaborationCaretCoordinates(
+          input.currentEditor,
+          head
+        )
         const height = Math.max(
           18,
           Math.round(coordinates.bottom - coordinates.top)
@@ -1302,7 +1316,9 @@ function collectCollaborationSelectionMarkers(input: {
         markers.push({
           key: `${clientId}:${user.sessionId}:${index}`,
           color: user.color,
-          left: Math.round(rect.left - containerRect.left + container.scrollLeft),
+          left: Math.round(
+            rect.left - containerRect.left + container.scrollLeft
+          ),
           top: Math.round(rect.top - containerRect.top + container.scrollTop),
           width: Math.max(1, Math.round(rect.width)),
           height: Math.max(1, Math.round(rect.height)),
@@ -1511,6 +1527,9 @@ export function RichTextEditor({
   )
 
   const resolvedEditorContent = sanitizedStringContent ?? content
+  const hasCollaboration = Boolean(collaboration)
+  const collaborationDocument = collaboration?.binding.doc ?? null
+  const collaborationProvider = collaboration?.binding.provider ?? null
   const visiblePresenceViewers = useMemo(
     () =>
       currentPresenceUserId
@@ -1524,30 +1543,32 @@ export function RichTextEditor({
     () =>
       createRichTextBaseExtensions({
         placeholder,
-        collaboration: Boolean(collaboration),
+        collaboration: hasCollaboration,
         characterLimit:
-          enforcePlainTextLimit && maxPlainTextCharacters
+          (enforcePlainTextLimit || Boolean(maxPlainTextCharacters)) &&
+          maxPlainTextCharacters
             ? maxPlainTextCharacters
             : undefined,
       }),
-    [collaboration, enforcePlainTextLimit, maxPlainTextCharacters, placeholder]
+    [
+      hasCollaboration,
+      enforcePlainTextLimit,
+      maxPlainTextCharacters,
+      placeholder,
+    ]
   )
   const collaborationExtensions = useMemo(
     () =>
-      collaboration
+      collaborationDocument && collaborationProvider
         ? [
             Collaboration.configure({
-              document: collaboration.binding.doc,
+              document: collaborationDocument,
               field: COLLABORATION_XML_FRAGMENT,
-              provider: collaboration.binding.provider,
+              provider: collaborationProvider,
             }),
           ]
         : [],
-    [
-      collaboration?.binding.doc,
-      collaboration?.binding.provider,
-      collaboration?.localUser,
-    ]
+    [collaborationDocument, collaborationProvider]
   )
 
   function clearTypingTimeout() {
@@ -1599,11 +1620,7 @@ export function RichTextEditor({
   )
 
   const handleEditorFiles = useCallback(
-    async (
-      currentEditor: Editor,
-      files: File[],
-      position?: number | null
-    ) => {
+    async (currentEditor: Editor, files: File[], position?: number | null) => {
       if (!onUploadAttachmentRef.current || files.length === 0) {
         return
       }
@@ -1639,305 +1656,312 @@ export function RichTextEditor({
     [handleEditorFiles]
   )
 
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      ...baseExtensions,
-      ...collaborationExtensions,
-      FileHandler.configure({
-        onPaste(currentEditor, files) {
-          void handleEditorFiles(
-            currentEditor,
-            files,
-            currentEditor.state.selection.from
-          )
-        },
-        onDrop(currentEditor, files, position) {
-          void handleEditorFiles(currentEditor, files, position)
-        },
-      }),
-    ],
-    content: collaboration ? undefined : resolvedEditorContent,
-    editable,
-    editorProps: {
-      attributes: {
-        class: editorClass,
-      },
-      handleKeyDown(_view, event) {
-        const currentEditor = editorRef.current
-        const currentSlashState = allowSlashCommands ? slashState : null
-        const currentMentionState = mentionState
-        const slashOptions = {
-          enableUploads: Boolean(onUploadAttachment),
-          promptEmojiPicker: (nextEditor: Editor) =>
-            requestEmojiPicker(nextEditor, currentSlashState),
-          promptAttachmentUpload: requestAttachmentPicker,
-          promptImageUpload: requestImagePicker,
-        }
-
-        if (!currentEditor) {
-          return false
-        }
-
-        if (currentSlashState) {
-          const nextCommands = filterSlashCommands(
-            currentSlashState.query,
-            slashOptions
-          )
-          const maxSlashIndex = Math.max(nextCommands.length - 1, 0)
-
-          if (event.key === "Escape") {
-            setSlashState(null)
-            previousSlashQueryRef.current = null
-            return true
-          }
-
-          if (event.key === "ArrowDown") {
-            event.preventDefault()
-            setSlashIndex((current) =>
-              Math.min(Math.min(current, maxSlashIndex) + 1, maxSlashIndex)
+  const editor = useEditor(
+    {
+      immediatelyRender: false,
+      extensions: [
+        ...baseExtensions,
+        ...collaborationExtensions,
+        // eslint-disable-next-line react-hooks/refs -- FileHandler stores these callbacks and invokes them later for paste/drop events.
+        FileHandler.configure({
+          onPaste(currentEditor, files) {
+            void handleEditorFiles(
+              currentEditor,
+              files,
+              currentEditor.state.selection.from
             )
-            return true
+          },
+          onDrop(currentEditor, files, position) {
+            void handleEditorFiles(currentEditor, files, position)
+          },
+        }),
+      ],
+      content: collaboration ? undefined : resolvedEditorContent,
+      editable,
+      editorProps: {
+        attributes: {
+          class: editorClass,
+        },
+        handleKeyDown(_view, event) {
+          const currentEditor = editorRef.current
+          const currentSlashState = allowSlashCommands ? slashState : null
+          const currentMentionState = mentionState
+          const slashOptions = {
+            enableUploads: Boolean(onUploadAttachment),
+            promptEmojiPicker: (nextEditor: Editor) =>
+              requestEmojiPicker(nextEditor, currentSlashState),
+            promptAttachmentUpload: requestAttachmentPicker,
+            promptImageUpload: requestImagePicker,
           }
 
-          if (event.key === "ArrowUp") {
-            event.preventDefault()
-            setSlashIndex((current) =>
-              Math.max(0, Math.min(current, maxSlashIndex) - 1)
+          if (!currentEditor) {
+            return false
+          }
+
+          if (currentSlashState) {
+            const nextCommands = filterSlashCommands(
+              currentSlashState.query,
+              slashOptions
             )
-            return true
-          }
+            const maxSlashIndex = Math.max(nextCommands.length - 1, 0)
 
-          if (event.key === "Enter") {
-            const selected =
-              nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
-              nextCommands[0]
-
-            if (!selected) {
-              return false
+            if (event.key === "Escape") {
+              setSlashState(null)
+              previousSlashQueryRef.current = null
+              return true
             }
 
+            if (event.key === "ArrowDown") {
+              event.preventDefault()
+              setSlashIndex((current) =>
+                Math.min(Math.min(current, maxSlashIndex) + 1, maxSlashIndex)
+              )
+              return true
+            }
+
+            if (event.key === "ArrowUp") {
+              event.preventDefault()
+              setSlashIndex((current) =>
+                Math.max(0, Math.min(current, maxSlashIndex) - 1)
+              )
+              return true
+            }
+
+            if (event.key === "Enter") {
+              const selected =
+                nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
+                nextCommands[0]
+
+              if (!selected) {
+                return false
+              }
+
+              event.preventDefault()
+              currentEditor
+                .chain()
+                .focus()
+                .deleteRange({
+                  from: currentSlashState.from,
+                  to: currentSlashState.to,
+                })
+                .run()
+              selected.run(currentEditor)
+              setSlashState(null)
+              setSlashIndex(0)
+              return true
+            }
+
+            const nextSlashState = buildSlashState(
+              currentEditor,
+              containerRef.current
+            )
+            if (!nextSlashState) {
+              setSlashState(null)
+              setSlashIndex(0)
+              previousSlashQueryRef.current = null
+            }
+
+            return false
+          }
+
+          if (currentMentionState) {
+            const nextCandidates = filterMentionCandidates(
+              currentMentionState.query,
+              mentionCandidates
+            )
+            const maxMentionIndex = Math.max(nextCandidates.length - 1, 0)
+
+            if (event.key === "Escape") {
+              setMentionState(null)
+              previousMentionQueryRef.current = null
+              return true
+            }
+
+            if (event.key === "ArrowDown") {
+              event.preventDefault()
+              setMentionIndex((current) =>
+                Math.min(
+                  Math.min(current, maxMentionIndex) + 1,
+                  maxMentionIndex
+                )
+              )
+              return true
+            }
+
+            if (event.key === "ArrowUp") {
+              event.preventDefault()
+              setMentionIndex((current) =>
+                Math.max(0, Math.min(current, maxMentionIndex) - 1)
+              )
+              return true
+            }
+
+            if (event.key === "Enter") {
+              const selected =
+                nextCandidates[
+                  Math.min(mentionIndex, nextCandidates.length - 1)
+                ] ?? nextCandidates[0]
+
+              if (!selected) {
+                return false
+              }
+
+              event.preventDefault()
+              insertMention(currentEditor, currentMentionState, selected)
+              onMentionInsertedRef.current?.(selected)
+              setMentionState(null)
+              setMentionIndex(0)
+              return true
+            }
+
+            const nextMentionState = buildMentionState(
+              currentEditor,
+              containerRef.current
+            )
+            if (!nextMentionState) {
+              setMentionState(null)
+              setMentionIndex(0)
+              previousMentionQueryRef.current = null
+            }
+          }
+
+          if (
+            onSubmitShortcut &&
+            submitOnEnter &&
+            event.key === "Enter" &&
+            !event.shiftKey
+          ) {
             event.preventDefault()
-            currentEditor
-              .chain()
-              .focus()
-              .deleteRange({
-                from: currentSlashState.from,
-                to: currentSlashState.to,
-              })
-              .run()
-            selected.run(currentEditor)
-            setSlashState(null)
-            setSlashIndex(0)
+            onSubmitShortcut()
             return true
           }
 
-          const nextSlashState = buildSlashState(
-            currentEditor,
-            containerRef.current
-          )
-          if (!nextSlashState) {
-            setSlashState(null)
-            setSlashIndex(0)
-            previousSlashQueryRef.current = null
+          if (
+            onSubmitShortcut &&
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey)
+          ) {
+            event.preventDefault()
+            onSubmitShortcut()
+            return true
           }
 
           return false
-        }
-
-        if (currentMentionState) {
-          const nextCandidates = filterMentionCandidates(
-            currentMentionState.query,
-            mentionCandidates
-          )
-          const maxMentionIndex = Math.max(nextCandidates.length - 1, 0)
-
-          if (event.key === "Escape") {
-            setMentionState(null)
-            previousMentionQueryRef.current = null
-            return true
-          }
-
-          if (event.key === "ArrowDown") {
-            event.preventDefault()
-            setMentionIndex((current) =>
-              Math.min(Math.min(current, maxMentionIndex) + 1, maxMentionIndex)
-            )
-            return true
-          }
-
-          if (event.key === "ArrowUp") {
-            event.preventDefault()
-            setMentionIndex((current) =>
-              Math.max(0, Math.min(current, maxMentionIndex) - 1)
-            )
-            return true
-          }
-
-          if (event.key === "Enter") {
-            const selected =
-              nextCandidates[
-                Math.min(mentionIndex, nextCandidates.length - 1)
-              ] ?? nextCandidates[0]
-
-            if (!selected) {
-              return false
-            }
-
-            event.preventDefault()
-            insertMention(currentEditor, currentMentionState, selected)
-            onMentionInsertedRef.current?.(selected)
-            setMentionState(null)
-            setMentionIndex(0)
-            return true
-          }
-
-          const nextMentionState = buildMentionState(
-            currentEditor,
-            containerRef.current
-          )
-          if (!nextMentionState) {
-            setMentionState(null)
-            setMentionIndex(0)
-            previousMentionQueryRef.current = null
-          }
-        }
-
-        if (
-          onSubmitShortcut &&
-          submitOnEnter &&
-          event.key === "Enter" &&
-          !event.shiftKey
-        ) {
-          event.preventDefault()
-          onSubmitShortcut()
-          return true
-        }
-
-        if (
-          onSubmitShortcut &&
-          event.key === "Enter" &&
-          (event.metaKey || event.ctrlKey)
-        ) {
-          event.preventDefault()
-          onSubmitShortcut()
-          return true
-        }
-
-        return false
+        },
       },
-    },
-    onCreate({ editor: currentEditor }) {
-      const activeBlockId = getActiveBlockId(currentEditor)
-      const selection = getSelectionRange(currentEditor)
-      const relativeSelection = getRelativeSelectionRange(currentEditor)
-
-      if (collaboration) {
-        updateEditorCollaborationUser(currentEditor, collaboration, {
-          typing: false,
-          activeBlockId,
-          cursor: selection,
-          selection,
-          relativeCursor: relativeSelection,
-          relativeSelection,
-        })
-      }
-      reportActiveBlockId(activeBlockId)
-
-      onMentionCountsChangeRef.current?.(
-        getEditorMentionCounts(currentEditor),
-        "initial"
-      )
-      syncCommandMenus(currentEditor)
-    },
-    onUpdate({ editor: currentEditor, transaction }) {
-      const isExternalCollaborationChange =
-        collaboration && isChangeOrigin(transaction)
-
-      onChangeRef.current(sanitizeRichTextContent(currentEditor.getHTML()))
-
-      onMentionCountsChangeRef.current?.(
-        getEditorMentionCounts(currentEditor),
-        isExternalCollaborationChange ? "external" : "local"
-      )
-      syncCommandMenus(currentEditor)
-
-      if (collaboration && !isExternalCollaborationChange) {
+      onCreate({ editor: currentEditor }) {
         const activeBlockId = getActiveBlockId(currentEditor)
         const selection = getSelectionRange(currentEditor)
         const relativeSelection = getRelativeSelectionRange(currentEditor)
-        updateEditorCollaborationUser(currentEditor, collaboration, {
-          typing: true,
-          activeBlockId,
-          cursor: selection,
-          selection,
-          relativeCursor: relativeSelection,
-          relativeSelection,
-        })
+
+        if (collaboration) {
+          updateEditorCollaborationUser(currentEditor, collaboration, {
+            typing: false,
+            activeBlockId,
+            cursor: selection,
+            selection,
+            relativeCursor: relativeSelection,
+            relativeSelection,
+          })
+        }
         reportActiveBlockId(activeBlockId)
-        scheduleTypingIdleReset(currentEditor)
-      } else if (!isExternalCollaborationChange) {
-        reportActiveBlockId(getActiveBlockId(currentEditor))
-      }
-    },
-    onSelectionUpdate({ editor: currentEditor }) {
-      syncCommandMenus(currentEditor)
-      const activeBlockId = getActiveBlockId(currentEditor)
-      const selection = getSelectionRange(currentEditor)
-      const relativeSelection = getRelativeSelectionRange(currentEditor)
 
-      if (collaboration) {
-        updateEditorCollaborationUser(currentEditor, collaboration, {
-          activeBlockId,
-          cursor: selection,
-          selection,
-          relativeCursor: relativeSelection,
-          relativeSelection,
-        })
-      }
-      reportActiveBlockId(activeBlockId)
-    },
-    onFocus({ editor: currentEditor }) {
-      const activeBlockId = getActiveBlockId(currentEditor)
-      const selection = getSelectionRange(currentEditor)
-      const relativeSelection = getRelativeSelectionRange(currentEditor)
-      if (collaboration) {
-        updateEditorCollaborationUser(currentEditor, collaboration, {
-          activeBlockId,
-          cursor: selection,
-          selection,
-          relativeCursor: relativeSelection,
-          relativeSelection,
-        })
-      }
-      reportActiveBlockId(activeBlockId)
-    },
-    onBlur({ editor: currentEditor }) {
-      clearTypingTimeout()
-      const activeBlockId = getActiveBlockId(currentEditor)
-      const selection = getSelectionRange(currentEditor)
-      const relativeSelection = getRelativeSelectionRange(currentEditor)
+        onMentionCountsChangeRef.current?.(
+          getEditorMentionCounts(currentEditor),
+          "initial"
+        )
+        syncCommandMenus(currentEditor)
+      },
+      onUpdate({ editor: currentEditor, transaction }) {
+        const isExternalCollaborationChange =
+          collaboration && isChangeOrigin(transaction)
 
-      if (collaboration) {
-        updateEditorCollaborationUser(currentEditor, collaboration, {
-          typing: false,
-          activeBlockId,
-          cursor: selection,
-          selection,
-          relativeCursor: relativeSelection,
-          relativeSelection,
-        })
-      }
-      reportActiveBlockId(activeBlockId)
+        onChangeRef.current(sanitizeRichTextContent(currentEditor.getHTML()))
+
+        onMentionCountsChangeRef.current?.(
+          getEditorMentionCounts(currentEditor),
+          isExternalCollaborationChange ? "external" : "local"
+        )
+        syncCommandMenus(currentEditor)
+
+        if (collaboration && !isExternalCollaborationChange) {
+          const activeBlockId = getActiveBlockId(currentEditor)
+          const selection = getSelectionRange(currentEditor)
+          const relativeSelection = getRelativeSelectionRange(currentEditor)
+          updateEditorCollaborationUser(currentEditor, collaboration, {
+            typing: true,
+            activeBlockId,
+            cursor: selection,
+            selection,
+            relativeCursor: relativeSelection,
+            relativeSelection,
+          })
+          reportActiveBlockId(activeBlockId)
+          scheduleTypingIdleReset(currentEditor)
+        } else if (!isExternalCollaborationChange) {
+          reportActiveBlockId(getActiveBlockId(currentEditor))
+        }
+      },
+      onSelectionUpdate({ editor: currentEditor }) {
+        syncCommandMenus(currentEditor)
+        const activeBlockId = getActiveBlockId(currentEditor)
+        const selection = getSelectionRange(currentEditor)
+        const relativeSelection = getRelativeSelectionRange(currentEditor)
+
+        if (collaboration) {
+          updateEditorCollaborationUser(currentEditor, collaboration, {
+            activeBlockId,
+            cursor: selection,
+            selection,
+            relativeCursor: relativeSelection,
+            relativeSelection,
+          })
+        }
+        reportActiveBlockId(activeBlockId)
+      },
+      onFocus({ editor: currentEditor }) {
+        const activeBlockId = getActiveBlockId(currentEditor)
+        const selection = getSelectionRange(currentEditor)
+        const relativeSelection = getRelativeSelectionRange(currentEditor)
+        if (collaboration) {
+          updateEditorCollaborationUser(currentEditor, collaboration, {
+            activeBlockId,
+            cursor: selection,
+            selection,
+            relativeCursor: relativeSelection,
+            relativeSelection,
+          })
+        }
+        reportActiveBlockId(activeBlockId)
+      },
+      onBlur({ editor: currentEditor }) {
+        clearTypingTimeout()
+        const activeBlockId = getActiveBlockId(currentEditor)
+        const selection = getSelectionRange(currentEditor)
+        const relativeSelection = getRelativeSelectionRange(currentEditor)
+
+        if (collaboration) {
+          updateEditorCollaborationUser(currentEditor, collaboration, {
+            typing: false,
+            activeBlockId,
+            cursor: selection,
+            selection,
+            relativeCursor: relativeSelection,
+            relativeSelection,
+          })
+        }
+        reportActiveBlockId(activeBlockId)
+      },
     },
-  }, [
-    collaboration?.binding.doc,
-    collaboration?.binding.provider,
-    collaboration?.localUser.sessionId,
-    handleEditorFiles,
-    reportActiveBlockId,
-    placeholder,
-  ])
+    [
+      collaboration?.binding.doc,
+      collaboration?.binding.provider,
+      collaboration?.localUser.sessionId,
+      handleEditorFiles,
+      reportActiveBlockId,
+      placeholder,
+    ]
+  )
 
   useEffect(() => {
     editorRef.current = editor
@@ -2095,15 +2119,13 @@ export function RichTextEditor({
     }
 
     const nextMarkers = collectBlockPresenceMarkers({
-        currentEditor: editor,
-        container: containerRef.current,
-        viewers: visiblePresenceViewers,
-      })
+      currentEditor: editor,
+      container: containerRef.current,
+      viewers: visiblePresenceViewers,
+    })
 
     setBlockPresenceMarkers((current) =>
-      areBlockPresenceMarkersEqual(current, nextMarkers)
-        ? current
-        : nextMarkers
+      areBlockPresenceMarkersEqual(current, nextMarkers) ? current : nextMarkers
     )
   }, [editor, visiblePresenceViewers])
 
@@ -2126,25 +2148,23 @@ export function RichTextEditor({
       currentPresenceUserId,
     })
 
-    setCollaborationCursorMarkers((current) =>
-      {
-        const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
-        const preservedMarkers = current.filter(
-          (marker) =>
-            activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
-        )
-        const mergedMarkers = [...nextMarkers, ...preservedMarkers].sort(
-          (left, right) =>
-            left.top - right.top ||
-            left.left - right.left ||
-            left.key.localeCompare(right.key)
-        )
+    setCollaborationCursorMarkers((current) => {
+      const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
+      const preservedMarkers = current.filter(
+        (marker) =>
+          activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
+      )
+      const mergedMarkers = [...nextMarkers, ...preservedMarkers].sort(
+        (left, right) =>
+          left.top - right.top ||
+          left.left - right.left ||
+          left.key.localeCompare(right.key)
+      )
 
-        return areCollaborationCursorMarkersEqual(current, mergedMarkers)
-          ? current
-          : mergedMarkers
-      }
-    )
+      return areCollaborationCursorMarkersEqual(current, mergedMarkers)
+        ? current
+        : mergedMarkers
+    })
   }, [collaboration, currentPresenceUserId, editor])
 
   const updateCollaborationSelectionMarkers = useCallback(() => {
@@ -2203,19 +2223,11 @@ export function RichTextEditor({
 
   useEffect(() => {
     updateCollaborationCursorMarkers()
-  }, [
-    containerWidth,
-    fullPageCanvasWidth,
-    updateCollaborationCursorMarkers,
-  ])
+  }, [containerWidth, fullPageCanvasWidth, updateCollaborationCursorMarkers])
 
   useEffect(() => {
     updateCollaborationSelectionMarkers()
-  }, [
-    containerWidth,
-    fullPageCanvasWidth,
-    updateCollaborationSelectionMarkers,
-  ])
+  }, [containerWidth, fullPageCanvasWidth, updateCollaborationSelectionMarkers])
 
   useEffect(() => {
     if (!editor) {
@@ -2366,14 +2378,9 @@ export function RichTextEditor({
       return
     }
 
-    const target =
-      event.target instanceof HTMLElement ? event.target : null
+    const target = event.target instanceof HTMLElement ? event.target : null
 
-    if (
-      target?.closest(
-        'button, a, input, textarea, label, [role="button"]'
-      )
-    ) {
+    if (target?.closest('button, a, input, textarea, label, [role="button"]')) {
       return
     }
 
@@ -2391,30 +2398,29 @@ export function RichTextEditor({
       ? 0
       : Math.min(mentionIndex, filteredMentionCandidates.length - 1)
 
-  const toolbar =
-    showToolbar ? (
-      <RichTextToolbar
-        editable={editable}
-        editor={currentEditor}
-        fullPage={fullPage}
-        fullPageCanvasWidth={fullPageCanvasWidth}
-        handleFiles={handleToolbarFiles}
-        hiddenAttachmentInputRef={hiddenAttachmentInputRef}
-        hiddenImageInputRef={hiddenImageInputRef}
-        pickerInsertPosition={pickerInsertPosition}
-        requestAttachmentPicker={requestAttachmentPicker}
-        requestImagePicker={requestImagePicker}
-        setFullPageCanvasWidth={setFullPageCanvasWidth}
-        showStats={showStats}
-        statsCharacters={statsCharacters}
-        statsWords={statsWords}
-        toolbarWidthClassName={
-          FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
-        }
-        uploadsEnabled={Boolean(onUploadAttachment)}
-        uploadingAttachment={uploadingAttachment}
-      />
-    ) : null
+  const toolbar = showToolbar ? (
+    <RichTextToolbar
+      editable={editable}
+      editor={currentEditor}
+      fullPage={fullPage}
+      fullPageCanvasWidth={fullPageCanvasWidth}
+      handleFiles={handleToolbarFiles}
+      hiddenAttachmentInputRef={hiddenAttachmentInputRef}
+      hiddenImageInputRef={hiddenImageInputRef}
+      pickerInsertPosition={pickerInsertPosition}
+      requestAttachmentPicker={requestAttachmentPicker}
+      requestImagePicker={requestImagePicker}
+      setFullPageCanvasWidth={setFullPageCanvasWidth}
+      showStats={showStats}
+      statsCharacters={statsCharacters}
+      statsWords={statsWords}
+      toolbarWidthClassName={
+        FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
+      }
+      uploadsEnabled={Boolean(onUploadAttachment)}
+      uploadingAttachment={uploadingAttachment}
+    />
+  ) : null
 
   const inlineEmojiPicker =
     editable && emojiPickerAnchor ? (
@@ -2490,7 +2496,9 @@ export function RichTextEditor({
     !collaboration && blockPresenceMarkers.length > 0 ? (
       <div className="pointer-events-none absolute inset-0 z-10">
         {blockPresenceMarkers.map((marker) => {
-          const viewerNames = marker.viewers.map((viewer) => viewer.name).join(", ")
+          const viewerNames = marker.viewers
+            .map((viewer) => viewer.name)
+            .join(", ")
 
           return (
             <div
@@ -2526,7 +2534,7 @@ export function RichTextEditor({
                   })}
                 {marker.viewers.length > MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS ? (
                   <span className="rounded-full bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border">
-                    +{marker.viewers.length - MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS}
+                    {`+${marker.viewers.length - MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS}`}
                   </span>
                 ) : null}
               </div>
@@ -2555,7 +2563,7 @@ export function RichTextEditor({
               title={`${marker.name} is editing here`}
             >
               <span
-                className="absolute left-0 top-0 w-0.5 rounded-full"
+                className="absolute top-0 left-0 w-0.5 rounded-full"
                 style={{
                   height: marker.height,
                   backgroundColor: marker.color,

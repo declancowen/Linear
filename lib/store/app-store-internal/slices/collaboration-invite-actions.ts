@@ -78,7 +78,7 @@ export function createCollaborationInviteActions({
         parsed.data.role
       ).then((result) => {
         set((current) => ({
-          invites: current.invites.map((invite, index) => {
+          invites: current.invites.map((invite) => {
             if (invite.batchId !== optimisticBatchId) {
               return invite
             }
@@ -103,10 +103,7 @@ export function createCollaborationInviteActions({
         return result
       })
 
-      runtime.syncInBackground(
-        syncTask,
-        "Failed to create invite"
-      )
+      runtime.syncInBackground(syncTask, "Failed to create invite")
 
       toast.success(
         parsed.data.teamIds.length === 1
@@ -148,8 +145,8 @@ export function createCollaborationInviteActions({
         const cancelled = await syncCancelInvite(inviteId)
 
         set((current) => ({
-          invites: current.invites.filter((entry) =>
-            !cancelled.cancelledInviteIds.includes(entry.id)
+          invites: current.invites.filter(
+            (entry) => !cancelled.cancelledInviteIds.includes(entry.id)
           ),
         }))
 

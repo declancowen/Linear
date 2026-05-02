@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -32,9 +32,13 @@ import {
   UserCircle,
   X,
 } from "@phosphor-icons/react"
+import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
-import { fetchWorkspaceMembershipReadModel } from "@/lib/convex/client/read-models"
+import {
+  fetchNotificationInboxReadModel,
+  fetchWorkspaceMembershipReadModel,
+} from "@/lib/convex/client/read-models"
 import {
   canAdminWorkspace,
   getAccessibleTeams,
@@ -47,13 +51,12 @@ import {
 } from "@/lib/domain/selectors"
 import {
   type CreateDialogState,
+  type Notification,
   getWorkSurfaceCopy,
   resolveUserStatus,
   type UserStatus,
-  type UserProfile,
   userStatusMeta,
   userStatuses,
-  type Workspace,
 } from "@/lib/domain/types"
 import { buildGlobalCreateActions } from "@/lib/domain/search-create-actions"
 import {
@@ -67,10 +70,17 @@ import {
   createShellContextScopeKey,
   createWorkspaceMembershipScopeKey,
 } from "@/lib/scoped-sync/scope-keys"
+import { getNotificationInboxScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
+import {
+  appendPendingNotificationToastIds,
+  getNotificationHref,
+  initializePendingNotificationToastIds,
+  isViewingNotificationTarget,
+} from "@/components/app/notification-routing"
 import { useShortcutModifierLabel } from "@/components/app/shortcut-keys"
 import { CreateViewDialog } from "@/components/app/screens/create-view-dialog"
 import { CreateProjectDialog } from "@/components/app/screens/project-creation"
@@ -120,6 +130,7 @@ type AppShellProps = {
 }
 
 const SHELL_CONTEXT_GRACE_PERIOD_MS = 1000
+const NOTIFICATION_TOAST_DURATION_MS = 5000
 
 function SidebarInsetResizeHandle() {
   const {
@@ -246,9 +257,61 @@ function ShellFrameFallback() {
   )
 }
 
+function NotificationToastContent({
+  notification,
+  onDismiss,
+  onOpen,
+}: {
+  notification: Notification
+  onDismiss: () => void
+  onOpen: () => void
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex w-[min(360px,calc(100vw-2rem))] cursor-pointer items-start gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-left text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-colors outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return
+        }
+
+        event.preventDefault()
+        onOpen()
+      }}
+    >
+      <span className="bg-brand/10 text-brand mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md">
+        <Bell className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] leading-5 font-medium">
+          New notification
+        </span>
+        <span className="line-clamp-2 block text-[12px] leading-4 text-fg-3">
+          {notification.message}
+        </span>
+      </span>
+      <button
+        type="button"
+        aria-label="Dismiss notification"
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDismiss()
+        }}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  )
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const [currentHash, setCurrentHash] = useState("")
   const unread = useAppStore(
     (state) =>
       state.notifications.filter(
@@ -257,6 +320,26 @@ export function AppShell({ children }: AppShellProps) {
           notification.readAt === null &&
           notification.archivedAt == null
       ).length
+  )
+  const notificationToastCandidates = useAppStore(
+    useShallow((state) =>
+      state.notifications
+        .filter(
+          (notification) =>
+            notification.userId === state.currentUserId &&
+            notification.readAt === null &&
+            notification.archivedAt == null
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    )
+  )
+  const notificationRouteData = useAppStore(
+    useShallow((state) => ({
+      channelPosts: state.channelPosts,
+      conversations: state.conversations,
+      projects: state.projects,
+      teams: state.teams,
+    }))
   )
   const workspace = useAppStore(getCurrentWorkspace)
   const currentUser = useAppStore(getCurrentUser)
@@ -310,8 +393,18 @@ export function AppShell({ children }: AppShellProps) {
           createWorkspaceMembershipScopeKey(currentWorkspaceId),
         ]
       : [],
-    fetchLatest: async () => fetchWorkspaceMembershipReadModel(currentWorkspaceId),
+    fetchLatest: async () =>
+      fetchWorkspaceMembershipReadModel(currentWorkspaceId),
   })
+  const { hasLoadedOnce: hasLoadedNotificationInbox } =
+    useScopedReadModelRefresh({
+      enabled: Boolean(currentUserId),
+      scopeKeys: currentUserId
+        ? getNotificationInboxScopeKeys(currentUserId)
+        : [],
+      fetchLatest: async () =>
+        fetchNotificationInboxReadModel(currentUserId ?? ""),
+    })
   const canCreateTeam = useAppStore((state) =>
     canAdminWorkspace(state, state.currentWorkspaceId)
   )
@@ -379,6 +472,13 @@ export function AppShell({ children }: AppShellProps) {
   )
   const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
+  const knownNotificationIdsRef = useRef<Set<string> | null>(null)
+  const pendingNotificationToastIdsRef = useRef<string[]>([])
+  const notificationToastUserIdRef = useRef<string | null>(null)
+  const notificationToastStartedAtRef = useRef("")
+  const notificationToastFlushTimeoutRef = useRef<number | null>(null)
+  const [notificationToastQueueTick, setNotificationToastQueueTick] =
+    useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useShortcutModifierLabel()
@@ -559,6 +659,138 @@ export function AppShell({ children }: AppShellProps) {
       window.removeEventListener("keydown", handleKeyDown)
     }
   }, [])
+
+  useEffect(() => {
+    function updateCurrentHash() {
+      setCurrentHash(window.location.hash)
+    }
+
+    updateCurrentHash()
+    window.addEventListener("hashchange", updateCurrentHash)
+
+    return () => {
+      window.removeEventListener("hashchange", updateCurrentHash)
+    }
+  }, [pathname])
+
+  useEffect(
+    () => () => {
+      if (notificationToastFlushTimeoutRef.current !== null) {
+        window.clearTimeout(notificationToastFlushTimeoutRef.current)
+        notificationToastFlushTimeoutRef.current = null
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (notificationToastUserIdRef.current !== currentUserId) {
+      notificationToastUserIdRef.current = currentUserId
+      notificationToastStartedAtRef.current = new Date().toISOString()
+      knownNotificationIdsRef.current = null
+      pendingNotificationToastIdsRef.current = []
+
+      if (notificationToastFlushTimeoutRef.current !== null) {
+        window.clearTimeout(notificationToastFlushTimeoutRef.current)
+        notificationToastFlushTimeoutRef.current = null
+      }
+    }
+
+    if (!currentUserId || !hasLoadedNotificationInbox) {
+      return
+    }
+
+    let knownNotificationIds = knownNotificationIdsRef.current
+
+    if (knownNotificationIds === null) {
+      knownNotificationIds = new Set()
+      knownNotificationIdsRef.current = knownNotificationIds
+      initializePendingNotificationToastIds({
+        candidates: notificationToastCandidates,
+        knownIds: knownNotificationIds,
+        pendingIds: pendingNotificationToastIdsRef.current,
+        startedAt: notificationToastStartedAtRef.current,
+      })
+    } else {
+      appendPendingNotificationToastIds({
+        candidates: notificationToastCandidates,
+        knownIds: knownNotificationIds,
+        pendingIds: pendingNotificationToastIdsRef.current,
+      })
+    }
+
+    if (notificationToastFlushTimeoutRef.current !== null) {
+      return
+    }
+
+    while (pendingNotificationToastIdsRef.current.length > 0) {
+      const nextNotificationId = pendingNotificationToastIdsRef.current.shift()
+      const nextNotification =
+        notificationToastCandidates.find(
+          (notification) => notification.id === nextNotificationId
+        ) ?? null
+
+      if (!nextNotification) {
+        continue
+      }
+
+      const href = getNotificationHref(notificationRouteData, nextNotification)
+
+      if (
+        isViewingNotificationTarget({
+          notification: nextNotification,
+          href,
+          pathname,
+          searchParams,
+          hash: currentHash,
+        })
+      ) {
+        useAppStore.getState().markNotificationRead(nextNotification.id)
+        continue
+      }
+
+      toast.custom(
+        (toastId) => (
+          <NotificationToastContent
+            notification={nextNotification}
+            onDismiss={() => toast.dismiss(toastId)}
+            onOpen={() => {
+              toast.dismiss(toastId)
+
+              if (!href) {
+                return
+              }
+
+              useAppStore.getState().markNotificationRead(nextNotification.id)
+              router.push(href)
+            }}
+          />
+        ),
+        {
+          id: `notification-${nextNotification.id}`,
+          duration: NOTIFICATION_TOAST_DURATION_MS,
+          position: "bottom-right",
+        }
+      )
+
+      notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
+        notificationToastFlushTimeoutRef.current = null
+        setNotificationToastQueueTick((current) => current + 1)
+      }, NOTIFICATION_TOAST_DURATION_MS)
+
+      return
+    }
+  }, [
+    currentUserId,
+    currentHash,
+    hasLoadedNotificationInbox,
+    notificationToastCandidates,
+    notificationToastQueueTick,
+    notificationRouteData,
+    pathname,
+    router,
+    searchParams,
+  ])
 
   function toggleTeam(teamId: string) {
     setExpandedTeams((current) => {

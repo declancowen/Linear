@@ -25,6 +25,7 @@ import type {
   WorkItem,
   WorkItemType,
   WorkStatus,
+  ViewerDirectoryConfig,
 } from "@/lib/domain/types"
 import type { ScopedReadModelReplaceInstruction } from "@/lib/scoped-sync/read-models"
 
@@ -252,6 +253,21 @@ export type ViewConfigPatch = Partial<{
   showCompleted: boolean
 }>
 
+export type ViewFilterValueKey =
+  | "status"
+  | "priority"
+  | "assigneeIds"
+  | "creatorIds"
+  | "leadIds"
+  | "health"
+  | "milestoneIds"
+  | "relationTypes"
+  | "projectIds"
+  | "parentIds"
+  | "itemTypes"
+  | "labelIds"
+  | "teamIds"
+
 export type PendingViewConfig = {
   token: string
   patch: ViewConfigPatch
@@ -272,6 +288,42 @@ export type AppStore = AppData & {
   openCreateDialog: (dialog: CreateDialogState) => void
   closeCreateDialog: () => void
   setSelectedView: (route: string, viewId: string) => void
+  patchViewerViewConfig: (
+    surfaceKey: string,
+    viewId: string,
+    patch: ViewConfigPatch
+  ) => void
+  toggleViewerViewFilterValue: (
+    surfaceKey: string,
+    viewId: string,
+    key: ViewFilterValueKey,
+    value: string
+  ) => void
+  clearViewerViewFilters: (surfaceKey: string, viewId: string) => void
+  toggleViewerViewDisplayProperty: (
+    surfaceKey: string,
+    viewId: string,
+    property: DisplayProperty
+  ) => void
+  reorderViewerViewDisplayProperties: (
+    surfaceKey: string,
+    viewId: string,
+    displayProps: DisplayProperty[]
+  ) => void
+  clearViewerViewDisplayProperties: (
+    surfaceKey: string,
+    viewId: string
+  ) => void
+  toggleViewerViewHiddenValue: (
+    surfaceKey: string,
+    viewId: string,
+    key: "groups" | "subgroups",
+    value: string
+  ) => void
+  patchViewerDirectoryConfig: (
+    surfaceKey: string,
+    patch: ViewerDirectoryConfig
+  ) => void
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
   markNotificationsRead: (notificationIds: string[]) => void
@@ -324,20 +376,7 @@ export type AppStore = AppData & {
   ) => void
   toggleViewFilterValue: (
     viewId: string,
-    key:
-      | "status"
-      | "priority"
-      | "assigneeIds"
-      | "creatorIds"
-      | "leadIds"
-      | "health"
-      | "milestoneIds"
-      | "relationTypes"
-      | "projectIds"
-      | "parentIds"
-      | "itemTypes"
-      | "labelIds"
-      | "teamIds",
+    key: ViewFilterValueKey,
     value: string
   ) => void
   clearViewFilters: (viewId: string) => void

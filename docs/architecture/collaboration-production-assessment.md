@@ -51,28 +51,31 @@ So the answer to the architecture question is:
 
 ## What We Just Fixed
 
-### Fix: explicit teardown flush intent
+### Fix: server-owned active flush plus explicit teardown fallback
 
 Status: `Implemented`
 
 Problem that was fixed:
 
-- active saves and closing-tab/unmount flushes were using the same PartyKit flush path
-- the server tried to infer whether an incoming flush was stale by checking:
-  - whether other editors were connected
-  - whether the payload matched the current room document
-- that broke legitimate saves whenever another editor was connected and the room had not caught up yet
+- active saves and closing-tab/unmount flushes used to be too similar at the protocol boundary
+- active saves could apply a client-supplied content snapshot to the room before persisting
+- that made a stale browser snapshot capable of overwriting newer server-held Yjs room state
 
 What changed:
 
-- active saves remain authoritative
+- active saves are server-owned: PartyKit persists the current server-held room Y.Doc
+- active `content` and `work-item-main` flushes ignore client body snapshots
 - teardown/close flushes now use explicit intent:
   - `kind: "teardown-content"`
 - the “ignore if other editors remain” logic now applies only to teardown flushes
-- normal `content` and `work-item-main` flushes always apply the incoming payload before persisting
+- teardown is the only client-content fallback and is accepted only when no other editor remains
+- collaboration session tokens and bootstrap payloads now carry protocol/schema versions and room limits
 
 Primary files:
 
+- [lib/collaboration/protocol.ts](../../lib/collaboration/protocol.ts)
+- [lib/collaboration/errors.ts](../../lib/collaboration/errors.ts)
+- [lib/collaboration/limits.ts](../../lib/collaboration/limits.ts)
 - [lib/collaboration/transport.ts](../../lib/collaboration/transport.ts)
 - [lib/collaboration/adapters/partykit.ts](../../lib/collaboration/adapters/partykit.ts)
 - [hooks/use-document-collaboration.ts](../../hooks/use-document-collaboration.ts)
@@ -82,8 +85,9 @@ Primary files:
 
 Why this matters:
 
-- active saves are no longer misclassified as stale closing-session flushes
+- active saves cannot overwrite server-held room content with a stale client snapshot
 - closing/refreshing one tab no longer risks overwriting the work of editors still in the room
+- stale browser/editor versions are rejected with structured reload-required errors
 
 ## Next Fix To Implement
 
@@ -234,7 +238,7 @@ These should happen only after the production-critical boot and observability wo
 | Explicit teardown flush split | Done | P0 | Fixes the regression introduced by the last PartyKit save-path change |
 | Boot/open-path stabilization | Done | P0 | Collaborative docs and descriptions now mount one editor path during boot/attach |
 | Use bootstrap payload to avoid preview/live swap | Done | P0 | `contentJson` now feeds the boot renderer without changing Yjs room seeding |
-| Add client/worker/protocol/deployment diagnostics | Planned | P1 | Required for reliable prod debugging |
+| Add client/worker/protocol/deployment diagnostics | Done | P1 | Protocol/schema versions, structured errors, limits, and log event names now exist |
 | Reduce duplicate Convex reads on open/save | Planned | P1 | Optimization after boot stabilization |
 | Broader collaboration cleanup | Deferred | P2 | Do after production-critical paths are stable |
 
@@ -269,19 +273,36 @@ Out of scope:
   - `document-title`
   - `work-item-main`
   - `teardown-content`
-- treat active saves as authoritative
+- treat active saves as server-owned
 - treat teardown as safe-to-ignore when other editors remain
+- do not apply client `contentJson` for active body flushes
 - update the client teardown path to use explicit teardown intent
 - update PartyKit tests to cover:
-  - divergent active save with another editor connected
+  - stale active client payload cannot overwrite server-held room content
   - teardown ignored when other editors remain
   - teardown persisted when no other editors remain
 
 #### Success criteria
 
-- active saves no longer get ignored just because another editor is connected
+- active saves persist server-held room content even when another editor is connected
 - closing or refreshing one tab does not overwrite the work of remaining editors
 - no Convex deploy is required
+
+### Turn 1b: Collaboration protocol hardening
+
+Status: `Done`
+
+This hardening pass adds the first explicit realtime collaboration protocol contract:
+
+- document session tokens require protocol and schema versions
+- session bootstrap responses expose protocol/schema versions and collaboration limits
+- PartyKit rejects unsupported versions on connect and flush
+- known failures return structured collaboration error codes
+- active-room refresh exists for canonical updates, document deletes, and access changes
+- room admission and payload/state limits are enforced at the PartyKit boundary
+- structured collaboration events provide the rollout/runbook signals
+
+Convex HTML remains the durable source of truth in this PR. Durable Yjs state in Convex remains a documented future option, not part of this implementation.
 
 ### Turn 2: Stabilize collaborative boot/open path
 

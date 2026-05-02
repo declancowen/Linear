@@ -41,6 +41,7 @@ import {
 } from "@/lib/domain/selectors"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
+import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
@@ -96,52 +97,25 @@ function formatRecipientCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`
 }
 
-function hasSeenInitialDocumentSyncModal(documentId: string) {
-  if (typeof window === "undefined") {
-    return false
-  }
-
-  return (
-    window.sessionStorage.getItem(
-      `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`
-    ) === "true"
-  )
-}
-
-function markInitialDocumentSyncModalSeen(documentId: string) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  window.sessionStorage.setItem(
-    `${DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX}${documentId}`,
-    "true"
-  )
-}
-
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const router = useRouter()
-  const {
-    currentWorkspaceId,
-    currentUser,
-    currentUserId,
-    document,
-    team,
-  } = useAppStore(
-    useShallow((state) => {
-      const document =
-        state.documents.find((entry) => entry.id === documentId) ?? null
+  const { currentWorkspaceId, currentUser, currentUserId, document, team } =
+    useAppStore(
+      useShallow((state) => {
+        const document =
+          state.documents.find((entry) => entry.id === documentId) ?? null
 
-      return {
-        currentWorkspaceId: state.currentWorkspaceId,
-        currentUser:
-          state.users.find((entry) => entry.id === state.currentUserId) ?? null,
-        currentUserId: state.currentUserId,
-        document,
-        team: document?.teamId ? getTeam(state, document.teamId) : null,
-      }
-    })
-  )
+        return {
+          currentWorkspaceId: state.currentWorkspaceId,
+          currentUser:
+            state.users.find((entry) => entry.id === state.currentUserId) ??
+            null,
+          currentUserId: state.currentUserId,
+          document,
+          team: document?.teamId ? getTeam(state, document.teamId) : null,
+        }
+      })
+    )
   const editable = useAppStore((state) =>
     document ? canEditDocumentInUi(state, document) : false
   )
@@ -166,7 +140,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     words: 0,
     characters: 0,
   })
-  const [editorContent, setEditorContent] = useState(() => document?.content ?? "")
+  const [editorContent, setEditorContent] = useState(
+    () => document?.content ?? ""
+  )
   const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
     DocumentPresenceViewer[]
   >([])
@@ -184,8 +160,6 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
-  const [hasSeenInitialCollaborationAttach, setHasSeenInitialCollaborationAttach] =
-    useState(() => hasSeenInitialDocumentSyncModal(documentId))
   const titleInputRef = useRef<HTMLInputElement>(null)
   const editorInstanceRef = useRef<Editor | null>(null)
   const legacyActiveBlockIdRef = useRef<string | null>(null)
@@ -201,6 +175,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     avatarUrl?: string | null
     avatarImageUrl?: string | null
   } | null>(null)
+  const latestDocumentContentRef = useRef(document?.content ?? "")
   const currentDocumentContentRef = useRef("")
   const currentDocumentId = document?.id ?? null
   const resolvedDocumentKind = document?.kind ?? null
@@ -215,7 +190,6 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     editorCollaboration,
     collaboration,
     flush: flushCollaboration,
-    hasAttachedOnce,
     lifecycle: collaborationLifecycle,
     viewers: collaborationViewers,
   } = useDocumentCollaboration({
@@ -223,21 +197,20 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     currentUser: collaborationCurrentUser,
     enabled: Boolean(stableCollaborativeDocumentId),
   })
-  const {
-    hasLoadedOnce: hasLoadedDocumentReadModel,
-  } = useScopedReadModelRefresh({
-    enabled: Boolean(documentId),
-    scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
-    fetchLatest: () => fetchDocumentDetailReadModel(documentId),
-    notFoundResult: documentId
-      ? createMissingScopedReadModelResult([
-          {
-            kind: "document-detail",
-            documentId,
-          },
-        ])
-      : undefined,
-  })
+  const { hasLoadedOnce: hasLoadedDocumentReadModel } =
+    useScopedReadModelRefresh({
+      enabled: Boolean(documentId),
+      scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
+      fetchLatest: () => fetchDocumentDetailReadModel(documentId),
+      notFoundResult: documentId
+        ? createMissingScopedReadModelResult([
+            {
+              kind: "document-detail",
+              documentId,
+            },
+          ])
+        : undefined,
+    })
   useEffect(() => {
     if (!currentUser) {
       return
@@ -249,10 +222,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       avatarUrl: currentUser.avatarUrl,
       avatarImageUrl: currentUser.avatarImageUrl ?? null,
     }
-  }, [
-    currentUser,
-    currentUserId,
-  ])
+  }, [currentUser, currentUserId])
 
   useEffect(() => {
     if (previousRouteDocumentIdRef.current === documentId) {
@@ -261,7 +231,6 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
     previousRouteDocumentIdRef.current = documentId
     setStableCollaborativeDocumentId(null)
-    setHasSeenInitialCollaborationAttach(hasSeenInitialDocumentSyncModal(documentId))
   }, [documentId])
 
   useEffect(() => {
@@ -280,31 +249,25 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     setStableCollaborativeDocumentId(document.id)
   }, [document])
 
-  const protectedDocumentId =
-    currentDocumentId ?? stableCollaborativeDocumentId
+  const protectedDocumentId = currentDocumentId ?? stableCollaborativeDocumentId
   const isProtectingDocumentBody = Boolean(
     protectedDocumentId &&
-      (collaborationLifecycle === "bootstrapping" ||
-        collaborationLifecycle === "attached")
+    (collaborationLifecycle === "bootstrapping" ||
+      collaborationLifecycle === "attached")
   )
   const isCollaborationAttached = collaborationLifecycle === "attached"
   const isCollaborationBootstrapping =
     collaborationLifecycle === "bootstrapping"
   const collaborationEditorContent = editorContent
 
-  useEffect(() => {
-    if (!isCollaborationAttached) {
-      return
-    }
-
-    markInitialDocumentSyncModalSeen(documentId)
-    setHasSeenInitialCollaborationAttach(true)
-  }, [documentId, isCollaborationAttached])
-
   currentDocumentContentRef.current = editorContent
 
   useEffect(() => {
-    setEditorContent(document?.content ?? "")
+    latestDocumentContentRef.current = document?.content ?? ""
+  }, [document?.content])
+
+  useEffect(() => {
+    setEditorContent(latestDocumentContentRef.current)
   }, [currentDocumentId])
 
   useEffect(() => {
@@ -326,10 +289,15 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       state.cancelDocumentSync(protectedDocumentId)
     }
 
-    state.setDocumentBodyProtection(protectedDocumentId, isProtectingDocumentBody)
+    state.setDocumentBodyProtection(
+      protectedDocumentId,
+      isProtectingDocumentBody
+    )
 
     return () => {
-      useAppStore.getState().setDocumentBodyProtection(protectedDocumentId, false)
+      useAppStore
+        .getState()
+        .setDocumentBodyProtection(protectedDocumentId, false)
     }
   }, [protectedDocumentId, isProtectingDocumentBody])
 
@@ -550,24 +518,22 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     currentUserId,
     resolvedDocumentKind,
   ])
-  const hasLiveCollaborationPresence =
-    collaborationLifecycle === "attached"
-  const activeDocumentViewers =
-    hasLiveCollaborationPresence
-      ? collaborationViewers
-      : currentUser
-        ? [
-            {
-              userId: currentUser.id,
-              name: currentUser.name,
-              avatarUrl: currentUser.avatarUrl,
-              avatarImageUrl: currentUser.avatarImageUrl ?? null,
-              activeBlockId: legacyActiveBlockId,
-              lastSeenAt: new Date().toISOString(),
-            },
-            ...documentPresenceViewers,
-          ]
-        : documentPresenceViewers
+  const hasLiveCollaborationPresence = collaborationLifecycle === "attached"
+  const activeDocumentViewers = hasLiveCollaborationPresence
+    ? collaborationViewers
+    : currentUser
+      ? [
+          {
+            userId: currentUser.id,
+            name: currentUser.name,
+            avatarUrl: currentUser.avatarUrl,
+            avatarImageUrl: currentUser.avatarImageUrl ?? null,
+            activeBlockId: legacyActiveBlockId,
+            lastSeenAt: new Date().toISOString(),
+          },
+          ...documentPresenceViewers,
+        ]
+      : documentPresenceViewers
   const otherDocumentViewers = activeDocumentViewers.filter(
     (viewer) => viewer.userId !== currentUserId
   )
@@ -620,6 +586,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       dispatchMentionQueue({
         type: "sync-counts",
         counts,
+        rebaseCounts: source !== "local",
         trackCountIncreases:
           source === "local" && document?.kind !== "private-document",
         ignoredUserIds: [currentUserId],
@@ -758,18 +725,21 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   }, [hasPendingMentionNotifications])
 
   const loadedDocument = document
-  const showCollaborationBootPreview =
-    Boolean(
+  const showCollaborationBootPreview = useInitialCollaborationSyncPreview({
+    id: loadedDocument?.id ?? null,
+    storagePrefix: DOCUMENT_SYNC_MODAL_SEEN_STORAGE_PREFIX,
+    eligible: Boolean(
       loadedDocument &&
-        loadedDocument.kind !== "item-description" &&
-        loadedDocument.kind !== "private-document" &&
-        isCollaborationBootstrapping &&
-        !hasSeenInitialCollaborationAttach
-    )
+      loadedDocument.kind !== "item-description" &&
+      loadedDocument.kind !== "private-document"
+    ),
+    bootstrapping: isCollaborationBootstrapping,
+    attached: isCollaborationAttached,
+  })
   const collaborationPreviewContent =
     typeof bootstrapContent === "string"
       ? bootstrapContent
-      : loadedDocument?.content ?? editorContent
+      : (loadedDocument?.content ?? editorContent)
 
   const backHref = team ? `/team/${team.slug}/docs` : "/workspace/docs"
   const loadedDocumentId = loadedDocument?.id ?? documentId
@@ -934,7 +904,9 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
 
   const handleDocumentAttachmentUpload = useCallback(
     (file: File) =>
-      useAppStore.getState().uploadAttachment("document", loadedDocumentId, file),
+      useAppStore
+        .getState()
+        .uploadAttachment("document", loadedDocumentId, file),
     [loadedDocumentId]
   )
 
@@ -1039,7 +1011,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
             >
               <RichTextContent
                 content={collaborationPreviewContent}
-                className="text-base text-fg-1 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+                className="text-fg-1 text-base [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
               />
             </FullPageRichTextShell>
           ) : (

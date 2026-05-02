@@ -29,6 +29,8 @@ export function createEmptyState(): AppData {
       activeTeamId: "",
       activeInboxNotificationId: null,
       selectedViewByRoute: {},
+      viewerViewConfigByRoute: {},
+      viewerDirectoryConfigByRoute: {},
       activeCreateDialog: null,
     },
   }

@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable react-hooks/refs -- The retained value is intentionally read during render to bridge transient null states without promoting it to canonical state. */
+
 import { useEffect, useRef, useState } from "react"
 
 type UseExpiringRetainedValueOptions<T> = {
@@ -66,8 +68,10 @@ export function useExpiringRetainedValue<T>({
     }
   }, [gracePeriodMs, retentionKey, value])
 
-  return value ??
+  return (
+    value ??
     (retainedValueRef.current.retentionKey === retentionKey
       ? retainedValueRef.current.value
       : null)
+  )
 }

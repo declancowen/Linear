@@ -12,7 +12,9 @@ import type {
 } from "@/lib/domain/types"
 import {
   EMPTY_PARENT_FILTER_VALUE,
+  getAllowedWorkItemTypesForTemplate,
   getAllowedChildWorkItemTypesForItem,
+  getDefaultWorkItemTypesForTeamExperience,
   isCompletedWorkStatus,
   isExcludedFromWorkStatusRollup,
   priorities,
@@ -363,7 +365,9 @@ export function getVisibleItemsForView(
           }
 
           visitedIds.add(cursor.id)
-          cursor = cursor.parentId ? itemsById.get(cursor.parentId) ?? null : null
+          cursor = cursor.parentId
+            ? (itemsById.get(cursor.parentId) ?? null)
+            : null
         }
 
         return
@@ -480,22 +484,50 @@ export function getGroupValue(
 export function getAvailableGroupKeysForItems(
   data: AppData,
   items: WorkItem[],
-  field: GroupField | null
+  field: GroupField | null,
+  options?: {
+    sourceItems?: WorkItem[]
+    teamId?: string | null
+    projectId?: string | null
+  }
 ) {
-  if (!field || items.length === 0) {
+  if (!field) {
     return []
   }
 
   const keys = new Set<string>()
-  const teamIds = new Set(items.map((item) => item.teamId))
+  const sourceItems = options?.sourceItems ?? items
+  const teamIds = new Set(sourceItems.map((item) => item.teamId))
+  if (options?.teamId) {
+    teamIds.add(options.teamId)
+  }
+  const project = options?.projectId
+    ? getProject(data, options.projectId)
+    : null
+
+  if (project?.scopeType === "team") {
+    teamIds.add(project.scopeId)
+  }
+
   const workspaceIds = new Set(
     [...teamIds]
       .map((teamId) => getTeam(data, teamId)?.workspaceId ?? null)
       .filter((workspaceId): workspaceId is string => workspaceId !== null)
   )
 
+  if (project?.scopeType === "workspace") {
+    workspaceIds.add(project.scopeId)
+  }
+
   if (field === "status") {
-    getStatusOrderForItems(data, items).forEach((status) => keys.add(status))
+    const statusOrder =
+      sourceItems.length > 0
+        ? getStatusOrderForItems(data, sourceItems)
+        : options?.teamId
+          ? getStatusOrderForTeam(getTeam(data, options.teamId))
+          : [...workStatuses]
+
+    statusOrder.forEach((status) => keys.add(status))
   }
 
   if (field === "priority") {
@@ -540,10 +572,26 @@ export function getAvailableGroupKeysForItems(
   }
 
   if (field === "type") {
-    workItemTypes.forEach((type) => keys.add(type))
+    const allowedTypeKeys = new Set<WorkItem["type"]>()
+
+    if (project) {
+      getAllowedWorkItemTypesForTemplate(project.templateType).forEach((type) =>
+        allowedTypeKeys.add(type)
+      )
+    }
+
+    teamIds.forEach((teamId) => {
+      getDefaultWorkItemTypesForTeamExperience(
+        getTeam(data, teamId)?.settings.experience
+      ).forEach((type) => allowedTypeKeys.add(type))
+    })
+    const allowedTypes =
+      allowedTypeKeys.size > 0 ? [...allowedTypeKeys] : [...workItemTypes]
+
+    allowedTypes.forEach((type) => keys.add(type))
   }
 
-  items.forEach((item) => {
+  sourceItems.forEach((item) => {
     keys.add(getGroupValue(data, item, field))
   })
 
@@ -599,10 +647,21 @@ export function buildItemGroups(
 export function buildItemGroupsWithEmptyGroups(
   data: AppData,
   items: WorkItem[],
-  view: ViewDefinition
+  view: ViewDefinition,
+  options?: {
+    sourceItems?: WorkItem[]
+    teamId?: string | null
+    projectId?: string | null
+  }
 ) {
   const groups = new Map(buildItemGroups(data, items, view))
-  const statusOrder = getStatusOrderForItems(data, items)
+  const statusSourceItems = options?.sourceItems ?? items
+  const statusOrder =
+    statusSourceItems.length > 0
+      ? getStatusOrderForItems(data, statusSourceItems)
+      : options?.teamId
+        ? getStatusOrderForTeam(getTeam(data, options.teamId))
+        : [...workStatuses]
   const hasActiveFilters =
     view.filters.status.length > 0 ||
     view.filters.priority.length > 0 ||
@@ -620,7 +679,7 @@ export function buildItemGroupsWithEmptyGroups(
     !view.filters.showCompleted
 
   if (!hasActiveFilters) {
-    getAvailableGroupKeysForItems(data, items, view.grouping).forEach(
+    getAvailableGroupKeysForItems(data, items, view.grouping, options).forEach(
       (groupKey) => {
         if (!groups.has(groupKey)) {
           groups.set(groupKey, new Map())

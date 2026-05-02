@@ -901,6 +901,7 @@ export async function updateItemDescriptionHandler(
 
   return {
     updatedAt,
+    documentId: descriptionDocument.id,
   }
 }
 

@@ -5,59 +5,86 @@ import {
   type ElementType,
   type ReactNode,
 } from "react"
-import { Camera, SpinnerGap, Trash, Warning } from "@phosphor-icons/react"
+import {
+  CaretRight,
+  Camera,
+  SpinnerGap,
+  Trash,
+  Warning,
+} from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 
-function CollectionPaneHeader({ title }: { title: string }) {
+function CollectionPaneHeader({
+  title,
+  breadcrumb,
+}: {
+  title: string
+  breadcrumb?: string
+}) {
   return (
     <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-line-soft bg-background px-4 py-2">
       <SidebarTrigger className="size-5 shrink-0" />
-      <h1 className="truncate text-[13px] font-medium text-fg-2">{title}</h1>
+      <div className="flex min-w-0 items-center gap-1.5">
+        {breadcrumb ? (
+          <>
+            <span className="truncate text-[13px] text-muted-foreground">
+              {breadcrumb}
+            </span>
+            <CaretRight
+              className="size-3 shrink-0 text-fg-4"
+              weight="bold"
+            />
+          </>
+        ) : null}
+        <h1 className="truncate text-[13px] font-medium text-fg-2">{title}</h1>
+      </div>
     </div>
   )
 }
 
 export function SettingsScaffold({
   title,
+  breadcrumb = "Settings",
   subtitle,
   hero,
   children,
   footer,
 }: {
   title: string
-  subtitle?: string
+  breadcrumb?: string
+  subtitle?: ReactNode
   hero?: ReactNode
   children: ReactNode
   footer?: ReactNode
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <CollectionPaneHeader title={title} />
+      <CollectionPaneHeader title={title} breadcrumb={breadcrumb} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-6 pt-8 pb-16">
+        <div className="mx-auto w-full max-w-3xl px-6 pt-9 pb-20">
           {hero ? (
-            <div className="mb-8">{hero}</div>
+            <div className="mb-9">{hero}</div>
           ) : (
-            <header className="mb-8">
-              <h1 className="text-[22px] leading-tight font-semibold tracking-tight">
+            <header className="mb-9 space-y-1.5">
+              <h1 className="text-[20px] leading-tight font-semibold tracking-tight">
                 {title}
               </h1>
               {subtitle ? (
-                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                <p className="max-w-xl text-[13px] leading-relaxed text-muted-foreground">
                   {subtitle}
                 </p>
               ) : null}
             </header>
           )}
-          <div className="space-y-8">{children}</div>
+          <div className="space-y-9">{children}</div>
         </div>
       </div>
       {footer ? (
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line-soft bg-background/95 px-6 py-3 backdrop-blur">
+        <div className="sticky bottom-0 flex shrink-0 items-center justify-end gap-2 border-t border-line-soft bg-background/95 px-6 py-2.5 backdrop-blur">
           {footer}
         </div>
       ) : null}
@@ -67,8 +94,8 @@ export function SettingsScaffold({
 
 export function SettingsGroupLabel({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-3 pt-2">
-      <span className="text-[11px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
+    <div className="flex items-center gap-3">
+      <span className="text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
         {label}
       </span>
       <div className="h-px flex-1 bg-line-soft" />
@@ -145,29 +172,33 @@ export function SettingsHero({
 }: {
   leading?: ReactNode
   title: string
-  description?: string | null
+  description?: ReactNode
   meta?: Array<{
     key: string
-    label: string
+    label: ReactNode
   }>
   action?: ReactNode
 }) {
   return (
-    <section className="flex items-start gap-4 rounded-xl border border-line bg-surface p-5">
+    <section className="flex items-center gap-5">
       {leading ? <div className="shrink-0">{leading}</div> : null}
-      <div className="min-w-0 flex-1">
-        <h2 className="text-[16px] leading-tight font-semibold">{title}</h2>
+      <div className="min-w-0 flex-1 space-y-1">
+        <h1 className="truncate text-[22px] leading-tight font-semibold tracking-tight">
+          {title}
+        </h1>
         {description ? (
-          <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+          <p className="line-clamp-2 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
             {description}
           </p>
         ) : null}
         {meta && meta.length > 0 ? (
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[11.5px] text-fg-3">
             {meta.map((entry, index) => (
               <div key={entry.key} className="flex items-center gap-2">
                 {index > 0 ? (
-                  <span aria-hidden className="text-fg-4">·</span>
+                  <span aria-hidden className="text-fg-4">
+                    ·
+                  </span>
                 ) : null}
                 <span>{entry.label}</span>
               </div>
@@ -184,27 +215,48 @@ export function SettingsSection({
   title,
   description,
   children,
+  action,
   className,
   variant = "card",
 }: {
-  title: string
-  description?: string
+  title?: string
+  description?: ReactNode
   children: ReactNode
+  action?: ReactNode
   className?: string
   variant?: "card" | "plain"
 }) {
-  if (variant === "plain") {
-    return (
-      <section className={cn("space-y-4", className)}>
-        <header className="space-y-1">
-          <h2 className="text-[14px] font-semibold tracking-tight">{title}</h2>
+  const header =
+    title || description || action ? (
+      <header
+        className={cn(
+          "flex items-end justify-between gap-4",
+          variant === "card"
+            ? "border-b border-line-soft px-5 pt-4 pb-3.5"
+            : "pb-1"
+        )}
+      >
+        <div className="min-w-0 space-y-1">
+          {title ? (
+            <h2 className="text-[14px] font-semibold tracking-tight">
+              {title}
+            </h2>
+          ) : null}
           {description ? (
             <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
               {description}
             </p>
           ) : null}
-        </header>
-        <div className="space-y-4">{children}</div>
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </header>
+    ) : null
+
+  if (variant === "plain") {
+    return (
+      <section className={cn("space-y-4", className)}>
+        {header}
+        <div className="space-y-3">{children}</div>
       </section>
     )
   }
@@ -216,16 +268,62 @@ export function SettingsSection({
         className
       )}
     >
-      <header className="space-y-1 border-b border-line-soft px-5 pt-4 pb-3.5">
-        <h2 className="text-[14px] font-semibold tracking-tight">{title}</h2>
+      {header}
+      <div className="px-5 py-4">{children}</div>
+    </section>
+  )
+}
+
+export function SettingsRowGroup({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "divide-y divide-line-soft overflow-hidden rounded-xl border border-line bg-surface",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+export function SettingsRow({
+  label,
+  description,
+  control,
+  className,
+  alignment = "start",
+}: {
+  label: ReactNode
+  description?: ReactNode
+  control: ReactNode
+  className?: string
+  alignment?: "start" | "center"
+}) {
+  return (
+    <div
+      className={cn(
+        "grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,_220px)_1fr] sm:gap-6",
+        alignment === "center" ? "sm:items-center" : "sm:items-start",
+        className
+      )}
+    >
+      <div className="min-w-0 space-y-1 pt-1">
+        <div className="text-[13px] font-medium leading-tight">{label}</div>
         {description ? (
-          <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+          <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             {description}
           </p>
         ) : null}
-      </header>
-      <div className="px-5 py-4">{children}</div>
-    </section>
+      </div>
+      <div className="min-w-0">{control}</div>
+    </div>
   )
 }
 
@@ -245,21 +343,21 @@ export function SettingsToggleRow({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-1">
-      <div className="min-w-0 space-y-1">
-        <div className="text-[13.5px] font-medium">{title}</div>
-        <div className="text-[13px] leading-relaxed text-muted-foreground">
+    <div className="flex items-start justify-between gap-4 px-5 py-3.5 sm:items-center">
+      <div className="min-w-0 space-y-0.5">
+        <div className="text-[13px] font-medium leading-tight">{title}</div>
+        <div className="text-[12.5px] leading-relaxed text-muted-foreground">
           {description}
         </div>
         {note ? (
-          <div className="text-[12.5px] leading-relaxed text-muted-foreground">
+          <div className="pt-0.5 text-[12px] leading-relaxed text-fg-3">
             {note}
           </div>
         ) : null}
       </div>
       <Switch
         checked={checked}
-        className="mt-0.5 shrink-0"
+        className="shrink-0"
         disabled={disabled}
         onCheckedChange={onCheckedChange}
       />
@@ -321,10 +419,15 @@ export function ImageUploadControl({
 
   return (
     <div className="flex items-center gap-4 py-1">
-      <div
+      <button
+        type="button"
+        aria-label={`Change ${title.toLowerCase()}`}
+        disabled={disabled || uploading}
+        onClick={() => inputRef.current?.click()}
         className={cn(
-          "flex size-14 shrink-0 items-center justify-center overflow-hidden border border-line bg-surface-2",
-          shape === "circle" ? "rounded-full" : "rounded-2xl"
+          "group relative flex size-16 shrink-0 items-center justify-center overflow-hidden border border-line bg-surface-2 transition-colors hover:border-line",
+          shape === "circle" ? "rounded-full" : "rounded-2xl",
+          (disabled || uploading) && "cursor-not-allowed opacity-70"
         )}
       >
         {imageSrc ? (
@@ -333,13 +436,30 @@ export function ImageUploadControl({
         ) : (
           preview
         )}
-      </div>
-      <div className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-0 flex items-center justify-center bg-foreground/55 text-background opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
+            shape === "circle" ? "rounded-full" : "rounded-2xl"
+          )}
+        >
+          {uploading ? (
+            <SpinnerGap className="size-4 animate-spin" />
+          ) : (
+            <Camera className="size-4" />
+          )}
+        </span>
+      </button>
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="text-[13px] font-medium">{title}</div>
         {description ? (
-          <div className="text-[12.5px] text-muted-foreground">
+          <div className="text-[12.5px] leading-relaxed text-muted-foreground">
             {description}
           </div>
-        ) : null}
+        ) : (
+          <div className="text-[12.5px] leading-relaxed text-muted-foreground">
+            Square image, at least 256px. PNG or JPG up to 10 MB.
+          </div>
+        )}
       </div>
       <div className="flex shrink-0 gap-1.5">
         <Button
@@ -360,6 +480,7 @@ export function ImageUploadControl({
           type="button"
           variant="ghost"
           size="sm"
+          aria-label="Remove image"
           disabled={disabled || (!imageSrc && !uploading)}
           onClick={onClear}
         >

@@ -188,6 +188,65 @@ describe("view item levels", () => {
     ]).toEqual(["task"])
   })
 
+  it("synthesizes empty type groups from the active project template context", () => {
+    const state = {
+      ...createEmptyState(),
+      teams: [
+        {
+          id: "team_1",
+          workspaceId: "workspace_1",
+          slug: "ops",
+          name: "Ops",
+          icon: "kanban" as const,
+          settings: {
+            joinCode: "JOIN1234",
+            summary: "",
+            guestProjectIds: [],
+            guestDocumentIds: [],
+            guestWorkItemIds: [],
+            experience: "project-management" as const,
+            features: createDefaultTeamFeatureSettings("project-management"),
+            workflow: createDefaultTeamWorkflowSettings("project-management"),
+          },
+        },
+      ],
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "team" as const,
+          scopeId: "team_1",
+          templateType: "project-management" as const,
+          name: "Launch plan",
+          summary: "",
+          description: "",
+          leadId: "user_1",
+          memberIds: [],
+          health: "on-track" as const,
+          priority: "medium" as const,
+          status: "in-progress" as const,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+    }
+
+    expect([
+      ...buildItemGroupsWithEmptyGroups(
+        state,
+        [],
+        createView({
+          grouping: "type",
+        }),
+        {
+          teamId: "team_1",
+          projectId: "project_1",
+        }
+      ).keys(),
+    ]).toEqual(["task", "sub-task"])
+  })
+
   it("does not force timeline views back to top-level items when a level is set", () => {
     const state = createEmptyState()
     const items = [

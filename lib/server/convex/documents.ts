@@ -527,13 +527,16 @@ export async function updateItemDescriptionServer(input: {
   const preparedContent = prepareRichTextForStorage(input.content)
 
   try {
-    return await getConvexServerClient().mutation(
+    return (await getConvexServerClient().mutation(
       api.app.updateItemDescription,
       withServerToken({
         ...input,
         content: preparedContent.sanitized,
       })
-    )
+    )) as {
+      updatedAt: string
+      documentId?: string
+    }
   } catch (error) {
     throw (
       coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??

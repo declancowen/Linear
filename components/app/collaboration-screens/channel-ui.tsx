@@ -58,8 +58,9 @@ export function ForumPostCard({ postId }: { postId: string }) {
   const mentionCandidates = useAppStore(
     useShallow((state) => {
       const conversation =
-        state.conversations.find((entry) => entry.id === post?.conversationId) ??
-        null
+        state.conversations.find(
+          (entry) => entry.id === post?.conversationId
+        ) ?? null
 
       return conversation && conversation.kind === "channel"
         ? getConversationParticipants(state, conversation).filter(
@@ -147,9 +148,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
             align="end"
             side="bottom"
             onEmojiSelect={(emoji) => {
-              useAppStore
-                .getState()
-                .toggleChannelPostReaction(post.id, emoji)
+              useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
             }}
             trigger={
               <button
@@ -255,198 +254,203 @@ export function ForumPostCard({ postId }: { postId: string }) {
         </div>
 
         <div className="mt-3 border-l-2 border-line-soft pl-3">
-        {hiddenCount > 0 ? (
-          <button
-            type="button"
-            onClick={() => setShowReplies(!showReplies)}
-            className="mb-2 text-[11.5px] font-medium text-fg-3 hover:text-foreground"
-          >
-            {showReplies
-              ? "Show less"
-              : `Show ${hiddenCount} earlier ${hiddenCount === 1 ? "reply" : "replies"}`}
-          </button>
-        ) : null}
+          {hiddenCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowReplies(!showReplies)}
+              className="mb-2 text-[11.5px] font-medium text-fg-3 hover:text-foreground"
+            >
+              {showReplies
+                ? "Show less"
+                : `Show ${hiddenCount} earlier ${hiddenCount === 1 ? "reply" : "replies"}`}
+            </button>
+          ) : null}
 
-        {showReplies && hiddenCount > 0 ? (
-          <div className="mb-2 flex flex-col gap-0.5">
-            {comments.slice(0, hiddenCount).map((comment) => {
-              const commentAuthor = usersById.get(comment.createdBy)
+          {showReplies && hiddenCount > 0 ? (
+            <div className="mb-2 flex flex-col gap-0.5">
+              {comments.slice(0, hiddenCount).map((comment) => {
+                const commentAuthor = usersById.get(comment.createdBy)
 
-              return (
-                <div
-                  key={comment.id}
-                  className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
-                  style={{ gridTemplateColumns: "24px 1fr" }}
-                >
-                  <div className="mt-[2px]">
-                    <UserAvatar
-                      name={commentAuthor?.name}
-                      avatarImageUrl={commentAuthor?.avatarImageUrl}
-                      avatarUrl={commentAuthor?.avatarUrl}
-                      status={commentAuthor?.status}
-                      size="sm"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <UserHoverCard
-                        user={commentAuthor}
-                        userId={commentAuthor?.id}
-                        currentUserId={currentUserId}
-                        workspaceId={currentWorkspaceId}
-                      >
-                        <span className="text-[12.5px] font-semibold text-foreground">
-                          {commentAuthor?.name ?? "Unknown"}
-                        </span>
-                      </UserHoverCard>
-                      <span className="text-[11px] text-fg-3">
-                        {formatTimestamp(comment.createdAt)}
-                      </span>
+                return (
+                  <div
+                    key={comment.id}
+                    className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
+                    style={{ gridTemplateColumns: "24px 1fr" }}
+                  >
+                    <div className="mt-[2px]">
+                      <UserAvatar
+                        name={commentAuthor?.name}
+                        avatarImageUrl={commentAuthor?.avatarImageUrl}
+                        avatarUrl={commentAuthor?.avatarUrl}
+                        status={commentAuthor?.status}
+                        size="sm"
+                      />
                     </div>
-                    <RichTextContent
-                      content={comment.content}
-                      className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : null}
-
-        {previewComments.length > 0 ? (
-          <div className="flex flex-col gap-0.5">
-            {previewComments.map((comment) => {
-              const commentAuthor = usersById.get(comment.createdBy)
-
-              return (
-                <div
-                  key={comment.id}
-                  className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
-                  style={{ gridTemplateColumns: "24px 1fr" }}
-                >
-                  <div className="mt-[2px]">
-                    <UserAvatar
-                      name={commentAuthor?.name}
-                      avatarImageUrl={commentAuthor?.avatarImageUrl}
-                      avatarUrl={commentAuthor?.avatarUrl}
-                      status={commentAuthor?.status}
-                      size="sm"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <UserHoverCard
-                        user={commentAuthor}
-                        userId={commentAuthor?.id}
-                        currentUserId={currentUserId}
-                        workspaceId={currentWorkspaceId}
-                      >
-                        <span className="text-[12.5px] font-semibold text-foreground">
-                          {commentAuthor?.name ?? "Unknown"}
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <UserHoverCard
+                          user={commentAuthor}
+                          userId={commentAuthor?.id}
+                          currentUserId={currentUserId}
+                          workspaceId={currentWorkspaceId}
+                        >
+                          <span className="text-[12.5px] font-semibold text-foreground">
+                            {commentAuthor?.name ?? "Unknown"}
+                          </span>
+                        </UserHoverCard>
+                        <span className="text-[11px] text-fg-3">
+                          {formatTimestamp(comment.createdAt)}
                         </span>
-                      </UserHoverCard>
-                      <span className="text-[11px] text-fg-3">
-                        {formatTimestamp(comment.createdAt)}
-                      </span>
+                      </div>
+                      <RichTextContent
+                        content={comment.content}
+                        className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
+                      />
                     </div>
-                    <RichTextContent
-                      content={comment.content}
-                      className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
-                    />
                   </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : null}
-
-        {replyOpen ? (
-          <div className={cn(previewComments.length > 0 && "mt-2")}>
-            <div className="rounded-md border border-line bg-surface px-3 py-2">
-              <RichTextEditor
-                content={reply}
-                onChange={setReply}
-                compact
-                autoFocus
-                showToolbar={false}
-                placeholder="Reply with @mentions or /commands…"
-                editorInstanceRef={replyEditorRef}
-                mentionCandidates={mentionCandidates}
-                minPlainTextCharacters={channelPostCommentContentConstraints.min}
-                maxPlainTextCharacters={channelPostCommentContentConstraints.max}
-                enforcePlainTextLimit
-                onSubmitShortcut={handleReply}
-                submitOnEnter
-                className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
-              />
+                )
+              })}
             </div>
-            <div className="mt-2">
-              <FieldCharacterLimit
-                state={replyLimitState}
-                limit={channelPostCommentContentConstraints.max}
-                className="mt-0 mb-1.5"
-              />
-              <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <EmojiPickerPopover
-                  align="start"
-                  side="top"
-                  onEmojiSelect={handleInsertReplyEmoji}
-                  trigger={
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                    >
-                      <Smiley className="size-4" />
-                    </button>
+          ) : null}
+
+          {previewComments.length > 0 ? (
+            <div className="flex flex-col gap-0.5">
+              {previewComments.map((comment) => {
+                const commentAuthor = usersById.get(comment.createdBy)
+
+                return (
+                  <div
+                    key={comment.id}
+                    className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
+                    style={{ gridTemplateColumns: "24px 1fr" }}
+                  >
+                    <div className="mt-[2px]">
+                      <UserAvatar
+                        name={commentAuthor?.name}
+                        avatarImageUrl={commentAuthor?.avatarImageUrl}
+                        avatarUrl={commentAuthor?.avatarUrl}
+                        status={commentAuthor?.status}
+                        size="sm"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <UserHoverCard
+                          user={commentAuthor}
+                          userId={commentAuthor?.id}
+                          currentUserId={currentUserId}
+                          workspaceId={currentWorkspaceId}
+                        >
+                          <span className="text-[12.5px] font-semibold text-foreground">
+                            {commentAuthor?.name ?? "Unknown"}
+                          </span>
+                        </UserHoverCard>
+                        <span className="text-[11px] text-fg-3">
+                          {formatTimestamp(comment.createdAt)}
+                        </span>
+                      </div>
+                      <RichTextContent
+                        content={comment.content}
+                        className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {replyOpen ? (
+            <div className={cn(previewComments.length > 0 && "mt-2")}>
+              <div className="rounded-md border border-line bg-surface px-3 py-2">
+                <RichTextEditor
+                  content={reply}
+                  onChange={setReply}
+                  compact
+                  autoFocus
+                  showToolbar={false}
+                  showStats={false}
+                  placeholder="Reply with @mentions or /commands…"
+                  editorInstanceRef={replyEditorRef}
+                  mentionCandidates={mentionCandidates}
+                  minPlainTextCharacters={
+                    channelPostCommentContentConstraints.min
                   }
+                  maxPlainTextCharacters={
+                    channelPostCommentContentConstraints.max
+                  }
+                  enforcePlainTextLimit
+                  onSubmitShortcut={handleReply}
+                  submitOnEnter
+                  className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
                 />
-                <span className="text-[11.5px] text-fg-3">
-                  Use `@` to mention people. Press Enter to send.
-                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    setReply("")
-                    setReplyOpen(false)
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs"
-                  onClick={handleReply}
-                  disabled={!replyLimitState.canSubmit}
-                >
-                  <ArrowUp className="size-3.5" weight="bold" />
-                  Reply
-                </Button>
-              </div>
+              <div className="mt-2">
+                <FieldCharacterLimit
+                  state={replyLimitState}
+                  limit={channelPostCommentContentConstraints.max}
+                  className="mt-0 mb-1.5"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <EmojiPickerPopover
+                      align="start"
+                      side="top"
+                      onEmojiSelect={handleInsertReplyEmoji}
+                      trigger={
+                        <button
+                          type="button"
+                          className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                        >
+                          <Smiley className="size-4" />
+                        </button>
+                      }
+                    />
+                    <span className="text-[11.5px] text-fg-3">
+                      Use `@` to mention people. Press Enter to send.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setReply("")
+                        setReplyOpen(false)
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={handleReply}
+                      disabled={!replyLimitState.canSubmit}
+                    >
+                      <ArrowUp className="size-3.5" weight="bold" />
+                      Reply
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setShowReplies(true)
-              setReplyOpen(true)
-            }}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:border-fg-4 hover:text-fg-2",
-              previewComments.length > 0 ? "mt-1.5" : "mt-0"
-            )}
-          >
-            <ChatCircle className="size-3.5" />
-            Reply to this thread…
-          </button>
-        )}
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setShowReplies(true)
+                setReplyOpen(true)
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:border-fg-4 hover:text-fg-2",
+                previewComments.length > 0 ? "mt-1.5" : "mt-0"
+              )}
+            >
+              <ChatCircle className="size-3.5" />
+              Reply to this thread…
+            </button>
+          )}
         </div>
       </div>
       <ConfirmDialog
@@ -513,16 +517,14 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
     const teamIds = teams
       .filter((team) => team.workspaceId === conversation.scopeId)
       .map((team) => team.id)
-    const userIds = new Set(
-      [
-        ...workspaceMemberships
-          .filter((membership) => membership.workspaceId === conversation.scopeId)
-          .map((membership) => membership.userId),
-        ...teamMemberships
-          .filter((membership) => teamIds.includes(membership.teamId))
-          .map((membership) => membership.userId),
-      ]
-    )
+    const userIds = new Set([
+      ...workspaceMemberships
+        .filter((membership) => membership.workspaceId === conversation.scopeId)
+        .map((membership) => membership.userId),
+      ...teamMemberships
+        .filter((membership) => teamIds.includes(membership.teamId))
+        .map((membership) => membership.userId),
+    ])
 
     if (workspaceOwnerId) {
       userIds.add(workspaceOwnerId)
@@ -593,7 +595,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
   }
 
   return (
-    <div className="relative z-10 isolate rounded-md border border-line bg-surface px-3.5 pt-2.5 pb-2 transition-colors focus-within:border-fg-3">
+    <div className="relative isolate z-10 rounded-md border border-line bg-surface px-3.5 pt-2.5 pb-2 transition-colors focus-within:border-fg-3">
       <input
         value={title}
         onChange={(event) => setTitle(event.target.value)}
@@ -663,9 +665,7 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
           type="button"
           size="sm"
           onClick={handlePost}
-          disabled={
-            !contentLimitState.canSubmit || !titleLimitState.canSubmit
-          }
+          disabled={!contentLimitState.canSubmit || !titleLimitState.canSubmit}
           className="ml-1 h-7 gap-1.5 rounded-md px-2.5 text-[12px]"
         >
           <PaperPlaneTilt className="size-3" weight="fill" />
