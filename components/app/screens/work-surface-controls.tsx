@@ -63,9 +63,11 @@ import {
   workItemTypes,
   type DisplayProperty,
   type GroupField,
+  type Label,
   type OrderingField,
   type Priority,
   type Project,
+  type UserProfile,
   type ViewDefinition,
   type WorkItem,
   type WorkItemType,
@@ -123,6 +125,36 @@ const PROJECT_ORDERING_OPTIONS: OrderingField[] = [
   "title",
 ]
 
+const PROJECT_LAYOUT_OPTIONS: Array<{
+  value: ViewDefinition["layout"]
+  label: string
+  icon: ReactNode
+}> = [
+  {
+    value: "list",
+    label: "List",
+    icon: <Rows className="size-3.5" />,
+  },
+  {
+    value: "board",
+    label: "Board",
+    icon: <SquaresFour className="size-3.5" />,
+  },
+]
+
+const WORK_LAYOUT_OPTIONS: Array<{
+  value: ViewDefinition["layout"]
+  label: string
+  icon: ReactNode
+}> = [
+  ...PROJECT_LAYOUT_OPTIONS,
+  {
+    value: "timeline",
+    label: "Timeline",
+    icon: <CalendarDots className="size-3.5" />,
+  },
+]
+
 export const PROJECT_GROUP_OPTIONS: GroupField[] = [
   "status",
   "priority",
@@ -174,7 +206,7 @@ function getChipToneClass(tone: ChipTone) {
   return chipDefault
 }
 
-export const displayPropertyOptions: DisplayProperty[] = [
+const displayPropertyOptions: DisplayProperty[] = [
   "type",
   "status",
   "assignee",
@@ -230,7 +262,7 @@ export function getAvailableGroupOptions(
   return DEFAULT_GROUP_OPTIONS
 }
 
-export const orderingOptions: OrderingField[] = [
+const orderingOptions: OrderingField[] = [
   "priority",
   "updatedAt",
   "createdAt",
@@ -293,17 +325,9 @@ function matchesQuery(label: string, query: string) {
   return label.toLowerCase().includes(trimmed)
 }
 
-export function FilterPopover({
-  view,
-  items,
-  onToggleFilterValue,
-  onClearFilters,
-  hiddenFilters = [],
-  variant = "icon",
-  chipTone = "adaptive",
-  label = "Filter",
-  dashedWhenEmpty = false,
-}: {
+type ToggleWorkFilterValue = (key: ViewFilterKey, value: string) => void
+
+type FilterPopoverProps = {
   view: ViewDefinition
   items: WorkItem[]
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
@@ -313,24 +337,104 @@ export function FilterPopover({
   chipTone?: ChipTone | "adaptive"
   label?: string
   dashedWhenEmpty?: boolean
-}) {
-  const [query, setQuery] = useState("")
-  const scopedItems = useMemo(() => {
-    if (!view.itemLevel) {
-      return items
+}
+
+type WorkFilterOptions = {
+  assignees: UserProfile[]
+  filteredLabels: Label[]
+  filteredProjects: Project[]
+  itemTypes: WorkItemType[]
+  statusOptions: ReturnType<typeof getStatusOrderForTeam>
+}
+
+function getScopedFilterItems(view: ViewDefinition, items: WorkItem[]) {
+  if (!view.itemLevel) {
+    return items
+  }
+
+  const visibleTypes = new Set<WorkItemType>([view.itemLevel])
+  const childType = view.showChildItems
+    ? getChildWorkItemCopy(view.itemLevel, null).childType
+    : null
+
+  if (childType) {
+    visibleTypes.add(childType)
+  }
+
+  return items.filter((item) => visibleTypes.has(item.type))
+}
+
+function getItemProjectIds(items: WorkItem[]) {
+  const ids = new Set<string>()
+
+  for (const item of items) {
+    if (item.primaryProjectId) {
+      ids.add(item.primaryProjectId)
+    }
+  }
+
+  return ids
+}
+
+function getItemLabelIds(items: WorkItem[]) {
+  const ids = new Set<string>()
+
+  for (const item of items) {
+    for (const labelId of item.labelIds) {
+      ids.add(labelId)
+    }
+  }
+
+  return ids
+}
+
+function getFilterAssignees(
+  items: WorkItem[],
+  userById: Map<string, UserProfile>
+) {
+  const assignees = new Map<string, UserProfile>()
+
+  for (const item of items) {
+    if (!item.assigneeId) {
+      continue
     }
 
-    const visibleTypes = new Set<WorkItemType>([view.itemLevel])
-    const childType = view.showChildItems
-      ? getChildWorkItemCopy(view.itemLevel, null).childType
-      : null
+    const assignee = userById.get(item.assigneeId)
 
-    if (childType) {
-      visibleTypes.add(childType)
+    if (assignee) {
+      assignees.set(assignee.id, assignee)
     }
+  }
 
-    return items.filter((item) => visibleTypes.has(item.type))
-  }, [items, view.itemLevel, view.showChildItems])
+  return [...assignees.values()]
+}
+
+function getVisibleFilterItemTypes(items: WorkItem[]) {
+  return workItemTypes.filter((itemType) =>
+    items.some((item) => item.type === itemType)
+  )
+}
+
+function getWorkFilterActiveCount(filters: ViewDefinition["filters"]) {
+  return (
+    filters.status.length +
+    filters.priority.length +
+    filters.assigneeIds.length +
+    filters.projectIds.length +
+    (filters.parentIds?.length ?? 0) +
+    filters.itemTypes.length +
+    filters.labelIds.length
+  )
+}
+
+function useWorkFilterOptions(
+  view: ViewDefinition,
+  items: WorkItem[]
+): WorkFilterOptions {
+  const scopedItems = useMemo(
+    () => getScopedFilterItems(view, items),
+    [items, view]
+  )
   const teamIds = useMemo(
     () => [...new Set(scopedItems.map((item) => item.teamId))],
     [scopedItems]
@@ -346,67 +450,468 @@ export function FilterPopover({
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
-  const projectIds = useMemo(() => {
-    const next = new Set<string>()
-
-    for (const item of scopedItems) {
-      if (item.primaryProjectId) {
-        next.add(item.primaryProjectId)
-      }
-    }
-
-    return next
-  }, [scopedItems])
-  const labelIds = useMemo(() => {
-    const next = new Set<string>()
-
-    for (const item of scopedItems) {
-      for (const labelId of item.labelIds) {
-        next.add(labelId)
-      }
-    }
-
-    return next
-  }, [scopedItems])
-  const assignees = useMemo(() => {
-    const next = new Map<string, (typeof users)[number]>()
-
-    for (const item of scopedItems) {
-      if (!item.assigneeId) {
-        continue
-      }
-
-      const assignee = userById.get(item.assigneeId)
-
-      if (assignee) {
-        next.set(assignee.id, assignee)
-      }
-    }
-
-    return [...next.values()]
-  }, [scopedItems, userById])
+  const projectIds = useMemo(
+    () => getItemProjectIds(scopedItems),
+    [scopedItems]
+  )
+  const labelIds = useMemo(() => getItemLabelIds(scopedItems), [scopedItems])
+  const assignees = useMemo(
+    () => getFilterAssignees(scopedItems, userById),
+    [scopedItems, userById]
+  )
   const filteredProjects = useMemo(
     () => projects.filter((project) => projectIds.has(project.id)),
     [projectIds, projects]
   )
   const filteredLabels = useMemo(
-    () => labels.filter((label) => labelIds.has(label.id)),
+    () => labels.filter((entry) => labelIds.has(entry.id)),
     [labelIds, labels]
   )
-  const itemTypes = workItemTypes.filter((itemType) =>
-    scopedItems.some((item) => item.type === itemType)
+  const itemTypes = useMemo(
+    () => getVisibleFilterItemTypes(scopedItems),
+    [scopedItems]
   )
-  const statusOptions = getStatusOrderForTeam(singleTeam)
-  const hiddenFilterSet = useMemo(() => new Set(hiddenFilters), [hiddenFilters])
 
-  const activeCount =
-    view.filters.status.length +
-    view.filters.priority.length +
-    view.filters.assigneeIds.length +
-    view.filters.projectIds.length +
-    (view.filters.parentIds?.length ?? 0) +
-    view.filters.itemTypes.length +
-    view.filters.labelIds.length
+  return {
+    assignees,
+    filteredLabels,
+    filteredProjects,
+    itemTypes,
+    statusOptions: getStatusOrderForTeam(singleTeam),
+  }
+}
+
+function getWorkFilterChipClass({
+  activeCount,
+  chipTone,
+  dashedWhenEmpty,
+}: {
+  activeCount: number
+  chipTone: ChipTone | "adaptive"
+  dashedWhenEmpty: boolean
+}) {
+  if (chipTone === "adaptive") {
+    return activeCount > 0
+      ? chipSelected
+      : dashedWhenEmpty
+        ? chipDashed
+        : chipGhost
+  }
+
+  return activeCount === 0 && dashedWhenEmpty
+    ? chipDashed
+    : getChipToneClass(chipTone)
+}
+
+function WorkFilterTrigger({
+  activeCount,
+  chipTone,
+  dashedWhenEmpty,
+  label,
+  variant,
+}: {
+  activeCount: number
+  chipTone: ChipTone | "adaptive"
+  dashedWhenEmpty: boolean
+  label: string
+  variant: "icon" | "chip"
+}) {
+  if (variant === "chip") {
+    return (
+      <button
+        type="button"
+        className={cn(
+          chipBase,
+          getWorkFilterChipClass({ activeCount, chipTone, dashedWhenEmpty })
+        )}
+      >
+        <FunnelSimple className="size-3.5" />
+        <span>{label}</span>
+        {activeCount > 0 ? (
+          <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+            {activeCount}
+          </span>
+        ) : null}
+      </button>
+    )
+  }
+
+  return (
+    <Button size="icon-xs" variant="ghost" className="relative">
+      <FadersHorizontal className="size-3.5" />
+      {activeCount > 0 ? (
+        <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+          {activeCount}
+        </span>
+      ) : null}
+    </Button>
+  )
+}
+
+function WorkFilterHeader({
+  activeCount,
+  onClearFilters,
+}: {
+  activeCount: number
+  onClearFilters: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-line-soft px-2.5 py-1.5">
+      <div className="flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
+        <FunnelSimple className="size-3" />
+        <span>Filters</span>
+        {activeCount > 0 ? (
+          <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium tracking-normal text-accent-fg normal-case">
+            {activeCount}
+          </span>
+        ) : null}
+      </div>
+      {activeCount > 0 ? (
+        <button
+          className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+          onClick={onClearFilters}
+        >
+          Clear all
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function StatusFilterSection({
+  hidden,
+  onToggleFilterValue,
+  query,
+  statusOptions,
+  view,
+}: {
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  statusOptions: WorkFilterOptions["statusOptions"]
+  view: ViewDefinition
+}) {
+  if (hidden) {
+    return null
+  }
+
+  return (
+    <FilterSection label="Status" activeCount={view.filters.status.length}>
+      {statusOptions
+        .filter((status) => matchesQuery(statusMeta[status].label, query))
+        .map((status) => (
+          <FilterRow
+            key={status}
+            icon={<StatusIcon status={status} />}
+            label={statusMeta[status].label}
+            active={view.filters.status.includes(status)}
+            onClick={() => onToggleFilterValue("status", status)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
+function PriorityFilterSection({
+  hidden,
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden) {
+    return null
+  }
+
+  return (
+    <FilterSection label="Priority" activeCount={view.filters.priority.length}>
+      {Object.entries(priorityMeta)
+        .filter(([, meta]) => matchesQuery(meta.label, query))
+        .map(([priority, meta]) => (
+          <FilterRow
+            key={priority}
+            icon={<PriorityIcon priority={priority as Priority} />}
+            label={meta.label}
+            active={view.filters.priority.includes(priority as Priority)}
+            onClick={() => onToggleFilterValue("priority", priority)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
+function ItemTypeFilterSection({
+  hidden,
+  itemTypes,
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  hidden: boolean
+  itemTypes: WorkItemType[]
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden || itemTypes.length <= 1) {
+    return null
+  }
+
+  return (
+    <FilterSection label="Type" activeCount={view.filters.itemTypes.length}>
+      {itemTypes
+        .filter((itemType) =>
+          matchesQuery(getDisplayLabelForWorkItemType(itemType, null), query)
+        )
+        .map((itemType) => (
+          <FilterRow
+            key={itemType}
+            icon={<WorkItemTypeIcon itemType={itemType} />}
+            label={getDisplayLabelForWorkItemType(itemType, null)}
+            active={view.filters.itemTypes.includes(itemType)}
+            onClick={() => onToggleFilterValue("itemTypes", itemType)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
+function AssigneeFilterSection({
+  assignees,
+  hidden,
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  assignees: UserProfile[]
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden || assignees.length === 0) {
+    return null
+  }
+
+  return (
+    <FilterSection
+      label="Assignee"
+      activeCount={view.filters.assigneeIds.length}
+    >
+      {assignees
+        .filter((assignee) => matchesQuery(assignee.name, query))
+        .map((assignee) => (
+          <FilterRow
+            key={assignee.id}
+            icon={
+              <WorkItemAssigneeAvatar
+                user={assignee}
+                className="size-4 data-[size=sm]:size-4"
+              />
+            }
+            label={assignee.name}
+            active={view.filters.assigneeIds.includes(assignee.id)}
+            onClick={() => onToggleFilterValue("assigneeIds", assignee.id)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
+function ProjectFilterSection({
+  hidden,
+  onToggleFilterValue,
+  projects,
+  query,
+  view,
+}: {
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  projects: Project[]
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden || projects.length === 0) {
+    return null
+  }
+
+  return (
+    <FilterSection label="Project" activeCount={view.filters.projectIds.length}>
+      {projects
+        .filter((project) => matchesQuery(project.name, query))
+        .map((project) => (
+          <FilterRow
+            key={project.id}
+            icon={
+              <ProjectTemplateGlyph
+                templateType={project.templateType}
+                className="size-[13px] text-fg-3"
+              />
+            }
+            label={project.name}
+            active={view.filters.projectIds.includes(project.id)}
+            onClick={() => onToggleFilterValue("projectIds", project.id)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
+function ParentFilterSection({
+  hidden,
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden) {
+    return null
+  }
+
+  return (
+    <FilterSection
+      label="Parent"
+      activeCount={view.filters.parentIds?.length ?? 0}
+    >
+      {matchesQuery("Is empty", query) ? (
+        <FilterRow
+          icon={<TreeStructure className="size-3" />}
+          label="Is empty"
+          active={Boolean(
+            view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
+          )}
+          onClick={() =>
+            onToggleFilterValue("parentIds", EMPTY_PARENT_FILTER_VALUE)
+          }
+        />
+      ) : null}
+    </FilterSection>
+  )
+}
+
+function LabelFilterSection({
+  hidden,
+  labels,
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  hidden: boolean
+  labels: Label[]
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden || labels.length === 0) {
+    return null
+  }
+
+  return (
+    <FilterSection label="Labels" activeCount={view.filters.labelIds.length}>
+      {labels
+        .filter((label) => matchesQuery(label.name, query))
+        .map((label) => (
+          <FilterRow
+            key={label.id}
+            icon={<LabelColorDot color={label.color} />}
+            label={label.name}
+            active={view.filters.labelIds.includes(label.id)}
+            onClick={() => onToggleFilterValue("labelIds", label.id)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
+function WorkFilterSections({
+  hiddenFilterSet,
+  onToggleFilterValue,
+  options,
+  query,
+  view,
+}: {
+  hiddenFilterSet: ReadonlySet<ViewFilterKey>
+  onToggleFilterValue: ToggleWorkFilterValue
+  options: WorkFilterOptions
+  query: string
+  view: ViewDefinition
+}) {
+  return (
+    <div className="flex max-h-[360px] flex-col overflow-y-auto">
+      <StatusFilterSection
+        hidden={hiddenFilterSet.has("status")}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        statusOptions={options.statusOptions}
+        view={view}
+      />
+      <PriorityFilterSection
+        hidden={hiddenFilterSet.has("priority")}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        view={view}
+      />
+      <ItemTypeFilterSection
+        hidden={hiddenFilterSet.has("itemTypes")}
+        itemTypes={options.itemTypes}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        view={view}
+      />
+      <AssigneeFilterSection
+        assignees={options.assignees}
+        hidden={hiddenFilterSet.has("assigneeIds")}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        view={view}
+      />
+      <ProjectFilterSection
+        hidden={hiddenFilterSet.has("projectIds")}
+        onToggleFilterValue={onToggleFilterValue}
+        projects={options.filteredProjects}
+        query={query}
+        view={view}
+      />
+      <ParentFilterSection
+        hidden={hiddenFilterSet.has("parentIds")}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        view={view}
+      />
+      <LabelFilterSection
+        hidden={hiddenFilterSet.has("labelIds")}
+        labels={options.filteredLabels}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        view={view}
+      />
+    </div>
+  )
+}
+
+export function FilterPopover({
+  view,
+  items,
+  onToggleFilterValue,
+  onClearFilters,
+  hiddenFilters = [],
+  variant = "icon",
+  chipTone = "adaptive",
+  label = "Filter",
+  dashedWhenEmpty = false,
+}: FilterPopoverProps) {
+  const [query, setQuery] = useState("")
+  const options = useWorkFilterOptions(view, items)
+  const hiddenFilterSet = useMemo(() => new Set(hiddenFilters), [hiddenFilters])
+  const activeCount = getWorkFilterActiveCount(view.filters)
 
   function handleToggleFilterValue(key: ViewFilterKey, value: string) {
     if (onToggleFilterValue) {
@@ -433,239 +938,35 @@ export function FilterPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        {variant === "chip" ? (
-          <button
-            type="button"
-            className={cn(
-              chipBase,
-              chipTone === "adaptive"
-                ? activeCount > 0
-                  ? chipSelected
-                  : dashedWhenEmpty
-                    ? chipDashed
-                    : chipGhost
-                : activeCount === 0 && dashedWhenEmpty
-                  ? chipDashed
-                  : getChipToneClass(chipTone)
-            )}
-          >
-            <FunnelSimple className="size-3.5" />
-            <span>{label}</span>
-            {activeCount > 0 ? (
-              <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
-                {activeCount}
-              </span>
-            ) : null}
-          </button>
-        ) : (
-          <Button size="icon-xs" variant="ghost" className="relative">
-            <FadersHorizontal className="size-3.5" />
-            {activeCount > 0 ? (
-              <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
-                {activeCount}
-              </span>
-            ) : null}
-          </Button>
-        )}
+        <WorkFilterTrigger
+          activeCount={activeCount}
+          chipTone={chipTone}
+          dashedWhenEmpty={dashedWhenEmpty}
+          label={label}
+          variant={variant}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
         className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-line-soft px-2.5 py-1.5">
-          <div className="flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
-            <FunnelSimple className="size-3" />
-            <span>Filters</span>
-            {activeCount > 0 ? (
-              <span className="rounded-full bg-accent-bg px-1.5 py-px text-[10px] font-medium tracking-normal text-accent-fg normal-case">
-                {activeCount}
-              </span>
-            ) : null}
-          </div>
-          {activeCount > 0 ? (
-            <button
-              className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-              onClick={handleClearFilters}
-            >
-              Clear all
-            </button>
-          ) : null}
-        </div>
+        <WorkFilterHeader
+          activeCount={activeCount}
+          onClearFilters={handleClearFilters}
+        />
         <PropertyPopoverSearch
           icon={<MagnifyingGlass className="size-3.5" />}
           placeholder="Filter values…"
           value={query}
           onChange={setQuery}
         />
-        <div className="flex max-h-[360px] flex-col overflow-y-auto">
-          {!hiddenFilterSet.has("status") ? (
-            <FilterSection
-              label="Status"
-              activeCount={view.filters.status.length}
-            >
-              {statusOptions
-                .filter((status) =>
-                  matchesQuery(statusMeta[status].label, query)
-                )
-                .map((status) => (
-                  <FilterRow
-                    key={status}
-                    icon={<StatusIcon status={status} />}
-                    label={statusMeta[status].label}
-                    active={view.filters.status.includes(status)}
-                    onClick={() => handleToggleFilterValue("status", status)}
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {!hiddenFilterSet.has("priority") ? (
-            <FilterSection
-              label="Priority"
-              activeCount={view.filters.priority.length}
-            >
-              {Object.entries(priorityMeta)
-                .filter(([, meta]) => matchesQuery(meta.label, query))
-                .map(([priority, meta]) => (
-                  <FilterRow
-                    key={priority}
-                    icon={<PriorityIcon priority={priority as Priority} />}
-                    label={meta.label}
-                    active={view.filters.priority.includes(
-                      priority as Priority
-                    )}
-                    onClick={() =>
-                      handleToggleFilterValue("priority", priority)
-                    }
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {!hiddenFilterSet.has("itemTypes") && itemTypes.length > 1 ? (
-            <FilterSection
-              label="Type"
-              activeCount={view.filters.itemTypes.length}
-            >
-              {itemTypes
-                .filter((itemType) =>
-                  matchesQuery(
-                    getDisplayLabelForWorkItemType(
-                      itemType as WorkItemType,
-                      null
-                    ),
-                    query
-                  )
-                )
-                .map((itemType) => (
-                  <FilterRow
-                    key={itemType}
-                    icon={
-                      <WorkItemTypeIcon itemType={itemType as WorkItemType} />
-                    }
-                    label={getDisplayLabelForWorkItemType(
-                      itemType as WorkItemType,
-                      null
-                    )}
-                    active={view.filters.itemTypes.includes(itemType)}
-                    onClick={() =>
-                      handleToggleFilterValue("itemTypes", itemType)
-                    }
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {!hiddenFilterSet.has("assigneeIds") && assignees.length > 0 ? (
-            <FilterSection
-              label="Assignee"
-              activeCount={view.filters.assigneeIds.length}
-            >
-              {assignees
-                .filter((assignee) => matchesQuery(assignee.name, query))
-                .map((assignee) => (
-                  <FilterRow
-                    key={assignee.id}
-                    icon={
-                      <WorkItemAssigneeAvatar
-                        user={assignee}
-                        className="size-4 data-[size=sm]:size-4"
-                      />
-                    }
-                    label={assignee.name}
-                    active={view.filters.assigneeIds.includes(assignee.id)}
-                    onClick={() =>
-                      handleToggleFilterValue("assigneeIds", assignee.id)
-                    }
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {!hiddenFilterSet.has("projectIds") && filteredProjects.length > 0 ? (
-            <FilterSection
-              label="Project"
-              activeCount={view.filters.projectIds.length}
-            >
-              {filteredProjects
-                .filter((project) => matchesQuery(project.name, query))
-                .map((project) => (
-                  <FilterRow
-                    key={project.id}
-                    icon={
-                      <ProjectTemplateGlyph
-                        templateType={project.templateType}
-                        className="size-[13px] text-fg-3"
-                      />
-                    }
-                    label={project.name}
-                    active={view.filters.projectIds.includes(project.id)}
-                    onClick={() =>
-                      handleToggleFilterValue("projectIds", project.id)
-                    }
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {!hiddenFilterSet.has("parentIds") ? (
-            <FilterSection
-              label="Parent"
-              activeCount={view.filters.parentIds?.length ?? 0}
-            >
-              {matchesQuery("Is empty", query) ? (
-                <FilterRow
-                  icon={<TreeStructure className="size-3" />}
-                  label="Is empty"
-                  active={Boolean(
-                    view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
-                  )}
-                  onClick={() =>
-                    handleToggleFilterValue(
-                      "parentIds",
-                      EMPTY_PARENT_FILTER_VALUE
-                    )
-                  }
-                />
-              ) : null}
-            </FilterSection>
-          ) : null}
-          {!hiddenFilterSet.has("labelIds") && filteredLabels.length > 0 ? (
-            <FilterSection
-              label="Labels"
-              activeCount={view.filters.labelIds.length}
-            >
-              {filteredLabels
-                .filter((label) => matchesQuery(label.name, query))
-                .map((label) => (
-                  <FilterRow
-                    key={label.id}
-                    icon={<LabelColorDot color={label.color} />}
-                    label={label.name}
-                    active={view.filters.labelIds.includes(label.id)}
-                    onClick={() =>
-                      handleToggleFilterValue("labelIds", label.id)
-                    }
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-        </div>
+        <WorkFilterSections
+          hiddenFilterSet={hiddenFilterSet}
+          onToggleFilterValue={handleToggleFilterValue}
+          options={options}
+          query={query}
+          view={view}
+        />
       </PopoverContent>
     </Popover>
   )
@@ -898,6 +1199,136 @@ export function ViewConfigPopover({
   )
 }
 
+type ProjectFilterRowData = {
+  active: boolean
+  icon: ReactNode
+  key: string
+  label: string
+  onClick: () => void
+}
+
+type ProjectFilterSectionData = {
+  activeCount: number
+  key: string
+  label: string
+  rows: ProjectFilterRowData[]
+}
+
+function getProjectStatusIconStatus(status: Project["status"]) {
+  if (status === "in-progress") {
+    return "in-progress"
+  }
+
+  if (status === "completed") {
+    return "completed"
+  }
+
+  if (status === "cancelled") {
+    return "cancelled"
+  }
+
+  return status === "backlog" ? "backlog" : "todo"
+}
+
+function getProjectFilterChipClass({
+  activeCount,
+  chipTone,
+  dashedWhenEmpty,
+}: {
+  activeCount: number
+  chipTone: ChipTone | "adaptive"
+  dashedWhenEmpty: boolean
+}) {
+  if (chipTone === "adaptive") {
+    if (activeCount > 0) {
+      return chipSelected
+    }
+
+    return dashedWhenEmpty ? chipDashed : chipDefault
+  }
+
+  return activeCount === 0 && dashedWhenEmpty
+    ? chipDashed
+    : getChipToneClass(chipTone)
+}
+
+function ProjectFilterTriggerButton({
+  activeCount,
+  chipTone,
+  dashedWhenEmpty,
+  label,
+  variant,
+}: {
+  activeCount: number
+  chipTone: ChipTone | "adaptive"
+  dashedWhenEmpty: boolean
+  label: string
+  variant: "icon" | "chip"
+}) {
+  if (variant === "chip") {
+    return (
+      <button
+        type="button"
+        className={cn(
+          chipBase,
+          getProjectFilterChipClass({
+            activeCount,
+            chipTone,
+            dashedWhenEmpty,
+          })
+        )}
+      >
+        <FunnelSimple className="size-3.5" />
+        <span>{label}</span>
+        {activeCount > 0 ? (
+          <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+            {activeCount}
+          </span>
+        ) : null}
+      </button>
+    )
+  }
+
+  return (
+    <Button size="icon-xs" variant="ghost" className="relative">
+      <FadersHorizontal className="size-3.5" />
+      {activeCount > 0 ? (
+        <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+          {activeCount}
+        </span>
+      ) : null}
+    </Button>
+  )
+}
+
+function ProjectFilterSectionList({
+  sections,
+}: {
+  sections: ProjectFilterSectionData[]
+}) {
+  return (
+    <div className="flex max-h-[360px] flex-col overflow-y-auto">
+      {sections.map((section) => (
+        <FilterSection
+          key={section.key}
+          label={section.label}
+          activeCount={section.activeCount}
+        >
+          {section.rows.map((row) => (
+            <FilterRow
+              key={row.key}
+              icon={row.icon}
+              label={row.label}
+              active={row.active}
+              onClick={row.onClick}
+            />
+          ))}
+        </FilterSection>
+      ))}
+    </div>
+  )
+}
+
 export function ProjectFilterPopover({
   view,
   projects,
@@ -989,43 +1420,108 @@ export function ProjectFilterPopover({
     useAppStore.getState().clearViewFilters(view.id)
   }
 
+  const filterSections: ProjectFilterSectionData[] = [
+    {
+      key: "status",
+      label: "Status",
+      activeCount: view.filters.status.length,
+      rows: statusOptions
+        .filter((status) =>
+          matchesQuery(projectStatusMeta[status].label, query)
+        )
+        .map((status) => ({
+          key: status,
+          icon: <StatusIcon status={getProjectStatusIconStatus(status)} />,
+          label: projectStatusMeta[status].label,
+          active: view.filters.status.includes(status),
+          onClick: () => handleToggleFilterValue("status", status),
+        })),
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      activeCount: view.filters.priority.length,
+      rows: Object.entries(priorityMeta)
+        .filter(([, meta]) => matchesQuery(meta.label, query))
+        .map(([priority, meta]) => ({
+          key: priority,
+          icon: <PriorityIcon priority={priority as Priority} />,
+          label: meta.label,
+          active: view.filters.priority.includes(priority as Priority),
+          onClick: () => handleToggleFilterValue("priority", priority),
+        })),
+    },
+    {
+      key: "health",
+      label: "Health",
+      activeCount: view.filters.health.length,
+      rows: healthOptions
+        .filter((health) =>
+          matchesQuery(
+            projectHealthMeta[health as keyof typeof projectHealthMeta].label,
+            query
+          )
+        )
+        .map((health) => ({
+          key: health,
+          icon: (
+            <ColorDot
+              color={HEALTH_COLOR[health as keyof typeof HEALTH_COLOR]}
+            />
+          ),
+          label:
+            projectHealthMeta[health as keyof typeof projectHealthMeta].label,
+          active: view.filters.health.includes(health as never),
+          onClick: () => handleToggleFilterValue("health", health),
+        })),
+    },
+    {
+      key: "lead",
+      label: "Lead",
+      activeCount: view.filters.leadIds.length,
+      rows: leads
+        .filter((lead) => matchesQuery(lead.name, query))
+        .map((lead) => ({
+          key: lead.id,
+          icon: (
+            <WorkItemAssigneeAvatar
+              user={lead}
+              className="size-4 data-[size=sm]:size-4"
+            />
+          ),
+          label: lead.name,
+          active: view.filters.leadIds.includes(lead.id),
+          onClick: () => handleToggleFilterValue("leadIds", lead.id),
+        })),
+    },
+    {
+      key: "team",
+      label: "Team",
+      activeCount: view.filters.teamIds.length,
+      rows: projectTeams
+        .filter((team) => matchesQuery(team.name, query))
+        .map((team) => ({
+          key: team.id,
+          icon: (
+            <TeamIconGlyph icon={team.icon} className="size-[13px] text-fg-3" />
+          ),
+          label: team.name,
+          active: view.filters.teamIds.includes(team.id),
+          onClick: () => handleToggleFilterValue("teamIds", team.id),
+        })),
+    },
+  ].filter((section) => section.rows.length > 0)
+
   return (
     <Popover>
       <PopoverTrigger asChild>
-        {variant === "chip" ? (
-          <button
-            type="button"
-            className={cn(
-              chipBase,
-              chipTone === "adaptive"
-                ? activeCount > 0
-                  ? chipSelected
-                  : dashedWhenEmpty
-                    ? chipDashed
-                    : chipDefault
-                : activeCount === 0 && dashedWhenEmpty
-                  ? chipDashed
-                  : getChipToneClass(chipTone)
-            )}
-          >
-            <FunnelSimple className="size-3.5" />
-            <span>{label}</span>
-            {activeCount > 0 ? (
-              <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
-                {activeCount}
-              </span>
-            ) : null}
-          </button>
-        ) : (
-          <Button size="icon-xs" variant="ghost" className="relative">
-            <FadersHorizontal className="size-3.5" />
-            {activeCount > 0 ? (
-              <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
-                {activeCount}
-              </span>
-            ) : null}
-          </Button>
-        )}
+        <ProjectFilterTriggerButton
+          activeCount={activeCount}
+          chipTone={chipTone}
+          dashedWhenEmpty={dashedWhenEmpty}
+          label={label}
+          variant={variant}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -1056,437 +1552,73 @@ export function ProjectFilterPopover({
           value={query}
           onChange={setQuery}
         />
-        <div className="flex max-h-[360px] flex-col overflow-y-auto">
-          {statusOptions.length > 0 ? (
-            <FilterSection
-              label="Status"
-              activeCount={view.filters.status.length}
-            >
-              {statusOptions
-                .filter((status) =>
-                  matchesQuery(projectStatusMeta[status].label, query)
-                )
-                .map((status) => (
-                  <FilterRow
-                    key={status}
-                    icon={
-                      <StatusIcon
-                        status={
-                          status === "in-progress"
-                            ? "in-progress"
-                            : status === "completed"
-                              ? "completed"
-                              : status === "cancelled"
-                                ? "cancelled"
-                                : status === "backlog"
-                                  ? "backlog"
-                                  : "todo"
-                        }
-                      />
-                    }
-                    label={projectStatusMeta[status].label}
-                    active={view.filters.status.includes(status)}
-                    onClick={() => handleToggleFilterValue("status", status)}
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          <FilterSection
-            label="Priority"
-            activeCount={view.filters.priority.length}
-          >
-            {Object.entries(priorityMeta)
-              .filter(([, meta]) => matchesQuery(meta.label, query))
-              .map(([priority, meta]) => (
-                <FilterRow
-                  key={priority}
-                  icon={<PriorityIcon priority={priority as Priority} />}
-                  label={meta.label}
-                  active={view.filters.priority.includes(priority as Priority)}
-                  onClick={() => handleToggleFilterValue("priority", priority)}
-                />
-              ))}
-          </FilterSection>
-          {healthOptions.length > 0 ? (
-            <FilterSection
-              label="Health"
-              activeCount={view.filters.health.length}
-            >
-              {healthOptions
-                .filter((health) =>
-                  matchesQuery(
-                    projectHealthMeta[health as keyof typeof projectHealthMeta]
-                      .label,
-                    query
-                  )
-                )
-                .map((health) => (
-                  <FilterRow
-                    key={health}
-                    icon={
-                      <ColorDot
-                        color={
-                          HEALTH_COLOR[health as keyof typeof HEALTH_COLOR]
-                        }
-                      />
-                    }
-                    label={
-                      projectHealthMeta[
-                        health as keyof typeof projectHealthMeta
-                      ].label
-                    }
-                    active={view.filters.health.includes(health as never)}
-                    onClick={() => handleToggleFilterValue("health", health)}
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {leads.length > 0 ? (
-            <FilterSection
-              label="Lead"
-              activeCount={view.filters.leadIds.length}
-            >
-              {leads
-                .filter((lead) => matchesQuery(lead.name, query))
-                .map((lead) => (
-                  <FilterRow
-                    key={lead.id}
-                    icon={
-                      <WorkItemAssigneeAvatar
-                        user={lead}
-                        className="size-4 data-[size=sm]:size-4"
-                      />
-                    }
-                    label={lead.name}
-                    active={view.filters.leadIds.includes(lead.id)}
-                    onClick={() => handleToggleFilterValue("leadIds", lead.id)}
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-          {projectTeams.length > 0 ? (
-            <FilterSection
-              label="Team"
-              activeCount={view.filters.teamIds.length}
-            >
-              {projectTeams
-                .filter((team) => matchesQuery(team.name, query))
-                .map((team) => (
-                  <FilterRow
-                    key={team.id}
-                    icon={
-                      <TeamIconGlyph
-                        icon={team.icon}
-                        className="size-[13px] text-fg-3"
-                      />
-                    }
-                    label={team.name}
-                    active={view.filters.teamIds.includes(team.id)}
-                    onClick={() => handleToggleFilterValue("teamIds", team.id)}
-                  />
-                ))}
-            </FilterSection>
-          ) : null}
-        </div>
+        <ProjectFilterSectionList sections={filterSections} />
       </PopoverContent>
     </Popover>
   )
 }
 
-export function ProjectLayoutTabs({
+function updateViewConfig(
+  view: ViewDefinition,
+  onUpdateView: ((patch: ViewConfigPatch) => void) | undefined,
+  patch: ViewConfigPatch
+) {
+  if (onUpdateView) {
+    onUpdateView(patch)
+    return
+  }
+
+  useAppStore.getState().updateViewConfig(view.id, patch)
+}
+
+function ViewLayoutTabsControl({
   view,
   onUpdateView,
+  options,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
-}) {
-  const tabs: Array<{
-    value: "list" | "board"
+  options: Array<{
+    value: ViewDefinition["layout"]
     label: string
     icon: ReactNode
-  }> = [
-    {
-      value: "list",
-      label: "List",
-      icon: <Rows className="size-3.5" />,
-    },
-    {
-      value: "board",
-      label: "Board",
-      icon: <SquaresFour className="size-3.5" />,
-    },
-  ]
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
+  }>
+}) {
   return (
     <div className="flex items-center gap-1">
-      {tabs.map((tab) => (
+      {options.map((option) => (
         <ViewTab
-          key={tab.value}
-          active={view.layout === tab.value}
-          onClick={() => handleUpdateView({ layout: tab.value })}
+          key={option.value}
+          active={view.layout === option.value}
+          onClick={() =>
+            updateViewConfig(view, onUpdateView, { layout: option.value })
+          }
         >
-          {tab.icon}
-          {tab.label}
+          {option.icon}
+          {option.label}
         </ViewTab>
       ))}
     </div>
   )
 }
 
-export function ProjectLayoutChipPopover({
+function ViewLayoutChipPopover({
   view,
   onUpdateView,
-  tone = "default",
+  tone,
+  options,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
-  tone?: ChipTone
-}) {
-  const options: Array<{
-    value: "list" | "board"
-    label: string
-    icon: ReactNode
-  }> = [
-    {
-      value: "list",
-      label: "List",
-      icon: <Rows className="size-3.5" />,
-    },
-    {
-      value: "board",
-      label: "Board",
-      icon: <SquaresFour className="size-3.5" />,
-    },
-  ]
-
-  const activeOption =
-    options.find((option) => option.value === view.layout) ?? options[0]
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          {activeOption.icon}
-          <span>{activeOption.label}</span>
-          <CaretDown className="size-3 opacity-70" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[200px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Layout</PropertyPopoverGroup>
-          {options.map((option) => {
-            const active = view.layout === option.value
-            return (
-              <PropertyPopoverItem
-                key={option.value}
-                selected={active}
-                onClick={() => handleUpdateView({ layout: option.value })}
-                trailing={
-                  active ? <Check className="size-3.5 text-accent-fg" /> : null
-                }
-              >
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  {option.icon}
-                </span>
-                <span>{option.label}</span>
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-export function ProjectSortChipPopover({
-  view,
-  onUpdateView,
-  tone = "default",
-  label,
-  showValue = true,
-}: {
-  view: ViewDefinition
-  onUpdateView?: (patch: ViewConfigPatch) => void
-  tone?: ChipTone
-  label?: string
-  showValue?: boolean
-}) {
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          <SortAscending className="size-3.5" />
-          <span>{label ?? ORDERING_LABELS[view.ordering]}</span>
-          {showValue ? (
-            <span className="font-semibold">
-              {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
-            </span>
-          ) : null}
-          <CaretDown className="size-3 opacity-70" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
-          {PROJECT_ORDERING_OPTIONS.map((option) => {
-            const active = view.ordering === option
-            return (
-              <PropertyPopoverItem
-                key={option}
-                selected={active}
-                onClick={() => handleUpdateView({ ordering: option })}
-                trailing={
-                  active ? <Check className="size-3.5 text-accent-fg" /> : null
-                }
-              >
-                {ORDERING_LABELS[option]}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-        <div className="flex items-center justify-between border-t border-line-soft px-3 py-2">
-          <span className="text-[11px] text-fg-2">Hide completed</span>
-          <Switch
-            checked={!view.filters.showCompleted}
-            onCheckedChange={(checked) =>
-              handleUpdateView({ showCompleted: !checked })
-            }
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-export function LayoutTabs({
-  view,
-  onUpdateView,
-}: {
-  view: ViewDefinition
-  onUpdateView?: (patch: ViewConfigPatch) => void
-}) {
-  const tabs: Array<{
+  tone: ChipTone
+  options: Array<{
     value: ViewDefinition["layout"]
     label: string
     icon: ReactNode
-  }> = [
-    {
-      value: "list",
-      label: "List",
-      icon: <Rows className="size-3.5" />,
-    },
-    {
-      value: "board",
-      label: "Board",
-      icon: <SquaresFour className="size-3.5" />,
-    },
-    {
-      value: "timeline",
-      label: "Timeline",
-      icon: <CalendarDots className="size-3.5" />,
-    },
-  ]
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      {tabs.map((tab) => (
-        <ViewTab
-          key={tab.value}
-          active={view.layout === tab.value}
-          onClick={() => handleUpdateView({ layout: tab.value })}
-        >
-          {tab.icon}
-          {tab.label}
-        </ViewTab>
-      ))}
-    </div>
-  )
-}
-
-export function LayoutChipPopover({
-  view,
-  onUpdateView,
-  tone = "default",
-}: {
-  view: ViewDefinition
-  onUpdateView?: (patch: ViewConfigPatch) => void
-  tone?: ChipTone
+  }>
 }) {
-  const options: Array<{
-    value: ViewDefinition["layout"]
-    label: string
-    icon: ReactNode
-  }> = [
-    {
-      value: "list",
-      label: "List",
-      icon: <Rows className="size-3.5" />,
-    },
-    {
-      value: "board",
-      label: "Board",
-      icon: <SquaresFour className="size-3.5" />,
-    },
-    {
-      value: "timeline",
-      label: "Timeline",
-      icon: <CalendarDots className="size-3.5" />,
-    },
-  ]
-
   const activeOption =
     options.find((option) => option.value === view.layout) ?? options[0]
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
 
   return (
     <Popover>
@@ -1509,7 +1641,11 @@ export function LayoutChipPopover({
               <PropertyPopoverItem
                 key={option.value}
                 selected={active}
-                onClick={() => handleUpdateView({ layout: option.value })}
+                onClick={() =>
+                  updateViewConfig(view, onUpdateView, {
+                    layout: option.value,
+                  })
+                }
                 trailing={
                   active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
@@ -1524,6 +1660,178 @@ export function LayoutChipPopover({
         </PropertyPopoverList>
       </PopoverContent>
     </Popover>
+  )
+}
+
+function ViewSortChipPopover({
+  view,
+  onUpdateView,
+  tone,
+  label,
+  showValue,
+  options,
+  contentWidthClassName,
+  showCompletedToggle = false,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone: ChipTone
+  label?: string
+  showValue: boolean
+  options: OrderingField[]
+  contentWidthClassName: string
+  showCompletedToggle?: boolean
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
+          <SortAscending className="size-3.5" />
+          <span>{label ?? ORDERING_LABELS[view.ordering]}</span>
+          {showValue ? (
+            <span className="font-semibold">
+              {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
+            </span>
+          ) : null}
+          <CaretDown className="size-3 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, contentWidthClassName)}
+      >
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
+          {options.map((option) => {
+            const active = view.ordering === option
+            return (
+              <PropertyPopoverItem
+                key={option}
+                selected={active}
+                onClick={() =>
+                  updateViewConfig(view, onUpdateView, { ordering: option })
+                }
+                trailing={
+                  active ? <Check className="size-3.5 text-accent-fg" /> : null
+                }
+              >
+                {ORDERING_LABELS[option]}
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+        {showCompletedToggle ? (
+          <div className="flex items-center justify-between border-t border-line-soft px-3 py-2">
+            <span className="text-[11px] text-fg-2">Hide completed</span>
+            <Switch
+              checked={!view.filters.showCompleted}
+              onCheckedChange={(checked) =>
+                updateViewConfig(view, onUpdateView, {
+                  showCompleted: !checked,
+                })
+              }
+            />
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function ProjectLayoutTabs({
+  view,
+  onUpdateView,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+}) {
+  return (
+    <ViewLayoutTabsControl
+      view={view}
+      onUpdateView={onUpdateView}
+      options={PROJECT_LAYOUT_OPTIONS}
+    />
+  )
+}
+
+export function ProjectLayoutChipPopover({
+  view,
+  onUpdateView,
+  tone = "default",
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+}) {
+  return (
+    <ViewLayoutChipPopover
+      view={view}
+      onUpdateView={onUpdateView}
+      tone={tone}
+      options={PROJECT_LAYOUT_OPTIONS}
+    />
+  )
+}
+
+export function ProjectSortChipPopover({
+  view,
+  onUpdateView,
+  tone = "default",
+  label,
+  showValue = true,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+  label?: string
+  showValue?: boolean
+}) {
+  return (
+    <ViewSortChipPopover
+      view={view}
+      onUpdateView={onUpdateView}
+      tone={tone}
+      label={label}
+      showValue={showValue}
+      options={PROJECT_ORDERING_OPTIONS}
+      contentWidthClassName="w-[220px]"
+      showCompletedToggle
+    />
+  )
+}
+
+export function LayoutTabs({
+  view,
+  onUpdateView,
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+}) {
+  return (
+    <ViewLayoutTabsControl
+      view={view}
+      onUpdateView={onUpdateView}
+      options={WORK_LAYOUT_OPTIONS}
+    />
+  )
+}
+
+export function LayoutChipPopover({
+  view,
+  onUpdateView,
+  tone = "default",
+}: {
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  tone?: ChipTone
+}) {
+  return (
+    <ViewLayoutChipPopover
+      view={view}
+      onUpdateView={onUpdateView}
+      tone={tone}
+      options={WORK_LAYOUT_OPTIONS}
+    />
   )
 }
 
@@ -1671,53 +1979,16 @@ export function SortChipPopover({
   label?: string
   showValue?: boolean
 }) {
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          <SortAscending className="size-3.5" />
-          <span>{label ?? ORDERING_LABELS[view.ordering]}</span>
-          {showValue ? (
-            <span className="font-semibold">
-              {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
-            </span>
-          ) : null}
-          <CaretDown className="size-3 opacity-70" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[200px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
-          {orderingOptions.map((option) => {
-            const active = view.ordering === option
-            return (
-              <PropertyPopoverItem
-                key={option}
-                selected={active}
-                onClick={() => handleUpdateView({ ordering: option })}
-                trailing={
-                  active ? <Check className="size-3.5 text-accent-fg" /> : null
-                }
-              >
-                {ORDERING_LABELS[option]}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
+    <ViewSortChipPopover
+      view={view}
+      onUpdateView={onUpdateView}
+      tone={tone}
+      label={label}
+      showValue={showValue}
+      options={orderingOptions}
+      contentWidthClassName="w-[200px]"
+    />
   )
 }
 

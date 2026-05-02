@@ -1,81 +1,43 @@
 import { NextRequest } from "next/server"
-import { z } from "zod"
 
-import { isApplicationError } from "@/lib/server/application-errors"
 import {
   bumpScopedReadModelVersionsServer,
   toggleChannelPostReactionServer,
 } from "@/lib/server/convex"
+import {
+  handleAppContextJsonRoute,
+  reactionPayloadSchema,
+} from "@/lib/server/route-handlers"
+import { jsonOk } from "@/lib/server/route-response"
 import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
-import {
-  getConvexErrorMessage,
-  logProviderError,
-} from "@/lib/server/provider-errors"
-import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { parseJsonBody } from "@/lib/server/route-body"
-import {
-  isRouteResponse,
-  jsonApplicationError,
-  jsonError,
-  jsonOk,
-} from "@/lib/server/route-response"
-
-const reactionSchema = z.object({
-  emoji: z.string().trim().min(1).max(16),
-})
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
-  const session = await requireSession()
+  const { postId } = await params
 
-  if (isRouteResponse(session)) {
-    return session
-  }
+  return handleAppContextJsonRoute(request, {
+    schema: reactionPayloadSchema,
+    invalidMessage: "Invalid reaction payload",
+    failureLogLabel: "Failed to update reaction",
+    failureMessage: "Failed to update reaction",
+    async handle({ session, appContext, parsed }) {
+      await toggleChannelPostReactionServer({
+        currentUserId: appContext.ensuredUser.userId,
+        postId,
+        emoji: parsed.emoji,
+      })
+      await bumpScopedReadModelVersionsServer({
+        scopeKeys: await resolveChannelPostReadModelScopeKeysServer(
+          session,
+          postId
+        ),
+      })
 
-  const parsed = await parseJsonBody(
-    request,
-    reactionSchema,
-    "Invalid reaction payload"
-  )
-
-  if (isRouteResponse(parsed)) {
-    return parsed
-  }
-
-  try {
-    const { postId } = await params
-    const appContext = await requireAppContext(session)
-
-    if (isRouteResponse(appContext)) {
-      return appContext
-    }
-
-    await toggleChannelPostReactionServer({
-      currentUserId: appContext.ensuredUser.userId,
-      postId,
-      emoji: parsed.emoji,
-    })
-    await bumpScopedReadModelVersionsServer({
-      scopeKeys: await resolveChannelPostReadModelScopeKeysServer(
-        session,
-        postId
-      ),
-    })
-
-    return jsonOk({
-      ok: true,
-    })
-  } catch (error) {
-    if (isApplicationError(error)) {
-      return jsonApplicationError(error)
-    }
-
-    logProviderError("Failed to update reaction", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to update reaction"),
-      500
-    )
-  }
+      return jsonOk({
+        ok: true,
+      })
+    },
+  })
 }

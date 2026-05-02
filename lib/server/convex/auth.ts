@@ -216,17 +216,3 @@ export async function lookupTeamByJoinCodeServer(code: string) {
     withServerToken({ code })
   )
 }
-
-export async function listWorkspacesForSyncServer() {
-  return getConvexServerClient().query(
-    api.app.listWorkspacesForSync,
-    withServerToken({})
-  )
-}
-
-export async function listPendingNotificationDigestsServer() {
-  return getConvexServerClient().query(
-    api.app.listPendingNotificationDigests,
-    withServerToken({})
-  )
-}

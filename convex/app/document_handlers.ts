@@ -30,6 +30,7 @@ import { getTeamMemberIds, getWorkspaceUserIds } from "./conversations"
 import { queueEmailJobs } from "./email_job_handlers"
 import { deleteDocumentCascade } from "./lifecycle"
 import { listDocumentPresenceViewers } from "./normalization"
+import { upsertDocumentPresenceForActor } from "./presence_helpers"
 import { getAttachmentDoc } from "./data"
 import { createId, getNow as now } from "./core"
 import { getTeamDoc } from "./data"
@@ -147,6 +148,105 @@ type CreateDocumentArgs = ServerAccessArgs & {
   teamId?: string
   workspaceId?: string
   title: string
+}
+
+type MentionInput = Array<{
+  userId: string
+  count: number
+}>
+
+type MentionResult = {
+  recipientCount: number
+  mentionCount: number
+}
+
+type MentionValidationMessages = {
+  invalidUser: string
+  missingMention: string
+  alreadyNotified: string
+}
+
+type MentionTrackingState = {
+  persistedMentionCounts: Record<string, number>
+  notifiedMentionCounts: Record<string, number>
+}
+
+type ActiveMentionUser = Awaited<
+  ReturnType<typeof listActiveUsersByIds>
+>[number]
+
+type MentionEmailFactory = (args: {
+  mentionedUser: ActiveMentionUser
+  notificationId: string
+  recipientMentionCount: number
+}) => MentionEmail
+
+type MentionDeliveryArgs = {
+  buildEmail: MentionEmailFactory
+  buildMessage: (recipientMentionCount: number) => string
+  ctx: MutationCtx
+  currentUserId: string
+  entityId: string
+  entityType: "document" | "workItem"
+  mentionCounts: Map<string, number>
+  skipCurrentUser: boolean
+  usersById: Map<string, ActiveMentionUser>
+}
+
+async function requireTeamDocumentCreateAccess(
+  ctx: MutationCtx,
+  args: CreateDocumentArgs
+) {
+  if (!args.teamId) {
+    throw new Error("Team is required")
+  }
+
+  await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
+  const team = await getTeamDoc(ctx, args.teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  if (!normalizeTeam(team).settings.features.docs) {
+    throw new Error("Docs are disabled for this team")
+  }
+
+  return team.workspaceId
+}
+
+async function requireWorkspaceDocumentCreateAccess(
+  ctx: MutationCtx,
+  args: CreateDocumentArgs
+) {
+  const workspaceId = args.workspaceId ?? ""
+
+  if (!workspaceId) {
+    throw new Error("Workspace is required")
+  }
+
+  await requireEditableWorkspaceAccess(ctx, workspaceId, args.currentUserId)
+
+  return workspaceId
+}
+
+function getDocumentContentTemplate(kind: CreateDocumentArgs["kind"]) {
+  if (kind === "private-document") {
+    return "New private document."
+  }
+
+  return kind === "workspace-document"
+    ? "New workspace document."
+    : "New team document."
+}
+
+async function requireDocumentCreateAccess(
+  ctx: MutationCtx,
+  args: CreateDocumentArgs
+) {
+  return args.kind === "team-document"
+    ? requireTeamDocumentCreateAccess(ctx, args)
+    : requireWorkspaceDocumentCreateAccess(ctx, args)
 }
 
 export async function updateDocumentContentHandler(
@@ -351,6 +451,178 @@ function buildDocumentMentionDetailText(mentionCount: number) {
   return "You were mentioned in this live document."
 }
 
+function emptyMentionResult(): MentionResult {
+  return {
+    recipientCount: 0,
+    mentionCount: 0,
+  }
+}
+
+function normalizeMentionCounts(mentions: MentionInput) {
+  const mentionCounts = new Map<string, number>()
+
+  for (const mention of mentions) {
+    const normalizedUserId = mention.userId.trim()
+    const normalizedCount = normalizeMentionNotificationCount(mention.count)
+
+    if (normalizedUserId.length === 0 || normalizedCount === 0) {
+      continue
+    }
+
+    mentionCounts.set(
+      normalizedUserId,
+      (mentionCounts.get(normalizedUserId) ?? 0) + normalizedCount
+    )
+  }
+
+  return mentionCounts
+}
+
+function getMentionTrackingState(
+  content: string,
+  notifiedMentionCounts?: Record<string, number> | null
+): MentionTrackingState {
+  const persistedMentionCounts = extractRichTextMentionCounts(content)
+
+  return {
+    persistedMentionCounts,
+    notifiedMentionCounts: clampStoredMentionCountsToContentCounts(
+      normalizeStoredMentionCounts(notifiedMentionCounts),
+      persistedMentionCounts
+    ),
+  }
+}
+
+function assertMentionCountsCanBeDelivered({
+  audienceUserIds,
+  currentUserId,
+  mentionCounts,
+  messages,
+  persistedMentionCounts,
+  notifiedMentionCounts,
+  skipCurrentUser,
+}: MentionTrackingState & {
+  audienceUserIds: Set<string>
+  currentUserId: string
+  mentionCounts: Map<string, number>
+  messages: MentionValidationMessages
+  skipCurrentUser: boolean
+}) {
+  for (const [userId, requestedCount] of mentionCounts.entries()) {
+    if (skipCurrentUser && userId === currentUserId) {
+      continue
+    }
+
+    if (!audienceUserIds.has(userId)) {
+      throw new Error(messages.invalidUser)
+    }
+
+    if ((persistedMentionCounts[userId] ?? 0) < requestedCount) {
+      throw new Error(messages.missingMention)
+    }
+
+    if (
+      (persistedMentionCounts[userId] ?? 0) -
+        (notifiedMentionCounts[userId] ?? 0) <
+      requestedCount
+    ) {
+      throw new Error(messages.alreadyNotified)
+    }
+  }
+}
+
+async function getMentionUsersById(
+  ctx: MutationCtx,
+  currentUserId: string,
+  mentionCounts: Map<string, number>
+) {
+  const users = await listActiveUsersByIds(ctx, [
+    currentUserId,
+    ...mentionCounts.keys(),
+  ])
+
+  return new Map(users.map((user) => [user.id, user]))
+}
+
+async function deliverMentionNotifications({
+  buildEmail,
+  buildMessage,
+  ctx,
+  currentUserId,
+  entityId,
+  entityType,
+  mentionCounts,
+  skipCurrentUser,
+  usersById,
+}: MentionDeliveryArgs) {
+  const mentionEmails: MentionEmail[] = []
+  const deliveredMentionCounts = new Map<string, number>()
+  let mentionCount = 0
+  let recipientCount = 0
+
+  for (const [
+    mentionedUserId,
+    recipientMentionCount,
+  ] of mentionCounts.entries()) {
+    if (skipCurrentUser && mentionedUserId === currentUserId) {
+      continue
+    }
+
+    const mentionedUser = usersById.get(mentionedUserId)
+
+    if (!mentionedUser) {
+      continue
+    }
+
+    const notification = createNotification(
+      mentionedUserId,
+      currentUserId,
+      buildMessage(recipientMentionCount),
+      entityType,
+      entityId,
+      "mention"
+    )
+
+    await ctx.db.insert("notifications", notification)
+
+    if (mentionedUser.preferences.emailMentions) {
+      mentionEmails.push(
+        buildEmail({
+          mentionedUser,
+          notificationId: notification.id,
+          recipientMentionCount,
+        })
+      )
+    }
+
+    deliveredMentionCounts.set(mentionedUserId, recipientMentionCount)
+    mentionCount += recipientMentionCount
+    recipientCount += 1
+  }
+
+  return {
+    deliveredMentionCounts,
+    mentionCount,
+    mentionEmails,
+    recipientCount,
+  }
+}
+
+async function getDocumentMentionAudienceUserIds(
+  ctx: MutationCtx,
+  document: NonNullable<Awaited<ReturnType<typeof getDocumentDoc>>>
+) {
+  if (document.teamId) {
+    return new Set(await getTeamMemberIds(ctx, document.teamId))
+  }
+
+  if (document.workspaceId) {
+    return new Set(await getWorkspaceUserIds(ctx, document.workspaceId))
+  }
+
+  return new Set<string>()
+}
+
 export async function sendDocumentMentionNotificationsHandler(
   ctx: MutationCtx,
   args: SendDocumentMentionNotificationsArgs
@@ -358,10 +630,7 @@ export async function sendDocumentMentionNotificationsHandler(
   assertServerToken(args.serverToken)
 
   if (args.mentions.length === 0) {
-    return {
-      recipientCount: 0,
-      mentionCount: 0,
-    }
+    return emptyMentionResult()
   }
 
   const document = await getDocumentDoc(ctx, args.documentId)
@@ -376,138 +645,73 @@ export async function sendDocumentMentionNotificationsHandler(
     throw new Error("Private documents do not support mention notifications")
   }
 
-  const audienceUserIds = new Set(
-    document.teamId
-      ? await getTeamMemberIds(ctx, document.teamId)
-      : document.workspaceId
-        ? await getWorkspaceUserIds(ctx, document.workspaceId)
-        : []
+  const audienceUserIds = await getDocumentMentionAudienceUserIds(ctx, document)
+  const mentionTracking = getMentionTrackingState(
+    document.content,
+    document.notifiedMentionCounts
   )
-  const persistedMentionCounts = extractRichTextMentionCounts(document.content)
-  const notifiedMentionCounts = clampStoredMentionCountsToContentCounts(
-    normalizeStoredMentionCounts(document.notifiedMentionCounts),
-    persistedMentionCounts
-  )
-  const mentionCounts = new Map<string, number>()
-
-  for (const mention of args.mentions) {
-    const normalizedUserId = mention.userId.trim()
-    const normalizedCount = normalizeMentionNotificationCount(mention.count)
-
-    if (normalizedUserId.length === 0 || normalizedCount === 0) {
-      continue
-    }
-
-    mentionCounts.set(
-      normalizedUserId,
-      (mentionCounts.get(normalizedUserId) ?? 0) + normalizedCount
-    )
-  }
+  const mentionCounts = normalizeMentionCounts(args.mentions)
 
   if (mentionCounts.size === 0) {
-    return {
-      recipientCount: 0,
-      mentionCount: 0,
-    }
+    return emptyMentionResult()
   }
 
-  for (const userId of mentionCounts.keys()) {
-    if (userId === args.currentUserId) {
-      continue
-    }
+  assertMentionCountsCanBeDelivered({
+    ...mentionTracking,
+    audienceUserIds,
+    currentUserId: args.currentUserId,
+    mentionCounts,
+    messages: {
+      invalidUser: "One or more mentioned users are invalid for this document",
+      missingMention:
+        "One or more mentioned users are not present in the document",
+      alreadyNotified:
+        "One or more mentioned users were already notified for this document",
+    },
+    skipCurrentUser: true,
+  })
 
-    if (!audienceUserIds.has(userId)) {
-      throw new Error(
-        "One or more mentioned users are invalid for this document"
-      )
-    }
-
-    if (
-      (persistedMentionCounts[userId] ?? 0) < (mentionCounts.get(userId) ?? 0)
-    ) {
-      throw new Error(
-        "One or more mentioned users are not present in the document"
-      )
-    }
-
-    if (
-      (persistedMentionCounts[userId] ?? 0) -
-        (notifiedMentionCounts[userId] ?? 0) <
-      (mentionCounts.get(userId) ?? 0)
-    ) {
-      throw new Error(
-        "One or more mentioned users were already notified for this document"
-      )
-    }
-  }
-
-  const users = await listActiveUsersByIds(ctx, [
+  const usersById = await getMentionUsersById(
+    ctx,
     args.currentUserId,
-    ...mentionCounts.keys(),
-  ])
-  const usersById = new Map(users.map((user) => [user.id, user]))
+    mentionCounts
+  )
   const actorName = usersById.get(args.currentUserId)?.name ?? "Someone"
-  const mentionEmails: MentionEmail[] = []
   const documentTitle = document.title.trim() || "Untitled document"
-  const deliveredMentionCounts = new Map<string, number>()
-  let mentionCount = 0
-  let recipientCount = 0
-
-  for (const [
-    mentionedUserId,
-    recipientMentionCount,
-  ] of mentionCounts.entries()) {
-    if (mentionedUserId === args.currentUserId) {
-      continue
-    }
-
-    const mentionedUser = usersById.get(mentionedUserId)
-
-    if (!mentionedUser) {
-      continue
-    }
-
-    const notification = createNotification(
-      mentionedUserId,
-      args.currentUserId,
+  const delivery = await deliverMentionNotifications({
+    ctx,
+    currentUserId: args.currentUserId,
+    entityId: args.documentId,
+    entityType: "document",
+    mentionCounts,
+    skipCurrentUser: true,
+    usersById,
+    buildMessage: (recipientMentionCount) =>
       buildDocumentMentionNotificationMessage(
         actorName,
         documentTitle,
         recipientMentionCount
       ),
-      "document",
-      args.documentId,
-      "mention"
-    )
-
-    await ctx.db.insert("notifications", notification)
-
-    if (mentionedUser.preferences.emailMentions) {
-      mentionEmails.push({
-        notificationId: notification.id,
-        email: mentionedUser.email,
-        name: mentionedUser.name,
-        entityTitle: documentTitle,
-        entityType: "document",
-        entityId: args.documentId,
-        actorName,
-        commentText: "",
-        detailLabel: "Summary",
-        detailText: buildDocumentMentionDetailText(recipientMentionCount),
-        mentionCount: recipientMentionCount,
-      })
-    }
-
-    deliveredMentionCounts.set(mentionedUserId, recipientMentionCount)
-    mentionCount += recipientMentionCount
-    recipientCount += 1
-  }
+    buildEmail: ({ mentionedUser, notificationId, recipientMentionCount }) => ({
+      notificationId,
+      email: mentionedUser.email,
+      name: mentionedUser.name,
+      entityTitle: documentTitle,
+      entityType: "document",
+      entityId: args.documentId,
+      actorName,
+      commentText: "",
+      detailLabel: "Summary",
+      detailText: buildDocumentMentionDetailText(recipientMentionCount),
+      mentionCount: recipientMentionCount,
+    }),
+  })
 
   await ctx.db.patch(document._id, {
     notifiedMentionCounts: buildAdvancedNotifiedMentionCounts(
-      persistedMentionCounts,
-      notifiedMentionCounts,
-      deliveredMentionCounts
+      mentionTracking.persistedMentionCounts,
+      mentionTracking.notifiedMentionCounts,
+      delivery.deliveredMentionCounts
     ),
   })
 
@@ -515,13 +719,13 @@ export async function sendDocumentMentionNotificationsHandler(
     ctx,
     buildMentionEmailJobs({
       origin: args.origin,
-      emails: mentionEmails,
+      emails: delivery.mentionEmails,
     })
   )
 
   return {
-    recipientCount,
-    mentionCount,
+    recipientCount: delivery.recipientCount,
+    mentionCount: delivery.mentionCount,
   }
 }
 
@@ -532,10 +736,7 @@ export async function sendItemDescriptionMentionNotificationsHandler(
   assertServerToken(args.serverToken)
 
   if (args.mentions.length === 0) {
-    return {
-      recipientCount: 0,
-      mentionCount: 0,
-    }
+    return emptyMentionResult()
   }
 
   const item = await getWorkItemDoc(ctx, args.itemId)
@@ -553,133 +754,80 @@ export async function sendItemDescriptionMentionNotificationsHandler(
   }
 
   const audienceUserIds = new Set(await getTeamMemberIds(ctx, item.teamId))
-  const persistedMentionCounts = extractRichTextMentionCounts(
-    descriptionDocument.content
+  const mentionTracking = getMentionTrackingState(
+    descriptionDocument.content,
+    descriptionDocument.notifiedMentionCounts
   )
-  const notifiedMentionCounts = clampStoredMentionCountsToContentCounts(
-    normalizeStoredMentionCounts(descriptionDocument.notifiedMentionCounts),
-    persistedMentionCounts
-  )
-  const mentionCounts = new Map<string, number>()
-
-  for (const mention of args.mentions) {
-    const normalizedUserId = mention.userId.trim()
-    const normalizedCount = normalizeMentionNotificationCount(mention.count)
-
-    if (normalizedUserId.length === 0 || normalizedCount === 0) {
-      continue
-    }
-
-    mentionCounts.set(
-      normalizedUserId,
-      (mentionCounts.get(normalizedUserId) ?? 0) + normalizedCount
-    )
-  }
+  const mentionCounts = normalizeMentionCounts(args.mentions)
 
   if (mentionCounts.size === 0) {
-    return {
-      recipientCount: 0,
-      mentionCount: 0,
-    }
+    return emptyMentionResult()
   }
 
-  for (const userId of mentionCounts.keys()) {
-    if (!audienceUserIds.has(userId)) {
-      throw new Error(
-        "One or more mentioned users are invalid for this work item"
-      )
-    }
+  assertMentionCountsCanBeDelivered({
+    ...mentionTracking,
+    audienceUserIds,
+    currentUserId: args.currentUserId,
+    mentionCounts,
+    messages: {
+      invalidUser: "One or more mentioned users are invalid for this work item",
+      missingMention:
+        "One or more mentioned users are not present in this work item",
+      alreadyNotified:
+        "One or more mentioned users were already notified for this work item",
+    },
+    skipCurrentUser: false,
+  })
 
-    if (
-      (persistedMentionCounts[userId] ?? 0) < (mentionCounts.get(userId) ?? 0)
-    ) {
-      throw new Error(
-        "One or more mentioned users are not present in this work item"
-      )
-    }
-
-    if (
-      (persistedMentionCounts[userId] ?? 0) -
-        (notifiedMentionCounts[userId] ?? 0) <
-      (mentionCounts.get(userId) ?? 0)
-    ) {
-      throw new Error(
-        "One or more mentioned users were already notified for this work item"
-      )
-    }
-  }
-
-  const users = await listActiveUsersByIds(ctx, [
+  const usersById = await getMentionUsersById(
+    ctx,
     args.currentUserId,
-    ...mentionCounts.keys(),
-  ])
-  const usersById = new Map(users.map((user) => [user.id, user]))
+    mentionCounts
+  )
   const actorName = usersById.get(args.currentUserId)?.name ?? "Someone"
   const team = await getTeamDoc(ctx, item.teamId)
   const teamName = team ? normalizeTeam(team).name : null
-  const mentionEmails: MentionEmail[] = []
   const itemTitle = item.title.trim() || item.key
-  const deliveredMentionCounts = new Map<string, number>()
-  let mentionCount = 0
-  let recipientCount = 0
-
-  for (const [
-    mentionedUserId,
-    recipientMentionCount,
-  ] of mentionCounts.entries()) {
-    const mentionedUser = usersById.get(mentionedUserId)
-
-    if (!mentionedUser) {
-      continue
-    }
-
-    const notification = createNotification(
-      mentionedUserId,
-      args.currentUserId,
+  const delivery = await deliverMentionNotifications({
+    ctx,
+    currentUserId: args.currentUserId,
+    entityId: args.itemId,
+    entityType: "workItem",
+    mentionCounts,
+    skipCurrentUser: false,
+    usersById,
+    buildMessage: (recipientMentionCount) =>
       buildWorkItemDescriptionMentionNotificationMessage(
         actorName,
         itemTitle,
         teamName,
         recipientMentionCount
       ),
-      "workItem",
-      args.itemId,
-      "mention"
-    )
-
-    await ctx.db.insert("notifications", notification)
-
-    if (mentionedUser.preferences.emailMentions) {
-      mentionEmails.push({
-        notificationId: notification.id,
-        email: mentionedUser.email,
-        name: mentionedUser.name,
-        entityTitle: itemTitle,
-        entityType: "workItem",
-        entityId: args.itemId,
-        entityPath: `/items/${args.itemId}`,
-        actorName,
-        commentText: "",
-        detailLabel: "Description",
-        detailText: buildWorkItemDescriptionMentionDetailText(
-          itemTitle,
-          teamName,
-          recipientMentionCount
-        ),
-        mentionCount: recipientMentionCount,
-      })
-    }
-
-    deliveredMentionCounts.set(mentionedUserId, recipientMentionCount)
-    mentionCount += recipientMentionCount
-    recipientCount += 1
-  }
+    buildEmail: ({ mentionedUser, notificationId, recipientMentionCount }) => ({
+      notificationId,
+      email: mentionedUser.email,
+      name: mentionedUser.name,
+      entityTitle: itemTitle,
+      entityType: "workItem",
+      entityId: args.itemId,
+      entityPath: `/items/${args.itemId}`,
+      actorName,
+      commentText: "",
+      detailLabel: "Description",
+      detailText: buildWorkItemDescriptionMentionDetailText(
+        itemTitle,
+        teamName,
+        recipientMentionCount
+      ),
+      mentionCount: recipientMentionCount,
+    }),
+  })
 
   await ctx.db.patch(descriptionDocument._id, {
     notifiedMentionCounts: buildAdvancedNotifiedMentionCounts(
-      persistedMentionCounts,
-      notifiedMentionCounts,
-      deliveredMentionCounts
+      mentionTracking.persistedMentionCounts,
+      mentionTracking.notifiedMentionCounts,
+      delivery.deliveredMentionCounts
     ),
   })
 
@@ -687,13 +835,13 @@ export async function sendItemDescriptionMentionNotificationsHandler(
     ctx,
     buildMentionEmailJobs({
       origin: args.origin,
-      emails: mentionEmails,
+      emails: delivery.mentionEmails,
     })
   )
 
   return {
-    recipientCount,
-    mentionCount,
+    recipientCount: delivery.recipientCount,
+    mentionCount: delivery.mentionCount,
   }
 }
 
@@ -706,70 +854,8 @@ export async function heartbeatDocumentPresenceHandler(
   const document = await getDocumentDoc(ctx, args.documentId)
   await requireReadableDocumentAccess(ctx, document, args.currentUserId)
 
-  const existingPresenceEntries = await ctx.db
-    .query("documentPresence")
-    .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-    .collect()
   const currentTime = getNow()
-  const existingPresence = [...existingPresenceEntries]
-    .filter(
-      (entry) =>
-        entry.workosUserId === args.workosUserId ||
-        (!entry.workosUserId && entry.userId === args.currentUserId)
-    )
-    .sort(
-      (left, right) =>
-        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
-    )[0]
-
-  const conflictingPresenceEntries = existingPresenceEntries.filter((entry) =>
-    entry.workosUserId
-      ? entry.workosUserId !== args.workosUserId
-      : entry.userId !== args.currentUserId
-  )
-
-  if (conflictingPresenceEntries.length > 0) {
-    throw new Error("Document presence session is already in use")
-  }
-
-  if (existingPresence) {
-    await ctx.db.patch(existingPresence._id, {
-      activeBlockId: args.activeBlockId ?? null,
-      avatarUrl: args.avatarUrl,
-      avatarImageUrl: args.avatarImageUrl ?? null,
-      documentId: args.documentId,
-      email: args.email,
-      lastSeenAt: currentTime,
-      name: args.name,
-      userId: args.currentUserId,
-      workosUserId: args.workosUserId,
-    })
-
-    for (const duplicateEntry of existingPresenceEntries) {
-      if (
-        duplicateEntry._id !== existingPresence._id &&
-        (duplicateEntry.workosUserId
-          ? duplicateEntry.workosUserId === args.workosUserId
-          : duplicateEntry.userId === args.currentUserId)
-      ) {
-        await ctx.db.delete(duplicateEntry._id)
-      }
-    }
-  } else {
-    await ctx.db.insert("documentPresence", {
-      activeBlockId: args.activeBlockId ?? null,
-      avatarUrl: args.avatarUrl,
-      avatarImageUrl: args.avatarImageUrl ?? null,
-      documentId: args.documentId,
-      userId: args.currentUserId,
-      email: args.email,
-      name: args.name,
-      sessionId: args.sessionId,
-      createdAt: currentTime,
-      lastSeenAt: currentTime,
-      workosUserId: args.workosUserId,
-    })
-  }
+  await upsertDocumentPresenceForActor(ctx, args.documentId, args, currentTime)
 
   return listDocumentPresenceViewers(
     ctx,
@@ -1045,40 +1131,9 @@ export async function createDocumentHandler(
 ) {
   assertServerToken(args.serverToken)
   const documentId = args.id ?? createId("document")
-  const workspaceId =
-    args.kind === "team-document"
-      ? ((await getTeamDoc(ctx, args.teamId ?? ""))?.workspaceId ?? "")
-      : (args.workspaceId ?? "")
-
-  if (args.kind === "team-document") {
-    if (!args.teamId) {
-      throw new Error("Team is required")
-    }
-
-    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-    const team = await getTeamDoc(ctx, args.teamId)
-
-    if (!team) {
-      throw new Error("Team not found")
-    }
-
-    if (!normalizeTeam(team).settings.features.docs) {
-      throw new Error("Docs are disabled for this team")
-    }
-  } else {
-    if (!workspaceId) {
-      throw new Error("Workspace is required")
-    }
-
-    await requireEditableWorkspaceAccess(ctx, workspaceId, args.currentUserId)
-  }
-
-  const contentTemplate =
-    args.kind === "private-document"
-      ? "New private document."
-      : args.kind === "workspace-document"
-        ? "New workspace document."
-        : "New team document."
+  const workspaceId = await requireDocumentCreateAccess(ctx, args)
+  const contentTemplate = getDocumentContentTemplate(args.kind)
+  const currentTime = getNow()
 
   await ctx.db.insert("documents", {
     id: documentId,
@@ -1091,8 +1146,8 @@ export async function createDocumentHandler(
     linkedWorkItemIds: [],
     createdBy: args.currentUserId,
     updatedBy: args.currentUserId,
-    createdAt: getNow(),
-    updatedAt: getNow(),
+    createdAt: currentTime,
+    updatedAt: currentTime,
   })
 
   return {

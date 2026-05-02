@@ -45,77 +45,93 @@ export function initializePendingNotificationToastIds(input: {
   }
 }
 
+type NotificationHrefResolver = (
+  data: NotificationRouteData,
+  notification: Notification
+) => string | null
+
+function getProjectNotificationHref(
+  data: NotificationRouteData,
+  notification: Notification
+) {
+  const project = data.projects.find(
+    (entry) => entry.id === notification.entityId
+  )
+
+  if (!project) {
+    return null
+  }
+
+  if (project.scopeType === "workspace") {
+    return `/workspace/projects/${project.id}`
+  }
+
+  const team = data.teams.find((entry) => entry.id === project.scopeId)
+  return team ? `/team/${team.slug}/projects/${project.id}` : null
+}
+
+function getChannelPostNotificationHref(
+  data: NotificationRouteData,
+  notification: Notification
+) {
+  const post = data.channelPosts.find(
+    (entry) => entry.id === notification.entityId
+  )
+  const conversation = post
+    ? data.conversations.find((entry) => entry.id === post.conversationId)
+    : null
+
+  if (!post || !conversation || conversation.kind !== "channel") {
+    return null
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return `/workspace/channel#${post.id}`
+  }
+
+  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+  return team ? `/team/${team.slug}/channel#${post.id}` : null
+}
+
+function getChatNotificationHref(
+  data: NotificationRouteData,
+  notification: Notification
+) {
+  const conversation = data.conversations.find(
+    (entry) => entry.id === notification.entityId
+  )
+
+  if (!conversation || conversation.kind !== "chat") {
+    return null
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return `/chats?chatId=${conversation.id}`
+  }
+
+  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+  return team ? `/team/${team.slug}/chat` : null
+}
+
+const notificationHrefResolvers: Partial<
+  Record<Notification["entityType"], NotificationHrefResolver>
+> = {
+  workItem: (_data, notification) => `/items/${notification.entityId}`,
+  document: (_data, notification) => `/docs/${notification.entityId}`,
+  project: getProjectNotificationHref,
+  channelPost: getChannelPostNotificationHref,
+  chat: getChatNotificationHref,
+  invite: () => "/invites",
+}
+
 export function getNotificationHref(
   data: NotificationRouteData,
   notification: Notification
 ) {
-  if (notification.entityType === "workItem") {
-    return `/items/${notification.entityId}`
-  }
-
-  if (notification.entityType === "document") {
-    return `/docs/${notification.entityId}`
-  }
-
-  if (notification.entityType === "project") {
-    const project = data.projects.find(
-      (entry) => entry.id === notification.entityId
-    )
-
-    if (!project) {
-      return null
-    }
-
-    if (project.scopeType === "workspace") {
-      return `/workspace/projects/${project.id}`
-    }
-
-    const team = data.teams.find((entry) => entry.id === project.scopeId)
-    return team ? `/team/${team.slug}/projects/${project.id}` : null
-  }
-
-  if (notification.entityType === "channelPost") {
-    const post = data.channelPosts.find(
-      (entry) => entry.id === notification.entityId
-    )
-    const conversation = post
-      ? data.conversations.find((entry) => entry.id === post.conversationId)
-      : null
-
-    if (!post || !conversation || conversation.kind !== "channel") {
-      return null
-    }
-
-    if (conversation.scopeType === "workspace") {
-      return `/workspace/channel#${post.id}`
-    }
-
-    const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-    return team ? `/team/${team.slug}/channel#${post.id}` : null
-  }
-
-  if (notification.entityType === "chat") {
-    const conversation = data.conversations.find(
-      (entry) => entry.id === notification.entityId
-    )
-
-    if (!conversation || conversation.kind !== "chat") {
-      return null
-    }
-
-    if (conversation.scopeType === "workspace") {
-      return `/chats?chatId=${conversation.id}`
-    }
-
-    const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-    return team ? `/team/${team.slug}/chat` : null
-  }
-
-  if (notification.entityType === "invite") {
-    return "/invites"
-  }
-
-  return null
+  return (
+    notificationHrefResolvers[notification.entityType]?.(data, notification) ??
+    null
+  )
 }
 
 function getHrefPathname(href: string) {

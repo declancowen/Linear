@@ -1,8 +1,4 @@
-import {
-  generateHTML,
-  getSchema,
-  type JSONContent,
-} from "@tiptap/core"
+import { generateHTML, getSchema, type JSONContent } from "@tiptap/core"
 import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model"
 import { parseHTML } from "linkedom"
 
@@ -56,10 +52,18 @@ const ALLOWED_HTML_TAGS = new Set([
   "u",
   "ul",
 ])
-const ALLOWED_TEXT_ALIGN_VALUES = new Set(["left", "center", "right", "justify"])
+const ALLOWED_TEXT_ALIGN_VALUES = new Set([
+  "left",
+  "center",
+  "right",
+  "justify",
+])
 const LENGTH_STYLE_VALUE = /^\d+(\.\d+)?(px|%)$/
 const ALLOWED_SPAN_CLASSES = new Set(["editor-highlight", "editor-mention"])
 const ALLOWED_IMAGE_CLASSES = new Set(["editor-image"])
+const LENGTH_STYLE_TAGS = new Set(["col", "td", "th"])
+const LENGTH_STYLE_PROPERTIES = new Set(["width", "min-width"])
+const TEXT_ALIGN_STYLE_TAGS = new Set(["p", "h1", "h2", "h3", "td", "th"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -83,8 +87,7 @@ function withDocument<T>(nextDocument: Document, callback: () => T) {
   if (!documentWithImplementation.implementation) {
     documentWithImplementation.implementation = {
       createDocument: () => nextDocument,
-      createDocumentType: () =>
-        nextDocument.doctype ?? ({} as DocumentType),
+      createDocumentType: () => nextDocument.doctype ?? ({} as DocumentType),
       createHTMLDocument: () =>
         parseHTML("<!DOCTYPE html><html><head></head><body></body></html>")
           .document,
@@ -114,7 +117,9 @@ function withDocument<T>(nextDocument: Document, callback: () => T) {
   }
 }
 
-export function normalizeCollaborationDocumentJson(value: unknown): JSONContent {
+export function normalizeCollaborationDocumentJson(
+  value: unknown
+): JSONContent {
   if (isRecord(value) && typeof value.type === "string") {
     return value as JSONContent
   }
@@ -134,7 +139,7 @@ export function createCanonicalContentJson(contentHtml: string): JSONContent {
   return parsedDocument.toJSON()
 }
 
-export function serializeCanonicalContentJson(contentJson: JSONContent) {
+function serializeCanonicalContentJson(contentJson: JSONContent) {
   const normalizedJson = normalizeCollaborationDocumentJson(contentJson)
   const { document } = parseHTML(
     "<!DOCTYPE html><html><head></head><body></body></html>"
@@ -211,9 +216,49 @@ function normalizeTextAlignValue(value: string | null) {
   }
 
   const normalizedValue = value.trim().toLowerCase()
-  return ALLOWED_TEXT_ALIGN_VALUES.has(normalizedValue)
-    ? normalizedValue
-    : null
+  return ALLOWED_TEXT_ALIGN_VALUES.has(normalizedValue) ? normalizedValue : null
+}
+
+function parseStyleDeclarationEntry(entry: string) {
+  const separatorIndex = entry.indexOf(":")
+
+  if (separatorIndex < 0) {
+    return null
+  }
+
+  const propertyName = entry.slice(0, separatorIndex).trim().toLowerCase()
+  const propertyValue = entry.slice(separatorIndex + 1).trim()
+
+  if (propertyName.length === 0 || propertyValue.length === 0) {
+    return null
+  }
+
+  return {
+    propertyName,
+    propertyValue,
+  }
+}
+
+function getNormalizedStyleValue(input: {
+  propertyName: string
+  propertyValue: string
+  tagName: string
+}) {
+  if (
+    LENGTH_STYLE_TAGS.has(input.tagName) &&
+    LENGTH_STYLE_PROPERTIES.has(input.propertyName)
+  ) {
+    return normalizeLengthStyleValue(input.propertyValue)
+  }
+
+  if (
+    TEXT_ALIGN_STYLE_TAGS.has(input.tagName) &&
+    input.propertyName === "text-align"
+  ) {
+    return normalizeTextAlignValue(input.propertyValue)
+  }
+
+  return null
 }
 
 function normalizeStyleDeclaration(tagName: string, styleValue: string | null) {
@@ -224,46 +269,19 @@ function normalizeStyleDeclaration(tagName: string, styleValue: string | null) {
   const declarations = new Map<string, string>()
 
   for (const entry of styleValue.split(";")) {
-    const separatorIndex = entry.indexOf(":")
+    const parsedEntry = parseStyleDeclarationEntry(entry)
 
-    if (separatorIndex < 0) {
+    if (!parsedEntry) {
       continue
     }
 
-    const propertyName = entry.slice(0, separatorIndex).trim().toLowerCase()
-    const propertyValue = entry.slice(separatorIndex + 1).trim()
+    const normalizedValue = getNormalizedStyleValue({
+      tagName,
+      ...parsedEntry,
+    })
 
-    if (propertyName.length === 0 || propertyValue.length === 0) {
-      continue
-    }
-
-    if (
-      (tagName === "col" || tagName === "td" || tagName === "th") &&
-      (propertyName === "width" || propertyName === "min-width")
-    ) {
-      const normalizedValue = normalizeLengthStyleValue(propertyValue)
-
-      if (normalizedValue) {
-        declarations.set(propertyName, normalizedValue)
-      }
-
-      continue
-    }
-
-    if (
-      (tagName === "p" ||
-        tagName === "h1" ||
-        tagName === "h2" ||
-        tagName === "h3" ||
-        tagName === "td" ||
-        tagName === "th") &&
-      propertyName === "text-align"
-    ) {
-      const normalizedValue = normalizeTextAlignValue(propertyValue)
-
-      if (normalizedValue) {
-        declarations.set(propertyName, normalizedValue)
-      }
+    if (normalizedValue) {
+      declarations.set(parsedEntry.propertyName, normalizedValue)
     }
   }
 
@@ -291,6 +309,153 @@ function replaceNodeWithChildren(element: Element) {
   parent.removeChild(element)
 }
 
+function setTrimmedAttribute(
+  target: Map<string, string>,
+  element: Element,
+  attributeName: string
+) {
+  const value = element.getAttribute(attributeName)?.trim()
+
+  if (value) {
+    target.set(attributeName, value)
+  }
+}
+
+function collectAnchorAttributes(
+  element: Element,
+  target: Map<string, string>
+) {
+  const href = normalizeUrl(
+    element.getAttribute("href"),
+    new Set(["http", "https", "mailto", "tel"])
+  )
+
+  if (href) {
+    target.set("href", href)
+  }
+
+  if (element.getAttribute("target") === "_blank") {
+    target.set("target", "_blank")
+    target.set("rel", "noopener noreferrer")
+  }
+}
+
+function collectStyledBlockAttributes(
+  tagName: string,
+  element: Element,
+  target: Map<string, string>
+) {
+  const style = normalizeStyleDeclaration(
+    tagName,
+    element.getAttribute("style")
+  )
+
+  if (style) {
+    target.set("style", style)
+  }
+
+  if (tagName === "td" || tagName === "th") {
+    setTrimmedAttribute(target, element, "colspan")
+    setTrimmedAttribute(target, element, "rowspan")
+    setTrimmedAttribute(target, element, "colwidth")
+  }
+}
+
+function collectImageAttributes(element: Element, target: Map<string, string>) {
+  const src = normalizeUrl(
+    element.getAttribute("src"),
+    new Set(["http", "https"])
+  )
+
+  if (src) {
+    target.set("src", src)
+  }
+
+  const className = normalizeClassNames(
+    element.getAttribute("class"),
+    ALLOWED_IMAGE_CLASSES
+  )
+
+  setTrimmedAttribute(target, element, "alt")
+  setTrimmedAttribute(target, element, "title")
+
+  if (className) {
+    target.set("class", className)
+  }
+}
+
+function collectInputAttributes(element: Element, target: Map<string, string>) {
+  if (element.getAttribute("type")?.trim().toLowerCase() === "checkbox") {
+    target.set("type", "checkbox")
+  }
+
+  if (element.hasAttribute("checked")) {
+    target.set("checked", "")
+  }
+
+  if (element.hasAttribute("disabled")) {
+    target.set("disabled", "")
+  }
+}
+
+function collectSpanAttributes(element: Element, target: Map<string, string>) {
+  const className = normalizeClassNames(
+    element.getAttribute("class"),
+    ALLOWED_SPAN_CLASSES
+  )
+
+  if (className) {
+    target.set("class", className)
+  }
+
+  setTrimmedAttribute(target, element, "data-type")
+  setTrimmedAttribute(target, element, "data-id")
+  setTrimmedAttribute(target, element, "data-label")
+}
+
+function collectAllowedAttributes(tagName: string, element: Element) {
+  const nextAttributes = new Map<string, string>()
+
+  switch (tagName) {
+    case "a":
+      collectAnchorAttributes(element, nextAttributes)
+      break
+    case "col":
+    case "p":
+    case "h1":
+    case "h2":
+    case "h3":
+    case "td":
+    case "th":
+      collectStyledBlockAttributes(tagName, element, nextAttributes)
+      break
+    case "div":
+    case "label":
+    case "ul":
+      setTrimmedAttribute(
+        nextAttributes,
+        element,
+        tagName === "label" ? "contenteditable" : "data-type"
+      )
+      break
+    case "img":
+      collectImageAttributes(element, nextAttributes)
+      break
+    case "input":
+      collectInputAttributes(element, nextAttributes)
+      break
+    case "li":
+      setTrimmedAttribute(nextAttributes, element, "data-type")
+      setTrimmedAttribute(nextAttributes, element, "data-checked")
+      break
+    case "span":
+      collectSpanAttributes(element, nextAttributes)
+      break
+  }
+
+  return nextAttributes
+}
+
 function sanitizeCollaborationElement(element: Element) {
   const tagName = element.tagName.toLowerCase()
 
@@ -299,176 +464,7 @@ function sanitizeCollaborationElement(element: Element) {
     return
   }
 
-  const nextAttributes = new Map<string, string>()
-
-  switch (tagName) {
-    case "a": {
-      const href = normalizeUrl(element.getAttribute("href"), new Set(["http", "https", "mailto", "tel"]))
-
-      if (href) {
-        nextAttributes.set("href", href)
-      }
-
-      if (element.getAttribute("target") === "_blank") {
-        nextAttributes.set("target", "_blank")
-        nextAttributes.set("rel", "noopener noreferrer")
-      }
-
-      break
-    }
-
-    case "col":
-    case "p":
-    case "h1":
-    case "h2":
-    case "h3":
-    case "td":
-    case "th": {
-      const style = normalizeStyleDeclaration(tagName, element.getAttribute("style"))
-
-      if (style) {
-        nextAttributes.set("style", style)
-      }
-
-      if (tagName === "td" || tagName === "th") {
-        const colspan = element.getAttribute("colspan")?.trim()
-        const rowspan = element.getAttribute("rowspan")?.trim()
-        const colwidth = element.getAttribute("colwidth")?.trim()
-
-        if (colspan) {
-          nextAttributes.set("colspan", colspan)
-        }
-
-        if (rowspan) {
-          nextAttributes.set("rowspan", rowspan)
-        }
-
-        if (colwidth) {
-          nextAttributes.set("colwidth", colwidth)
-        }
-      }
-
-      break
-    }
-
-    case "div": {
-      const dataType = element.getAttribute("data-type")?.trim()
-
-      if (dataType) {
-        nextAttributes.set("data-type", dataType)
-      }
-
-      break
-    }
-
-    case "img": {
-      const src = normalizeUrl(element.getAttribute("src"), new Set(["http", "https"]))
-
-      if (src) {
-        nextAttributes.set("src", src)
-      }
-
-      const alt = element.getAttribute("alt")?.trim()
-      const title = element.getAttribute("title")?.trim()
-      const className = normalizeClassNames(
-        element.getAttribute("class"),
-        ALLOWED_IMAGE_CLASSES
-      )
-
-      if (alt) {
-        nextAttributes.set("alt", alt)
-      }
-
-      if (title) {
-        nextAttributes.set("title", title)
-      }
-
-      if (className) {
-        nextAttributes.set("class", className)
-      }
-
-      break
-    }
-
-    case "input": {
-      if (element.getAttribute("type")?.trim().toLowerCase() === "checkbox") {
-        nextAttributes.set("type", "checkbox")
-      }
-
-      if (element.hasAttribute("checked")) {
-        nextAttributes.set("checked", "")
-      }
-
-      if (element.hasAttribute("disabled")) {
-        nextAttributes.set("disabled", "")
-      }
-
-      break
-    }
-
-    case "label": {
-      const contentEditable = element.getAttribute("contenteditable")?.trim()
-
-      if (contentEditable) {
-        nextAttributes.set("contenteditable", contentEditable)
-      }
-
-      break
-    }
-
-    case "li": {
-      const dataType = element.getAttribute("data-type")?.trim()
-      const dataChecked = element.getAttribute("data-checked")?.trim()
-
-      if (dataType) {
-        nextAttributes.set("data-type", dataType)
-      }
-
-      if (dataChecked) {
-        nextAttributes.set("data-checked", dataChecked)
-      }
-
-      break
-    }
-
-    case "span": {
-      const className = normalizeClassNames(
-        element.getAttribute("class"),
-        ALLOWED_SPAN_CLASSES
-      )
-      const dataType = element.getAttribute("data-type")?.trim()
-      const dataId = element.getAttribute("data-id")?.trim()
-      const dataLabel = element.getAttribute("data-label")?.trim()
-
-      if (className) {
-        nextAttributes.set("class", className)
-      }
-
-      if (dataType) {
-        nextAttributes.set("data-type", dataType)
-      }
-
-      if (dataId) {
-        nextAttributes.set("data-id", dataId)
-      }
-
-      if (dataLabel) {
-        nextAttributes.set("data-label", dataLabel)
-      }
-
-      break
-    }
-
-    case "ul": {
-      const dataType = element.getAttribute("data-type")?.trim()
-
-      if (dataType) {
-        nextAttributes.set("data-type", dataType)
-      }
-
-      break
-    }
-  }
+  const nextAttributes = collectAllowedAttributes(tagName, element)
 
   for (const attributeName of element.getAttributeNames()) {
     element.removeAttribute(attributeName)

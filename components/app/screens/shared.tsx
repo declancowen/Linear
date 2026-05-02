@@ -10,7 +10,19 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react"
-import { GearSix, Kanban, CaretDown, CaretRight, Rows, Check, CheckCircle, Circle, CodesandboxLogo, NotePencil, Flame } from "@phosphor-icons/react"
+import {
+  GearSix,
+  Kanban,
+  CaretDown,
+  CaretRight,
+  Rows,
+  Check,
+  CheckCircle,
+  Circle,
+  CodesandboxLogo,
+  NotePencil,
+  Flame,
+} from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
 import { getLabelsForTeamScope } from "@/lib/domain/selectors"
@@ -69,7 +81,7 @@ const LABEL_COLOR_TOKENS: Record<string, string> = {
   violet: "var(--label-5)",
 }
 
-export function getLabelColorValue(color?: string | null) {
+function getLabelColorValue(color?: string | null) {
   if (!color) {
     return "var(--fg-4)"
   }
@@ -137,7 +149,11 @@ export function ViewsDisplaySettingsPopover({
         <div className="border-b px-3 py-2.5">
           <div className="flex rounded-md bg-muted/50 p-0.5">
             {[
-              { value: "list", label: "List", icon: <Rows className="size-3" /> },
+              {
+                value: "list",
+                label: "List",
+                icon: <Rows className="size-3" />,
+              },
               {
                 value: "board",
                 label: "Board",
@@ -152,9 +168,7 @@ export function ViewsDisplaySettingsPopover({
                     ? "bg-background font-medium text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
-                onClick={() =>
-                  onLayoutChange(option.value as "list" | "board")
-                }
+                onClick={() => onLayoutChange(option.value as "list" | "board")}
               >
                 {option.icon}
                 {option.label}
@@ -212,8 +226,16 @@ export function CollectionDisplaySettingsPopover({
         <div className="px-3 py-2.5">
           <div className="flex rounded-md bg-muted/50 p-0.5">
             {[
-              { value: "list", label: "List", icon: <Rows className="size-3" /> },
-              { value: "board", label: "Grid", icon: <Kanban className="size-3" /> },
+              {
+                value: "list",
+                label: "List",
+                icon: <Rows className="size-3" />,
+              },
+              {
+                value: "board",
+                label: "Grid",
+                icon: <Kanban className="size-3" />,
+              },
             ].map((option) => (
               <button
                 key={option.value}
@@ -223,9 +245,7 @@ export function CollectionDisplaySettingsPopover({
                     ? "bg-background font-medium text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
-                onClick={() =>
-                  onLayoutChange(option.value as "list" | "board")
-                }
+                onClick={() => onLayoutChange(option.value as "list" | "board")}
               >
                 {option.icon}
                 {option.label}
@@ -537,7 +557,7 @@ export function PropertySelect({
       setActiveValue(
         selectableOptions.some((option) => option.value === selectedValue)
           ? selectedValue
-          : selectableOptions[0]?.value ?? ""
+          : (selectableOptions[0]?.value ?? "")
       )
     }
 
@@ -671,8 +691,7 @@ export function PropertySelect({
                 tabIndex={option.value === activeValue ? 0 : -1}
                 className={cn(
                   "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
-                  option.value === activeValue &&
-                    "bg-surface-3 text-foreground"
+                  option.value === activeValue && "bg-surface-3 text-foreground"
                 )}
                 onFocus={() => setActiveValue(option.value)}
                 onClick={() => {
@@ -709,11 +728,7 @@ export function PropertySelect({
     )
   }
 
-  return (
-    <dd className="col-span-2 m-0">
-      {trigger}
-    </dd>
-  )
+  return <dd className="col-span-2 m-0">{trigger}</dd>
 }
 
 export function WorkItemLabelsEditor({
@@ -724,7 +739,8 @@ export function WorkItemLabelsEditor({
   editable: boolean
 }) {
   const itemWorkspaceId = useAppStore(
-    (state) => state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
+    (state) =>
+      state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
   )
   const availableLabels = useAppStore(
     useShallow((state) =>
@@ -834,7 +850,10 @@ export function WorkItemLabelsEditor({
                         onClick={() => toggleLabel(label.id)}
                         disabled={!editable}
                       >
-                        <LabelColorDot color={label.color} className="size-1.5" />
+                        <LabelColorDot
+                          color={label.color}
+                          className="size-1.5"
+                        />
                         {label.name}
                       </button>
                     )
@@ -928,9 +947,7 @@ export function PropertyDateField({
           value={value ? value.slice(0, 10) : ""}
           onChange={(event) =>
             onValueChange(
-              event.target.value
-                ? `${event.target.value}T00:00:00.000Z`
-                : null
+              event.target.value ? `${event.target.value}T00:00:00.000Z` : null
             )
           }
           className="h-6 w-full border-none bg-transparent px-0 text-[12.5px] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
@@ -969,30 +986,6 @@ export function ConfigSelect({
         </SelectContent>
       </Select>
     </div>
-  )
-}
-
-export function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs transition-colors",
-        active
-          ? "border-primary/30 bg-primary/10 font-medium text-foreground"
-          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
-      )}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   )
 }
 
@@ -1075,6 +1068,71 @@ export function getDocumentPreview(
   return preview.length > 0 ? preview : ""
 }
 
+function getScalarPatchForField(field: GroupField, value: string) {
+  if (field === "status") {
+    return { status: value as WorkItem["status"] }
+  }
+
+  if (field === "priority") {
+    return { priority: value as Priority }
+  }
+
+  return null
+}
+
+function getAssigneePatch(data: AppData, value: string) {
+  const user = data.users.find((entry) => entry.name === value)
+  return { assigneeId: user?.id ?? null }
+}
+
+function getProjectPatch(data: AppData, value: string) {
+  const project = data.projects.find((entry) => entry.name === value)
+  return { primaryProjectId: project?.id ?? null }
+}
+
+function getLabelPatch(data: AppData, item: WorkItem | null, value: string) {
+  if (!item) {
+    return {}
+  }
+
+  if (value === "No label") {
+    return { labelIds: [] }
+  }
+
+  const label = getLabelsForTeamScope(data, item.teamId).find(
+    (entry) => entry.name === value
+  )
+
+  if (!label) {
+    return {}
+  }
+
+  return {
+    labelIds: [label.id, ...item.labelIds.filter((id) => id !== label.id)],
+  }
+}
+
+function getHierarchyParentPatch(
+  data: AppData,
+  item: WorkItem | null,
+  field: "epic" | "feature",
+  value: string
+) {
+  if (!item || value === `No ${field}`) {
+    return {}
+  }
+
+  const parent = data.workItems.find(
+    (entry) => entry.type === field && `${entry.key} · ${entry.title}` === value
+  )
+
+  if (!parent || !canParentWorkItemTypeAcceptChild(parent.type, item.type)) {
+    return {}
+  }
+
+  return { parentId: parent.id }
+}
+
 export function getPatchForField(
   data: AppData,
   item: WorkItem | null,
@@ -1082,51 +1140,28 @@ export function getPatchForField(
   value: string
 ) {
   if (!field || value === "all") return {}
-  if (field === "status") return { status: value as WorkItem["status"] }
-  if (field === "priority") return { priority: value as Priority }
+
+  const scalarPatch = getScalarPatchForField(field, value)
+  if (scalarPatch) {
+    return scalarPatch
+  }
+
   if (field === "assignee") {
-    const user = data.users.find((entry) => entry.name === value)
-    return { assigneeId: user?.id ?? null }
+    return getAssigneePatch(data, value)
   }
+
   if (field === "project") {
-    const project = data.projects.find((entry) => entry.name === value)
-    return { primaryProjectId: project?.id ?? null }
+    return getProjectPatch(data, value)
   }
-  if (field === "label" && item) {
-    if (value === "No label") {
-      return { labelIds: [] }
-    }
 
-    const label = getLabelsForTeamScope(data, item.teamId).find(
-      (entry) => entry.name === value
-    )
-
-    if (!label) {
-      return {}
-    }
-
-    return {
-      labelIds: [label.id, ...item.labelIds.filter((id) => id !== label.id)],
-    }
+  if (field === "label") {
+    return getLabelPatch(data, item, value)
   }
-  if ((field === "epic" || field === "feature") && item) {
-    const emptyValue = `No ${field}`
 
-    if (value === emptyValue) {
-      return {}
-    }
-
-    const parent = data.workItems.find(
-      (entry) =>
-        entry.type === field && `${entry.key} · ${entry.title}` === value
-    )
-
-    if (!parent || !canParentWorkItemTypeAcceptChild(parent.type, item.type)) {
-      return {}
-    }
-
-    return { parentId: parent.id }
+  if (field === "epic" || field === "feature") {
+    return getHierarchyParentPatch(data, item, field, value)
   }
+
   return {}
 }
 

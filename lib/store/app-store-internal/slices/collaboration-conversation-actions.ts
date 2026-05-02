@@ -36,12 +36,399 @@ import {
   getTeamMemberIds,
   getWorkspaceMemberIds,
 } from "../validation"
+import type { AppStore } from "../types"
 import type {
   CollaborationSlice,
   CollaborationSliceFactoryArgs,
 } from "./collaboration-shared"
 
 const pendingChatMessageSyncs = new Map<string, Promise<unknown>>()
+
+type PreparedChatMessageContent = ReturnType<
+  typeof prepareRichTextMessageForStorage
+>
+
+type ChatConversationRecord = AppStore["conversations"][number]
+
+function getChatConversationForSend(
+  state: AppStore,
+  conversationId: string
+): ChatConversationRecord | null {
+  const conversation = state.conversations.find(
+    (entry) => entry.id === conversationId
+  )
+
+  return conversation?.kind === "chat" ? conversation : null
+}
+
+function canSendOptimisticChatMessage(
+  state: AppStore,
+  conversation: ChatConversationRecord
+) {
+  if (conversation.scopeType === "workspace") {
+    if (!conversation.participantIds.includes(state.currentUserId)) {
+      toast.error("You do not have access to this chat")
+      return false
+    }
+
+    if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
+      toast.error("Your current role is read-only")
+      return false
+    }
+
+    return true
+  }
+
+  const role = effectiveRole(state, conversation.scopeId)
+  if (role === "viewer" || role === "guest" || !role) {
+    toast.error("Your current role is read-only")
+    return false
+  }
+
+  return true
+}
+
+function assertOptimisticChatAudience(
+  state: AppStore,
+  conversation: ChatConversationRecord,
+  audienceUserIds: string[]
+) {
+  if (audienceUserIds.some((userId) => userId !== state.currentUserId)) {
+    return true
+  }
+
+  toast.error(
+    conversation.scopeType === "team"
+      ? "This chat is read-only because the other participants have left the team or deleted their account"
+      : "This chat is read-only because the other participants have left the workspace or deleted their account"
+  )
+  return false
+}
+
+function addOptimisticMentionNotifications({
+  actorName,
+  conversation,
+  currentUserId,
+  mentionUserIds,
+  notifications,
+  notifiedUserIds,
+}: {
+  actorName: string
+  conversation: ChatConversationRecord
+  currentUserId: string
+  mentionUserIds: string[]
+  notifications: AppStore["notifications"]
+  notifiedUserIds: Set<string>
+}) {
+  for (const mentionedUserId of mentionUserIds) {
+    if (
+      mentionedUserId === currentUserId ||
+      notifiedUserIds.has(mentionedUserId)
+    ) {
+      continue
+    }
+
+    notifications.unshift(
+      createNotification(
+        mentionedUserId,
+        currentUserId,
+        `${actorName} mentioned you in ${conversation.title || "a chat"}`,
+        "chat",
+        conversation.id,
+        "mention"
+      )
+    )
+
+    notifiedUserIds.add(mentionedUserId)
+  }
+}
+
+function addOptimisticAudienceNotifications({
+  actorName,
+  audienceUserIds,
+  conversation,
+  currentUserId,
+  notifications,
+  notifiedUserIds,
+}: {
+  actorName: string
+  audienceUserIds: string[]
+  conversation: ChatConversationRecord
+  currentUserId: string
+  notifications: AppStore["notifications"]
+  notifiedUserIds: Set<string>
+}) {
+  for (const audienceUserId of audienceUserIds) {
+    if (
+      audienceUserId === currentUserId ||
+      notifiedUserIds.has(audienceUserId)
+    ) {
+      continue
+    }
+
+    notifications.unshift(
+      createNotification(
+        audienceUserId,
+        currentUserId,
+        `${actorName} sent you a message in ${conversation.title || "a chat"}`,
+        "chat",
+        conversation.id,
+        "message"
+      )
+    )
+
+    notifiedUserIds.add(audienceUserId)
+  }
+}
+
+function createOptimisticChatNotifications(
+  state: AppStore,
+  conversation: ChatConversationRecord,
+  audienceUserIds: string[],
+  mentionUserIds: string[]
+) {
+  const notifications = [...state.notifications]
+  const actor = state.users.find((user) => user.id === state.currentUserId)
+  const actorName = actor?.name ?? "Someone"
+  const notifiedUserIds = new Set<string>()
+
+  addOptimisticMentionNotifications({
+    actorName,
+    conversation,
+    currentUserId: state.currentUserId,
+    mentionUserIds,
+    notifications,
+    notifiedUserIds,
+  })
+  addOptimisticAudienceNotifications({
+    actorName,
+    audienceUserIds,
+    conversation,
+    currentUserId: state.currentUserId,
+    notifications,
+    notifiedUserIds,
+  })
+
+  return notifications
+}
+
+function addOptimisticChatMessageToState(
+  state: AppStore,
+  conversationId: string,
+  preparedContent: PreparedChatMessageContent,
+  optimisticMessageId: string
+): AppStore | Partial<AppStore> {
+  const conversation = getChatConversationForSend(state, conversationId)
+
+  if (!conversation || !canSendOptimisticChatMessage(state, conversation)) {
+    return state
+  }
+
+  const now = getNow()
+  const audienceUserIds = getConversationAudienceUserIds(state, conversation)
+
+  if (!assertOptimisticChatAudience(state, conversation, audienceUserIds)) {
+    return state
+  }
+
+  const mentionUserIds = createMentionIds(
+    preparedContent.sanitized,
+    state.users,
+    audienceUserIds
+  )
+  const notifications = createOptimisticChatNotifications(
+    state,
+    conversation,
+    audienceUserIds,
+    mentionUserIds
+  )
+
+  return {
+    notifications,
+    chatMessages: [
+      ...state.chatMessages,
+      {
+        id: optimisticMessageId,
+        conversationId: conversation.id,
+        kind: "text",
+        content: preparedContent.sanitized,
+        callId: null,
+        mentionUserIds,
+        reactions: [],
+        createdBy: state.currentUserId,
+        createdAt: now,
+      },
+    ],
+    conversations: state.conversations.map((entry) =>
+      entry.id === conversation.id
+        ? {
+            ...entry,
+            updatedAt: now,
+            lastActivityAt: now,
+          }
+        : entry
+    ),
+  }
+}
+
+type ChannelDraftInput = {
+  workspaceId?: string | null
+  teamId?: string | null
+  title: string
+  description: string
+}
+
+type ChannelCreationResult = {
+  conversationId: string | null
+  state: AppStore
+}
+
+function findChannelConversation(
+  state: AppStore,
+  scopeType: "workspace" | "team",
+  scopeId: string
+) {
+  return state.conversations.find(
+    (conversation) =>
+      conversation.kind === "channel" &&
+      conversation.scopeType === scopeType &&
+      conversation.scopeId === scopeId
+  )
+}
+
+function getWorkspaceChannelCreationResult(
+  state: AppStore,
+  input: ChannelDraftInput
+): ChannelCreationResult {
+  const workspaceId = input.workspaceId
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId)
+
+  if (!workspace || !workspaceId) {
+    toast.error("Workspace not found")
+    return { conversationId: null, state }
+  }
+
+  const existingConversation = findChannelConversation(
+    state,
+    "workspace",
+    workspaceId
+  )
+
+  if (existingConversation) {
+    return { conversationId: existingConversation.id, state }
+  }
+
+  if (!canEditWorkspaceDocuments(state, workspaceId)) {
+    toast.error("Your current role is read-only")
+    return { conversationId: null, state }
+  }
+
+  const now = getNow()
+  const conversationId = createId("conversation")
+
+  return {
+    conversationId,
+    state: {
+      ...state,
+      conversations: [
+        {
+          id: conversationId,
+          kind: "channel",
+          scopeType: "workspace",
+          scopeId: workspaceId,
+          variant: "team",
+          title: input.title.trim() || workspace.name,
+          description:
+            input.description.trim() ||
+            workspace.settings.description ||
+            "Shared updates and threaded decisions for the whole workspace.",
+          participantIds: getWorkspaceMemberIds(state, workspaceId),
+          roomId: null,
+          roomName: null,
+          createdBy: state.currentUserId,
+          createdAt: now,
+          updatedAt: now,
+          lastActivityAt: now,
+        },
+        ...state.conversations,
+      ],
+    },
+  }
+}
+
+function getTeamChannelCreationResult(
+  state: AppStore,
+  input: ChannelDraftInput
+): ChannelCreationResult {
+  const teamId = input.teamId
+
+  if (!teamId) {
+    return { conversationId: null, state }
+  }
+
+  const team = state.teams.find((entry) => entry.id === teamId)
+
+  if (!team) {
+    toast.error("Team not found")
+    return { conversationId: null, state }
+  }
+
+  if (!team.settings.features.channels) {
+    toast.error("Channel is disabled for this team")
+    return { conversationId: null, state }
+  }
+
+  const existingConversation = findChannelConversation(state, "team", teamId)
+
+  if (existingConversation) {
+    return { conversationId: existingConversation.id, state }
+  }
+
+  const role = effectiveRole(state, teamId)
+
+  if (role === "viewer" || role === "guest" || !role) {
+    toast.error("Your current role is read-only")
+    return { conversationId: null, state }
+  }
+
+  const now = getNow()
+  const conversationId = createId("conversation")
+
+  return {
+    conversationId,
+    state: {
+      ...state,
+      conversations: [
+        {
+          id: conversationId,
+          kind: "channel",
+          scopeType: "team",
+          scopeId: teamId,
+          variant: "team",
+          title: input.title.trim() || team.name,
+          description: input.description.trim() || team.settings.summary,
+          participantIds: getTeamMemberIds(state, teamId),
+          roomId: null,
+          roomName: null,
+          createdBy: state.currentUserId,
+          createdAt: now,
+          updatedAt: now,
+          lastActivityAt: now,
+        },
+        ...state.conversations,
+      ],
+    },
+  }
+}
+
+function getChannelCreationResult(
+  state: AppStore,
+  input: ChannelDraftInput
+): ChannelCreationResult {
+  return input.workspaceId
+    ? getWorkspaceChannelCreationResult(state, input)
+    : getTeamChannelCreationResult(state, input)
+}
 
 export function createCollaborationConversationActions({
   get,
@@ -169,7 +556,9 @@ export function createCollaborationConversationActions({
       let shouldSync = false
 
       set((state) => {
-        const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+        const team = state.teams.find(
+          (entry) => entry.id === parsed.data.teamId
+        )
         if (!team) {
           toast.error("Team not found")
           return state
@@ -213,7 +602,8 @@ export function createCollaborationConversationActions({
               scopeId: parsed.data.teamId,
               variant: "team",
               title: parsed.data.title.trim() || team.name,
-              description: parsed.data.description.trim() || team.settings.summary,
+              description:
+                parsed.data.description.trim() || team.settings.summary,
               participantIds: getTeamMemberIds(state, parsed.data.teamId),
               roomId: null,
               roomName: null,
@@ -252,124 +642,9 @@ export function createCollaborationConversationActions({
       let conversationId: string | null = null
 
       set((state) => {
-        if (parsed.data.workspaceId) {
-          const workspace = state.workspaces.find(
-            (entry) => entry.id === parsed.data.workspaceId
-          )
-          if (!workspace) {
-            toast.error("Workspace not found")
-            return state
-          }
-
-          const existingConversation = state.conversations.find(
-            (conversation) =>
-              conversation.kind === "channel" &&
-              conversation.scopeType === "workspace" &&
-              conversation.scopeId === parsed.data.workspaceId
-          )
-
-          if (existingConversation) {
-            conversationId = existingConversation.id
-            return state
-          }
-
-          if (!canEditWorkspaceDocuments(state, parsed.data.workspaceId)) {
-            toast.error("Your current role is read-only")
-            return state
-          }
-
-          const now = getNow()
-          conversationId = createId("conversation")
-
-          return {
-            ...state,
-            conversations: [
-              {
-                id: conversationId,
-                kind: "channel",
-                scopeType: "workspace",
-                scopeId: parsed.data.workspaceId,
-                variant: "team",
-                title: parsed.data.title.trim() || workspace.name,
-                description:
-                  parsed.data.description.trim() ||
-                  workspace.settings.description ||
-                  "Shared updates and threaded decisions for the whole workspace.",
-                participantIds: getWorkspaceMemberIds(
-                  state,
-                  parsed.data.workspaceId
-                ),
-                roomId: null,
-                roomName: null,
-                createdBy: state.currentUserId,
-                createdAt: now,
-                updatedAt: now,
-                lastActivityAt: now,
-              },
-              ...state.conversations,
-            ],
-          }
-        }
-
-        const teamId = parsed.data.teamId
-        if (!teamId) {
-          return state
-        }
-
-        const team = state.teams.find((entry) => entry.id === teamId)
-        if (!team) {
-          toast.error("Team not found")
-          return state
-        }
-
-        if (!team.settings.features.channels) {
-          toast.error("Channel is disabled for this team")
-          return state
-        }
-
-        const existingConversation = state.conversations.find(
-          (conversation) =>
-            conversation.kind === "channel" &&
-            conversation.scopeType === "team" &&
-            conversation.scopeId === teamId
-        )
-
-        if (existingConversation) {
-          conversationId = existingConversation.id
-          return state
-        }
-
-        const role = effectiveRole(state, teamId)
-        if (role === "viewer" || role === "guest" || !role) {
-          toast.error("Your current role is read-only")
-          return state
-        }
-
-        const now = getNow()
-        conversationId = createId("conversation")
-
-        return {
-          ...state,
-          conversations: [
-            {
-              id: conversationId,
-              kind: "channel",
-              scopeType: "team",
-              scopeId: teamId,
-              variant: "team",
-              title: parsed.data.title.trim() || team.name,
-              description: parsed.data.description.trim() || team.settings.summary,
-              participantIds: getTeamMemberIds(state, teamId),
-              roomId: null,
-              roomName: null,
-              createdBy: state.currentUserId,
-              createdAt: now,
-              updatedAt: now,
-              lastActivityAt: now,
-            },
-            ...state.conversations,
-          ],
-        }
+        const result = getChannelCreationResult(state, parsed.data)
+        conversationId = result.conversationId
+        return result.state
       })
 
       if (!conversationId) {
@@ -409,7 +684,9 @@ export function createCollaborationConversationActions({
             ...state,
             calls: result.call
               ? [
-                  ...state.calls.filter((entry) => entry.id !== result.call?.id),
+                  ...state.calls.filter(
+                    (entry) => entry.id !== result.call?.id
+                  ),
                   result.call,
                 ]
               : state.calls,
@@ -459,127 +736,12 @@ export function createCollaborationConversationActions({
       const optimisticMessageId = createId("chat_message")
 
       set((state) => {
-        const conversation = state.conversations.find(
-          (entry) => entry.id === parsed.data.conversationId
-        )
-
-        if (!conversation || conversation.kind !== "chat") {
-          return state
-        }
-
-        if (conversation.scopeType === "workspace") {
-          if (!conversation.participantIds.includes(state.currentUserId)) {
-            toast.error("You do not have access to this chat")
-            return state
-          }
-
-          if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
-            toast.error("Your current role is read-only")
-            return state
-          }
-        } else {
-          const role = effectiveRole(state, conversation.scopeId)
-          if (role === "viewer" || role === "guest" || !role) {
-            toast.error("Your current role is read-only")
-            return state
-          }
-        }
-
-        const now = getNow()
-        const actor = state.users.find((user) => user.id === state.currentUserId)
-        const audienceUserIds = getConversationAudienceUserIds(
+        return addOptimisticChatMessageToState(
           state,
-          conversation
+          parsed.data.conversationId,
+          preparedContent,
+          optimisticMessageId
         )
-
-        if (!audienceUserIds.some((userId) => userId !== state.currentUserId)) {
-          toast.error(
-            conversation.scopeType === "team"
-              ? "This chat is read-only because the other participants have left the team or deleted their account"
-              : "This chat is read-only because the other participants have left the workspace or deleted their account"
-          )
-          return state
-        }
-
-        const mentionUserIds = createMentionIds(
-          preparedContent.sanitized,
-          state.users,
-          audienceUserIds
-        )
-        const notifications = [...state.notifications]
-        const notifiedUserIds = new Set<string>()
-
-        for (const mentionedUserId of mentionUserIds) {
-          if (
-            mentionedUserId === state.currentUserId ||
-            notifiedUserIds.has(mentionedUserId)
-          ) {
-            continue
-          }
-
-          notifications.unshift(
-            createNotification(
-              mentionedUserId,
-              state.currentUserId,
-              `${actor?.name ?? "Someone"} mentioned you in ${conversation.title || "a chat"}`,
-              "chat",
-              conversation.id,
-              "mention"
-            )
-          )
-
-          notifiedUserIds.add(mentionedUserId)
-        }
-
-        for (const audienceUserId of audienceUserIds) {
-          if (
-            audienceUserId === state.currentUserId ||
-            notifiedUserIds.has(audienceUserId)
-          ) {
-            continue
-          }
-
-          notifications.unshift(
-            createNotification(
-              audienceUserId,
-              state.currentUserId,
-              `${actor?.name ?? "Someone"} sent you a message in ${conversation.title || "a chat"}`,
-              "chat",
-              conversation.id,
-              "message"
-            )
-          )
-
-          notifiedUserIds.add(audienceUserId)
-        }
-
-        return {
-          ...state,
-          notifications,
-          chatMessages: [
-            ...state.chatMessages,
-            {
-              id: optimisticMessageId,
-              conversationId: conversation.id,
-              kind: "text",
-              content: preparedContent.sanitized,
-              callId: null,
-              mentionUserIds,
-              reactions: [],
-              createdBy: state.currentUserId,
-              createdAt: now,
-            },
-          ],
-          conversations: state.conversations.map((entry) =>
-            entry.id === conversation.id
-              ? {
-                  ...entry,
-                  updatedAt: now,
-                  lastActivityAt: now,
-                }
-              : entry
-          ),
-        }
       })
 
       const sendTask = syncSendChatMessage(
@@ -592,10 +754,7 @@ export function createCollaborationConversationActions({
 
       pendingChatMessageSyncs.set(optimisticMessageId, sendTask)
 
-      runtime.syncInBackground(
-        sendTask,
-        "Failed to send message"
-      )
+      runtime.syncInBackground(sendTask, "Failed to send message")
     },
     toggleChatMessageReaction(messageId, emoji) {
       const nextEmoji = emoji.trim()

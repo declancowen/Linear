@@ -2,10 +2,7 @@
 
 import { toast } from "sonner"
 
-import {
-  syncAddComment,
-  syncToggleCommentReaction,
-} from "@/lib/convex/client"
+import { syncAddComment, syncToggleCommentReaction } from "@/lib/convex/client"
 import { commentSchema } from "@/lib/domain/types"
 
 import {
@@ -15,8 +12,282 @@ import {
   getNow,
   toggleReactionUsers,
 } from "../helpers"
+import type { AddCommentInput, AppStore } from "../types"
 import { effectiveRole, getTeamMemberIds } from "../validation"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
+
+type CommentEntityType = "workItem" | "document"
+
+type CommentTargetContext = {
+  teamId: string
+  followerIds: string[]
+  entityType: CommentEntityType
+  entityTitle: string
+}
+
+type CommentNotificationContext = {
+  audienceUserIds: string[]
+  currentUserId: string
+  entityTitle: string
+  entityType: CommentEntityType
+  followerIds: string[]
+  notifications: AppStore["notifications"]
+  targetId: string
+}
+
+function getExistingTargetComments(state: AppStore, input: AddCommentInput) {
+  return state.comments.filter(
+    (comment) =>
+      comment.targetType === input.targetType &&
+      comment.targetId === input.targetId
+  )
+}
+
+function hasMissingParentComment(
+  input: AddCommentInput,
+  existingComments: AppStore["comments"]
+) {
+  return Boolean(
+    input.parentCommentId &&
+    !existingComments.some((comment) => comment.id === input.parentCommentId)
+  )
+}
+
+function resolveWorkItemCommentTarget(
+  state: AppStore,
+  input: AddCommentInput,
+  existingComments: AppStore["comments"]
+): CommentTargetContext | null {
+  const item = state.workItems.find((entry) => entry.id === input.targetId)
+  if (!item) {
+    return null
+  }
+
+  return {
+    teamId: item.teamId,
+    followerIds: [
+      ...item.subscriberIds,
+      item.creatorId,
+      item.assigneeId ?? "",
+      ...existingComments.map((comment) => comment.createdBy),
+    ].filter(Boolean),
+    entityType: "workItem",
+    entityTitle: item.title,
+  }
+}
+
+function resolveDocumentCommentTarget(
+  state: AppStore,
+  input: AddCommentInput,
+  existingComments: AppStore["comments"]
+): CommentTargetContext | null {
+  const document = state.documents.find((entry) => entry.id === input.targetId)
+  if (!document) {
+    return null
+  }
+
+  return {
+    teamId: document.teamId ?? "",
+    followerIds: [
+      document.createdBy,
+      document.updatedBy,
+      ...existingComments.map((comment) => comment.createdBy),
+    ],
+    entityType: "document",
+    entityTitle: document.title,
+  }
+}
+
+function resolveCommentTarget(
+  state: AppStore,
+  input: AddCommentInput,
+  existingComments: AppStore["comments"]
+) {
+  if (input.targetType === "workItem") {
+    return resolveWorkItemCommentTarget(state, input, existingComments)
+  }
+
+  return resolveDocumentCommentTarget(state, input, existingComments)
+}
+
+function isReadOnlyRole(role: ReturnType<typeof effectiveRole>) {
+  return role === "viewer" || role === "guest" || !role
+}
+
+function createOptimisticComment(
+  state: AppStore,
+  input: AddCommentInput,
+  mentionUserIds: string[],
+  now: string
+): AppStore["comments"][number] {
+  return {
+    id: createId("comment"),
+    targetType: input.targetType,
+    targetId: input.targetId,
+    parentCommentId: input.parentCommentId ?? null,
+    content: input.content.trim(),
+    mentionUserIds,
+    reactions: [],
+    createdBy: state.currentUserId,
+    createdAt: now,
+  }
+}
+
+function addMentionNotifications(
+  context: CommentNotificationContext,
+  mentionUserIds: string[],
+  actorName: string,
+  notifiedUserIds: Set<string>
+) {
+  for (const mentionedUserId of mentionUserIds) {
+    if (
+      mentionedUserId === context.currentUserId ||
+      notifiedUserIds.has(mentionedUserId)
+    ) {
+      continue
+    }
+
+    context.notifications.unshift(
+      createNotification(
+        mentionedUserId,
+        context.currentUserId,
+        `${actorName} mentioned you in ${context.entityTitle}`,
+        context.entityType,
+        context.targetId,
+        "mention"
+      )
+    )
+    notifiedUserIds.add(mentionedUserId)
+  }
+}
+
+function addFollowerNotifications(
+  context: CommentNotificationContext,
+  parentCommentId: string | null | undefined,
+  actorName: string,
+  notifiedUserIds: Set<string>
+) {
+  const message = parentCommentId
+    ? `${actorName} replied in ${context.entityTitle}`
+    : `${actorName} commented on ${context.entityTitle}`
+
+  for (const followerId of context.followerIds) {
+    if (
+      !followerId ||
+      !context.audienceUserIds.includes(followerId) ||
+      followerId === context.currentUserId ||
+      notifiedUserIds.has(followerId)
+    ) {
+      continue
+    }
+
+    context.notifications.unshift(
+      createNotification(
+        followerId,
+        context.currentUserId,
+        message,
+        context.entityType,
+        context.targetId,
+        "comment"
+      )
+    )
+    notifiedUserIds.add(followerId)
+  }
+}
+
+function createCommentNotifications(
+  state: AppStore,
+  input: AddCommentInput,
+  target: CommentTargetContext,
+  audienceUserIds: string[],
+  mentionUserIds: string[]
+) {
+  const notifications = [...state.notifications]
+  const actor = state.users.find((user) => user.id === state.currentUserId)
+  const actorName = actor?.name ?? "Someone"
+  const notifiedUserIds = new Set<string>()
+  const context = {
+    audienceUserIds,
+    currentUserId: state.currentUserId,
+    entityTitle: target.entityTitle,
+    entityType: target.entityType,
+    followerIds: target.followerIds,
+    notifications,
+    targetId: input.targetId,
+  }
+
+  addMentionNotifications(context, mentionUserIds, actorName, notifiedUserIds)
+  addFollowerNotifications(
+    context,
+    input.parentCommentId,
+    actorName,
+    notifiedUserIds
+  )
+
+  return notifications
+}
+
+function applyCommentStateUpdate(
+  state: AppStore,
+  input: AddCommentInput,
+  comment: AppStore["comments"][number],
+  notifications: AppStore["notifications"],
+  now: string
+): Partial<AppStore> {
+  return {
+    comments: [...state.comments, comment],
+    notifications,
+    workItems: state.workItems.map((item) =>
+      item.id === input.targetId ? { ...item, updatedAt: now } : item
+    ),
+    documents: state.documents.map((document) =>
+      document.id === input.targetId
+        ? {
+            ...document,
+            updatedAt: now,
+            updatedBy: state.currentUserId,
+          }
+        : document
+    ),
+  }
+}
+
+function addCommentToState(state: AppStore, input: AddCommentInput) {
+  const existingComments = getExistingTargetComments(state, input)
+  if (hasMissingParentComment(input, existingComments)) {
+    toast.error("Reply target no longer exists")
+    return state
+  }
+
+  const target = resolveCommentTarget(state, input, existingComments)
+  if (!target) {
+    return state
+  }
+
+  const role = effectiveRole(state, target.teamId)
+  if (isReadOnlyRole(role)) {
+    toast.error("Your current role is read-only")
+    return state
+  }
+
+  const now = getNow()
+  const audienceUserIds = getTeamMemberIds(state, target.teamId)
+  const mentionUserIds = createMentionIds(
+    input.content,
+    state.users,
+    audienceUserIds
+  )
+  const comment = createOptimisticComment(state, input, mentionUserIds, now)
+  const notifications = createCommentNotifications(
+    state,
+    input,
+    target,
+    audienceUserIds,
+    mentionUserIds
+  )
+
+  return applyCommentStateUpdate(state, input, comment, notifications, now)
+}
 
 export function createWorkCommentActions({
   get,
@@ -35,154 +306,7 @@ export function createWorkCommentActions({
       }
 
       set((state) => {
-        let teamId = ""
-        let followerIds: string[] = []
-        let entityType: "workItem" | "document" = "workItem"
-        let entityTitle = "item"
-        const existingComments = state.comments.filter(
-          (comment) =>
-            comment.targetType === parsed.data.targetType &&
-            comment.targetId === parsed.data.targetId
-        )
-        const parentComment = parsed.data.parentCommentId
-          ? (existingComments.find(
-              (comment) => comment.id === parsed.data.parentCommentId
-            ) ?? null)
-          : null
-
-        if (parsed.data.parentCommentId && !parentComment) {
-          toast.error("Reply target no longer exists")
-          return state
-        }
-
-        if (parsed.data.targetType === "workItem") {
-          const item = state.workItems.find(
-            (entry) => entry.id === parsed.data.targetId
-          )
-          if (!item) {
-            return state
-          }
-
-          teamId = item.teamId
-          followerIds = [
-            ...item.subscriberIds,
-            item.creatorId,
-            item.assigneeId ?? "",
-            ...existingComments.map((comment) => comment.createdBy),
-          ].filter(Boolean)
-          entityType = "workItem"
-          entityTitle = item.title
-        } else {
-          const document = state.documents.find(
-            (entry) => entry.id === parsed.data.targetId
-          )
-          if (!document) {
-            return state
-          }
-
-          teamId = document.teamId ?? ""
-          followerIds = [
-            document.createdBy,
-            document.updatedBy,
-            ...existingComments.map((comment) => comment.createdBy),
-          ]
-          entityType = "document"
-          entityTitle = document.title
-        }
-
-        const role = effectiveRole(state, teamId)
-        if (role === "viewer" || role === "guest" || !role) {
-          toast.error("Your current role is read-only")
-          return state
-        }
-
-        const audienceUserIds = getTeamMemberIds(state, teamId)
-        const mentionUserIds = createMentionIds(
-          parsed.data.content,
-          state.users,
-          audienceUserIds
-        )
-        const comment = {
-          id: createId("comment"),
-          targetType: parsed.data.targetType,
-          targetId: parsed.data.targetId,
-          parentCommentId: parsed.data.parentCommentId ?? null,
-          content: parsed.data.content.trim(),
-          mentionUserIds,
-          reactions: [],
-          createdBy: state.currentUserId,
-          createdAt: getNow(),
-        }
-
-        const notifications = [...state.notifications]
-        const actor = state.users.find((user) => user.id === state.currentUserId)
-        const notifiedUserIds = new Set<string>()
-
-        for (const mentionedUserId of mentionUserIds) {
-          if (
-            mentionedUserId === state.currentUserId ||
-            notifiedUserIds.has(mentionedUserId)
-          ) {
-            continue
-          }
-
-          notifications.unshift(
-            createNotification(
-              mentionedUserId,
-              state.currentUserId,
-              `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
-              entityType,
-              parsed.data.targetId,
-              "mention"
-            )
-          )
-          notifiedUserIds.add(mentionedUserId)
-        }
-
-        const followerMessage = parsed.data.parentCommentId
-          ? `${actor?.name ?? "Someone"} replied in ${entityTitle}`
-          : `${actor?.name ?? "Someone"} commented on ${entityTitle}`
-
-        for (const followerId of followerIds) {
-          if (
-            !followerId ||
-            !audienceUserIds.includes(followerId) ||
-            followerId === state.currentUserId ||
-            notifiedUserIds.has(followerId)
-          ) {
-            continue
-          }
-
-          notifications.unshift(
-            createNotification(
-              followerId,
-              state.currentUserId,
-              followerMessage,
-              entityType,
-              parsed.data.targetId,
-              "comment"
-            )
-          )
-          notifiedUserIds.add(followerId)
-        }
-
-        return {
-          ...state,
-          comments: [...state.comments, comment],
-          notifications,
-          workItems: state.workItems.map((item) =>
-            item.id === parsed.data.targetId ? { ...item, updatedAt: getNow() } : item
-          ),
-          documents: state.documents.map((document) =>
-            document.id === parsed.data.targetId
-              ? {
-                  ...document,
-                  updatedAt: getNow(),
-                  updatedBy: state.currentUserId,
-                }
-              : document
-          ),
-        }
+        return addCommentToState(state, parsed.data)
       })
 
       runtime.syncInBackground(

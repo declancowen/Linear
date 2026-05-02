@@ -30,6 +30,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "audit:deps": "pnpm audit --audit-level high",
+    "fallow:dead-code": "fallow dead-code --production --fail-on-issues",
+    "fallow:health": "fallow health --production --max-crap 1000000 --format json | node scripts/fallow-health-zero-findings-gate.mjs",
+    "fallow:dupes": "fallow dupes --production --ignore-imports --format json | node scripts/fallow-dupes-budget-gate.mjs",
+    "fallow:gate": "pnpm fallow:dead-code && pnpm fallow:health && pnpm fallow:dupes",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm desktop:smoke",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit"
@@ -43,7 +47,6 @@
     "@tiptap/core": "3.22.4",
     "@tiptap/extension-character-count": "^3.22.4",
     "@tiptap/extension-collaboration": "3.22.4",
-    "@tiptap/extension-collaboration-caret": "3.22.4",
     "@tiptap/extension-file-handler": "^3.22.4",
     "@tiptap/extension-highlight": "^3.22.4",
     "@tiptap/extension-image": "^3.22.4",
@@ -74,7 +77,6 @@
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "recharts": "3.8.0",
     "resend": "^6.10.0",
     "sanitize-html": "^2.17.3",
     "shadcn": "^4.2.0",
@@ -88,7 +90,6 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.2.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -104,6 +105,7 @@
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.4",
+    "fallow": "2.58.0",
     "jsdom": "^29.0.2",
     "msw": "^2.13.3",
     "partykit": "^0.0.115",

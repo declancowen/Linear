@@ -26,6 +26,34 @@ function isStringOrNull(value: unknown): value is string | null {
   return value === null || isString(value)
 }
 
+function hasStringFields(
+  value: Record<string, unknown>,
+  fields: readonly string[]
+) {
+  return fields.every((field) => isString(value[field]))
+}
+
+function hasStringArrayFields(
+  value: Record<string, unknown>,
+  fields: readonly string[]
+) {
+  return fields.every((field) => isStringArray(value[field]))
+}
+
+function hasArrayFields(
+  value: Record<string, unknown>,
+  fields: readonly string[]
+) {
+  return fields.every((field) => Array.isArray(value[field]))
+}
+
+function hasNullableStringFields(
+  value: Record<string, unknown>,
+  fields: readonly string[]
+) {
+  return fields.every((field) => isStringOrNull(value[field]))
+}
+
 function isReactionRecord(value: unknown) {
   return (
     isRecord(value) && isString(value.emoji) && isStringArray(value.userIds)
@@ -46,31 +74,35 @@ function assertRouteContract(
 }
 
 function isSnapshotRecord(value: unknown): value is AppSnapshot {
+  if (!isRecord(value)) {
+    return false
+  }
+
   return (
-    isRecord(value) &&
-    isString(value.currentUserId) &&
-    isString(value.currentWorkspaceId) &&
-    Array.isArray(value.workspaces) &&
-    Array.isArray(value.workspaceMemberships) &&
-    Array.isArray(value.teams) &&
-    Array.isArray(value.teamMemberships) &&
-    Array.isArray(value.users) &&
-    Array.isArray(value.labels) &&
-    Array.isArray(value.projects) &&
-    Array.isArray(value.milestones) &&
-    Array.isArray(value.workItems) &&
-    Array.isArray(value.documents) &&
-    Array.isArray(value.views) &&
-    Array.isArray(value.comments) &&
-    Array.isArray(value.attachments) &&
-    Array.isArray(value.notifications) &&
-    Array.isArray(value.invites) &&
-    Array.isArray(value.projectUpdates) &&
-    Array.isArray(value.conversations) &&
-    Array.isArray(value.calls) &&
-    Array.isArray(value.chatMessages) &&
-    Array.isArray(value.channelPosts) &&
-    Array.isArray(value.channelPostComments)
+    hasStringFields(value, ["currentUserId", "currentWorkspaceId"]) &&
+    hasArrayFields(value, [
+      "workspaces",
+      "workspaceMemberships",
+      "teams",
+      "teamMemberships",
+      "users",
+      "labels",
+      "projects",
+      "milestones",
+      "workItems",
+      "documents",
+      "views",
+      "comments",
+      "attachments",
+      "notifications",
+      "invites",
+      "projectUpdates",
+      "conversations",
+      "calls",
+      "chatMessages",
+      "channelPosts",
+      "channelPostComments",
+    ])
   )
 }
 
@@ -90,23 +122,30 @@ function isChatMessageRecord(value: unknown): value is ChatMessage {
 }
 
 function isCallRecord(value: unknown): value is Call {
+  if (!isRecord(value)) {
+    return false
+  }
+
   return (
-    isRecord(value) &&
-    isString(value.id) &&
-    isString(value.conversationId) &&
-    isString(value.scopeType) &&
-    isString(value.scopeId) &&
-    (value.roomId === null || isString(value.roomId)) &&
-    (value.roomName === null || isString(value.roomName)) &&
-    isString(value.roomKey) &&
-    isString(value.roomDescription) &&
-    isString(value.startedBy) &&
-    isString(value.startedAt) &&
-    isString(value.updatedAt) &&
-    (value.endedAt === null || isString(value.endedAt)) &&
-    isStringArray(value.participantUserIds) &&
-    (value.lastJoinedAt === null || isString(value.lastJoinedAt)) &&
-    (value.lastJoinedBy === null || isString(value.lastJoinedBy)) &&
+    hasStringFields(value, [
+      "id",
+      "conversationId",
+      "scopeType",
+      "scopeId",
+      "roomKey",
+      "roomDescription",
+      "startedBy",
+      "startedAt",
+      "updatedAt",
+    ]) &&
+    hasNullableStringFields(value, [
+      "roomId",
+      "roomName",
+      "endedAt",
+      "lastJoinedAt",
+      "lastJoinedBy",
+    ]) &&
+    hasStringArrayFields(value, ["participantUserIds"]) &&
     typeof value.joinCount === "number"
   )
 }

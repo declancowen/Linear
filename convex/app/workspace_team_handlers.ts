@@ -215,6 +215,15 @@ type AccessEmailJob = {
   body: string
 }
 
+type TeamMembershipDoc = NonNullable<
+  Awaited<ReturnType<typeof getTeamMembershipDoc>>
+>
+type WorkspaceMembershipDoc = Awaited<
+  ReturnType<typeof getWorkspaceMembershipDoc>
+>
+type WorkspaceDoc = NonNullable<Awaited<ReturnType<typeof getWorkspaceDoc>>>
+type WorkspaceTeamDoc = Awaited<ReturnType<typeof listWorkspaceTeams>>[number]
+
 type DeleteTeamArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
@@ -485,6 +494,174 @@ async function requireMutableTeamMember(
   }
 }
 
+async function listWorkspaceTeamMembershipsForUser(
+  ctx: MutationCtx,
+  workspaceTeamIds: Set<string>,
+  userId: string
+) {
+  const teamMemberships = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()
+
+  return teamMemberships.filter((membership) =>
+    workspaceTeamIds.has(membership.teamId)
+  )
+}
+
+function hasWorkspaceAdminAccess(
+  workspaceMembership: Awaited<ReturnType<typeof getWorkspaceMembershipDoc>>,
+  teamMemberships: Awaited<
+    ReturnType<typeof listWorkspaceTeamMembershipsForUser>
+  >
+) {
+  return (
+    workspaceMembership?.role === "admin" ||
+    teamMemberships.some((membership) => membership.role === "admin")
+  )
+}
+
+async function requireWorkspaceUserRemovalScope(
+  ctx: MutationCtx,
+  args: RemoveWorkspaceUserArgs
+) {
+  const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
+
+  if (!workspace) {
+    throw new Error("Workspace not found")
+  }
+
+  await requireWorkspaceOwnerAccess(
+    ctx,
+    args.workspaceId,
+    args.currentUserId,
+    "Only the workspace owner can remove workspace users"
+  )
+
+  if (workspace.createdBy === args.userId) {
+    throw new Error("You can't remove the workspace owner")
+  }
+
+  if (args.userId === args.currentUserId) {
+    throw new Error("You can't remove yourself from the workspace here")
+  }
+
+  const workspaceMembership = await getWorkspaceMembershipDoc(
+    ctx,
+    args.workspaceId,
+    args.userId
+  )
+  const workspaceTeams = await listWorkspaceTeams(ctx, args.workspaceId)
+  const workspaceTeamIds = new Set(workspaceTeams.map((team) => team.id))
+  const teamMemberships = await listWorkspaceTeamMembershipsForUser(
+    ctx,
+    workspaceTeamIds,
+    args.userId
+  )
+
+  if (!workspaceMembership && teamMemberships.length === 0) {
+    throw new Error("Workspace user not found")
+  }
+
+  if (hasWorkspaceAdminAccess(workspaceMembership, teamMemberships)) {
+    throw new Error("Workspace admins can't be removed from the workspace")
+  }
+
+  return {
+    teamMemberships,
+    workspace,
+    workspaceMembership,
+    workspaceTeams,
+  }
+}
+
+function getWorkspaceRemovalTeamNames(
+  workspaceTeams: Awaited<ReturnType<typeof listWorkspaceTeams>>,
+  teamMemberships: Awaited<
+    ReturnType<typeof listWorkspaceTeamMembershipsForUser>
+  >
+) {
+  const memberTeamIds = new Set(
+    teamMemberships.map((membership) => membership.teamId)
+  )
+
+  return workspaceTeams
+    .filter((team) => memberTeamIds.has(team.id))
+    .map((team) => team.name)
+}
+
+async function deleteWorkspaceUserMemberships(
+  ctx: MutationCtx,
+  workspaceMembership: Awaited<ReturnType<typeof getWorkspaceMembershipDoc>>,
+  teamMemberships: Awaited<
+    ReturnType<typeof listWorkspaceTeamMembershipsForUser>
+  >
+) {
+  if (workspaceMembership) {
+    await ctx.db.delete(workspaceMembership._id)
+  }
+
+  for (const membership of teamMemberships) {
+    await ctx.db.delete(membership._id)
+  }
+}
+
+async function syncWorkspaceRemovalConversations(
+  ctx: MutationCtx,
+  workspaceId: string,
+  teamMemberships: Awaited<
+    ReturnType<typeof listWorkspaceTeamMembershipsForUser>
+  >
+) {
+  const removedTeamIds = teamMemberships.map((membership) => membership.teamId)
+
+  for (const teamId of removedTeamIds) {
+    await syncTeamConversationMemberships(ctx, teamId)
+  }
+
+  if (removedTeamIds.length === 0) {
+    await syncWorkspaceChannelMemberships(ctx, workspaceId)
+  }
+}
+
+function buildWorkspaceRemovalMessage({
+  actorName,
+  teamNames,
+  workspaceName,
+}: {
+  actorName: string
+  teamNames: string[]
+  workspaceName: string
+}) {
+  if (teamNames.length === 0) {
+    return `${actorName} removed you from ${workspaceName}.`
+  }
+
+  return `${actorName} removed you from ${workspaceName}. This removed your access to ${teamNames.join(", ")}.`
+}
+
+function buildWorkspaceRemovalEmailJobs({
+  body,
+  email,
+  workspaceName,
+}: {
+  body: string
+  email?: string | null
+  workspaceName: string
+}) {
+  return email
+    ? [
+        {
+          email,
+          subject: `You were removed from ${workspaceName}`,
+          eyebrow: "WORKSPACE ACCESS REMOVED",
+          headline: `You were removed from ${workspaceName}`,
+          body,
+        },
+      ]
+    : []
+}
+
 type LeaveTeamArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
@@ -670,37 +847,36 @@ export async function deleteWorkspaceHandler(
     comments,
     documentPresence,
     notifications,
-  ] =
-    await Promise.all([
-      listChannelPostCommentsByPosts(ctx, deletedChannelPostIds),
-      listAttachmentsByTargets(ctx, {
-        targetType: "document",
-        targetIds: deletedDocumentIds,
-      }),
-      listCommentsByTargets(ctx, {
-        targetType: "document",
-        targetIds: deletedDocumentIds,
-      }),
-      listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
-      listNotificationsByEntities(ctx, [
-        ...[...deletedDocumentIds].map((entityId) => ({
-          entityType: "document" as const,
-          entityId,
-        })),
-        ...[...deletedProjectIds].map((entityId) => ({
-          entityType: "project" as const,
-          entityId,
-        })),
-        ...[...deletedChatMessageIds].map((entityId) => ({
-          entityType: "chat" as const,
-          entityId,
-        })),
-        ...[...deletedChannelPostIds].map((entityId) => ({
-          entityType: "channelPost" as const,
-          entityId,
-        })),
-      ]),
-    ])
+  ] = await Promise.all([
+    listChannelPostCommentsByPosts(ctx, deletedChannelPostIds),
+    listAttachmentsByTargets(ctx, {
+      targetType: "document",
+      targetIds: deletedDocumentIds,
+    }),
+    listCommentsByTargets(ctx, {
+      targetType: "document",
+      targetIds: deletedDocumentIds,
+    }),
+    listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
+    listNotificationsByEntities(ctx, [
+      ...[...deletedDocumentIds].map((entityId) => ({
+        entityType: "document" as const,
+        entityId,
+      })),
+      ...[...deletedProjectIds].map((entityId) => ({
+        entityType: "project" as const,
+        entityId,
+      })),
+      ...[...deletedChatMessageIds].map((entityId) => ({
+        entityType: "chat" as const,
+        entityId,
+      })),
+      ...[...deletedChannelPostIds].map((entityId) => ({
+        entityType: "channelPost" as const,
+        entityId,
+      })),
+    ]),
+  ])
 
   await cleanupRemainingLinksAfterDelete(ctx, {
     currentUserId: args.currentUserId,
@@ -1425,6 +1601,182 @@ export async function updateTeamMemberRoleHandler(
   }
 }
 
+async function assertTeamMemberRemovalAllowed(
+  ctx: MutationCtx,
+  input: {
+    membership: Awaited<
+      ReturnType<typeof requireMutableTeamMember>
+    >["membership"]
+    teamId: string
+  }
+) {
+  if (input.membership.role !== "admin") {
+    return
+  }
+
+  const adminCount = await getTeamAdminCount(ctx, input.teamId)
+
+  if (adminCount <= 1) {
+    throw new Error("Teams must keep at least one admin")
+  }
+}
+
+async function getTeamMemberRemovalPeople(
+  ctx: MutationCtx,
+  input: {
+    actorUserId: string
+    removedUserId: string
+    workspaceId: string
+  }
+) {
+  const [removedUser, workspace, actor] = await Promise.all([
+    getUserDoc(ctx, input.removedUserId),
+    getWorkspaceDoc(ctx, input.workspaceId),
+    getUserDoc(ctx, input.actorUserId),
+  ])
+
+  return {
+    actor,
+    actorName: actor?.name ?? "A team admin",
+    removedUser,
+    removedUserName: removedUser?.name ?? "User",
+    workspace,
+    workspaceName: workspace?.name ?? "Workspace",
+  }
+}
+
+async function removeTeamMembershipAccess(
+  ctx: MutationCtx,
+  input: {
+    actorUserId: string
+    membership: Awaited<
+      ReturnType<typeof requireMutableTeamMember>
+    >["membership"]
+    removedUserWorkosUserId?: string | null
+    team: Awaited<ReturnType<typeof requireMutableTeamMember>>["team"]
+  }
+) {
+  await ctx.db.delete(input.membership._id)
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: input.team.workspaceId,
+    userId: input.membership.userId,
+    fallbackRole: "viewer",
+  })
+  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
+    currentUserId: input.actorUserId,
+    removedUserId: input.membership.userId,
+    removedUserWorkosUserId: input.removedUserWorkosUserId ?? null,
+    workspaceId: input.team.workspaceId,
+    removedTeamIds: [input.team.id],
+  })
+  await syncTeamConversationMemberships(ctx, input.team.id)
+
+  return accessRemoval
+}
+
+async function notifyRemovedTeamMember(
+  ctx: MutationCtx,
+  input: {
+    actorUserId: string
+    message: string
+    removedUser: Awaited<ReturnType<typeof getUserDoc>>
+    teamId: string
+  }
+) {
+  if (!input.removedUser) {
+    return
+  }
+
+  await ctx.db.insert(
+    "notifications",
+    createNotification(
+      input.removedUser.id,
+      input.actorUserId,
+      input.message,
+      "team",
+      input.teamId,
+      "status-change"
+    )
+  )
+}
+
+function buildRemovedTeamMemberEmailJobs(
+  removedUser: Awaited<ReturnType<typeof getUserDoc>>,
+  input: {
+    removalMessage: string
+    teamName: string
+  }
+): AccessEmailJob[] {
+  return removedUser?.email
+    ? [
+        {
+          email: removedUser.email,
+          subject: `You were removed from ${input.teamName}`,
+          eyebrow: "TEAM ACCESS REMOVED",
+          headline: `You were removed from ${input.teamName}`,
+          body: input.removalMessage,
+        },
+      ]
+    : []
+}
+
+async function buildTeamMemberRemovalEmailJobs(
+  ctx: MutationCtx,
+  input: {
+    actorName: string
+    actorUserId: string
+    membershipUserId: string
+    removalMessage: string
+    removedUser: Awaited<ReturnType<typeof getUserDoc>>
+    removedUserName: string
+    team: Awaited<ReturnType<typeof requireMutableTeamMember>>["team"]
+  }
+) {
+  const adminEmailJobs = await notifyTeamAdminsOfAccessChange(ctx, {
+    teamId: input.team.id,
+    actorUserId: input.actorUserId,
+    message: `${input.actorName} removed ${input.removedUserName} from ${input.team.name}.`,
+    subject: `${input.actorName} removed ${input.removedUserName} from ${input.team.name}`,
+    eyebrow: "TEAM MEMBER REMOVED",
+    headline: `${input.removedUserName} was removed from ${input.team.name}`,
+    excludeUserIds: [input.actorUserId, input.membershipUserId],
+  })
+
+  return [
+    ...adminEmailJobs,
+    ...buildRemovedTeamMemberEmailJobs(input.removedUser, {
+      removalMessage: input.removalMessage,
+      teamName: input.team.name,
+    }),
+  ]
+}
+
+async function insertTeamMemberRemovalAudit(
+  ctx: MutationCtx,
+  input: {
+    actorUserId: string
+    membershipUserId: string
+    removedUserName: string
+    removedUserWorkosUserId?: string | null
+    team: Awaited<ReturnType<typeof requireMutableTeamMember>>["team"]
+  }
+) {
+  await insertAuditEvent(ctx, {
+    type: "membership.removed_from_team",
+    actorUserId: input.actorUserId,
+    subjectUserId: input.membershipUserId,
+    workspaceId: input.team.workspaceId,
+    teamId: input.team.id,
+    entityId: input.membershipUserId,
+    summary: `${input.removedUserName} was removed from ${input.team.name}.`,
+    details: {
+      removedTeamIds: [input.team.id],
+      source: "convex",
+      workosUserId: input.removedUserWorkosUserId ?? undefined,
+    },
+  })
+}
+
 export async function removeTeamMemberHandler(
   ctx: MutationCtx,
   args: RemoveTeamMemberArgs
@@ -1432,94 +1784,53 @@ export async function removeTeamMemberHandler(
   assertServerToken(args.serverToken)
   const { team, membership } = await requireMutableTeamMember(ctx, args)
 
-  if (membership.role === "admin") {
-    const adminCount = await getTeamAdminCount(ctx, team.id)
-
-    if (adminCount <= 1) {
-      throw new Error("Teams must keep at least one admin")
-    }
-  }
-
-  const removedUser = await getUserDoc(ctx, membership.userId)
-  const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
-  const actor = await getUserDoc(ctx, args.currentUserId)
-
-  await ctx.db.delete(membership._id)
-  await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId: team.workspaceId,
-    userId: membership.userId,
-    fallbackRole: "viewer",
+  await assertTeamMemberRemovalAllowed(ctx, {
+    membership,
+    teamId: team.id,
   })
-  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
-    currentUserId: args.currentUserId,
-    removedUserId: membership.userId,
-    removedUserWorkosUserId: removedUser?.workosUserId ?? null,
-    workspaceId: team.workspaceId,
-    removedTeamIds: [team.id],
-  })
-  await syncTeamConversationMemberships(ctx, team.id)
-
-  const actorName = actor?.name ?? "A team admin"
-  const removedUserName = removedUser?.name ?? "User"
-  const workspaceName = workspace?.name ?? "Workspace"
+  const { actorName, removedUser, removedUserName, workspaceName } =
+    await getTeamMemberRemovalPeople(ctx, {
+      actorUserId: args.currentUserId,
+      removedUserId: membership.userId,
+      workspaceId: team.workspaceId,
+    })
   const removalMessage = `${actorName} removed you from ${team.name}.`
-  const adminMessage = `${actorName} removed ${removedUserName} from ${team.name}.`
-  const adminEmailJobs = await notifyTeamAdminsOfAccessChange(ctx, {
-    teamId: team.id,
+  const accessRemoval = await removeTeamMembershipAccess(ctx, {
     actorUserId: args.currentUserId,
-    message: adminMessage,
-    subject: `${actorName} removed ${removedUserName} from ${team.name}`,
-    eyebrow: "TEAM MEMBER REMOVED",
-    headline: `${removedUserName} was removed from ${team.name}`,
-    excludeUserIds: [args.currentUserId, membership.userId],
+    membership,
+    removedUserWorkosUserId: removedUser?.workosUserId ?? null,
+    team,
   })
 
-  if (removedUser) {
-    const notification = createNotification(
-      removedUser.id,
-      args.currentUserId,
-      removalMessage,
-      "team",
-      team.id,
-      "status-change"
-    )
-
-    await ctx.db.insert("notifications", notification)
-  }
-
-  await insertAuditEvent(ctx, {
-    type: "membership.removed_from_team",
+  await notifyRemovedTeamMember(ctx, {
     actorUserId: args.currentUserId,
-    subjectUserId: membership.userId,
-    workspaceId: team.workspaceId,
+    message: removalMessage,
+    removedUser,
     teamId: team.id,
-    entityId: membership.userId,
-    summary: `${removedUserName} was removed from ${team.name}.`,
-    details: {
-      removedTeamIds: [team.id],
-      source: "convex",
-      workosUserId: removedUser?.workosUserId ?? undefined,
-    },
+  })
+  const emailJobs = await buildTeamMemberRemovalEmailJobs(ctx, {
+    actorName,
+    actorUserId: args.currentUserId,
+    membershipUserId: membership.userId,
+    removalMessage,
+    removedUser,
+    removedUserName,
+    team,
+  })
+
+  await insertTeamMemberRemovalAudit(ctx, {
+    actorUserId: args.currentUserId,
+    membershipUserId: membership.userId,
+    removedUserName,
+    removedUserWorkosUserId: removedUser?.workosUserId ?? null,
+    team,
   })
 
   await queueEmailJobs(
     ctx,
     buildAccessChangeEmailJobs({
       origin: args.origin,
-      emails: [
-        ...adminEmailJobs,
-        ...(removedUser?.email
-          ? [
-              {
-                email: removedUser.email,
-                subject: `You were removed from ${team.name}`,
-                eyebrow: "TEAM ACCESS REMOVED",
-                headline: `You were removed from ${team.name}`,
-                body: removalMessage,
-              },
-            ]
-          : []),
-      ],
+      emails: emailJobs,
     })
   )
 
@@ -1532,20 +1843,7 @@ export async function removeTeamMemberHandler(
     teamName: team.name,
     workspaceName,
     actorName,
-    emailJobs: [
-      ...adminEmailJobs,
-      ...(removedUser?.email
-        ? [
-            {
-              email: removedUser.email,
-              subject: `You were removed from ${team.name}`,
-              eyebrow: "TEAM ACCESS REMOVED",
-              headline: `You were removed from ${team.name}`,
-              body: removalMessage,
-            },
-          ]
-        : []),
-    ],
+    emailJobs,
     providerMemberships: accessRemoval.providerMembershipCleanup
       ? [accessRemoval.providerMembershipCleanup]
       : [],
@@ -1557,94 +1855,46 @@ export async function removeWorkspaceUserHandler(
   args: RemoveWorkspaceUserArgs
 ) {
   assertServerToken(args.serverToken)
-  const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
-
-  if (!workspace) {
-    throw new Error("Workspace not found")
-  }
-
-  await requireWorkspaceOwnerAccess(
-    ctx,
-    args.workspaceId,
-    args.currentUserId,
-    "Only the workspace owner can remove workspace users"
-  )
-
-  if (workspace.createdBy === args.userId) {
-    throw new Error("You can't remove the workspace owner")
-  }
-
-  if (args.userId === args.currentUserId) {
-    throw new Error("You can't remove yourself from the workspace here")
-  }
-
-  const workspaceMembership = await getWorkspaceMembershipDoc(
-    ctx,
-    args.workspaceId,
-    args.userId
-  )
-  const workspaceTeams = await listWorkspaceTeams(ctx, args.workspaceId)
-  const workspaceTeamIds = new Set(workspaceTeams.map((team) => team.id))
-  const teamMemberships = (
-    await ctx.db
-      .query("teamMemberships")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .collect()
-  ).filter((membership) => workspaceTeamIds.has(membership.teamId))
-
-  if (!workspaceMembership && teamMemberships.length === 0) {
-    throw new Error("Workspace user not found")
-  }
-
-  if (
-    workspaceMembership?.role === "admin" ||
-    teamMemberships.some((membership) => membership.role === "admin")
-  ) {
-    throw new Error("Workspace admins can't be removed from the workspace")
-  }
+  const { teamMemberships, workspace, workspaceMembership, workspaceTeams } =
+    await requireWorkspaceUserRemovalScope(ctx, args)
 
   const removedUser = await getUserDoc(ctx, args.userId)
   const actor = await getUserDoc(ctx, args.currentUserId)
-  const teamNames = workspaceTeams
-    .filter((team) =>
-      teamMemberships.some((membership) => membership.teamId === team.id)
-    )
-    .map((team) => team.name)
+  const removedTeamIds = teamMemberships.map((membership) => membership.teamId)
+  const teamNames = getWorkspaceRemovalTeamNames(
+    workspaceTeams,
+    teamMemberships
+  )
 
-  if (workspaceMembership) {
-    await ctx.db.delete(workspaceMembership._id)
-  }
-
-  for (const membership of teamMemberships) {
-    await ctx.db.delete(membership._id)
-  }
+  await deleteWorkspaceUserMemberships(
+    ctx,
+    workspaceMembership,
+    teamMemberships
+  )
 
   const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
     currentUserId: args.currentUserId,
     removedUserId: args.userId,
     removedUserWorkosUserId: removedUser?.workosUserId ?? null,
     workspaceId: workspace.id,
-    removedTeamIds: teamMemberships.map((membership) => membership.teamId),
+    removedTeamIds,
   })
 
-  for (const team of workspaceTeams) {
-    if (teamMemberships.some((membership) => membership.teamId === team.id)) {
-      await syncTeamConversationMemberships(ctx, team.id)
-    }
-  }
-
-  if (teamMemberships.length === 0) {
-    await syncWorkspaceChannelMemberships(ctx, workspace.id)
-  }
+  await syncWorkspaceRemovalConversations(ctx, workspace.id, teamMemberships)
 
   const actorName = actor?.name ?? "A workspace admin"
   const workspaceName = workspace.name
   const removedUserName = removedUser?.name ?? "User"
-  const teamSummary = teamNames.join(", ")
-  const removalMessage =
-    teamNames.length > 0
-      ? `${actorName} removed you from ${workspaceName}. This removed your access to ${teamSummary}.`
-      : `${actorName} removed you from ${workspaceName}.`
+  const removalMessage = buildWorkspaceRemovalMessage({
+    actorName,
+    teamNames,
+    workspaceName,
+  })
+  const emailJobs = buildWorkspaceRemovalEmailJobs({
+    body: removalMessage,
+    email: removedUser?.email,
+    workspaceName,
+  })
 
   await insertAuditEvent(ctx, {
     type: "membership.removed_from_workspace",
@@ -1654,7 +1904,7 @@ export async function removeWorkspaceUserHandler(
     entityId: args.userId,
     summary: `${removedUserName} was removed from ${workspaceName}.`,
     details: {
-      removedTeamIds: teamMemberships.map((membership) => membership.teamId),
+      removedTeamIds,
       source: "convex",
       workosUserId: removedUser?.workosUserId ?? undefined,
     },
@@ -1664,17 +1914,7 @@ export async function removeWorkspaceUserHandler(
     ctx,
     buildAccessChangeEmailJobs({
       origin: args.origin,
-      emails: removedUser?.email
-        ? [
-            {
-              email: removedUser.email,
-              subject: `You were removed from ${workspaceName}`,
-              eyebrow: "WORKSPACE ACCESS REMOVED",
-              headline: `You were removed from ${workspaceName}`,
-              body: removalMessage,
-            },
-          ]
-        : [],
+      emails: emailJobs,
     })
   )
 
@@ -1682,30 +1922,17 @@ export async function removeWorkspaceUserHandler(
     workspaceId: workspace.id,
     userId: args.userId,
     removedUserName,
-    emailJobs: [
-      ...(removedUser?.email
-        ? [
-            {
-              email: removedUser.email,
-              subject: `You were removed from ${workspaceName}`,
-              eyebrow: "WORKSPACE ACCESS REMOVED",
-              headline: `You were removed from ${workspaceName}`,
-              body: removalMessage,
-            },
-          ]
-        : []),
-    ],
+    emailJobs,
     providerMemberships: accessRemoval.providerMembershipCleanup
       ? [accessRemoval.providerMembershipCleanup]
       : [],
   }
 }
 
-export async function leaveWorkspaceHandler(
+async function requireLeaveWorkspaceScope(
   ctx: MutationCtx,
   args: LeaveWorkspaceArgs
 ) {
-  assertServerToken(args.serverToken)
   const workspace = await getWorkspaceDoc(ctx, args.workspaceId)
 
   if (!workspace) {
@@ -1741,49 +1968,89 @@ export async function leaveWorkspaceHandler(
     throw new Error("Workspace admins can't leave the workspace")
   }
 
-  const currentUser = await getUserDoc(ctx, args.currentUserId)
+  return {
+    workspace,
+    workspaceMembership,
+    workspaceTeams,
+    teamMemberships,
+  }
+}
 
-  if (workspaceMembership) {
-    await ctx.db.delete(workspaceMembership._id)
+async function deleteLeaveWorkspaceMemberships(
+  ctx: MutationCtx,
+  input: {
+    teamMemberships: TeamMembershipDoc[]
+    workspaceMembership: WorkspaceMembershipDoc
+  }
+) {
+  if (input.workspaceMembership) {
+    await ctx.db.delete(input.workspaceMembership._id)
   }
 
-  for (const membership of teamMemberships) {
+  for (const membership of input.teamMemberships) {
     await ctx.db.delete(membership._id)
   }
+}
 
-  const accessRemoval = await applyWorkspaceAccessRemovalPolicy(ctx, {
-    currentUserId: args.currentUserId,
-    removedUserId: args.currentUserId,
-    removedUserWorkosUserId: currentUser?.workosUserId ?? null,
-    workspaceId: workspace.id,
-    removedTeamIds: teamMemberships.map((membership) => membership.teamId),
+async function applyLeaveWorkspaceAccessRemoval(
+  ctx: MutationCtx,
+  input: {
+    currentUser: Awaited<ReturnType<typeof getUserDoc>>
+    currentUserId: string
+    teamMemberships: TeamMembershipDoc[]
+    workspace: WorkspaceDoc
+  }
+) {
+  return applyWorkspaceAccessRemovalPolicy(ctx, {
+    currentUserId: input.currentUserId,
+    removedUserId: input.currentUserId,
+    removedUserWorkosUserId: input.currentUser?.workosUserId ?? null,
+    workspaceId: input.workspace.id,
+    removedTeamIds: input.teamMemberships.map(
+      (membership) => membership.teamId
+    ),
   })
+}
 
-  for (const membership of teamMemberships) {
+async function syncLeaveWorkspaceConversations(
+  ctx: MutationCtx,
+  input: {
+    teamMemberships: TeamMembershipDoc[]
+    workspaceId: string
+  }
+) {
+  for (const membership of input.teamMemberships) {
     await syncTeamConversationMemberships(ctx, membership.teamId)
   }
 
-  if (teamMemberships.length === 0) {
-    await syncWorkspaceChannelMemberships(ctx, workspace.id)
+  if (input.teamMemberships.length === 0) {
+    await syncWorkspaceChannelMemberships(ctx, input.workspaceId)
   }
+}
 
-  const userName = currentUser?.name ?? "A user"
-  const leaveMessage = `${userName} left ${workspace.name}.`
-  const removedTeamIds = [
-    ...new Set(teamMemberships.map((membership) => membership.teamId)),
-  ]
+async function buildLeaveWorkspaceEmailJobs(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    leaveMessage: string
+    removedTeamIds: string[]
+    userName: string
+    workspace: WorkspaceDoc
+    workspaceTeams: WorkspaceTeamDoc[]
+  }
+) {
   const emailJobs = await notifyWorkspaceOwnerOfAccessChange(ctx, {
-    workspaceId: workspace.id,
-    actorUserId: args.currentUserId,
-    message: leaveMessage,
-    subject: `${userName} left ${workspace.name}`,
+    workspaceId: input.workspace.id,
+    actorUserId: input.currentUserId,
+    message: input.leaveMessage,
+    subject: `${input.userName} left ${input.workspace.name}`,
     eyebrow: "WORKSPACE MEMBER LEFT",
-    headline: `${userName} left ${workspace.name}`,
-    excludeUserIds: [args.currentUserId],
+    headline: `${input.userName} left ${input.workspace.name}`,
+    excludeUserIds: [input.currentUserId],
   })
 
-  for (const teamId of removedTeamIds) {
-    const team = workspaceTeams.find((entry) => entry.id === teamId)
+  for (const teamId of input.removedTeamIds) {
+    const team = input.workspaceTeams.find((entry) => entry.id === teamId)
 
     if (!team) {
       continue
@@ -1792,28 +2059,89 @@ export async function leaveWorkspaceHandler(
     emailJobs.push(
       ...(await notifyTeamAdminsOfAccessChange(ctx, {
         teamId,
-        actorUserId: args.currentUserId,
-        message: `${userName} left ${team.name}.`,
-        subject: `${userName} left ${team.name}`,
+        actorUserId: input.currentUserId,
+        message: `${input.userName} left ${team.name}.`,
+        subject: `${input.userName} left ${team.name}`,
         eyebrow: "TEAM MEMBER LEFT",
-        headline: `${userName} left ${team.name}`,
-        excludeUserIds: [args.currentUserId],
+        headline: `${input.userName} left ${team.name}`,
+        excludeUserIds: [input.currentUserId],
       }))
     )
   }
 
+  return emailJobs
+}
+
+async function insertLeaveWorkspaceAudit(
+  ctx: MutationCtx,
+  input: {
+    currentUser: Awaited<ReturnType<typeof getUserDoc>>
+    currentUserId: string
+    removedTeamIds: string[]
+    userName: string
+    workspace: WorkspaceDoc
+  }
+) {
   await insertAuditEvent(ctx, {
     type: "membership.left_workspace",
-    actorUserId: args.currentUserId,
-    subjectUserId: args.currentUserId,
-    workspaceId: workspace.id,
-    entityId: args.currentUserId,
-    summary: `${userName} left ${workspace.name}.`,
+    actorUserId: input.currentUserId,
+    subjectUserId: input.currentUserId,
+    workspaceId: input.workspace.id,
+    entityId: input.currentUserId,
+    summary: `${input.userName} left ${input.workspace.name}.`,
     details: {
-      removedTeamIds,
+      removedTeamIds: input.removedTeamIds,
       source: "convex",
-      workosUserId: currentUser?.workosUserId ?? undefined,
+      workosUserId: input.currentUser?.workosUserId ?? undefined,
     },
+  })
+}
+
+export async function leaveWorkspaceHandler(
+  ctx: MutationCtx,
+  args: LeaveWorkspaceArgs
+) {
+  assertServerToken(args.serverToken)
+  const { teamMemberships, workspace, workspaceMembership, workspaceTeams } =
+    await requireLeaveWorkspaceScope(ctx, args)
+
+  const currentUser = await getUserDoc(ctx, args.currentUserId)
+
+  await deleteLeaveWorkspaceMemberships(ctx, {
+    teamMemberships,
+    workspaceMembership,
+  })
+  const accessRemoval = await applyLeaveWorkspaceAccessRemoval(ctx, {
+    currentUser,
+    currentUserId: args.currentUserId,
+    teamMemberships,
+    workspace,
+  })
+  await syncLeaveWorkspaceConversations(ctx, {
+    teamMemberships,
+    workspaceId: workspace.id,
+  })
+
+  const userName = currentUser?.name ?? "A user"
+  const leaveMessage = `${userName} left ${workspace.name}.`
+  const removedTeamIds = [
+    ...new Set(teamMemberships.map((membership) => membership.teamId)),
+  ]
+  const emailJobs = await buildLeaveWorkspaceEmailJobs(ctx, {
+    currentUserId: args.currentUserId,
+    leaveMessage,
+    removedTeamIds,
+    userName,
+    workspace,
+    workspaceTeams,
+  })
+
+  await insertLeaveWorkspaceAudit(ctx, {
+    currentUser,
+    currentUserId: args.currentUserId,
+    removedTeamIds,
+    userName,
+    workspace,
   })
 
   await queueEmailJobs(
@@ -1955,24 +2283,18 @@ export async function validateCurrentAccountDeletionHandler(
   }
 }
 
-export async function deleteCurrentAccountHandler(
-  ctx: MutationCtx,
-  args: DeleteCurrentAccountArgs
-) {
-  assertServerToken(args.serverToken)
-  const { memberships, workspaceMemberships, user } =
-    await assertCurrentAccountDeletionAllowed(ctx, args.currentUserId)
+type CurrentAccountDeletionAccess = Awaited<
+  ReturnType<typeof assertCurrentAccountDeletionAllowed>
+>
 
-  const teams = await listTeamsByIds(
-    ctx,
-    memberships.map((membership) => membership.teamId)
-  )
-  const teamsById = new Map(teams.map((team) => [team.id, team]))
-  const currentUserName = user.name ?? "A user"
+function getRemovedTeamIdsByWorkspace(
+  access: CurrentAccountDeletionAccess,
+  teamsById: Map<string, Awaited<ReturnType<typeof listTeamsByIds>>[number]>
+) {
   const removedWorkspaceIds = new Set(
-    workspaceMemberships.map((membership) => membership.workspaceId)
+    access.workspaceMemberships.map((membership) => membership.workspaceId)
   )
-  const removedTeamIdsByWorkspace = memberships.reduce<
+  const removedTeamIdsByWorkspace = access.memberships.reduce<
     Record<string, string[]>
   >((accumulator, membership) => {
     const team = teamsById.get(membership.teamId)
@@ -1989,30 +2311,58 @@ export async function deleteCurrentAccountHandler(
 
     return accumulator
   }, {})
+
   for (const workspaceId of removedWorkspaceIds) {
     removedTeamIdsByWorkspace[workspaceId] ??= []
   }
+
+  return removedTeamIdsByWorkspace
+}
+
+async function getCurrentAccountDeletionScope(
+  ctx: MutationCtx,
+  access: CurrentAccountDeletionAccess
+) {
+  const teams = await listTeamsByIds(
+    ctx,
+    access.memberships.map((membership) => membership.teamId)
+  )
+  const teamsById = new Map(teams.map((team) => [team.id, team]))
+  const removedTeamIdsByWorkspace = getRemovedTeamIdsByWorkspace(
+    access,
+    teamsById
+  )
   const workspaces = await listWorkspacesByIds(
     ctx,
     Object.keys(removedTeamIdsByWorkspace)
   )
-  const workspacesById = new Map(
-    workspaces.map((workspace) => [workspace.id, workspace])
-  )
-  const emailJobs: AccessEmailJob[] = []
 
-  for (const membership of memberships) {
+  return {
+    removedTeamIdsByWorkspace,
+    teamsById,
+    workspacesById: new Map(
+      workspaces.map((workspace) => [workspace.id, workspace])
+    ),
+  }
+}
+
+async function deleteCurrentAccountMembershipDocs(
+  ctx: MutationCtx,
+  access: CurrentAccountDeletionAccess
+) {
+  for (const membership of access.memberships) {
     await ctx.db.delete(membership._id)
   }
-  for (const workspaceMembership of workspaceMemberships) {
+
+  for (const workspaceMembership of access.workspaceMemberships) {
     await ctx.db.delete(workspaceMembership._id)
   }
-  const deletionLifecycle = await finalizeCurrentAccountDeletionPolicy(ctx, {
-    currentUserId: args.currentUserId,
-    user,
-    removedTeamIdsByWorkspace,
-  })
+}
 
+async function syncCurrentAccountDeletionConversations(
+  ctx: MutationCtx,
+  removedTeamIdsByWorkspace: Record<string, string[]>
+) {
   for (const removedTeamIds of Object.values(removedTeamIdsByWorkspace)) {
     for (const teamId of removedTeamIds) {
       await syncTeamConversationMemberships(ctx, teamId)
@@ -2026,28 +2376,44 @@ export async function deleteCurrentAccountHandler(
       await syncWorkspaceChannelMemberships(ctx, workspaceId)
     }
   }
+}
+
+async function collectCurrentAccountDeletionEmailJobs(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    currentUserName: string
+    removedTeamIdsByWorkspace: Record<string, string[]>
+    teamsById: Map<string, Awaited<ReturnType<typeof listTeamsByIds>>[number]>
+    workspacesById: Map<
+      string,
+      Awaited<ReturnType<typeof listWorkspacesByIds>>[number]
+    >
+  }
+) {
+  const emailJobs: AccessEmailJob[] = []
 
   for (const [workspaceId, removedTeamIds] of Object.entries(
-    removedTeamIdsByWorkspace
+    input.removedTeamIdsByWorkspace
   )) {
-    const workspace = workspacesById.get(workspaceId)
+    const workspace = input.workspacesById.get(workspaceId)
 
     if (workspace) {
       emailJobs.push(
         ...(await notifyWorkspaceOwnerOfAccessChange(ctx, {
           workspaceId,
-          actorUserId: args.currentUserId,
-          message: `${currentUserName} deleted their account and left ${workspace.name}.`,
-          subject: `${currentUserName} deleted their account and left ${workspace.name}`,
+          actorUserId: input.currentUserId,
+          message: `${input.currentUserName} deleted their account and left ${workspace.name}.`,
+          subject: `${input.currentUserName} deleted their account and left ${workspace.name}`,
           eyebrow: "WORKSPACE MEMBER LEFT",
-          headline: `${currentUserName} deleted their account and left ${workspace.name}`,
-          excludeUserIds: [args.currentUserId],
+          headline: `${input.currentUserName} deleted their account and left ${workspace.name}`,
+          excludeUserIds: [input.currentUserId],
         }))
       )
     }
 
     for (const teamId of removedTeamIds) {
-      const team = teamsById.get(teamId)
+      const team = input.teamsById.get(teamId)
 
       if (!team) {
         continue
@@ -2056,31 +2422,88 @@ export async function deleteCurrentAccountHandler(
       emailJobs.push(
         ...(await notifyTeamAdminsOfAccessChange(ctx, {
           teamId,
-          actorUserId: args.currentUserId,
-          message: `${currentUserName} deleted their account and left ${team.name}.`,
-          subject: `${currentUserName} deleted their account and left ${team.name}`,
+          actorUserId: input.currentUserId,
+          message: `${input.currentUserName} deleted their account and left ${team.name}.`,
+          subject: `${input.currentUserName} deleted their account and left ${team.name}`,
           eyebrow: "TEAM MEMBER LEFT",
-          headline: `${currentUserName} deleted their account and left ${team.name}`,
-          excludeUserIds: [args.currentUserId],
+          headline: `${input.currentUserName} deleted their account and left ${team.name}`,
+          excludeUserIds: [input.currentUserId],
         }))
       )
     }
   }
 
+  return emailJobs
+}
+
+async function insertCurrentAccountDeletionAuditEvent(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    currentUserName: string
+    deletionLifecycle: Awaited<
+      ReturnType<typeof finalizeCurrentAccountDeletionPolicy>
+    >
+    memberships: CurrentAccountDeletionAccess["memberships"]
+    user: CurrentAccountDeletionAccess["user"]
+  }
+) {
   await insertAuditEvent(ctx, {
     type: "account.deleted",
-    actorUserId: args.currentUserId,
-    subjectUserId: user.id,
-    entityId: user.id,
-    summary: `${currentUserName} deleted their account.`,
+    actorUserId: input.currentUserId,
+    subjectUserId: input.user.id,
+    entityId: input.user.id,
+    summary: `${input.currentUserName} deleted their account.`,
     details: {
-      deletedPrivateDocumentIds: deletionLifecycle.deletedPrivateDocumentIds,
+      deletedPrivateDocumentIds:
+        input.deletionLifecycle.deletedPrivateDocumentIds,
       removedTeamIds: [
-        ...new Set(memberships.map((membership) => membership.teamId)),
+        ...new Set(input.memberships.map((membership) => membership.teamId)),
       ],
       source: "convex",
-      workosUserId: user.workosUserId ?? undefined,
+      workosUserId: input.user.workosUserId ?? undefined,
     },
+  })
+}
+
+export async function deleteCurrentAccountHandler(
+  ctx: MutationCtx,
+  args: DeleteCurrentAccountArgs
+) {
+  assertServerToken(args.serverToken)
+  const access = await assertCurrentAccountDeletionAllowed(
+    ctx,
+    args.currentUserId
+  )
+  const { memberships, user } = access
+  const currentUserName = user.name ?? "A user"
+  const { removedTeamIdsByWorkspace, teamsById, workspacesById } =
+    await getCurrentAccountDeletionScope(ctx, access)
+
+  await deleteCurrentAccountMembershipDocs(ctx, access)
+
+  const deletionLifecycle = await finalizeCurrentAccountDeletionPolicy(ctx, {
+    currentUserId: args.currentUserId,
+    user,
+    removedTeamIdsByWorkspace,
+  })
+
+  await syncCurrentAccountDeletionConversations(ctx, removedTeamIdsByWorkspace)
+
+  const emailJobs = await collectCurrentAccountDeletionEmailJobs(ctx, {
+    currentUserId: args.currentUserId,
+    currentUserName,
+    removedTeamIdsByWorkspace,
+    teamsById,
+    workspacesById,
+  })
+
+  await insertCurrentAccountDeletionAuditEvent(ctx, {
+    currentUserId: args.currentUserId,
+    currentUserName,
+    deletionLifecycle,
+    memberships,
+    user,
   })
 
   await queueEmailJobs(

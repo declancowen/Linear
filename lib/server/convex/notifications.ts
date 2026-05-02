@@ -171,17 +171,6 @@ export async function declineInviteServer(input: {
   }
 }
 
-export async function markNotificationsEmailedServer(
-  notificationIds: string[]
-) {
-  return getConvexServerClient().mutation(
-    api.app.markNotificationsEmailed,
-    withServerToken({
-      notificationIds,
-    })
-  )
-}
-
 export async function enqueueMentionEmailJobsServer(
   jobs: Array<{
     kind: "mention"

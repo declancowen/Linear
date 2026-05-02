@@ -20,7 +20,11 @@ import {
   getTeamRole,
   getWorkspaceUsers,
 } from "@/lib/domain/selectors"
-import { normalizeTeamIconToken, type Role } from "@/lib/domain/types"
+import {
+  normalizeTeamIconToken,
+  type AppData,
+  type Role,
+} from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
@@ -52,6 +56,343 @@ import {
 
 function isValidInviteEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+const INVITE_ROLE_OPTIONS: Array<{
+  value: Role
+  label: string
+  description: string
+}> = [
+  {
+    value: "member",
+    label: "Member",
+    description: "Can create and edit work items and projects.",
+  },
+  {
+    value: "viewer",
+    label: "Viewer",
+    description: "Can view work across the assigned teams.",
+  },
+  {
+    value: "guest",
+    label: "Guest",
+    description: "Limited access for external collaborators.",
+  },
+]
+
+type TeamRecord = AppData["teams"][number]
+type WorkspaceUserMatch = ReturnType<
+  typeof getInviteWorkspaceUserMatches
+>[number]
+
+function InviteDialogHero({
+  workspaceInviteMode,
+}: {
+  workspaceInviteMode: boolean
+}) {
+  return (
+    <div className="px-6 pt-6 pb-2">
+      <DialogHeader className="items-start gap-4 p-0">
+        <div className="flex size-12 items-center justify-center rounded-full bg-primary/8 ring-1 ring-border/60">
+          <EnvelopeSimple className="size-6 text-primary" weight="duotone" />
+        </div>
+        <div className="space-y-1.5">
+          <DialogTitle className="text-lg">Invite people</DialogTitle>
+          <DialogDescription className="max-w-md text-sm leading-relaxed">
+            {workspaceInviteMode
+              ? "Invite someone to your workspace. Select which teams they should join."
+              : "They'll receive an email with a link to get started."}
+          </DialogDescription>
+        </div>
+      </DialogHeader>
+    </div>
+  )
+}
+
+function WorkspaceUserMatchList({
+  matches,
+  onSelect,
+}: {
+  matches: WorkspaceUserMatch[]
+  onSelect: (user: WorkspaceUserMatch) => void
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border bg-muted/15">
+      <div className="border-b px-3 py-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+        People in this workspace
+      </div>
+      <div className="flex flex-col gap-1 p-1">
+        {matches.map((user) => (
+          <button
+            key={user.id}
+            type="button"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/60"
+            onClick={() => onSelect(user)}
+          >
+            <UserAvatar
+              name={user.name}
+              avatarImageUrl={user.avatarImageUrl}
+              avatarUrl={user.avatarUrl}
+              status={user.status}
+              showStatus={false}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{user.name}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {user.email}
+                {user.title ? ` · ${user.title}` : ""}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function InviteEmailField({
+  email,
+  firstSelectableWorkspaceUserMatch,
+  showWorkspaceUserMatches,
+  workspaceUserMatches,
+  onEmailChange,
+  onWorkspaceUserSelect,
+}: {
+  email: string
+  firstSelectableWorkspaceUserMatch: WorkspaceUserMatch | null
+  showWorkspaceUserMatches: boolean
+  workspaceUserMatches: WorkspaceUserMatch[]
+  onEmailChange: (value: string) => void
+  onWorkspaceUserSelect: (user: WorkspaceUserMatch) => void
+}) {
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="invite-email">Email address or name</FieldLabel>
+        <FieldContent>
+          <div className="space-y-2">
+            <Input
+              id="invite-email"
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !isValidInviteEmail(email) &&
+                  firstSelectableWorkspaceUserMatch
+                ) {
+                  event.preventDefault()
+                  onWorkspaceUserSelect(firstSelectableWorkspaceUserMatch)
+                }
+              }}
+              placeholder="colleague@company.com or type a name"
+              autoFocus
+            />
+            {showWorkspaceUserMatches ? (
+              <WorkspaceUserMatchList
+                matches={workspaceUserMatches}
+                onSelect={onWorkspaceUserSelect}
+              />
+            ) : null}
+          </div>
+        </FieldContent>
+        <FieldDescription>
+          Type a name to pick someone already in the workspace, or enter any
+          email address.
+        </FieldDescription>
+      </Field>
+    </FieldGroup>
+  )
+}
+
+function LockedInviteTeam({ team }: { team: TeamRecord | undefined }) {
+  const lockedTeamIcon = team
+    ? normalizeTeamIconToken(team.icon, team.settings.experience)
+    : null
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+      <div className="flex size-9 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
+        {lockedTeamIcon ? (
+          <TeamIconGlyph
+            icon={lockedTeamIcon}
+            className="size-4 text-muted-foreground"
+          />
+        ) : (
+          <UsersThree className="size-4 text-muted-foreground" />
+        )}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">
+          {team?.name ?? "Selected team"}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          This invite is locked to a single team.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InviteTeamToggleList({
+  inviteableTeams,
+  teamIds,
+  workspaceInviteMode,
+  onToggleTeam,
+}: {
+  inviteableTeams: TeamRecord[]
+  teamIds: string[]
+  workspaceInviteMode: boolean
+  onToggleTeam: (teamId: string) => void
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap gap-2",
+        workspaceInviteMode ? "rounded-xl border bg-muted/15 p-3" : undefined
+      )}
+    >
+      {inviteableTeams.map((team) => {
+        const selected = teamIds.includes(team.id)
+        const teamIcon = normalizeTeamIconToken(
+          team.icon,
+          team.settings.experience
+        )
+
+        return (
+          <button
+            key={team.id}
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
+              selected
+                ? "border-primary/30 bg-primary/10 font-medium text-foreground"
+                : "border-border/60 text-muted-foreground hover:border-border hover:bg-muted/30 hover:text-foreground"
+            )}
+            onClick={() => onToggleTeam(team.id)}
+          >
+            <TeamIconGlyph icon={teamIcon} className="size-3.5 shrink-0" />
+            <span>{team.name}</span>
+            {selected ? <Check className="size-3.5 shrink-0" /> : null}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function InviteTeamPicker({
+  inviteableTeams,
+  lockedTeam,
+  lockedToTeam,
+  teamIds,
+  workspaceInviteMode,
+  onToggleTeam,
+}: {
+  inviteableTeams: TeamRecord[]
+  lockedTeam: TeamRecord | undefined
+  lockedToTeam: boolean
+  teamIds: string[]
+  workspaceInviteMode: boolean
+  onToggleTeam: (teamId: string) => void
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium">
+          {lockedToTeam ? "Team" : "Teams"}
+        </div>
+        {workspaceInviteMode ? (
+          <div className="rounded-full border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            {teamIds.length} selected
+          </div>
+        ) : null}
+      </div>
+      {lockedToTeam ? (
+        <LockedInviteTeam team={lockedTeam} />
+      ) : (
+        <InviteTeamToggleList
+          inviteableTeams={inviteableTeams}
+          teamIds={teamIds}
+          workspaceInviteMode={workspaceInviteMode}
+          onToggleTeam={onToggleTeam}
+        />
+      )}
+    </div>
+  )
+}
+
+function InviteRoleField({
+  role,
+  selectedRoleDescription,
+  onRoleChange,
+}: {
+  role: Role
+  selectedRoleDescription: string
+  onRoleChange: (role: Role) => void
+}) {
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+        <FieldContent>
+          <Select
+            value={role}
+            onValueChange={(value) => onRoleChange(value as Role)}
+          >
+            <SelectTrigger id="invite-role" className="w-full">
+              <SelectValue placeholder="Select a role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {INVITE_ROLE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </FieldContent>
+        <FieldDescription>{selectedRoleDescription}</FieldDescription>
+      </Field>
+    </FieldGroup>
+  )
+}
+
+function InviteDialogFooter({
+  canInvite,
+  submitting,
+  teamCount,
+  onCancel,
+  onSubmit,
+}: {
+  canInvite: boolean
+  submitting: boolean
+  teamCount: number
+  onCancel: () => void
+  onSubmit: () => void
+}) {
+  return (
+    <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
+      <Button variant="ghost" size="sm" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button size="sm" disabled={!canInvite || submitting} onClick={onSubmit}>
+        {submitting ? (
+          <>
+            <ArrowsClockwise className="animate-spin" />
+            Sending...
+          </>
+        ) : (
+          <>
+            <PaperPlaneTilt />
+            {teamCount === 1 ? "Send invite" : "Send invites"}
+          </>
+        )}
+      </Button>
+    </div>
+  )
 }
 
 export function InviteDialog({
@@ -97,36 +438,12 @@ export function InviteDialog({
   const [submitting, setSubmitting] = useState(false)
   const [dismissedWorkspaceMatchEmail, setDismissedWorkspaceMatchEmail] =
     useState<string | null>(null)
-  const inviteRoleOptions: Array<{
-    value: Role
-    label: string
-    description: string
-  }> = [
-    {
-      value: "member",
-      label: "Member",
-      description: "Can create and edit work items and projects.",
-    },
-    {
-      value: "viewer",
-      label: "Viewer",
-      description: "Can view work across the assigned teams.",
-    },
-    {
-      value: "guest",
-      label: "Guest",
-      description: "Limited access for external collaborators.",
-    },
-  ]
   const workspaceInviteMode = mode === "workspace"
   const lockedToTeam = mode === "team" && presetTeamIds.length > 0
   const lockedTeam = teams.find((team) => team.id === presetTeamIds[0])
-  const lockedTeamIcon = lockedTeam
-    ? normalizeTeamIconToken(lockedTeam.icon, lockedTeam.settings.experience)
-    : null
   const selectedRoleDescription =
-    inviteRoleOptions.find((option) => option.value === role)?.description ??
-    inviteRoleOptions[1].description
+    INVITE_ROLE_OPTIONS.find((option) => option.value === role)?.description ??
+    INVITE_ROLE_OPTIONS[1].description
 
   useEffect(() => {
     if (!open) {
@@ -158,261 +475,86 @@ export function InviteDialog({
       inviteableTeams.some((team) => team.id === teamId)
     )
 
+  function handleEmailChange(value: string) {
+    setEmail(value)
+    setDismissedWorkspaceMatchEmail(null)
+  }
+
+  function handleWorkspaceUserSelect(user: WorkspaceUserMatch) {
+    setEmail(user.email)
+    setDismissedWorkspaceMatchEmail(user.email.toLowerCase())
+  }
+
+  function handleToggleTeam(teamId: string) {
+    setTeamIds((current) =>
+      current.includes(teamId)
+        ? current.filter((value) => value !== teamId)
+        : [...current, teamId]
+    )
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true)
+
+    try {
+      await syncSendInvite(teamIds, email, role)
+
+      toast.success(
+        teamIds.length === 1
+          ? "Invite email sent"
+          : `Invite emails sent for ${teamIds.length} teams`
+      )
+      onOpenChange(false)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create invite"
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         key={`${activeTeamId}-${mode}-${open}`}
         className="max-w-lg gap-0 overflow-hidden p-0"
       >
-        <div className="px-6 pt-6 pb-2">
-          <DialogHeader className="items-start gap-4 p-0">
-            <div className="flex size-12 items-center justify-center rounded-full bg-primary/8 ring-1 ring-border/60">
-              <EnvelopeSimple
-                className="size-6 text-primary"
-                weight="duotone"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <DialogTitle className="text-lg">Invite people</DialogTitle>
-              <DialogDescription className="max-w-md text-sm leading-relaxed">
-                {workspaceInviteMode
-                  ? "Invite someone to your workspace. Select which teams they should join."
-                  : "They'll receive an email with a link to get started."}
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-        </div>
+        <InviteDialogHero workspaceInviteMode={workspaceInviteMode} />
 
         <div className="space-y-5 px-6 py-4">
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="invite-email">
-                Email address or name
-              </FieldLabel>
-              <FieldContent>
-                <div className="space-y-2">
-                  <Input
-                    id="invite-email"
-                    value={email}
-                    onChange={(event) => {
-                      setEmail(event.target.value)
-                      setDismissedWorkspaceMatchEmail(null)
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Enter" &&
-                        !isValidInviteEmail(email) &&
-                        firstSelectableWorkspaceUserMatch
-                      ) {
-                        event.preventDefault()
-                        setEmail(firstSelectableWorkspaceUserMatch.email)
-                        setDismissedWorkspaceMatchEmail(
-                          firstSelectableWorkspaceUserMatch.email.toLowerCase()
-                        )
-                      }
-                    }}
-                    placeholder="colleague@company.com or type a name"
-                    autoFocus
-                  />
-                  {showWorkspaceUserMatches ? (
-                    <div className="overflow-hidden rounded-xl border bg-muted/15">
-                      <div className="border-b px-3 py-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-                        People in this workspace
-                      </div>
-                      <div className="flex flex-col gap-1 p-1">
-                        {workspaceUserMatches.map((user) => (
-                          <button
-                            key={user.id}
-                            type="button"
-                            className="flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/60"
-                            onClick={() => {
-                              setEmail(user.email)
-                              setDismissedWorkspaceMatchEmail(
-                                user.email.toLowerCase()
-                              )
-                            }}
-                          >
-                            <UserAvatar
-                              name={user.name}
-                              avatarImageUrl={user.avatarImageUrl}
-                              avatarUrl={user.avatarUrl}
-                              status={user.status}
-                              showStatus={false}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium">
-                                {user.name}
-                              </div>
-                              <div className="truncate text-xs text-muted-foreground">
-                                {user.email}
-                                {user.title ? ` · ${user.title}` : ""}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </FieldContent>
-              <FieldDescription>
-                Type a name to pick someone already in the workspace, or enter
-                any email address.
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
-
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium">
-                {lockedToTeam ? "Team" : "Teams"}
-              </div>
-              {workspaceInviteMode ? (
-                <div className="rounded-full border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  {teamIds.length} selected
-                </div>
-              ) : null}
-            </div>
-            {lockedToTeam ? (
-              <div className="flex items-center gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-                <div className="flex size-9 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
-                  {lockedTeamIcon ? (
-                    <TeamIconGlyph
-                      icon={lockedTeamIcon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  ) : (
-                    <UsersThree className="size-4 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {lockedTeam?.name ?? "Selected team"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    This invite is locked to a single team.
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                className={cn(
-                  "flex flex-wrap gap-2",
-                  workspaceInviteMode
-                    ? "rounded-xl border bg-muted/15 p-3"
-                    : undefined
-                )}
-              >
-                {inviteableTeams.map((team) => {
-                  const selected = teamIds.includes(team.id)
-                  const teamIcon = normalizeTeamIconToken(
-                    team.icon,
-                    team.settings.experience
-                  )
-
-                  return (
-                    <button
-                      key={team.id}
-                      type="button"
-                      className={cn(
-                        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
-                        selected
-                          ? "border-primary/30 bg-primary/10 font-medium text-foreground"
-                          : "border-border/60 text-muted-foreground hover:border-border hover:bg-muted/30 hover:text-foreground"
-                      )}
-                      onClick={() =>
-                        setTeamIds((current) =>
-                          current.includes(team.id)
-                            ? current.filter((value) => value !== team.id)
-                            : [...current, team.id]
-                        )
-                      }
-                    >
-                      <TeamIconGlyph
-                        icon={teamIcon}
-                        className="size-3.5 shrink-0"
-                      />
-                      <span>{team.name}</span>
-                      {selected ? (
-                        <Check className="size-3.5 shrink-0" />
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="invite-role">Role</FieldLabel>
-              <FieldContent>
-                <Select
-                  value={role}
-                  onValueChange={(value) => setRole(value as Role)}
-                >
-                  <SelectTrigger id="invite-role" className="w-full">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {inviteRoleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </FieldContent>
-              <FieldDescription>{selectedRoleDescription}</FieldDescription>
-            </Field>
-          </FieldGroup>
+          <InviteEmailField
+            email={email}
+            firstSelectableWorkspaceUserMatch={
+              firstSelectableWorkspaceUserMatch
+            }
+            showWorkspaceUserMatches={showWorkspaceUserMatches}
+            workspaceUserMatches={workspaceUserMatches}
+            onEmailChange={handleEmailChange}
+            onWorkspaceUserSelect={handleWorkspaceUserSelect}
+          />
+          <InviteTeamPicker
+            inviteableTeams={inviteableTeams}
+            lockedTeam={lockedTeam}
+            lockedToTeam={lockedToTeam}
+            teamIds={teamIds}
+            workspaceInviteMode={workspaceInviteMode}
+            onToggleTeam={handleToggleTeam}
+          />
+          <InviteRoleField
+            role={role}
+            selectedRoleDescription={selectedRoleDescription}
+            onRoleChange={setRole}
+          />
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-6 py-4">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={!canInvite || submitting}
-            onClick={async () => {
-              setSubmitting(true)
-
-              try {
-                await syncSendInvite(teamIds, email, role)
-
-                toast.success(
-                  teamIds.length === 1
-                    ? "Invite email sent"
-                    : `Invite emails sent for ${teamIds.length} teams`
-                )
-                onOpenChange(false)
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to create invite"
-                )
-              } finally {
-                setSubmitting(false)
-              }
-            }}
-          >
-            {submitting ? (
-              <>
-                <ArrowsClockwise className="animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <PaperPlaneTilt />
-                Send invite
-              </>
-            )}
-          </Button>
-        </div>
+        <InviteDialogFooter
+          canInvite={canInvite}
+          submitting={submitting}
+          teamCount={teamIds.length}
+          onCancel={() => onOpenChange(false)}
+          onSubmit={handleSubmit}
+        />
       </DialogContent>
     </Dialog>
   )

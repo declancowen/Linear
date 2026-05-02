@@ -17,6 +17,20 @@ import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sideb
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
+type SurfaceSidebarMember = ReturnType<
+  typeof getConversationParticipants
+>[number]
+type SurfaceSidebarPresenceContext = {
+  currentUserId: string
+  currentWorkspaceId: string | null
+  workspaces: ReturnType<typeof useAppStore.getState>["workspaces"]
+  workspaceMemberships: ReturnType<
+    typeof useAppStore.getState
+  >["workspaceMemberships"]
+  teams: ReturnType<typeof useAppStore.getState>["teams"]
+  teamMemberships: ReturnType<typeof useAppStore.getState>["teamMemberships"]
+}
+
 export function EmptyState({
   title,
   description,
@@ -78,6 +92,190 @@ export function PageHeader({
   )
 }
 
+function useSurfaceSidebarPresenceContext(): SurfaceSidebarPresenceContext {
+  return useAppStore(
+    useShallow((state) => ({
+      currentUserId: state.currentUserId,
+      currentWorkspaceId: state.currentWorkspaceId,
+      workspaces: state.workspaces,
+      workspaceMemberships: state.workspaceMemberships,
+      teams: state.teams,
+      teamMemberships: state.teamMemberships,
+    }))
+  )
+}
+
+function getSurfaceSidebarPresenceStatus(
+  context: SurfaceSidebarPresenceContext,
+  memberId: string
+) {
+  if (!context.currentWorkspaceId) {
+    return "unknown"
+  }
+
+  return hasWorkspaceAccessInCollections(
+    context.workspaces,
+    context.workspaceMemberships,
+    context.teams,
+    context.teamMemberships,
+    context.currentWorkspaceId,
+    memberId
+  )
+    ? "active"
+    : "former"
+}
+
+function getSurfaceSidebarMemberView(
+  context: SurfaceSidebarPresenceContext,
+  member: SurfaceSidebarMember
+) {
+  return buildWorkspaceUserPresenceView(
+    member,
+    getSurfaceSidebarPresenceStatus(context, member.id)
+  )
+}
+
+function SurfaceSidebarHeader({
+  heroMember,
+  label,
+}: {
+  heroMember?: SurfaceSidebarMember | null
+  label?: string
+}) {
+  return (
+    <div className="border-b border-line-soft px-4 py-3.5">
+      <h3 className="text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
+        {label ?? (heroMember ? "Details" : "About")}
+      </h3>
+    </div>
+  )
+}
+
+function SurfaceSidebarHero({
+  description,
+  heroMember,
+  heroView,
+  title,
+}: {
+  description: string
+  heroMember: SurfaceSidebarMember
+  heroView: ReturnType<typeof buildWorkspaceUserPresenceView>
+  title: string
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2 border-b border-line-soft px-4 py-5 text-center">
+      <UserAvatar
+        name={heroView?.name ?? heroMember.name}
+        avatarImageUrl={heroView?.avatarImageUrl}
+        avatarUrl={heroView?.avatarUrl}
+        status={heroView?.status ?? undefined}
+        showStatus={!heroView?.isFormerMember}
+        size="lg"
+        className="size-14 text-[18px]"
+      />
+      <div>
+        <div className="text-[15px] font-semibold text-foreground">
+          {heroView?.name ?? heroMember.name ?? title}
+        </div>
+        {description ? (
+          <div className="mt-0.5 text-[12px] text-fg-3">{description}</div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function SurfaceSidebarAbout({
+  description,
+  title,
+}: {
+  description: string
+  title: string
+}) {
+  return (
+    <div className="border-b border-line-soft px-4 py-3.5">
+      <p className="text-[13px] font-semibold text-foreground">{title}</p>
+      {description ? (
+        <p className="mt-1 text-[12px] leading-relaxed text-fg-3">
+          {description}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function SurfaceSidebarMemberRow({
+  context,
+  member,
+}: {
+  context: SurfaceSidebarPresenceContext
+  member: SurfaceSidebarMember
+}) {
+  const displayMember = getSurfaceSidebarMemberView(context, member)
+  const isSelf = member.id === context.currentUserId
+
+  return (
+    <UserHoverCard
+      user={member}
+      side="left"
+      userId={member.id}
+      currentUserId={context.currentUserId}
+      workspaceId={context.currentWorkspaceId}
+    >
+      <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-surface-2">
+        <div className="shrink-0">
+          <UserAvatar
+            name={displayMember?.name ?? member.name}
+            avatarImageUrl={displayMember?.avatarImageUrl}
+            avatarUrl={displayMember?.avatarUrl}
+            status={displayMember?.status ?? undefined}
+            showStatus={!displayMember?.isFormerMember}
+            size="sm"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12.5px] text-foreground">
+            {displayMember?.name ?? member.name}
+          </div>
+          {displayMember?.secondaryText ? (
+            <div className="truncate text-[11px] text-fg-3">
+              {displayMember.secondaryText}
+            </div>
+          ) : null}
+        </div>
+        {isSelf ? (
+          <span className="shrink-0 text-[11px] text-fg-3">You</span>
+        ) : null}
+      </div>
+    </UserHoverCard>
+  )
+}
+
+function SurfaceSidebarMemberList({
+  context,
+  members,
+}: {
+  context: SurfaceSidebarPresenceContext
+  members: SurfaceSidebarMember[]
+}) {
+  return (
+    <div className="px-4 py-3.5">
+      <h4 className="mb-1.5 text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
+        Members · {members.length}
+      </h4>
+      <div className="flex flex-col gap-0.5">
+        {members.map((member) => (
+          <SurfaceSidebarMemberRow
+            key={member.id}
+            context={context}
+            member={member}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function SurfaceSidebarContent({
   label,
   title,
@@ -91,145 +289,27 @@ export function SurfaceSidebarContent({
   members: ReturnType<typeof getConversationParticipants>
   heroMember?: ReturnType<typeof getConversationParticipants>[number] | null
 }) {
-  const {
-    currentUserId,
-    currentWorkspaceId,
-    workspaces,
-    workspaceMemberships,
-    teams,
-    teamMemberships,
-  } = useAppStore(
-    useShallow((state) => ({
-      currentUserId: state.currentUserId,
-      currentWorkspaceId: state.currentWorkspaceId,
-      workspaces: state.workspaces,
-      workspaceMemberships: state.workspaceMemberships,
-      teams: state.teams,
-      teamMemberships: state.teamMemberships,
-    }))
-  )
-
+  const presenceContext = useSurfaceSidebarPresenceContext()
   const heroView = heroMember
-    ? buildWorkspaceUserPresenceView(
-        heroMember,
-        !currentWorkspaceId
-          ? "unknown"
-          : hasWorkspaceAccessInCollections(
-                workspaces,
-                workspaceMemberships,
-                teams,
-                teamMemberships,
-                currentWorkspaceId,
-                heroMember.id
-              )
-            ? "active"
-            : "former"
-      )
+    ? getSurfaceSidebarMemberView(presenceContext, heroMember)
     : null
 
   return (
     <div className="flex flex-col">
-      <div className="border-b border-line-soft px-4 py-3.5">
-        <h3 className="text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
-          {label ?? (heroMember ? "Details" : "About")}
-        </h3>
-      </div>
+      <SurfaceSidebarHeader heroMember={heroMember} label={label} />
 
       {heroMember ? (
-        <div className="flex flex-col items-center gap-2 border-b border-line-soft px-4 py-5 text-center">
-          <UserAvatar
-            name={heroView?.name ?? heroMember.name}
-            avatarImageUrl={heroView?.avatarImageUrl}
-            avatarUrl={heroView?.avatarUrl}
-            status={heroView?.status ?? undefined}
-            showStatus={!heroView?.isFormerMember}
-            size="lg"
-            className="size-14 text-[18px]"
-          />
-          <div>
-            <div className="text-[15px] font-semibold text-foreground">
-              {heroView?.name ?? heroMember.name ?? title}
-            </div>
-            {description ? (
-              <div className="mt-0.5 text-[12px] text-fg-3">
-                {description}
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <SurfaceSidebarHero
+          description={description}
+          heroMember={heroMember}
+          heroView={heroView}
+          title={title}
+        />
       ) : (
-        <div className="border-b border-line-soft px-4 py-3.5">
-          <p className="text-[13px] font-semibold text-foreground">{title}</p>
-          {description ? (
-            <p className="mt-1 text-[12px] leading-relaxed text-fg-3">
-              {description}
-            </p>
-          ) : null}
-        </div>
+        <SurfaceSidebarAbout description={description} title={title} />
       )}
 
-      <div className="px-4 py-3.5">
-        <h4 className="mb-1.5 text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
-          Members · {members.length}
-        </h4>
-        <div className="flex flex-col gap-0.5">
-          {members.map((member) => {
-            const displayMember = buildWorkspaceUserPresenceView(
-              member,
-              !currentWorkspaceId
-                ? "unknown"
-                : hasWorkspaceAccessInCollections(
-                      workspaces,
-                      workspaceMemberships,
-                      teams,
-                      teamMemberships,
-                      currentWorkspaceId,
-                      member.id
-                    )
-                  ? "active"
-                  : "former"
-            )
-            const isSelf = member.id === currentUserId
-
-            return (
-              <UserHoverCard
-                key={member.id}
-                user={member}
-                side="left"
-                userId={member.id}
-                currentUserId={currentUserId}
-                workspaceId={currentWorkspaceId}
-              >
-                <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-surface-2">
-                  <div className="shrink-0">
-                    <UserAvatar
-                      name={displayMember?.name ?? member.name}
-                      avatarImageUrl={displayMember?.avatarImageUrl}
-                      avatarUrl={displayMember?.avatarUrl}
-                      status={displayMember?.status ?? undefined}
-                      showStatus={!displayMember?.isFormerMember}
-                      size="sm"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] text-foreground">
-                      {displayMember?.name ?? member.name}
-                    </div>
-                    {displayMember?.secondaryText ? (
-                      <div className="truncate text-[11px] text-fg-3">
-                        {displayMember.secondaryText}
-                      </div>
-                    ) : null}
-                  </div>
-                  {isSelf ? (
-                    <span className="shrink-0 text-[11px] text-fg-3">You</span>
-                  ) : null}
-                </div>
-              </UserHoverCard>
-            )
-          })}
-        </div>
-      </div>
+      <SurfaceSidebarMemberList context={presenceContext} members={members} />
     </div>
   )
 }

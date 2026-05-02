@@ -45,3 +45,9 @@ next-env.d.ts
 
 # local PartyKit state
 .partykit/
+.fallow/
+
+# local audit/tooling output
+.graphify_detect.json
+.graphify_python
+graphify-out/

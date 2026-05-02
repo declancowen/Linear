@@ -27,6 +27,156 @@ type AcceptInviteCardProps = {
   className?: string
 }
 
+function getInviteTeamLabel(teamNames: string[]) {
+  return teamNames.length <= 2
+    ? teamNames.join(", ")
+    : `${teamNames.slice(0, 2).join(", ")} +${teamNames.length - 2}`
+}
+
+function InviteWorkspaceBadge({
+  workspaceLogo,
+  workspaceName,
+}: {
+  workspaceLogo: string
+  workspaceName: string
+}) {
+  const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
+  const workspaceBadgeFallback =
+    workspaceName.trim().charAt(0).toUpperCase() || "?"
+
+  return (
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+      {workspaceLogoImageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={workspaceName}
+          className="size-full rounded-lg object-cover"
+          src={workspaceLogoImageSrc}
+        />
+      ) : (
+        workspaceBadgeFallback
+      )}
+    </span>
+  )
+}
+
+function InviteStatus({
+  accepted,
+  expired,
+  role,
+}: {
+  accepted: boolean
+  expired: boolean
+  role: string
+}) {
+  if (expired) {
+    return <span className="shrink-0 text-xs text-destructive">Expired</span>
+  }
+
+  if (accepted) {
+    return <span className="shrink-0 text-xs text-green-600">Accepted</span>
+  }
+
+  return (
+    <span className="shrink-0 text-xs text-muted-foreground capitalize">
+      {role}
+    </span>
+  )
+}
+
+function InviteSummary({
+  accepted,
+  expired,
+  role,
+  teamNames,
+  workspaceName,
+}: {
+  accepted: boolean
+  expired: boolean
+  role: string
+  teamNames: string[]
+  workspaceName: string
+}) {
+  const teamLineLabel = teamNames.length === 1 ? "Team" : "Teams"
+
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-baseline gap-1.5">
+        <div className="truncate text-sm font-medium">
+          {getInviteTeamLabel(teamNames)}
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">·</span>
+        <InviteStatus accepted={accepted} expired={expired} role={role} />
+      </div>
+      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+        {workspaceName}
+      </div>
+      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+        {teamLineLabel}: {teamNames.join(", ")}
+      </div>
+    </div>
+  )
+}
+
+function InviteActions({
+  accepted,
+  authenticated,
+  declining,
+  expired,
+  loading,
+  loginHref,
+  showDecline,
+  signupHref,
+  onAccept,
+  onDecline,
+}: {
+  accepted: boolean
+  authenticated: boolean
+  declining: boolean
+  expired: boolean
+  loading: boolean
+  loginHref: string
+  showDecline: boolean
+  signupHref: string
+  onAccept: () => void
+  onDecline: () => void
+}) {
+  if (!authenticated) {
+    return (
+      <>
+        <Button asChild variant="ghost" size="sm">
+          <Link href={loginHref}>Sign in</Link>
+        </Button>
+        <Button asChild size="sm">
+          <Link href={signupHref}>Sign up</Link>
+        </Button>
+      </>
+    )
+  }
+
+  return (
+    <>
+      {showDecline ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={loading || declining || accepted}
+          onClick={onDecline}
+        >
+          {declining ? "..." : "Decline"}
+        </Button>
+      ) : null}
+      <Button
+        size="sm"
+        disabled={loading || declining || expired}
+        onClick={onAccept}
+      >
+        {accepted ? "Open" : loading ? "..." : "Accept"}
+      </Button>
+    </>
+  )
+}
+
 export function AcceptInviteCard({
   authenticated,
   token,
@@ -107,82 +257,33 @@ export function AcceptInviteCard({
     handleAutoAccept()
   }, [accepted, authenticated, autoAccept, expired])
 
-  const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
-  const workspaceBadgeFallback =
-    workspaceName.trim().charAt(0).toUpperCase() || "?"
-  const teamLabel =
-    teamNames.length <= 2
-      ? teamNames.join(", ")
-      : `${teamNames.slice(0, 2).join(", ")} +${teamNames.length - 2}`
-  const teamLineLabel = teamNames.length === 1 ? "Team" : "Teams"
-
   return (
     <Card className={cn("w-full shadow-none", className)}>
       <div className="flex items-center gap-4 px-5 py-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
-          {workspaceLogoImageSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt={workspaceName}
-              className="size-full rounded-lg object-cover"
-              src={workspaceLogoImageSrc}
-            />
-          ) : (
-            workspaceBadgeFallback
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-1.5">
-            <div className="truncate text-sm font-medium">{teamLabel}</div>
-            <span className="shrink-0 text-xs text-muted-foreground">·</span>
-            {expired ? (
-              <span className="shrink-0 text-xs text-destructive">Expired</span>
-            ) : accepted ? (
-              <span className="shrink-0 text-xs text-green-600">Accepted</span>
-            ) : (
-              <span className="shrink-0 text-xs text-muted-foreground capitalize">
-                {role}
-              </span>
-            )}
-          </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {workspaceName}
-          </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {teamLineLabel}: {teamNames.join(", ")}
-          </div>
-        </div>
+        <InviteWorkspaceBadge
+          workspaceLogo={workspaceLogo}
+          workspaceName={workspaceName}
+        />
+        <InviteSummary
+          accepted={accepted}
+          expired={expired}
+          role={role}
+          teamNames={teamNames}
+          workspaceName={workspaceName}
+        />
         <div className="flex shrink-0 items-center gap-2">
-          {authenticated ? (
-            <>
-              {showDecline ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={loading || declining || accepted}
-                  onClick={handleDecline}
-                >
-                  {declining ? "..." : "Decline"}
-                </Button>
-              ) : null}
-              <Button
-                size="sm"
-                disabled={loading || declining || expired}
-                onClick={() => void handleAccept()}
-              >
-                {accepted ? "Open" : loading ? "..." : "Accept"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button asChild variant="ghost" size="sm">
-                <Link href={loginHref}>Sign in</Link>
-              </Button>
-              <Button asChild size="sm">
-                <Link href={signupHref}>Sign up</Link>
-              </Button>
-            </>
-          )}
+          <InviteActions
+            accepted={accepted}
+            authenticated={authenticated}
+            declining={declining}
+            expired={expired}
+            loading={loading}
+            loginHref={loginHref}
+            showDecline={showDecline}
+            signupHref={signupHref}
+            onAccept={() => void handleAccept()}
+            onDecline={() => void handleDecline()}
+          />
         </div>
       </div>
     </Card>

@@ -1,10 +1,7 @@
+import type { Doc } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
 
-import {
-  defaultUserStatus,
-  defaultUserStatusMessage,
-  getNow,
-} from "./core"
+import { defaultUserStatus, defaultUserStatusMessage, getNow } from "./core"
 import {
   findPrimaryWorkspaceChannelConversation,
   getWorkspaceUserIds,
@@ -97,18 +94,34 @@ function dedupeById<T extends { id: string }>(entries: T[]) {
   ]
 }
 
+type CleanupLabelDoc = Awaited<ReturnType<typeof listLabelsByWorkspace>>[number]
+type CleanupViewDoc = Awaited<ReturnType<typeof listViewsByScopes>>[number]
+type CleanupProjectDoc = Awaited<
+  ReturnType<typeof listProjectsByScopes>
+>[number]
+type CleanupWorkItemDoc = Awaited<
+  ReturnType<typeof listWorkItemsByTeam>
+>[number]
+type DeletedLinkIds = {
+  deletedDocumentIds: Set<string>
+  deletedMilestoneIds: Set<string>
+  deletedProjectIds: Set<string>
+  deletedWorkItemIds: Set<string>
+}
+
 async function getAccessibleWorkspaceIdsForUser(
   ctx: MutationCtx,
   userId: string
 ) {
-  const [workspaceMemberships, memberships, ownedWorkspaces] = await Promise.all([
-    listWorkspaceMembershipsByUser(ctx, userId),
-    ctx.db
-      .query("teamMemberships")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect(),
-    listWorkspacesOwnedByUser(ctx, userId),
-  ])
+  const [workspaceMemberships, memberships, ownedWorkspaces] =
+    await Promise.all([
+      listWorkspaceMembershipsByUser(ctx, userId),
+      ctx.db
+        .query("teamMemberships")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+      listWorkspacesOwnedByUser(ctx, userId),
+    ])
   const teams = await listTeamsByIds(
     ctx,
     memberships.map((membership) => membership.teamId)
@@ -119,6 +132,293 @@ async function getAccessibleWorkspaceIdsForUser(
     ...teams.map((team) => team.workspaceId),
     ...ownedWorkspaces.map((workspace) => workspace.id),
   ])
+}
+
+type RemovedAccessProject = Awaited<
+  ReturnType<typeof listProjectsByScopes>
+>[number]
+type RemovedAccessView = Awaited<ReturnType<typeof listViewsByScopes>>[number]
+type RemovedAccessWorkItem = Awaited<
+  ReturnType<typeof listWorkItemsByTeam>
+>[number]
+type RemovedAccessPresence = Awaited<
+  ReturnType<typeof listDocumentPresenceByUser>
+>[number]
+type RemovedAccessDocument = Awaited<
+  ReturnType<typeof listDocumentsByIds>
+>[number]
+
+function isRemovedAccessScope(input: {
+  scopeType: "team" | "workspace" | string
+  scopeId: string
+  removedTeamIdSet: Set<string>
+  workspaceId: string
+  hasWorkspaceAccess: boolean
+}) {
+  return (
+    (input.scopeType === "team" && input.removedTeamIdSet.has(input.scopeId)) ||
+    (!input.hasWorkspaceAccess &&
+      input.scopeType === "workspace" &&
+      input.scopeId === input.workspaceId)
+  )
+}
+
+async function getActiveTeamUserIds(
+  ctx: MutationCtx,
+  removedTeamIds: string[]
+) {
+  const activeTeamUserIds = new Map<string, Set<string>>()
+
+  for (const teamId of removedTeamIds) {
+    const memberships = await ctx.db
+      .query("teamMemberships")
+      .withIndex("by_team", (q) => q.eq("teamId", teamId))
+      .collect()
+
+    activeTeamUserIds.set(
+      teamId,
+      new Set(memberships.map((membership) => membership.userId))
+    )
+  }
+
+  return activeTeamUserIds
+}
+
+function buildRemovedAccessScopes(input: {
+  removedTeamIds: string[]
+  hasWorkspaceAccess: boolean
+  workspaceId: string
+}) {
+  return [
+    ...input.removedTeamIds.map((teamId) => ({
+      scopeType: "team" as const,
+      scopeId: teamId,
+    })),
+    ...(!input.hasWorkspaceAccess
+      ? [
+          {
+            scopeType: "workspace" as const,
+            scopeId: input.workspaceId,
+          },
+        ]
+      : []),
+  ]
+}
+
+async function cleanupRemovedUserProjects(
+  ctx: MutationCtx,
+  input: {
+    projects: RemovedAccessProject[]
+    removedUserId: string
+    currentUserId: string
+    workspaceId: string
+    hasWorkspaceAccess: boolean
+    removedTeamIdSet: Set<string>
+    activeTeamUserIds: Map<string, Set<string>>
+    activeWorkspaceUserIds: Set<string>
+  }
+) {
+  for (const project of input.projects) {
+    if (
+      !isRemovedAccessScope({
+        scopeType: project.scopeType,
+        scopeId: project.scopeId,
+        removedTeamIdSet: input.removedTeamIdSet,
+        workspaceId: input.workspaceId,
+        hasWorkspaceAccess: input.hasWorkspaceAccess,
+      })
+    ) {
+      continue
+    }
+
+    const activeUserIds =
+      project.scopeType === "team"
+        ? (input.activeTeamUserIds.get(project.scopeId) ?? new Set<string>())
+        : input.activeWorkspaceUserIds
+    const nextMemberIds = filterOutUserId(
+      project.memberIds,
+      input.removedUserId
+    )
+    const nextLeadId =
+      project.leadId === input.removedUserId
+        ? resolveFallbackUserId({
+            existingLeadId: project.leadId,
+            nextMemberIds,
+            activeUserIds,
+            preferredUserId: input.currentUserId,
+          })
+        : project.leadId
+    const nextPresentation = project.presentation
+      ? {
+          ...project.presentation,
+          filters: stripUserFromFilters(
+            project.presentation.filters,
+            input.removedUserId
+          ),
+        }
+      : project.presentation
+    const presentationChanged =
+      JSON.stringify(nextPresentation) !== JSON.stringify(project.presentation)
+
+    if (
+      nextLeadId === project.leadId &&
+      nextMemberIds.length === project.memberIds.length &&
+      !presentationChanged
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(project._id, {
+      leadId: nextLeadId,
+      memberIds: nextMemberIds,
+      presentation: nextPresentation,
+      updatedAt: getNow(),
+    })
+  }
+}
+
+async function cleanupRemovedUserWorkItems(
+  ctx: MutationCtx,
+  input: {
+    workItems: RemovedAccessWorkItem[]
+    removedUserId: string
+    removedTeamIdSet: Set<string>
+  }
+) {
+  for (const workItem of input.workItems) {
+    if (!input.removedTeamIdSet.has(workItem.teamId)) {
+      continue
+    }
+
+    const nextAssigneeId =
+      workItem.assigneeId === input.removedUserId ? null : workItem.assigneeId
+    const nextSubscriberIds = filterOutUserId(
+      workItem.subscriberIds,
+      input.removedUserId
+    )
+
+    if (
+      nextAssigneeId === workItem.assigneeId &&
+      nextSubscriberIds.length === workItem.subscriberIds.length
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(workItem._id, {
+      assigneeId: nextAssigneeId,
+      subscriberIds: nextSubscriberIds,
+      updatedAt: getNow(),
+    })
+  }
+}
+
+async function cleanupRemovedUserViews(
+  ctx: MutationCtx,
+  input: {
+    views: RemovedAccessView[]
+    removedUserId: string
+    workspaceId: string
+    hasWorkspaceAccess: boolean
+    removedTeamIdSet: Set<string>
+  }
+) {
+  for (const view of input.views) {
+    if (
+      !isRemovedAccessScope({
+        scopeType: view.scopeType,
+        scopeId: view.scopeId,
+        removedTeamIdSet: input.removedTeamIdSet,
+        workspaceId: input.workspaceId,
+        hasWorkspaceAccess: input.hasWorkspaceAccess,
+      })
+    ) {
+      continue
+    }
+
+    const nextFilters = stripUserFromFilters(view.filters, input.removedUserId)
+
+    if (
+      nextFilters.assigneeIds.length === view.filters.assigneeIds.length &&
+      nextFilters.creatorIds.length === view.filters.creatorIds.length &&
+      nextFilters.leadIds.length === view.filters.leadIds.length
+    ) {
+      continue
+    }
+
+    await ctx.db.patch(view._id, {
+      filters: nextFilters,
+      updatedAt: getNow(),
+    })
+  }
+}
+
+async function cleanupRemovedUserDocumentPresence(
+  ctx: MutationCtx,
+  input: {
+    documentPresence: RemovedAccessPresence[]
+    documentsById: Map<string, RemovedAccessDocument>
+    removedUserId: string
+    workspaceId: string
+    hasWorkspaceAccess: boolean
+    removedTeamIdSet: Set<string>
+  }
+) {
+  for (const presence of input.documentPresence) {
+    if (presence.userId !== input.removedUserId) {
+      continue
+    }
+
+    const document = input.documentsById.get(presence.documentId) ?? null
+
+    if (!document) {
+      continue
+    }
+
+    const isRemovedTeamDocument =
+      document.teamId !== null && input.removedTeamIdSet.has(document.teamId)
+    const isRemovedWorkspaceDocument =
+      !input.hasWorkspaceAccess && document.workspaceId === input.workspaceId
+
+    if (!isRemovedTeamDocument && !isRemovedWorkspaceDocument) {
+      continue
+    }
+
+    await ctx.db.delete(presence._id)
+  }
+}
+
+async function cleanupRemovedUserWorkspaceState(
+  ctx: MutationCtx,
+  input: {
+    removedUserId: string
+    workspaceId: string
+  }
+) {
+  await cleanupUserAppStateForRemovedWorkspaceAccess(ctx, {
+    userId: input.removedUserId,
+    workspaceId: input.workspaceId,
+  })
+
+  const remainingWorkspaceIds = await getAccessibleWorkspaceIdsForUser(
+    ctx,
+    input.removedUserId
+  )
+
+  if (remainingWorkspaceIds.size > 0) {
+    return
+  }
+
+  const removedUser = await getUserDoc(ctx, input.removedUserId)
+
+  if (!removedUser) {
+    return
+  }
+
+  await ctx.db.patch(removedUser._id, {
+    status: defaultUserStatus,
+    statusMessage: defaultUserStatusMessage,
+    hasExplicitStatus: false,
+  })
 }
 
 export async function deleteDocs(
@@ -178,6 +478,138 @@ export async function cleanupViewFiltersForDeletedEntities(
   }
 }
 
+function getDeletedLinkIds(input: {
+  deletedDocumentIds?: Set<string>
+  deletedWorkItemIds?: Set<string>
+  deletedProjectIds?: Set<string>
+  deletedMilestoneIds?: Set<string>
+}): DeletedLinkIds {
+  return {
+    deletedDocumentIds: input.deletedDocumentIds ?? new Set<string>(),
+    deletedMilestoneIds: input.deletedMilestoneIds ?? new Set<string>(),
+    deletedProjectIds: input.deletedProjectIds ?? new Set<string>(),
+    deletedWorkItemIds: input.deletedWorkItemIds ?? new Set<string>(),
+  }
+}
+
+function getDocumentLinkCleanupPatch(
+  document: Doc<"documents">,
+  deletedIds: DeletedLinkIds
+) {
+  const nextLinkedProjectIds = filterRemovedIds(
+    document.linkedProjectIds,
+    deletedIds.deletedProjectIds
+  )
+  const nextLinkedWorkItemIds = filterRemovedIds(
+    document.linkedWorkItemIds,
+    deletedIds.deletedWorkItemIds
+  )
+
+  if (
+    nextLinkedProjectIds.length === document.linkedProjectIds.length &&
+    nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length
+  ) {
+    return null
+  }
+
+  return {
+    linkedProjectIds: nextLinkedProjectIds,
+    linkedWorkItemIds: nextLinkedWorkItemIds,
+  }
+}
+
+async function cleanupDocumentLinksAfterDelete(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    deletedIds: DeletedLinkIds
+    documents: Doc<"documents">[]
+  }
+) {
+  for (const document of input.documents) {
+    if (input.deletedIds.deletedDocumentIds.has(document.id)) {
+      continue
+    }
+
+    const patch = getDocumentLinkCleanupPatch(document, input.deletedIds)
+
+    if (!patch) {
+      continue
+    }
+
+    await ctx.db.patch(document._id, {
+      ...patch,
+      updatedAt: getNow(),
+      updatedBy: input.currentUserId,
+    })
+  }
+}
+
+function getWorkItemLinkCleanupPatch(
+  workItem: Doc<"workItems">,
+  deletedIds: DeletedLinkIds
+) {
+  const nextLinkedDocumentIds = filterRemovedIds(
+    workItem.linkedDocumentIds,
+    deletedIds.deletedDocumentIds
+  )
+  const nextLinkedProjectIds = filterRemovedIds(
+    workItem.linkedProjectIds,
+    deletedIds.deletedProjectIds
+  )
+  const nextPrimaryProjectId =
+    workItem.primaryProjectId &&
+    deletedIds.deletedProjectIds.has(workItem.primaryProjectId)
+      ? null
+      : workItem.primaryProjectId
+  const nextMilestoneId =
+    workItem.milestoneId &&
+    deletedIds.deletedMilestoneIds.has(workItem.milestoneId)
+      ? null
+      : workItem.milestoneId
+
+  if (
+    nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length &&
+    nextLinkedProjectIds.length === workItem.linkedProjectIds.length &&
+    nextPrimaryProjectId === workItem.primaryProjectId &&
+    nextMilestoneId === workItem.milestoneId
+  ) {
+    return null
+  }
+
+  return {
+    linkedDocumentIds: nextLinkedDocumentIds,
+    linkedProjectIds: nextLinkedProjectIds,
+    primaryProjectId: nextPrimaryProjectId,
+    milestoneId: nextMilestoneId,
+  }
+}
+
+async function cleanupWorkItemLinksAfterDelete(
+  ctx: MutationCtx,
+  input: {
+    deletedIds: DeletedLinkIds
+    workItems: Doc<"workItems">[]
+  }
+) {
+  for (const workItem of input.workItems) {
+    if (input.deletedIds.deletedWorkItemIds.has(workItem.id)) {
+      continue
+    }
+
+    const patch = getWorkItemLinkCleanupPatch(workItem, input.deletedIds)
+
+    if (!patch) {
+      continue
+    }
+
+    await ctx.db.patch(workItem._id, {
+      ...patch,
+      updatedAt: getNow(),
+    })
+  }
+}
+
 export async function cleanupRemainingLinksAfterDelete(
   ctx: MutationCtx,
   input: {
@@ -188,161 +620,136 @@ export async function cleanupRemainingLinksAfterDelete(
     deletedMilestoneIds?: Set<string>
   }
 ) {
-  const deletedDocumentIds = input.deletedDocumentIds ?? new Set<string>()
-  const deletedWorkItemIds = input.deletedWorkItemIds ?? new Set<string>()
-  const deletedProjectIds = input.deletedProjectIds ?? new Set<string>()
-  const deletedMilestoneIds = input.deletedMilestoneIds ?? new Set<string>()
-  const documents = await ctx.db.query("documents").collect()
-  const workItems = await ctx.db.query("workItems").collect()
+  const deletedIds = getDeletedLinkIds(input)
+  const [documents, workItems] = await Promise.all([
+    ctx.db.query("documents").collect(),
+    ctx.db.query("workItems").collect(),
+  ])
 
-  for (const document of documents) {
-    if (deletedDocumentIds.has(document.id)) {
-      continue
-    }
-
-    const nextLinkedProjectIds = filterRemovedIds(
-      document.linkedProjectIds,
-      deletedProjectIds
-    )
-    const nextLinkedWorkItemIds = filterRemovedIds(
-      document.linkedWorkItemIds,
-      deletedWorkItemIds
-    )
-
-    if (
-      nextLinkedProjectIds.length === document.linkedProjectIds.length &&
-      nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length
-    ) {
-      continue
-    }
-
-    await ctx.db.patch(document._id, {
-      linkedProjectIds: nextLinkedProjectIds,
-      linkedWorkItemIds: nextLinkedWorkItemIds,
-      updatedAt: getNow(),
-      updatedBy: input.currentUserId,
-    })
-  }
-
-  for (const workItem of workItems) {
-    if (deletedWorkItemIds.has(workItem.id)) {
-      continue
-    }
-
-    const nextLinkedDocumentIds = filterRemovedIds(
-      workItem.linkedDocumentIds,
-      deletedDocumentIds
-    )
-    const nextLinkedProjectIds = filterRemovedIds(
-      workItem.linkedProjectIds,
-      deletedProjectIds
-    )
-    const nextPrimaryProjectId =
-      workItem.primaryProjectId &&
-      deletedProjectIds.has(workItem.primaryProjectId)
-        ? null
-        : workItem.primaryProjectId
-    const nextMilestoneId =
-      workItem.milestoneId && deletedMilestoneIds.has(workItem.milestoneId)
-        ? null
-        : workItem.milestoneId
-
-    if (
-      nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length &&
-      nextLinkedProjectIds.length === workItem.linkedProjectIds.length &&
-      nextPrimaryProjectId === workItem.primaryProjectId &&
-      nextMilestoneId === workItem.milestoneId
-    ) {
-      continue
-    }
-
-    await ctx.db.patch(workItem._id, {
-      linkedDocumentIds: nextLinkedDocumentIds,
-      linkedProjectIds: nextLinkedProjectIds,
-      primaryProjectId: nextPrimaryProjectId,
-      milestoneId: nextMilestoneId,
-      updatedAt: getNow(),
-    })
-  }
+  await cleanupDocumentLinksAfterDelete(ctx, {
+    currentUserId: input.currentUserId,
+    deletedIds,
+    documents,
+  })
+  await cleanupWorkItemLinksAfterDelete(ctx, {
+    deletedIds,
+    workItems,
+  })
 }
 
-export async function cleanupUnusedLabels(
+async function getCleanupUnusedLabelDocuments(
   ctx: MutationCtx,
   workspaceId?: string
 ) {
-  const labels = workspaceId
-    ? await listLabelsByWorkspace(ctx, workspaceId)
-    : await ctx.db.query("labels").collect()
+  return workspaceId
+    ? listLabelsByWorkspace(ctx, workspaceId)
+    : ctx.db.query("labels").collect()
+}
 
-  if (labels.length === 0) {
-    return []
+async function getWorkspaceLabelCleanupScope(
+  ctx: MutationCtx,
+  workspaceId: string
+) {
+  const [workspaceTeams, workspaceUserIds] = await Promise.all([
+    listWorkspaceTeams(ctx, workspaceId),
+    getWorkspaceUserIds(ctx, workspaceId),
+  ])
+  const scopedEntities = [
+    {
+      scopeType: "workspace" as const,
+      scopeId: workspaceId,
+    },
+    ...workspaceTeams.map((team) => ({
+      scopeType: "team" as const,
+      scopeId: team.id,
+    })),
+  ]
+
+  return {
+    scopedEntities,
+    workspaceTeams,
+    workspaceUserIds,
   }
+}
 
-  const workspaceTeams = workspaceId
-    ? await listWorkspaceTeams(ctx, workspaceId)
-    : []
-  const workspaceUserIds = workspaceId
-    ? await getWorkspaceUserIds(ctx, workspaceId)
-    : []
-  const scopedEntities = workspaceId
-    ? [
-        {
-          scopeType: "workspace" as const,
-          scopeId: workspaceId,
-        },
-        ...workspaceTeams.map((team) => ({
-          scopeType: "team" as const,
-          scopeId: team.id,
-        })),
-      ]
-    : []
-  const [workItemsByTeam, views, personalViews, projects, globalWorkItems] =
-    await Promise.all([
-      workspaceId
-        ? Promise.all(
-            workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
-          )
-        : Promise.resolve([]),
-      workspaceId
-        ? listViewsByScopes(ctx, scopedEntities)
-        : ctx.db.query("views").collect(),
-      workspaceId
-        ? listPersonalViewsByUsers(ctx, workspaceUserIds)
-        : Promise.resolve([]),
-      workspaceId
-        ? listProjectsByScopes(ctx, scopedEntities)
-        : ctx.db.query("projects").collect(),
-      workspaceId ? Promise.resolve([]) : ctx.db.query("workItems").collect(),
-    ])
-  const workItems = workspaceId ? workItemsByTeam.flat() : globalWorkItems
-  const relevantViews = workspaceId ? [...views, ...personalViews] : views
-  const deletedLabelIds: string[] = []
-  const usedLabelIds = new Set([
-    ...workItems.flatMap((workItem) => workItem.labelIds),
-    ...relevantViews.flatMap((view) => view.filters.labelIds),
-    ...projects.flatMap(
+async function listWorkspaceLabelReferences(
+  ctx: MutationCtx,
+  workspaceId: string
+): Promise<{
+  projects: CleanupProjectDoc[]
+  relevantViews: CleanupViewDoc[]
+  workItems: CleanupWorkItemDoc[]
+}> {
+  const { scopedEntities, workspaceTeams, workspaceUserIds } =
+    await getWorkspaceLabelCleanupScope(ctx, workspaceId)
+  const [workItemsByTeam, views, personalViews, projects] = await Promise.all([
+    Promise.all(
+      workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
+    ),
+    listViewsByScopes(ctx, scopedEntities),
+    listPersonalViewsByUsers(ctx, workspaceUserIds),
+    listProjectsByScopes(ctx, scopedEntities),
+  ])
+
+  return {
+    projects,
+    relevantViews: [...views, ...personalViews],
+    workItems: workItemsByTeam.flat(),
+  }
+}
+
+async function listGlobalLabelReferences(ctx: MutationCtx): Promise<{
+  projects: CleanupProjectDoc[]
+  relevantViews: CleanupViewDoc[]
+  workItems: CleanupWorkItemDoc[]
+}> {
+  const [relevantViews, projects, workItems] = await Promise.all([
+    ctx.db.query("views").collect(),
+    ctx.db.query("projects").collect(),
+    ctx.db.query("workItems").collect(),
+  ])
+
+  return {
+    projects,
+    relevantViews,
+    workItems,
+  }
+}
+
+function getUsedCleanupLabelIds(input: {
+  projects: CleanupProjectDoc[]
+  relevantViews: CleanupViewDoc[]
+  workItems: CleanupWorkItemDoc[]
+}) {
+  return new Set([
+    ...input.workItems.flatMap((workItem) => workItem.labelIds),
+    ...input.relevantViews.flatMap((view) => view.filters.labelIds),
+    ...input.projects.flatMap(
       (project) => project.presentation?.filters.labelIds ?? []
     ),
   ])
+}
 
-  for (const label of labels) {
-    if (usedLabelIds.has(label.id)) {
-      continue
-    }
+function getUnusedCleanupLabelIds(
+  labels: CleanupLabelDoc[],
+  usedLabelIds: Set<string>
+) {
+  return labels
+    .filter((label) => !usedLabelIds.has(label.id))
+    .map((label) => label.id)
+}
 
-    deletedLabelIds.push(label.id)
+async function cleanupDeletedLabelViewFilters(
+  ctx: MutationCtx,
+  input: {
+    deletedLabelIds: Set<string>
+    views: CleanupViewDoc[]
   }
-
-  if (deletedLabelIds.length === 0) {
-    return deletedLabelIds
-  }
-
-  const deletedLabelIdSet = new Set(deletedLabelIds)
-
-  for (const view of relevantViews) {
+) {
+  for (const view of input.views) {
     const nextLabelIds = filterRemovedIds(
       view.filters.labelIds,
-      deletedLabelIdSet
+      input.deletedLabelIds
     )
 
     if (nextLabelIds.length === view.filters.labelIds.length) {
@@ -357,14 +764,56 @@ export async function cleanupUnusedLabels(
       updatedAt: getNow(),
     })
   }
+}
 
-  for (const label of labels) {
-    if (!deletedLabelIdSet.has(label.id)) {
+async function deleteCleanupLabels(
+  ctx: MutationCtx,
+  input: {
+    deletedLabelIds: Set<string>
+    labels: CleanupLabelDoc[]
+  }
+) {
+  for (const label of input.labels) {
+    if (!input.deletedLabelIds.has(label.id)) {
       continue
     }
 
     await ctx.db.delete(label._id)
   }
+}
+
+export async function cleanupUnusedLabels(
+  ctx: MutationCtx,
+  workspaceId?: string
+) {
+  const labels = await getCleanupUnusedLabelDocuments(ctx, workspaceId)
+
+  if (labels.length === 0) {
+    return []
+  }
+
+  const references = workspaceId
+    ? await listWorkspaceLabelReferences(ctx, workspaceId)
+    : await listGlobalLabelReferences(ctx)
+  const deletedLabelIds = getUnusedCleanupLabelIds(
+    labels,
+    getUsedCleanupLabelIds(references)
+  )
+
+  if (deletedLabelIds.length === 0) {
+    return deletedLabelIds
+  }
+
+  const deletedLabelIdSet = new Set(deletedLabelIds)
+
+  await cleanupDeletedLabelViewFilters(ctx, {
+    deletedLabelIds: deletedLabelIdSet,
+    views: references.relevantViews,
+  })
+  await deleteCleanupLabels(ctx, {
+    deletedLabelIds: deletedLabelIdSet,
+    labels,
+  })
 
   return deletedLabelIds
 }
@@ -420,38 +869,17 @@ export async function cleanupUserAccessRemoval(
     await getWorkspaceUserIds(ctx, input.workspaceId)
   )
   const hasWorkspaceAccess = activeWorkspaceUserIds.has(input.removedUserId)
-  const activeTeamUserIds = new Map<string, Set<string>>()
-
-  for (const teamId of removedTeamIds) {
-    const memberships = await ctx.db
-      .query("teamMemberships")
-      .withIndex("by_team", (q) => q.eq("teamId", teamId))
-      .collect()
-
-    activeTeamUserIds.set(
-      teamId,
-      new Set(memberships.map((membership) => membership.userId))
-    )
-  }
+  const activeTeamUserIds = await getActiveTeamUserIds(ctx, removedTeamIds)
 
   const documentPresence = await listDocumentPresenceByUser(
     ctx,
     input.removedUserId
   )
-  const scopedEntities = [
-    ...removedTeamIds.map((teamId) => ({
-      scopeType: "team" as const,
-      scopeId: teamId,
-    })),
-    ...(!hasWorkspaceAccess
-      ? [
-          {
-            scopeType: "workspace" as const,
-            scopeId: input.workspaceId,
-          },
-        ]
-      : []),
-  ]
+  const scopedEntities = buildRemovedAccessScopes({
+    removedTeamIds,
+    hasWorkspaceAccess,
+    workspaceId: input.workspaceId,
+  })
   const [projects, views, workItemsByTeam, documents] = await Promise.all([
     listProjectsByScopes(ctx, scopedEntities),
     listViewsByScopes(ctx, scopedEntities),
@@ -468,163 +896,42 @@ export async function cleanupUserAccessRemoval(
     documents.map((document) => [document.id, document])
   )
 
-  for (const project of projects) {
-    const isRemovedTeamProject =
-      project.scopeType === "team" && removedTeamIdSet.has(project.scopeId)
-    const isRemovedWorkspaceProject =
-      !hasWorkspaceAccess &&
-      project.scopeType === "workspace" &&
-      project.scopeId === input.workspaceId
-
-    if (!isRemovedTeamProject && !isRemovedWorkspaceProject) {
-      continue
-    }
-
-    const activeUserIds =
-      project.scopeType === "team"
-        ? (activeTeamUserIds.get(project.scopeId) ?? new Set<string>())
-        : activeWorkspaceUserIds
-    const nextMemberIds = filterOutUserId(
-      project.memberIds,
-      input.removedUserId
-    )
-    const nextLeadId =
-      project.leadId === input.removedUserId
-        ? resolveFallbackUserId({
-            existingLeadId: project.leadId,
-            nextMemberIds,
-            activeUserIds,
-            preferredUserId: input.currentUserId,
-          })
-        : project.leadId
-    const nextPresentation = project.presentation
-      ? {
-          ...project.presentation,
-          filters: stripUserFromFilters(
-            project.presentation.filters,
-            input.removedUserId
-          ),
-        }
-      : project.presentation
-
-    const presentationChanged =
-      JSON.stringify(nextPresentation) !== JSON.stringify(project.presentation)
-
-    if (
-      nextLeadId === project.leadId &&
-      nextMemberIds.length === project.memberIds.length &&
-      !presentationChanged
-    ) {
-      continue
-    }
-
-    await ctx.db.patch(project._id, {
-      leadId: nextLeadId,
-      memberIds: nextMemberIds,
-      presentation: nextPresentation,
-      updatedAt: getNow(),
-    })
-  }
-
-  for (const workItem of workItems) {
-    if (!removedTeamIdSet.has(workItem.teamId)) {
-      continue
-    }
-
-    const nextAssigneeId =
-      workItem.assigneeId === input.removedUserId ? null : workItem.assigneeId
-    const nextSubscriberIds = filterOutUserId(
-      workItem.subscriberIds,
-      input.removedUserId
-    )
-
-    if (
-      nextAssigneeId === workItem.assigneeId &&
-      nextSubscriberIds.length === workItem.subscriberIds.length
-    ) {
-      continue
-    }
-
-    await ctx.db.patch(workItem._id, {
-      assigneeId: nextAssigneeId,
-      subscriberIds: nextSubscriberIds,
-      updatedAt: getNow(),
-    })
-  }
-
-  for (const view of views) {
-    const isRemovedTeamView =
-      view.scopeType === "team" && removedTeamIdSet.has(view.scopeId)
-    const isRemovedWorkspaceView =
-      !hasWorkspaceAccess &&
-      view.scopeType === "workspace" &&
-      view.scopeId === input.workspaceId
-
-    if (!isRemovedTeamView && !isRemovedWorkspaceView) {
-      continue
-    }
-
-    const nextFilters = stripUserFromFilters(view.filters, input.removedUserId)
-
-    if (
-      nextFilters.assigneeIds.length === view.filters.assigneeIds.length &&
-      nextFilters.creatorIds.length === view.filters.creatorIds.length &&
-      nextFilters.leadIds.length === view.filters.leadIds.length
-    ) {
-      continue
-    }
-
-    await ctx.db.patch(view._id, {
-      filters: nextFilters,
-      updatedAt: getNow(),
-    })
-  }
-
-  for (const presence of documentPresence) {
-    if (presence.userId !== input.removedUserId) {
-      continue
-    }
-
-    const document = documentsById.get(presence.documentId) ?? null
-
-    if (!document) {
-      continue
-    }
-
-    const isRemovedTeamDocument =
-      document.teamId !== null && removedTeamIdSet.has(document.teamId)
-    const isRemovedWorkspaceDocument =
-      !hasWorkspaceAccess && document.workspaceId === input.workspaceId
-
-    if (!isRemovedTeamDocument && !isRemovedWorkspaceDocument) {
-      continue
-    }
-
-    await ctx.db.delete(presence._id)
-  }
+  await cleanupRemovedUserProjects(ctx, {
+    projects,
+    removedUserId: input.removedUserId,
+    currentUserId: input.currentUserId,
+    workspaceId: input.workspaceId,
+    hasWorkspaceAccess,
+    removedTeamIdSet,
+    activeTeamUserIds,
+    activeWorkspaceUserIds,
+  })
+  await cleanupRemovedUserWorkItems(ctx, {
+    workItems,
+    removedUserId: input.removedUserId,
+    removedTeamIdSet,
+  })
+  await cleanupRemovedUserViews(ctx, {
+    views,
+    removedUserId: input.removedUserId,
+    workspaceId: input.workspaceId,
+    hasWorkspaceAccess,
+    removedTeamIdSet,
+  })
+  await cleanupRemovedUserDocumentPresence(ctx, {
+    documentPresence,
+    documentsById,
+    removedUserId: input.removedUserId,
+    workspaceId: input.workspaceId,
+    hasWorkspaceAccess,
+    removedTeamIdSet,
+  })
 
   if (!hasWorkspaceAccess) {
-    await cleanupUserAppStateForRemovedWorkspaceAccess(ctx, {
-      userId: input.removedUserId,
+    await cleanupRemovedUserWorkspaceState(ctx, {
+      removedUserId: input.removedUserId,
       workspaceId: input.workspaceId,
     })
-
-    const remainingWorkspaceIds = await getAccessibleWorkspaceIdsForUser(
-      ctx,
-      input.removedUserId
-    )
-
-    if (remainingWorkspaceIds.size === 0) {
-      const removedUser = await getUserDoc(ctx, input.removedUserId)
-
-      if (removedUser) {
-        await ctx.db.patch(removedUser._id, {
-          status: defaultUserStatus,
-          statusMessage: defaultUserStatusMessage,
-          hasExplicitStatus: false,
-        })
-      }
-    }
   }
 
   return {
@@ -667,6 +974,171 @@ export async function cleanupUserAppStatesForDeletedWorkspace(
   }
 }
 
+async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
+  const [
+    workspaces,
+    workspaceMemberships,
+    teamMemberships,
+    userAppStates,
+    projects,
+    workItems,
+    documents,
+    views,
+    comments,
+    attachments,
+    notifications,
+    invites,
+    projectUpdates,
+    conversations,
+    calls,
+    chatMessages,
+    channelPosts,
+    channelPostComments,
+  ] = await Promise.all([
+    ctx.db.query("workspaces").collect(),
+    ctx.db.query("workspaceMemberships").collect(),
+    ctx.db.query("teamMemberships").collect(),
+    ctx.db.query("userAppStates").collect(),
+    ctx.db.query("projects").collect(),
+    ctx.db.query("workItems").collect(),
+    ctx.db.query("documents").collect(),
+    ctx.db.query("views").collect(),
+    ctx.db.query("comments").collect(),
+    ctx.db.query("attachments").collect(),
+    ctx.db.query("notifications").collect(),
+    ctx.db.query("invites").collect(),
+    ctx.db.query("projectUpdates").collect(),
+    ctx.db.query("conversations").collect(),
+    ctx.db.query("calls").collect(),
+    ctx.db.query("chatMessages").collect(),
+    ctx.db.query("channelPosts").collect(),
+    ctx.db.query("channelPostComments").collect(),
+  ])
+
+  return {
+    attachments,
+    calls,
+    channelPostComments,
+    channelPosts,
+    chatMessages,
+    comments,
+    conversations,
+    documents,
+    invites,
+    notifications,
+    projectUpdates,
+    projects,
+    teamMemberships,
+    userAppStates,
+    views,
+    workItems,
+    workspaceMemberships,
+    workspaces,
+  }
+}
+
+function hasUserReferenceInSnapshot(
+  snapshot: Awaited<ReturnType<typeof getUnreferencedUserReferenceSnapshot>>,
+  userId: string
+) {
+  return (
+    snapshot.workspaces.some((workspace) => workspace.createdBy === userId) ||
+    snapshot.workspaceMemberships.some(
+      (membership) => membership.userId === userId
+    ) ||
+    snapshot.teamMemberships.some(
+      (membership) => membership.userId === userId
+    ) ||
+    snapshot.projects.some(
+      (project) =>
+        project.leadId === userId || project.memberIds.includes(userId)
+    ) ||
+    snapshot.workItems.some(
+      (workItem) =>
+        workItem.assigneeId === userId ||
+        workItem.creatorId === userId ||
+        workItem.subscriberIds.includes(userId)
+    ) ||
+    snapshot.documents.some(
+      (document) =>
+        document.createdBy === userId || document.updatedBy === userId
+    ) ||
+    snapshot.views.some(
+      (view) =>
+        (view.scopeType === "personal" && view.scopeId === userId) ||
+        view.filters.assigneeIds.includes(userId) ||
+        view.filters.creatorIds.includes(userId) ||
+        view.filters.leadIds.includes(userId)
+    ) ||
+    snapshot.comments.some(
+      (comment) =>
+        comment.createdBy === userId ||
+        (comment.mentionUserIds ?? []).includes(userId)
+    ) ||
+    snapshot.attachments.some(
+      (attachment) => attachment.uploadedBy === userId
+    ) ||
+    snapshot.notifications.some(
+      (notification) =>
+        notification.userId === userId || notification.actorId === userId
+    ) ||
+    snapshot.invites.some((invite) => invite.invitedBy === userId) ||
+    snapshot.projectUpdates.some((update) => update.createdBy === userId) ||
+    snapshot.conversations.some(
+      (conversation) =>
+        conversation.createdBy === userId ||
+        conversation.participantIds.includes(userId)
+    ) ||
+    snapshot.calls.some(
+      (call) =>
+        call.startedBy === userId ||
+        (call.participantUserIds ?? []).includes(userId) ||
+        call.lastJoinedBy === userId
+    ) ||
+    snapshot.chatMessages.some(
+      (message) =>
+        message.createdBy === userId ||
+        (message.mentionUserIds ?? []).includes(userId)
+    ) ||
+    snapshot.channelPosts.some(
+      (post) =>
+        post.createdBy === userId ||
+        (post.reactions ?? []).some((reaction) =>
+          reaction.userIds.includes(userId)
+        )
+    ) ||
+    snapshot.channelPostComments.some(
+      (comment) =>
+        comment.createdBy === userId ||
+        (comment.mentionUserIds ?? []).includes(userId)
+    )
+  )
+}
+
+async function deleteUnreferencedUser(
+  ctx: MutationCtx,
+  input: {
+    snapshot: Awaited<ReturnType<typeof getUnreferencedUserReferenceSnapshot>>
+    user: NonNullable<Awaited<ReturnType<typeof getUserDoc>>>
+    userId: string
+  }
+) {
+  const userAppState =
+    input.snapshot.userAppStates.find(
+      (entry) => entry.userId === input.userId
+    ) ?? null
+
+  if (userAppState) {
+    await ctx.db.delete(userAppState._id)
+  }
+
+  if (input.user.avatarImageStorageId) {
+    await ctx.storage.delete(input.user.avatarImageStorageId as never)
+  }
+
+  await ctx.db.delete(input.user._id)
+}
+
 export async function cleanupUnreferencedUsers(
   ctx: MutationCtx,
   candidateUserIds: Iterable<string>
@@ -677,26 +1149,7 @@ export async function cleanupUnreferencedUsers(
     return []
   }
 
-  const workspaces = await ctx.db.query("workspaces").collect()
-  const workspaceMemberships = await ctx.db.query("workspaceMemberships").collect()
-  const teamMemberships = await ctx.db.query("teamMemberships").collect()
-  const userAppStates = await ctx.db.query("userAppStates").collect()
-  const projects = await ctx.db.query("projects").collect()
-  const workItems = await ctx.db.query("workItems").collect()
-  const documents = await ctx.db.query("documents").collect()
-  const views = await ctx.db.query("views").collect()
-  const comments = await ctx.db.query("comments").collect()
-  const attachments = await ctx.db.query("attachments").collect()
-  const notifications = await ctx.db.query("notifications").collect()
-  const invites = await ctx.db.query("invites").collect()
-  const projectUpdates = await ctx.db.query("projectUpdates").collect()
-  const conversations = await ctx.db.query("conversations").collect()
-  const calls = await ctx.db.query("calls").collect()
-  const chatMessages = await ctx.db.query("chatMessages").collect()
-  const channelPosts = await ctx.db.query("channelPosts").collect()
-  const channelPostComments = await ctx.db
-    .query("channelPostComments")
-    .collect()
+  const referenceSnapshot = await getUnreferencedUserReferenceSnapshot(ctx)
   const deletedUserIds: string[] = []
 
   for (const userId of userIds) {
@@ -706,88 +1159,15 @@ export async function cleanupUnreferencedUsers(
       continue
     }
 
-    const hasReference =
-      workspaces.some((workspace) => workspace.createdBy === userId) ||
-      workspaceMemberships.some((membership) => membership.userId === userId) ||
-      teamMemberships.some((membership) => membership.userId === userId) ||
-      projects.some(
-        (project) =>
-          project.leadId === userId || project.memberIds.includes(userId)
-      ) ||
-      workItems.some(
-        (workItem) =>
-          workItem.assigneeId === userId ||
-          workItem.creatorId === userId ||
-          workItem.subscriberIds.includes(userId)
-      ) ||
-      documents.some(
-        (document) =>
-          document.createdBy === userId || document.updatedBy === userId
-      ) ||
-      views.some(
-        (view) =>
-          (view.scopeType === "personal" && view.scopeId === userId) ||
-          view.filters.assigneeIds.includes(userId) ||
-          view.filters.creatorIds.includes(userId) ||
-          view.filters.leadIds.includes(userId)
-      ) ||
-      comments.some(
-        (comment) =>
-          comment.createdBy === userId ||
-          (comment.mentionUserIds ?? []).includes(userId)
-      ) ||
-      attachments.some((attachment) => attachment.uploadedBy === userId) ||
-      notifications.some(
-        (notification) =>
-          notification.userId === userId || notification.actorId === userId
-      ) ||
-      invites.some((invite) => invite.invitedBy === userId) ||
-      projectUpdates.some((update) => update.createdBy === userId) ||
-      conversations.some(
-        (conversation) =>
-          conversation.createdBy === userId ||
-          conversation.participantIds.includes(userId)
-      ) ||
-      calls.some(
-        (call) =>
-          call.startedBy === userId ||
-          (call.participantUserIds ?? []).includes(userId) ||
-          call.lastJoinedBy === userId
-      ) ||
-      chatMessages.some(
-        (message) =>
-          message.createdBy === userId ||
-          (message.mentionUserIds ?? []).includes(userId)
-      ) ||
-      channelPosts.some(
-        (post) =>
-          post.createdBy === userId ||
-          (post.reactions ?? []).some((reaction) =>
-            reaction.userIds.includes(userId)
-          )
-      ) ||
-      channelPostComments.some(
-        (comment) =>
-          comment.createdBy === userId ||
-          (comment.mentionUserIds ?? []).includes(userId)
-      )
-
-    if (hasReference) {
+    if (hasUserReferenceInSnapshot(referenceSnapshot, userId)) {
       continue
     }
 
-    const userAppState =
-      userAppStates.find((entry) => entry.userId === userId) ?? null
-
-    if (userAppState) {
-      await ctx.db.delete(userAppState._id)
-    }
-
-    if (user.avatarImageStorageId) {
-      await ctx.storage.delete(user.avatarImageStorageId as never)
-    }
-
-    await ctx.db.delete(user._id)
+    await deleteUnreferencedUser(ctx, {
+      snapshot: referenceSnapshot,
+      user,
+      userId,
+    })
     deletedUserIds.push(userId)
   }
 

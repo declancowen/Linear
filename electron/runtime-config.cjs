@@ -59,9 +59,6 @@ function resolvePackagedRendererUrl(appPath, env = process.env) {
 
 module.exports = {
   DEFAULT_RENDERER_URL,
-  DESKTOP_RUNTIME_CONFIG_FILE,
-  readDesktopRuntimeConfig,
-  readUrlValue,
   resolveConfiguredRendererUrl,
   resolvePackagedRendererUrl,
 }

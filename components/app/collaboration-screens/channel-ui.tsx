@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState, type RefObject } from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
@@ -43,6 +43,339 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
 
+type AppState = ReturnType<typeof useAppStore.getState>
+type ForumPostRecord = AppState["channelPosts"][number]
+type ForumPostComment = AppState["channelPostComments"][number]
+type ForumUser = AppState["users"][number]
+type UsersById = Map<string, ForumUser>
+
+function ForumPostAuthorLine({
+  author,
+  createdAt,
+  currentUserId,
+  workspaceId,
+  size = "post",
+}: {
+  author: ForumUser | undefined
+  createdAt: string
+  currentUserId: string
+  workspaceId: string | null
+  size?: "post" | "comment"
+}) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <UserHoverCard
+        user={author}
+        userId={author?.id}
+        currentUserId={currentUserId}
+        workspaceId={workspaceId}
+      >
+        <span
+          className={cn(
+            "font-semibold text-foreground",
+            size === "post" ? "truncate text-[14px]" : "text-[12.5px]"
+          )}
+        >
+          {author?.name ?? "Unknown"}
+        </span>
+      </UserHoverCard>
+      <span
+        className={cn(
+          "text-fg-3",
+          size === "post" ? "shrink-0 text-[11.5px]" : "text-[11px]"
+        )}
+      >
+        {formatTimestamp(createdAt)}
+      </span>
+    </div>
+  )
+}
+
+function ForumPostActionBar({
+  canDeletePost,
+  postId,
+  onDelete,
+  onReply,
+}: {
+  canDeletePost: boolean
+  postId: string
+  onDelete: () => void
+  onReply: () => void
+}) {
+  return (
+    <div className="absolute top-1.5 right-4 hidden items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-sm group-hover/post:flex">
+      <EmojiPickerPopover
+        align="end"
+        side="bottom"
+        onEmojiSelect={(emoji) => {
+          useAppStore.getState().toggleChannelPostReaction(postId, emoji)
+        }}
+        trigger={
+          <button
+            type="button"
+            aria-label="React"
+            className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+          >
+            <Smiley className="size-[14px]" />
+          </button>
+        }
+      />
+      <button
+        type="button"
+        onClick={onReply}
+        className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+        aria-label="Reply"
+      >
+        <ChatCircle className="size-[14px]" />
+      </button>
+      {canDeletePost ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+              aria-label="More"
+            >
+              <DotsThree className="size-[14px]" weight="bold" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={onDelete}
+            >
+              <Trash className="size-4" />
+              Delete post
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
+  )
+}
+
+function ForumPostReactions({
+  currentUserId,
+  post,
+}: {
+  currentUserId: string
+  post: ForumPostRecord
+}) {
+  const reactions = post.reactions ?? []
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {reactions.map((reaction) => {
+        const active = reaction.userIds.includes(currentUserId)
+
+        return (
+          <button
+            key={reaction.emoji}
+            type="button"
+            onClick={() =>
+              useAppStore
+                .getState()
+                .toggleChannelPostReaction(post.id, reaction.emoji)
+            }
+            className={cn(
+              "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
+              active
+                ? "border-primary/40 bg-primary/10 text-foreground"
+                : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+            )}
+          >
+            <span>{reaction.emoji}</span>
+            <span>{reaction.userIds.length}</span>
+          </button>
+        )
+      })}
+
+      <EmojiPickerPopover
+        align="start"
+        side="top"
+        onEmojiSelect={(emoji) => {
+          useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
+        }}
+        trigger={
+          <button
+            type="button"
+            className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+          >
+            <Smiley className="size-3.5" />
+            <span>React</span>
+          </button>
+        }
+      />
+    </div>
+  )
+}
+
+function ForumPostCommentItem({
+  comment,
+  currentUserId,
+  usersById,
+  workspaceId,
+}: {
+  comment: ForumPostComment
+  currentUserId: string
+  usersById: UsersById
+  workspaceId: string | null
+}) {
+  const commentAuthor = usersById.get(comment.createdBy)
+
+  return (
+    <div
+      className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
+      style={{ gridTemplateColumns: "24px 1fr" }}
+    >
+      <div className="mt-[2px]">
+        <UserAvatar
+          name={commentAuthor?.name}
+          avatarImageUrl={commentAuthor?.avatarImageUrl}
+          avatarUrl={commentAuthor?.avatarUrl}
+          status={commentAuthor?.status}
+          size="sm"
+        />
+      </div>
+      <div className="min-w-0">
+        <ForumPostAuthorLine
+          author={commentAuthor}
+          createdAt={comment.createdAt}
+          currentUserId={currentUserId}
+          workspaceId={workspaceId}
+          size="comment"
+        />
+        <RichTextContent
+          content={comment.content}
+          className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
+        />
+      </div>
+    </div>
+  )
+}
+
+function ForumPostCommentList({
+  comments,
+  currentUserId,
+  usersById,
+  workspaceId,
+}: {
+  comments: ForumPostComment[]
+  currentUserId: string
+  usersById: UsersById
+  workspaceId: string | null
+}) {
+  if (comments.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {comments.map((comment) => (
+        <ForumPostCommentItem
+          key={comment.id}
+          comment={comment}
+          currentUserId={currentUserId}
+          usersById={usersById}
+          workspaceId={workspaceId}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ForumPostReplyComposer({
+  mentionCandidates,
+  previewCommentsCount,
+  reply,
+  replyEditorRef,
+  replyLimitState,
+  onCancel,
+  onInsertEmoji,
+  onReply,
+  onReplyChange,
+}: {
+  mentionCandidates: ForumUser[]
+  previewCommentsCount: number
+  reply: string
+  replyEditorRef: RefObject<Editor | null>
+  replyLimitState: ReturnType<typeof getTextInputLimitState>
+  onCancel: () => void
+  onInsertEmoji: (emoji: string) => void
+  onReply: () => void
+  onReplyChange: (value: string) => void
+}) {
+  return (
+    <div className={cn(previewCommentsCount > 0 && "mt-2")}>
+      <div className="rounded-md border border-line bg-surface px-3 py-2">
+        <RichTextEditor
+          content={reply}
+          onChange={onReplyChange}
+          compact
+          autoFocus
+          showToolbar={false}
+          showStats={false}
+          placeholder="Reply with @mentions or /commands…"
+          editorInstanceRef={replyEditorRef}
+          mentionCandidates={mentionCandidates}
+          minPlainTextCharacters={channelPostCommentContentConstraints.min}
+          maxPlainTextCharacters={channelPostCommentContentConstraints.max}
+          enforcePlainTextLimit
+          onSubmitShortcut={onReply}
+          submitOnEnter
+          className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
+        />
+      </div>
+      <div className="mt-2">
+        <FieldCharacterLimit
+          state={replyLimitState}
+          limit={channelPostCommentContentConstraints.max}
+          className="mt-0 mb-1.5"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <EmojiPickerPopover
+              align="start"
+              side="top"
+              onEmojiSelect={onInsertEmoji}
+              trigger={
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                >
+                  <Smiley className="size-4" />
+                </button>
+              }
+            />
+            <span className="text-[11.5px] text-fg-3">
+              Use `@` to mention people. Press Enter to send.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={onCancel}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={onReply}
+              disabled={!replyLimitState.canSubmit}
+            >
+              <ArrowUp className="size-3.5" weight="bold" />
+              Reply
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ForumPostCard({ postId }: { postId: string }) {
   const { currentUserId, currentWorkspaceId, post } = useAppStore(
     useShallow((state) => ({
@@ -81,7 +414,6 @@ export function ForumPostCard({ postId }: { postId: string }) {
 
   if (!post) return null
   const author = usersById.get(post.createdBy)
-  const reactions = post.reactions ?? []
   const replyLimitState = getTextInputLimitState(
     reply,
     channelPostCommentContentConstraints,
@@ -111,6 +443,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
 
   const previewComments = comments.slice(-3)
   const hiddenCount = comments.length - previewComments.length
+  const earlierComments = comments.slice(0, hiddenCount)
 
   return (
     <div
@@ -129,71 +462,22 @@ export function ForumPostCard({ postId }: { postId: string }) {
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-baseline gap-2">
-          <UserHoverCard
-            user={author}
-            userId={author?.id}
+          <ForumPostAuthorLine
+            author={author}
+            createdAt={post.createdAt}
             currentUserId={currentUserId}
             workspaceId={currentWorkspaceId}
-          >
-            <span className="truncate text-[14px] font-semibold text-foreground">
-              {author?.name ?? "Unknown"}
-            </span>
-          </UserHoverCard>
-          <span className="shrink-0 text-[11.5px] text-fg-3">
-            {formatTimestamp(post.createdAt)}
-          </span>
-        </div>
-        <div className="absolute top-1.5 right-4 hidden items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-sm group-hover/post:flex">
-          <EmojiPickerPopover
-            align="end"
-            side="bottom"
-            onEmojiSelect={(emoji) => {
-              useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
-            }}
-            trigger={
-              <button
-                type="button"
-                aria-label="React"
-                className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-              >
-                <Smiley className="size-[14px]" />
-              </button>
-            }
           />
-          <button
-            type="button"
-            onClick={() => {
-              setShowReplies(true)
-              setReplyOpen(true)
-            }}
-            className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-            aria-label="Reply"
-          >
-            <ChatCircle className="size-[14px]" />
-          </button>
-          {canDeletePost ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-                  aria-label="More"
-                >
-                  <DotsThree className="size-[14px]" weight="bold" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onSelect={() => setDeletePostOpen(true)}
-                >
-                  <Trash className="size-4" />
-                  Delete post
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
         </div>
+        <ForumPostActionBar
+          canDeletePost={canDeletePost}
+          postId={post.id}
+          onDelete={() => setDeletePostOpen(true)}
+          onReply={() => {
+            setShowReplies(true)
+            setReplyOpen(true)
+          }}
+        />
 
         {post.title ? (
           <h3 className="mt-2 text-[15px] leading-snug font-semibold tracking-[-0.005em] text-foreground">
@@ -209,49 +493,7 @@ export function ForumPostCard({ postId }: { postId: string }) {
           )}
         />
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {reactions.map((reaction) => {
-            const active = reaction.userIds.includes(currentUserId)
-
-            return (
-              <button
-                key={reaction.emoji}
-                type="button"
-                onClick={() =>
-                  useAppStore
-                    .getState()
-                    .toggleChannelPostReaction(post.id, reaction.emoji)
-                }
-                className={cn(
-                  "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
-                  active
-                    ? "border-primary/40 bg-primary/10 text-foreground"
-                    : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
-                )}
-              >
-                <span>{reaction.emoji}</span>
-                <span>{reaction.userIds.length}</span>
-              </button>
-            )
-          })}
-
-          <EmojiPickerPopover
-            align="start"
-            side="top"
-            onEmojiSelect={(emoji) => {
-              useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
-            }}
-            trigger={
-              <button
-                type="button"
-                className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-              >
-                <Smiley className="size-3.5" />
-                <span>React</span>
-              </button>
-            }
-          />
-        </div>
+        <ForumPostReactions currentUserId={currentUserId} post={post} />
 
         <div className="mt-3 border-l-2 border-line-soft pl-3">
           {hiddenCount > 0 ? (
@@ -267,174 +509,38 @@ export function ForumPostCard({ postId }: { postId: string }) {
           ) : null}
 
           {showReplies && hiddenCount > 0 ? (
-            <div className="mb-2 flex flex-col gap-0.5">
-              {comments.slice(0, hiddenCount).map((comment) => {
-                const commentAuthor = usersById.get(comment.createdBy)
-
-                return (
-                  <div
-                    key={comment.id}
-                    className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
-                    style={{ gridTemplateColumns: "24px 1fr" }}
-                  >
-                    <div className="mt-[2px]">
-                      <UserAvatar
-                        name={commentAuthor?.name}
-                        avatarImageUrl={commentAuthor?.avatarImageUrl}
-                        avatarUrl={commentAuthor?.avatarUrl}
-                        status={commentAuthor?.status}
-                        size="sm"
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <UserHoverCard
-                          user={commentAuthor}
-                          userId={commentAuthor?.id}
-                          currentUserId={currentUserId}
-                          workspaceId={currentWorkspaceId}
-                        >
-                          <span className="text-[12.5px] font-semibold text-foreground">
-                            {commentAuthor?.name ?? "Unknown"}
-                          </span>
-                        </UserHoverCard>
-                        <span className="text-[11px] text-fg-3">
-                          {formatTimestamp(comment.createdAt)}
-                        </span>
-                      </div>
-                      <RichTextContent
-                        content={comment.content}
-                        className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
-                      />
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="mb-2">
+              <ForumPostCommentList
+                comments={earlierComments}
+                currentUserId={currentUserId}
+                usersById={usersById}
+                workspaceId={currentWorkspaceId}
+              />
             </div>
           ) : null}
 
-          {previewComments.length > 0 ? (
-            <div className="flex flex-col gap-0.5">
-              {previewComments.map((comment) => {
-                const commentAuthor = usersById.get(comment.createdBy)
-
-                return (
-                  <div
-                    key={comment.id}
-                    className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
-                    style={{ gridTemplateColumns: "24px 1fr" }}
-                  >
-                    <div className="mt-[2px]">
-                      <UserAvatar
-                        name={commentAuthor?.name}
-                        avatarImageUrl={commentAuthor?.avatarImageUrl}
-                        avatarUrl={commentAuthor?.avatarUrl}
-                        status={commentAuthor?.status}
-                        size="sm"
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <UserHoverCard
-                          user={commentAuthor}
-                          userId={commentAuthor?.id}
-                          currentUserId={currentUserId}
-                          workspaceId={currentWorkspaceId}
-                        >
-                          <span className="text-[12.5px] font-semibold text-foreground">
-                            {commentAuthor?.name ?? "Unknown"}
-                          </span>
-                        </UserHoverCard>
-                        <span className="text-[11px] text-fg-3">
-                          {formatTimestamp(comment.createdAt)}
-                        </span>
-                      </div>
-                      <RichTextContent
-                        content={comment.content}
-                        className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : null}
+          <ForumPostCommentList
+            comments={previewComments}
+            currentUserId={currentUserId}
+            usersById={usersById}
+            workspaceId={currentWorkspaceId}
+          />
 
           {replyOpen ? (
-            <div className={cn(previewComments.length > 0 && "mt-2")}>
-              <div className="rounded-md border border-line bg-surface px-3 py-2">
-                <RichTextEditor
-                  content={reply}
-                  onChange={setReply}
-                  compact
-                  autoFocus
-                  showToolbar={false}
-                  showStats={false}
-                  placeholder="Reply with @mentions or /commands…"
-                  editorInstanceRef={replyEditorRef}
-                  mentionCandidates={mentionCandidates}
-                  minPlainTextCharacters={
-                    channelPostCommentContentConstraints.min
-                  }
-                  maxPlainTextCharacters={
-                    channelPostCommentContentConstraints.max
-                  }
-                  enforcePlainTextLimit
-                  onSubmitShortcut={handleReply}
-                  submitOnEnter
-                  className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
-                />
-              </div>
-              <div className="mt-2">
-                <FieldCharacterLimit
-                  state={replyLimitState}
-                  limit={channelPostCommentContentConstraints.max}
-                  className="mt-0 mb-1.5"
-                />
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <EmojiPickerPopover
-                      align="start"
-                      side="top"
-                      onEmojiSelect={handleInsertReplyEmoji}
-                      trigger={
-                        <button
-                          type="button"
-                          className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                        >
-                          <Smiley className="size-4" />
-                        </button>
-                      }
-                    />
-                    <span className="text-[11.5px] text-fg-3">
-                      Use `@` to mention people. Press Enter to send.
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        setReply("")
-                        setReplyOpen(false)
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-7 gap-1.5 text-xs"
-                      onClick={handleReply}
-                      disabled={!replyLimitState.canSubmit}
-                    >
-                      <ArrowUp className="size-3.5" weight="bold" />
-                      Reply
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ForumPostReplyComposer
+              mentionCandidates={mentionCandidates}
+              previewCommentsCount={previewComments.length}
+              reply={reply}
+              replyEditorRef={replyEditorRef}
+              replyLimitState={replyLimitState}
+              onCancel={() => {
+                setReply("")
+                setReplyOpen(false)
+              }}
+              onInsertEmoji={handleInsertReplyEmoji}
+              onReply={handleReply}
+              onReplyChange={setReply}
+            />
           ) : (
             <button
               type="button"

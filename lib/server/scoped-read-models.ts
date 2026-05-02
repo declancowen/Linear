@@ -16,12 +16,8 @@ import {
   getPrivateSearchSeedScopeKeys,
   getProjectIndexScopeKeys,
   getProjectRelatedScopeKeys,
-  getProjectDetailScopeKeys,
-  getTeamWorkspaceMembershipScopeKeys,
   getUserWorkspaceMembershipScopeKeys,
-  getViewCatalogScopeKeys,
   getViewRelatedScopeKeys,
-  getWorkIndexScopeKeys,
   getWorkItemDetailScopeKeys,
   getWorkspaceMembershipScopeKeys,
   getSearchSeedScopeKeys,
@@ -31,7 +27,9 @@ import {
   READ_MODEL_SCOPE_KINDS,
 } from "@/lib/scoped-sync/scope-keys"
 
-async function loadSnapshotForSession(session: AuthenticatedSession) {
+export async function loadScopedReadModelSnapshotForSession(
+  session: AuthenticatedSession
+) {
   return (await getSnapshotServer({
     workosUserId: session.user.id,
     email: session.user.email ?? undefined,
@@ -63,6 +61,48 @@ function parseScopedCollectionScopeId(value: string) {
   return null
 }
 
+function hasSingleKnownPart(parts: string[], knownIds: ReadonlySet<string>) {
+  return parts.length === 1 && knownIds.has(parts[0])
+}
+
+function isCurrentUserScopedPart(snapshot: AppSnapshot, parts: string[]) {
+  return parts.length === 1 && parts[0] === snapshot.currentUserId
+}
+
+function isPrivateWorkspaceScopedPart(
+  snapshot: AppSnapshot,
+  parts: string[],
+  workspaceIds: ReadonlySet<string>
+) {
+  return (
+    parts.length === 2 &&
+    workspaceIds.has(parts[0]) &&
+    parts[1] === snapshot.currentUserId
+  )
+}
+
+function isAuthorizedCollectionScope(input: {
+  rawScopeId: string
+  workspaceIds: ReadonlySet<string>
+  teamIds: ReadonlySet<string>
+  currentUserId?: string
+}) {
+  const collectionScope = parseScopedCollectionScopeId(input.rawScopeId)
+
+  if (!collectionScope) {
+    return false
+  }
+
+  switch (collectionScope.scopeType) {
+    case "workspace":
+      return input.workspaceIds.has(collectionScope.scopeId)
+    case "team":
+      return input.teamIds.has(collectionScope.scopeId)
+    case "personal":
+      return collectionScope.scopeId === input.currentUserId
+  }
+}
+
 function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
   const descriptor = parseReadModelScopeKey(scopeKey)
 
@@ -70,7 +110,9 @@ function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
     throw new Error(`Invalid scoped read model key: ${scopeKey}`)
   }
 
-  const workspaceIds = new Set(snapshot.workspaces.map((workspace) => workspace.id))
+  const workspaceIds = new Set(
+    snapshot.workspaces.map((workspace) => workspace.id)
+  )
   const teamIds = new Set(snapshot.teams.map((team) => team.id))
   const documentIds = new Set(snapshot.documents.map((document) => document.id))
   const workItemIds = new Set(snapshot.workItems.map((item) => item.id))
@@ -85,38 +127,32 @@ function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
 
     case READ_MODEL_SCOPE_KINDS.workspaceMembership:
     case READ_MODEL_SCOPE_KINDS.searchSeed:
-      return descriptor.parts.length === 1 && workspaceIds.has(descriptor.parts[0])
+      return hasSingleKnownPart(descriptor.parts, workspaceIds)
 
     case READ_MODEL_SCOPE_KINDS.privateDocumentIndex:
     case READ_MODEL_SCOPE_KINDS.privateSearchSeed:
-      return (
-        descriptor.parts.length === 2 &&
-        workspaceIds.has(descriptor.parts[0]) &&
-        descriptor.parts[1] === snapshot.currentUserId
+      return isPrivateWorkspaceScopedPart(
+        snapshot,
+        descriptor.parts,
+        workspaceIds
       )
 
     case READ_MODEL_SCOPE_KINDS.notificationInbox:
     case READ_MODEL_SCOPE_KINDS.conversationList:
-      return (
-        descriptor.parts.length === 1 &&
-        descriptor.parts[0] === snapshot.currentUserId
-      )
+      return isCurrentUserScopedPart(snapshot, descriptor.parts)
 
     case READ_MODEL_SCOPE_KINDS.documentDetail:
-      return descriptor.parts.length === 1 && documentIds.has(descriptor.parts[0])
+      return hasSingleKnownPart(descriptor.parts, documentIds)
 
     case READ_MODEL_SCOPE_KINDS.workItemDetail:
-      return descriptor.parts.length === 1 && workItemIds.has(descriptor.parts[0])
+      return hasSingleKnownPart(descriptor.parts, workItemIds)
 
     case READ_MODEL_SCOPE_KINDS.projectDetail:
-      return descriptor.parts.length === 1 && projectIds.has(descriptor.parts[0])
+      return hasSingleKnownPart(descriptor.parts, projectIds)
 
     case READ_MODEL_SCOPE_KINDS.conversationThread:
     case READ_MODEL_SCOPE_KINDS.channelFeed:
-      return (
-        descriptor.parts.length === 1 &&
-        conversationIds.has(descriptor.parts[0])
-      )
+      return hasSingleKnownPart(descriptor.parts, conversationIds)
 
     case READ_MODEL_SCOPE_KINDS.documentIndex:
     case READ_MODEL_SCOPE_KINDS.projectIndex:
@@ -125,17 +161,11 @@ function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
         return false
       }
 
-      const collectionScope = parseScopedCollectionScopeId(descriptor.parts[0])
-
-      if (!collectionScope) {
-        return false
-      }
-
-      return collectionScope.scopeType === "workspace"
-        ? workspaceIds.has(collectionScope.scopeId)
-        : collectionScope.scopeType === "team"
-          ? teamIds.has(collectionScope.scopeId)
-          : false
+      return isAuthorizedCollectionScope({
+        rawScopeId: descriptor.parts[0],
+        workspaceIds,
+        teamIds,
+      })
     }
 
     case READ_MODEL_SCOPE_KINDS.workIndex: {
@@ -143,21 +173,12 @@ function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
         return false
       }
 
-      const collectionScope = parseScopedCollectionScopeId(descriptor.parts[0])
-
-      if (!collectionScope) {
-        return false
-      }
-
-      if (collectionScope.scopeType === "workspace") {
-        return workspaceIds.has(collectionScope.scopeId)
-      }
-
-      if (collectionScope.scopeType === "team") {
-        return teamIds.has(collectionScope.scopeId)
-      }
-
-      return collectionScope.scopeId === snapshot.currentUserId
+      return isAuthorizedCollectionScope({
+        rawScopeId: descriptor.parts[0],
+        workspaceIds,
+        teamIds,
+        currentUserId: snapshot.currentUserId,
+      })
     }
 
     default:
@@ -169,7 +190,7 @@ export async function authorizeScopedReadModelScopeKeysServer(
   session: AuthenticatedSession,
   scopeKeys: string[]
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   for (const scopeKey of scopeKeys) {
     if (!isAuthorizedReadModelScope(snapshot, scopeKey)) {
@@ -178,7 +199,7 @@ export async function authorizeScopedReadModelScopeKeysServer(
   }
 }
 
-export async function bumpDocumentReadModelScopesServer(documentId: string) {
+async function bumpDocumentReadModelScopesServer(documentId: string) {
   await bumpScopedReadModelVersionsServer({
     scopeKeys: getDocumentDetailScopeKeys(documentId),
   })
@@ -188,7 +209,7 @@ export async function resolveDocumentReadModelScopeKeysServer(
   session: AuthenticatedSession,
   documentId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getDocumentRelatedScopeKeys(snapshot, documentId)
 }
@@ -219,22 +240,11 @@ export async function bumpWorkspaceMembershipReadModelScopesServer(
   })
 }
 
-export async function bumpTeamWorkspaceMembershipReadModelScopesServer(
-  session: AuthenticatedSession,
-  teamId: string
-) {
-  const snapshot = await loadSnapshotForSession(session)
-
-  await bumpScopedReadModelVersionsServer({
-    scopeKeys: getTeamWorkspaceMembershipScopeKeys(snapshot, teamId),
-  })
-}
-
 export async function bumpUserWorkspaceMembershipReadModelScopesServer(
   session: AuthenticatedSession,
   userId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   await bumpScopedReadModelVersionsServer({
     scopeKeys: getUserWorkspaceMembershipScopeKeys(snapshot, userId),
@@ -245,7 +255,7 @@ export async function bumpWorkItemReadModelScopesServer(
   session: AuthenticatedSession,
   itemId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   await bumpScopedReadModelVersionsServer({
     scopeKeys: getWorkItemDetailScopeKeys(snapshot, itemId),
@@ -256,22 +266,16 @@ export async function resolveWorkItemReadModelScopeKeysServer(
   session: AuthenticatedSession,
   itemId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getWorkItemDetailScopeKeys(snapshot, itemId)
-}
-
-export async function bumpProjectReadModelScopesServer(projectId: string) {
-  await bumpScopedReadModelVersionsServer({
-    scopeKeys: getProjectDetailScopeKeys(projectId),
-  })
 }
 
 export async function resolveProjectReadModelScopeKeysServer(
   session: AuthenticatedSession,
   projectId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getProjectRelatedScopeKeys(snapshot, projectId)
 }
@@ -285,29 +289,11 @@ export async function bumpProjectIndexReadModelScopesServer(
   })
 }
 
-export async function bumpWorkIndexReadModelScopesServer(
-  scopeType: "team" | "workspace" | "personal",
-  scopeId: string
-) {
-  await bumpScopedReadModelVersionsServer({
-    scopeKeys: getWorkIndexScopeKeys(scopeType, scopeId),
-  })
-}
-
-export async function bumpViewCatalogReadModelScopesServer(
-  scopeType: "team" | "workspace",
-  scopeId: string
-) {
-  await bumpScopedReadModelVersionsServer({
-    scopeKeys: getViewCatalogScopeKeys(scopeType, scopeId),
-  })
-}
-
 export async function resolveViewReadModelScopeKeysServer(
   session: AuthenticatedSession,
   viewId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getViewRelatedScopeKeys(snapshot, viewId)
 }
@@ -336,7 +322,7 @@ export async function resolveConversationReadModelScopeKeysServer(
   session: AuthenticatedSession,
   conversationId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getConversationRelatedScopeKeys(snapshot, conversationId)
 }
@@ -345,7 +331,7 @@ export async function resolveChannelPostReadModelScopeKeysServer(
   session: AuthenticatedSession,
   postId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getChannelPostRelatedScopeKeys(snapshot, postId)
 }
@@ -354,7 +340,7 @@ export async function resolveChatMessageReadModelScopeKeysServer(
   session: AuthenticatedSession,
   messageId: string
 ) {
-  const snapshot = await loadSnapshotForSession(session)
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getChatMessageRelatedScopeKeys(snapshot, messageId)
 }

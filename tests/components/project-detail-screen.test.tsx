@@ -63,10 +63,6 @@ vi.mock("@/components/app/screens/shared", () => ({
   MissingState: ({ title }: { title: string }) => <div>{title}</div>,
 }))
 
-vi.mock("@/components/app/screens/project-detail-ui", () => ({
-  ProjectPropertiesSidebar: () => <div>Properties</div>,
-}))
-
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: () => null,
   GroupChipPopover: () => null,

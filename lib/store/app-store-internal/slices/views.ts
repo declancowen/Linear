@@ -48,6 +48,210 @@ type ViewSlice = Pick<
   | "clearViewFilters"
 >
 
+type CreateViewInput = Parameters<AppStore["createView"]>[0]
+type CreateViewTeam = ReturnType<typeof getTeam>
+
+function resolveCreateViewTeam(
+  state: AppStore,
+  input: CreateViewInput
+): CreateViewTeam | null | undefined {
+  if (input.scopeType !== "team") {
+    if (!canEditWorkspace(state, input.scopeId)) {
+      toast.error("Your current role is read-only")
+      return undefined
+    }
+
+    return null
+  }
+
+  const team = getTeam(state, input.scopeId)
+
+  if (!team) {
+    toast.error("Team not found")
+    return undefined
+  }
+
+  if (!canEditTeam(state, team.id)) {
+    toast.error("Your current role is read-only")
+    return undefined
+  }
+
+  if (!teamHasFeature(team, "views")) {
+    toast.error("Views are disabled for this team")
+    return undefined
+  }
+
+  if (input.entityKind === "items" && !teamHasFeature(team, "issues")) {
+    toast.error("Work views are disabled for this team")
+    return undefined
+  }
+
+  if (input.entityKind === "projects" && !teamHasFeature(team, "projects")) {
+    toast.error("Project views are disabled for this team")
+    return undefined
+  }
+
+  if (input.entityKind === "docs" && !teamHasFeature(team, "docs")) {
+    toast.error("Document views are disabled for this team")
+    return undefined
+  }
+
+  return team
+}
+
+function isCreateViewRouteAllowed(
+  input: CreateViewInput,
+  team: CreateViewTeam
+) {
+  if (
+    isRouteAllowedForViewContext({
+      scopeType: input.scopeType,
+      entityKind: input.entityKind,
+      route: input.route,
+      teamSlug: team?.slug,
+    })
+  ) {
+    return true
+  }
+
+  toast.error("This view route is not supported for the selected scope")
+  return false
+}
+
+function getPreviousSelectedViewId(state: AppStore, route: string) {
+  const selectedViewKey = getViewerScopedDirectoryKey(
+    state.currentUserId,
+    route
+  )
+
+  return (
+    state.ui.selectedViewByRoute[selectedViewKey] ??
+    state.ui.selectedViewByRoute[route] ??
+    null
+  )
+}
+
+function buildOptimisticView(input: {
+  createdAt: string
+  input: CreateViewInput
+  team: CreateViewTeam
+  viewId: string
+}) {
+  return createViewDefinition({
+    id: input.viewId,
+    name: input.input.name,
+    description: input.input.description,
+    scopeType: input.input.scopeType,
+    scopeId: input.input.scopeId,
+    entityKind: input.input.entityKind,
+    containerType: input.input.containerType,
+    containerId: input.input.containerId,
+    route: input.input.route,
+    teamSlug: input.team?.slug,
+    defaultItemLevelExperience: input.team?.settings.experience,
+    createdAt: input.createdAt,
+    overrides: {
+      layout: input.input.layout,
+      filters: input.input.filters,
+      grouping: input.input.grouping,
+      subGrouping: input.input.subGrouping,
+      ordering: input.input.ordering,
+      itemLevel: input.input.itemLevel,
+      showChildItems: input.input.showChildItems,
+      displayProps: input.input.displayProps,
+      hiddenState: input.input.hiddenState,
+    },
+  })
+}
+
+function selectOptimisticView(
+  set: AppStoreSet,
+  view: NonNullable<ReturnType<typeof buildOptimisticView>>
+) {
+  set((current) => ({
+    views: [...current.views, view],
+    ui: {
+      ...current.ui,
+      selectedViewByRoute: {
+        ...current.ui.selectedViewByRoute,
+        [getViewerScopedDirectoryKey(current.currentUserId, view.route)]:
+          view.id,
+      },
+    },
+  }))
+}
+
+function rollbackOptimisticView(input: {
+  previousSelectedViewId: string | null
+  set: AppStoreSet
+  viewId: string
+  viewRoute: string
+}) {
+  input.set((current) => {
+    const nextSelectedViewByRoute = {
+      ...current.ui.selectedViewByRoute,
+    }
+    const nextSelectedViewKey = getViewerScopedDirectoryKey(
+      current.currentUserId,
+      input.viewRoute
+    )
+
+    if (nextSelectedViewByRoute[nextSelectedViewKey] === input.viewId) {
+      if (input.previousSelectedViewId) {
+        nextSelectedViewByRoute[nextSelectedViewKey] =
+          input.previousSelectedViewId
+      } else {
+        delete nextSelectedViewByRoute[nextSelectedViewKey]
+      }
+    }
+
+    return {
+      views: current.views.filter((entry) => entry.id !== input.viewId),
+      ui: {
+        ...current.ui,
+        selectedViewByRoute: nextSelectedViewByRoute,
+      },
+    }
+  })
+}
+
+function syncOptimisticViewCreation(input: {
+  get: AppStoreGet
+  parsedInput: CreateViewInput
+  previousSelectedViewId: string | null
+  runtime: ReturnType<typeof createStoreRuntime>
+  set: AppStoreSet
+  viewId: string
+  viewRoute: string
+}) {
+  return syncCreateView(input.get().currentUserId, {
+    ...input.parsedInput,
+    id: input.viewId,
+  })
+    .then(async (result) => {
+      if (result?.viewId && result.viewId !== input.viewId) {
+        try {
+          await input.runtime.refreshFromServer()
+        } catch (error) {
+          await input.runtime.handleSyncFailure(
+            error,
+            "View created, but failed to refresh from server"
+          )
+        }
+      }
+    })
+    .catch((error) => {
+      rollbackOptimisticView({
+        previousSelectedViewId: input.previousSelectedViewId,
+        set: input.set,
+        viewId: input.viewId,
+        viewRoute: input.viewRoute,
+      })
+
+      throw error
+    })
+}
+
 export function createViewSlice(
   set: AppStoreSet,
   get: AppStoreGet,
@@ -63,100 +267,26 @@ export function createViewSlice(
       }
 
       const state = get()
-      const team =
-        parsed.data.scopeType === "team"
-          ? getTeam(state, parsed.data.scopeId)
-          : null
+      const team = resolveCreateViewTeam(state, parsed.data)
 
-      if (parsed.data.scopeType === "team") {
-        if (!team) {
-          toast.error("Team not found")
-          return null
-        }
-
-        if (!canEditTeam(state, team.id)) {
-          toast.error("Your current role is read-only")
-          return null
-        }
-
-        if (!teamHasFeature(team, "views")) {
-          toast.error("Views are disabled for this team")
-          return null
-        }
-
-        if (
-          parsed.data.entityKind === "items" &&
-          !teamHasFeature(team, "issues")
-        ) {
-          toast.error("Work views are disabled for this team")
-          return null
-        }
-
-        if (
-          parsed.data.entityKind === "projects" &&
-          !teamHasFeature(team, "projects")
-        ) {
-          toast.error("Project views are disabled for this team")
-          return null
-        }
-
-        if (
-          parsed.data.entityKind === "docs" &&
-          !teamHasFeature(team, "docs")
-        ) {
-          toast.error("Document views are disabled for this team")
-          return null
-        }
-      } else if (!canEditWorkspace(state, parsed.data.scopeId)) {
-        toast.error("Your current role is read-only")
+      if (team === undefined) {
         return null
       }
 
-      if (
-        !isRouteAllowedForViewContext({
-          scopeType: parsed.data.scopeType,
-          entityKind: parsed.data.entityKind,
-          route: parsed.data.route,
-          teamSlug: team?.slug,
-        })
-      ) {
-        toast.error("This view route is not supported for the selected scope")
+      if (!isCreateViewRouteAllowed(parsed.data, team)) {
         return null
       }
 
       const viewId = parsed.data.id ?? createId("view")
-      const selectedViewKey = getViewerScopedDirectoryKey(
-        state.currentUserId,
+      const previousSelectedViewId = getPreviousSelectedViewId(
+        state,
         parsed.data.route
       )
-      const previousSelectedViewId =
-        state.ui.selectedViewByRoute[selectedViewKey] ??
-        state.ui.selectedViewByRoute[parsed.data.route] ??
-        null
-      const view = createViewDefinition({
-        id: viewId,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        scopeType: parsed.data.scopeType,
-        scopeId: parsed.data.scopeId,
-        entityKind: parsed.data.entityKind,
-        containerType: parsed.data.containerType,
-        containerId: parsed.data.containerId,
-        route: parsed.data.route,
-        teamSlug: team?.slug,
-        defaultItemLevelExperience: team?.settings.experience,
+      const view = buildOptimisticView({
         createdAt: getNow(),
-        overrides: {
-          layout: parsed.data.layout,
-          filters: parsed.data.filters,
-          grouping: parsed.data.grouping,
-          subGrouping: parsed.data.subGrouping,
-          ordering: parsed.data.ordering,
-          itemLevel: parsed.data.itemLevel,
-          showChildItems: parsed.data.showChildItems,
-          displayProps: parsed.data.displayProps,
-          hiddenState: parsed.data.hiddenState,
-        },
+        input: parsed.data,
+        team,
+        viewId,
       })
 
       if (!view) {
@@ -164,66 +294,18 @@ export function createViewSlice(
         return null
       }
 
-      set((current) => ({
-        views: [...current.views, view],
-        ui: {
-          ...current.ui,
-          selectedViewByRoute: {
-            ...current.ui.selectedViewByRoute,
-            [getViewerScopedDirectoryKey(current.currentUserId, view.route)]:
-              view.id,
-          },
-        },
-      }))
+      selectOptimisticView(set, view)
 
       runtime.syncInBackground(
-        syncCreateView(get().currentUserId, {
-          ...parsed.data,
-          id: viewId,
-        })
-          .then(async (result) => {
-            if (result?.viewId && result.viewId !== viewId) {
-              try {
-                await runtime.refreshFromServer()
-              } catch (error) {
-                await runtime.handleSyncFailure(
-                  error,
-                  "View created, but failed to refresh from server"
-                )
-              }
-            }
-          })
-          .catch((error) => {
-            set((current) => {
-              const nextSelectedViewByRoute = {
-                ...current.ui.selectedViewByRoute,
-              }
-
-              const nextSelectedViewKey = getViewerScopedDirectoryKey(
-                current.currentUserId,
-                view.route
-              )
-
-              if (nextSelectedViewByRoute[nextSelectedViewKey] === viewId) {
-                if (previousSelectedViewId) {
-                  nextSelectedViewByRoute[nextSelectedViewKey] =
-                    previousSelectedViewId
-                } else {
-                  delete nextSelectedViewByRoute[nextSelectedViewKey]
-                }
-              }
-
-              return {
-                views: current.views.filter((entry) => entry.id !== viewId),
-                ui: {
-                  ...current.ui,
-                  selectedViewByRoute: nextSelectedViewByRoute,
-                },
-              }
-            })
-
-            throw error
-          }),
+        syncOptimisticViewCreation({
+          get,
+          parsedInput: parsed.data,
+          previousSelectedViewId,
+          runtime,
+          set,
+          viewId,
+          viewRoute: view.route,
+        }),
         "Failed to create view"
       )
 

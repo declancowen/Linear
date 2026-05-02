@@ -1,10 +1,8 @@
 import type {
   AppData,
-  DisplayProperty,
   GroupField,
   OrderingField,
   Priority,
-  Project,
   UserProfile,
   ViewDefinition,
   WorkItem,
@@ -22,11 +20,6 @@ import {
   workItemTypes,
   workStatuses,
 } from "@/lib/domain/types"
-import {
-  formatCalendarDateLabel,
-  getCalendarDateDayOffset,
-} from "@/lib/date-input"
-
 import {
   getAccessibleTeams,
   getProject,
@@ -215,7 +208,7 @@ export function getWorkItemChildProgress(data: AppData, itemId: string) {
   }
 }
 
-export function itemMatchesView(
+function itemMatchesView(
   data: AppData,
   item: WorkItem,
   view: ViewDefinition,
@@ -233,98 +226,132 @@ export function itemMatchesView(
 
   const project = getProject(data, item.primaryProjectId)
 
-  if (
-    view.filters.status.length > 0 &&
-    !view.filters.status.includes(item.status)
-  ) {
-    return false
+  return [
+    matchesOptionalFilter(view.filters.status, item.status),
+    matchesOptionalFilter(view.filters.priority, item.priority),
+    matchesOptionalFilter(view.filters.assigneeIds, item.assigneeId ?? ""),
+    matchesOptionalFilter(view.filters.creatorIds, item.creatorId),
+    matchesOptionalFilter(view.filters.projectIds, item.primaryProjectId ?? ""),
+    matchesParentFilter(view.filters.parentIds ?? [], item.parentId),
+    matchesOptionalFilter(view.filters.itemTypes, item.type),
+    matchesAnyOptionalFilter(view.filters.labelIds, item.labelIds),
+    matchesOptionalFilter(view.filters.teamIds, item.teamId),
+    matchesOptionalFilter(view.filters.leadIds, project?.leadId ?? ""),
+    matchesOptionalFilter(view.filters.health, project?.health ?? "no-update"),
+    matchesCompletionFilter(view.filters.showCompleted, item.status),
+  ].every(Boolean)
+}
+
+function matchesOptionalFilter<T>(values: T[], candidate: T) {
+  return values.length === 0 || values.includes(candidate)
+}
+
+function matchesAnyOptionalFilter<T>(values: T[], candidates: T[]) {
+  return (
+    values.length === 0 ||
+    candidates.some((candidate) => values.includes(candidate))
+  )
+}
+
+function matchesParentFilter(parentIds: string[], parentId: string | null) {
+  if (parentIds.length === 0) {
+    return true
   }
 
-  if (
-    view.filters.priority.length > 0 &&
-    !view.filters.priority.includes(item.priority)
-  ) {
-    return false
+  return parentId === null
+    ? parentIds.includes(EMPTY_PARENT_FILTER_VALUE)
+    : parentIds.includes(parentId)
+}
+
+function matchesCompletionFilter(showCompleted: boolean, status: WorkStatus) {
+  return showCompleted || !isCompletedLikeStatus(status)
+}
+
+function isCompletedLikeStatus(status: WorkStatus) {
+  return status === "done" || status === "cancelled" || status === "duplicate"
+}
+
+function getParentItem(
+  itemsById: Map<string, WorkItem>,
+  item: WorkItem
+): WorkItem | null {
+  return item.parentId ? (itemsById.get(item.parentId) ?? null) : null
+}
+
+function getAncestorIdByItemLevel(
+  itemsById: Map<string, WorkItem>,
+  item: WorkItem,
+  itemLevel: WorkItem["type"]
+) {
+  let cursor: WorkItem | null = item
+  const visitedIds = new Set<string>()
+
+  while (cursor && !visitedIds.has(cursor.id)) {
+    if (cursor.type === itemLevel) {
+      return cursor.id
+    }
+
+    visitedIds.add(cursor.id)
+    cursor = getParentItem(itemsById, cursor)
   }
 
-  if (
-    view.filters.assigneeIds.length > 0 &&
-    !view.filters.assigneeIds.includes(item.assigneeId ?? "")
-  ) {
-    return false
+  return null
+}
+
+function getRootAncestorId(itemsById: Map<string, WorkItem>, item: WorkItem) {
+  let cursor: WorkItem | null = item
+  const visitedIds = new Set<string>()
+
+  while (cursor && !visitedIds.has(cursor.id)) {
+    if (!cursor.parentId) {
+      return cursor.id
+    }
+
+    visitedIds.add(cursor.id)
+    cursor = getParentItem(itemsById, cursor)
   }
 
-  if (
-    view.filters.creatorIds.length > 0 &&
-    !view.filters.creatorIds.includes(item.creatorId)
-  ) {
-    return false
+  return null
+}
+
+function getAssignedDescendantContainerId(
+  data: AppData,
+  itemsById: Map<string, WorkItem>,
+  item: WorkItem,
+  view: ViewDefinition
+) {
+  if (!itemMatchesView(data, item, view, { ignoreItemLevel: true })) {
+    return null
   }
 
-  if (
-    view.filters.projectIds.length > 0 &&
-    !view.filters.projectIds.includes(item.primaryProjectId ?? "")
-  ) {
-    return false
-  }
+  return view.itemLevel
+    ? getAncestorIdByItemLevel(itemsById, item, view.itemLevel)
+    : getRootAncestorId(itemsById, item)
+}
 
-  const parentIds = view.filters.parentIds ?? []
-  if (parentIds.length > 0) {
-    const matchesEmptyParent =
-      item.parentId === null && parentIds.includes(EMPTY_PARENT_FILTER_VALUE)
-    const matchesParentId =
-      item.parentId !== null && parentIds.includes(item.parentId)
+function getAssignedDescendantContainerIds(
+  data: AppData,
+  items: WorkItem[],
+  matchItems: WorkItem[],
+  view: ViewDefinition
+) {
+  const itemsById = new Map(items.map((item) => [item.id, item] as const))
+  const visibleContainerIds = new Set<string>()
 
-    if (!matchesEmptyParent && !matchesParentId) {
-      return false
+  for (const item of matchItems) {
+    const containerId = getAssignedDescendantContainerId(
+      data,
+      itemsById,
+      item,
+      view
+    )
+
+    if (containerId) {
+      visibleContainerIds.add(containerId)
     }
   }
 
-  if (
-    view.filters.itemTypes.length > 0 &&
-    !view.filters.itemTypes.includes(item.type)
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.labelIds.length > 0 &&
-    !item.labelIds.some((labelId) => view.filters.labelIds.includes(labelId))
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.teamIds.length > 0 &&
-    !view.filters.teamIds.includes(item.teamId)
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.leadIds.length > 0 &&
-    !view.filters.leadIds.includes(project?.leadId ?? "")
-  ) {
-    return false
-  }
-
-  if (
-    view.filters.health.length > 0 &&
-    !view.filters.health.includes(project?.health ?? "no-update")
-  ) {
-    return false
-  }
-
-  if (
-    !view.filters.showCompleted &&
-    (item.status === "done" ||
-      item.status === "cancelled" ||
-      item.status === "duplicate")
-  ) {
-    return false
-  }
-
-  return true
+  return visibleContainerIds
 }
 
 export function getVisibleItemsForView(
@@ -342,47 +369,12 @@ export function getVisibleItemsForView(
   ) {
     // Match filters against the assigned descendants, then lift matches back to
     // the container rows the surface renders.
-    const itemsById = new Map(items.map((item) => [item.id, item] as const))
-    const visibleContainerIds = new Set<string>()
-
-    options.matchItems.forEach((item) => {
-      if (
-        !itemMatchesView(data, item, view, {
-          ignoreItemLevel: true,
-        })
-      ) {
-        return
-      }
-
-      let cursor = itemsById.get(item.id) ?? null
-      const visitedIds = new Set<string>()
-
-      if (view.itemLevel) {
-        while (cursor && !visitedIds.has(cursor.id)) {
-          if (cursor.type === view.itemLevel) {
-            visibleContainerIds.add(cursor.id)
-            return
-          }
-
-          visitedIds.add(cursor.id)
-          cursor = cursor.parentId
-            ? (itemsById.get(cursor.parentId) ?? null)
-            : null
-        }
-
-        return
-      }
-
-      while (cursor && !visitedIds.has(cursor.id)) {
-        if (!cursor.parentId) {
-          visibleContainerIds.add(cursor.id)
-          return
-        }
-
-        visitedIds.add(cursor.id)
-        cursor = itemsById.get(cursor.parentId) ?? null
-      }
-    })
+    const visibleContainerIds = getAssignedDescendantContainerIds(
+      data,
+      items,
+      options.matchItems,
+      view
+    )
 
     return items.filter((item) => visibleContainerIds.has(item.id))
   }
@@ -402,33 +394,45 @@ export function comparePriority(left: Priority, right: Priority) {
   return priorityMeta[right].weight - priorityMeta[left].weight
 }
 
+function compareOptionalDescendingValues(
+  leftValue: string | null | undefined,
+  rightValue: string | null | undefined
+) {
+  if (!leftValue && !rightValue) {
+    return 0
+  }
+
+  if (!leftValue) {
+    return 1
+  }
+
+  if (!rightValue) {
+    return -1
+  }
+
+  return rightValue.localeCompare(leftValue)
+}
+
+function compareItemsByOrdering(
+  left: WorkItem,
+  right: WorkItem,
+  ordering: OrderingField
+) {
+  if (ordering === "priority") {
+    return comparePriority(left.priority, right.priority)
+  }
+
+  if (ordering === "title") {
+    return left.title.localeCompare(right.title)
+  }
+
+  return compareOptionalDescendingValues(left[ordering], right[ordering])
+}
+
 export function sortItems(items: WorkItem[], ordering: OrderingField) {
-  return [...items].sort((left, right) => {
-    if (ordering === "priority") {
-      return comparePriority(left.priority, right.priority)
-    }
-
-    if (ordering === "title") {
-      return left.title.localeCompare(right.title)
-    }
-
-    const leftValue = left[ordering]
-    const rightValue = right[ordering]
-
-    if (!leftValue && !rightValue) {
-      return 0
-    }
-
-    if (!leftValue) {
-      return 1
-    }
-
-    if (!rightValue) {
-      return -1
-    }
-
-    return rightValue.localeCompare(leftValue)
-  })
+  return [...items].sort((left, right) =>
+    compareItemsByOrdering(left, right, ordering)
+  )
 }
 
 export function getGroupValue(
@@ -461,17 +465,7 @@ export function getGroupValue(
   }
 
   if (field === "epic" || field === "feature") {
-    let cursor: WorkItem | null = item
-
-    while (cursor) {
-      if (cursor.type === field) {
-        return `${cursor.key} · ${cursor.title}`
-      }
-
-      cursor = cursor.parentId ? getWorkItem(data, cursor.parentId) : null
-    }
-
-    return `No ${field}`
+    return getAncestorGroupValue(data, item, field)
   }
 
   if (field === "type") {
@@ -481,29 +475,42 @@ export function getGroupValue(
   return item[field]
 }
 
-export function getAvailableGroupKeysForItems(
+function getAncestorGroupValue(
+  data: AppData,
+  item: WorkItem,
+  field: "epic" | "feature"
+) {
+  let cursor: WorkItem | null = item
+
+  while (cursor) {
+    if (cursor.type === field) {
+      return `${cursor.key} · ${cursor.title}`
+    }
+
+    cursor = cursor.parentId ? getWorkItem(data, cursor.parentId) : null
+  }
+
+  return `No ${field}`
+}
+
+function getAvailableGroupKeyContext(
   data: AppData,
   items: WorkItem[],
-  field: GroupField | null,
   options?: {
     sourceItems?: WorkItem[]
     teamId?: string | null
     projectId?: string | null
   }
 ) {
-  if (!field) {
-    return []
-  }
-
-  const keys = new Set<string>()
   const sourceItems = options?.sourceItems ?? items
   const teamIds = new Set(sourceItems.map((item) => item.teamId))
-  if (options?.teamId) {
-    teamIds.add(options.teamId)
-  }
   const project = options?.projectId
     ? getProject(data, options.projectId)
     : null
+
+  if (options?.teamId) {
+    teamIds.add(options.teamId)
+  }
 
   if (project?.scopeType === "team") {
     teamIds.add(project.scopeId)
@@ -519,79 +526,141 @@ export function getAvailableGroupKeysForItems(
     workspaceIds.add(project.scopeId)
   }
 
-  if (field === "status") {
-    const statusOrder =
-      sourceItems.length > 0
-        ? getStatusOrderForItems(data, sourceItems)
-        : options?.teamId
-          ? getStatusOrderForTeam(getTeam(data, options.teamId))
-          : [...workStatuses]
-
-    statusOrder.forEach((status) => keys.add(status))
+  return {
+    data,
+    options,
+    project,
+    sourceItems,
+    teamIds,
+    workspaceIds,
   }
+}
 
-  if (field === "priority") {
-    priorities.forEach((priority) => keys.add(priority))
-  }
+type AvailableGroupKeyContext = ReturnType<typeof getAvailableGroupKeyContext>
+type GroupKeyAppender = (
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) => void
 
-  if (field === "assignee") {
-    keys.add("No assignee")
+function addStatusGroupKeys(
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) {
+  const statusOrder =
+    context.sourceItems.length > 0
+      ? getStatusOrderForItems(context.data, context.sourceItems)
+      : context.options?.teamId
+        ? getStatusOrderForTeam(getTeam(context.data, context.options.teamId))
+        : [...workStatuses]
 
-    const memberIds = new Set(
-      data.teamMemberships
-        .filter((membership) => teamIds.has(membership.teamId))
-        .map((membership) => membership.userId)
-    )
+  statusOrder.forEach((status) => keys.add(status))
+}
 
-    data.users.forEach((user) => {
-      if (memberIds.has(user.id)) {
-        keys.add(user.name)
-      }
-    })
-  }
+function addAssigneeGroupKeys(
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) {
+  keys.add("No assignee")
 
-  if (field === "project") {
-    keys.add("No project")
+  const memberIds = new Set(
+    context.data.teamMemberships
+      .filter((membership) => context.teamIds.has(membership.teamId))
+      .map((membership) => membership.userId)
+  )
 
-    data.projects.forEach((project) => {
-      if (
-        (project.scopeType === "team" && teamIds.has(project.scopeId)) ||
-        (project.scopeType === "workspace" && workspaceIds.has(project.scopeId))
-      ) {
-        keys.add(project.name)
-      }
-    })
-  }
-
-  if (field === "team") {
-    data.teams.forEach((team) => {
-      if (workspaceIds.has(team.workspaceId) || teamIds.has(team.id)) {
-        keys.add(team.name)
-      }
-    })
-  }
-
-  if (field === "type") {
-    const allowedTypeKeys = new Set<WorkItem["type"]>()
-
-    if (project) {
-      getAllowedWorkItemTypesForTemplate(project.templateType).forEach((type) =>
-        allowedTypeKeys.add(type)
-      )
+  context.data.users.forEach((user) => {
+    if (memberIds.has(user.id)) {
+      keys.add(user.name)
     }
+  })
+}
 
-    teamIds.forEach((teamId) => {
-      getDefaultWorkItemTypesForTeamExperience(
-        getTeam(data, teamId)?.settings.experience
-      ).forEach((type) => allowedTypeKeys.add(type))
-    })
-    const allowedTypes =
-      allowedTypeKeys.size > 0 ? [...allowedTypeKeys] : [...workItemTypes]
+function addProjectGroupKeys(
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) {
+  keys.add("No project")
 
-    allowedTypes.forEach((type) => keys.add(type))
+  context.data.projects.forEach((project) => {
+    if (
+      (project.scopeType === "team" && context.teamIds.has(project.scopeId)) ||
+      (project.scopeType === "workspace" &&
+        context.workspaceIds.has(project.scopeId))
+    ) {
+      keys.add(project.name)
+    }
+  })
+}
+
+function addTeamGroupKeys(
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) {
+  context.data.teams.forEach((team) => {
+    if (
+      context.workspaceIds.has(team.workspaceId) ||
+      context.teamIds.has(team.id)
+    ) {
+      keys.add(team.name)
+    }
+  })
+}
+
+function addTypeGroupKeys(
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) {
+  const allowedTypeKeys = new Set<WorkItem["type"]>()
+
+  if (context.project) {
+    getAllowedWorkItemTypesForTemplate(context.project.templateType).forEach(
+      (type) => allowedTypeKeys.add(type)
+    )
   }
 
-  sourceItems.forEach((item) => {
+  context.teamIds.forEach((teamId) => {
+    getDefaultWorkItemTypesForTeamExperience(
+      getTeam(context.data, teamId)?.settings.experience
+    ).forEach((type) => allowedTypeKeys.add(type))
+  })
+
+  const allowedTypes =
+    allowedTypeKeys.size > 0 ? [...allowedTypeKeys] : [...workItemTypes]
+
+  allowedTypes.forEach((type) => keys.add(type))
+}
+
+const availableGroupKeyAppenders: Partial<
+  Record<GroupField, GroupKeyAppender>
+> = {
+  assignee: addAssigneeGroupKeys,
+  priority: (keys) => priorities.forEach((priority) => keys.add(priority)),
+  project: addProjectGroupKeys,
+  status: addStatusGroupKeys,
+  team: addTeamGroupKeys,
+  type: addTypeGroupKeys,
+}
+
+function getAvailableGroupKeysForItems(
+  data: AppData,
+  items: WorkItem[],
+  field: GroupField | null,
+  options?: {
+    sourceItems?: WorkItem[]
+    teamId?: string | null
+    projectId?: string | null
+  }
+) {
+  if (!field) {
+    return []
+  }
+
+  const keys = new Set<string>()
+  const context = getAvailableGroupKeyContext(data, items, options)
+
+  availableGroupKeyAppenders[field]?.(keys, context)
+
+  context.sourceItems.forEach((item) => {
     keys.add(getGroupValue(data, item, field))
   })
 
@@ -662,7 +731,26 @@ export function buildItemGroupsWithEmptyGroups(
       : options?.teamId
         ? getStatusOrderForTeam(getTeam(data, options.teamId))
         : [...workStatuses]
-  const hasActiveFilters =
+
+  if (!hasActiveViewFilters(view)) {
+    getAvailableGroupKeysForItems(data, items, view.grouping, options).forEach(
+      (groupKey) => {
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, new Map())
+        }
+      }
+    )
+  }
+
+  return new Map(
+    [...groups.entries()].sort((left, right) =>
+      compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
+    )
+  )
+}
+
+function hasActiveViewFilters(view: ViewDefinition) {
+  return (
     view.filters.status.length > 0 ||
     view.filters.priority.length > 0 ||
     view.filters.assigneeIds.length > 0 ||
@@ -677,21 +765,6 @@ export function buildItemGroupsWithEmptyGroups(
     view.filters.labelIds.length > 0 ||
     view.filters.teamIds.length > 0 ||
     !view.filters.showCompleted
-
-  if (!hasActiveFilters) {
-    getAvailableGroupKeysForItems(data, items, view.grouping, options).forEach(
-      (groupKey) => {
-        if (!groups.has(groupKey)) {
-          groups.set(groupKey, new Map())
-        }
-      }
-    )
-  }
-
-  return new Map(
-    [...groups.entries()].sort((left, right) =>
-      compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
-    )
   )
 }
 
@@ -736,93 +809,6 @@ function compareGroupKeys(
   }
 
   return left.localeCompare(right)
-}
-
-export function getUpcomingItems(data: AppData) {
-  return [...data.workItems]
-    .filter((item) => item.targetDate)
-    .sort((left, right) => {
-      if (!left.targetDate || !right.targetDate) {
-        return 0
-      }
-
-      return left.targetDate.localeCompare(right.targetDate)
-    })
-}
-
-export function getLateItems(data: AppData) {
-  const now = new Date()
-  return data.workItems.filter((item) => {
-    if (!item.dueDate || item.status === "done") {
-      return false
-    }
-
-    const dayOffset = getCalendarDateDayOffset(item.dueDate, now)
-    return dayOffset !== null && dayOffset < 0
-  })
-}
-
-export function formatDisplayValue(
-  data: AppData,
-  item: WorkItem,
-  property: DisplayProperty
-) {
-  if (property === "assignee") {
-    return getUser(data, item.assigneeId)?.name ?? "Unassigned"
-  }
-
-  if (property === "project") {
-    return getProject(data, item.primaryProjectId)?.name ?? "No project"
-  }
-
-  if (property === "milestone") {
-    return (
-      data.milestones.find((milestone) => milestone.id === item.milestoneId)
-        ?.name ?? "No milestone"
-    )
-  }
-
-  if (property === "labels") {
-    return item.labelIds
-      .map((labelId) => data.labels.find((label) => label.id === labelId)?.name)
-      .filter(Boolean)
-      .join(", ")
-  }
-
-  if (property === "created") {
-    return item.createdAt
-  }
-
-  if (property === "updated") {
-    return item.updatedAt
-  }
-
-  if (property === "dueDate") {
-    return formatCalendarDateLabel(item.dueDate, "No due date")
-  }
-
-  if (property === "progress") {
-    const progress = getWorkItemChildProgress(data, item.id)
-    return progress.totalChildren > 0
-      ? `${progress.percent}%`
-      : "No child items"
-  }
-
-  if (property === "id") {
-    return item.key
-  }
-
-  if (property === "type") {
-    return item.type
-  }
-
-  return item[property]
-}
-
-export function getLinkedProjects(data: AppData, item: WorkItem) {
-  return item.linkedProjectIds
-    .map((projectId) => getProject(data, projectId))
-    .filter(Boolean) as Project[]
 }
 
 export function getItemAssignees(data: AppData, items: WorkItem[]) {

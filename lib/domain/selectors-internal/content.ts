@@ -2,7 +2,6 @@ import { sortViewsForDisplay } from "@/lib/domain/default-views"
 import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 import type {
   AppData,
-  Document,
   Project,
   ViewDefinition,
 } from "@/lib/domain/types"
@@ -11,15 +10,13 @@ import {
   canEditTeam,
   canEditWorkspace,
   getAccessibleTeams,
-  getDocument,
-  getTeam,
 } from "@/lib/domain/selectors-internal/core"
 
 function isTopLevelView(view: ViewDefinition) {
   return !view.containerType
 }
 
-export function getWorkspacePersonalViews(
+function getWorkspacePersonalViews(
   data: AppData,
   entityKind?: "items" | "projects" | "docs"
 ) {
@@ -132,7 +129,7 @@ export function canMutateProject(data: AppData, project: Project) {
   return canEditWorkspace(data, project.scopeId)
 }
 
-export function getDocumentsForScope(
+function getDocumentsForScope(
   data: AppData,
   scopeType: "team" | "workspace",
   scopeId: string
@@ -182,18 +179,6 @@ export function getSearchableDocuments(data: AppData, workspaceId: string) {
     ...getWorkspaceDocuments(data, workspaceId),
     ...getPrivateDocuments(data, workspaceId),
   ]
-}
-
-export function getDocumentContextLabel(data: AppData, document: Document) {
-  if (document.kind === "workspace-document") {
-    return "Workspace"
-  }
-
-  if (document.kind === "private-document") {
-    return "Private"
-  }
-
-  return getTeam(data, document.teamId ?? "")?.name ?? "Team"
 }
 
 export function getViewsForScope(
@@ -402,35 +387,10 @@ export function getConversationHref(data: AppData, conversationId: string) {
   return `/team/${team.slug}/chat`
 }
 
-export function getAttachmentsForTarget(
-  data: AppData,
-  targetType: "workItem" | "document",
-  targetId: string
-) {
-  return data.attachments
-    .filter(
-      (attachment) =>
-        attachment.targetType === targetType && attachment.targetId === targetId
-    )
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-}
-
-export function getRecentDocuments(data: AppData) {
-  return [...data.documents]
-    .filter((document) => document.kind !== "item-description")
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-}
-
 export function getViewByRoute(data: AppData, route: string) {
   const selected =
     data.ui.selectedViewByRoute[
       getViewerScopedDirectoryKey(data.currentUserId, route)
     ] ?? data.ui.selectedViewByRoute[route]
   return data.views.find((view) => view.id === selected) ?? null
-}
-
-export function getLinkedDocuments(data: AppData, item: { linkedDocumentIds: string[] }) {
-  return item.linkedDocumentIds
-    .map((documentId) => getDocument(data, documentId))
-    .filter(Boolean) as Document[]
 }

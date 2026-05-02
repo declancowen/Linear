@@ -6,8 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type MouseEvent,
   type MutableRefObject,
+  type ReactNode,
+  type SetStateAction,
 } from "react"
 import {
   EditorContent,
@@ -36,6 +39,7 @@ import type { PartyKitDocumentCollaborationBinding } from "@/lib/collaboration/a
 import type { RichTextMentionCounts } from "@/lib/content/rich-text-mentions"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { DocumentPresenceViewer, UserProfile } from "@/lib/domain/types"
+import { escapeHtml } from "@/lib/html"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 import { cn } from "@/lib/utils"
 import {
@@ -52,6 +56,7 @@ import {
 import {
   FULL_PAGE_CANVAS_WIDTH_CLASSNAME,
   RichTextToolbar,
+  type FullPageCanvasWidth,
 } from "./rich-text-editor/toolbar"
 import {
   FullPageRichTextShell,
@@ -68,12 +73,12 @@ type EmojiPickerAnchor = {
   top: number
 }
 
-export type RichTextEditorStats = {
+type RichTextEditorStats = {
   words: number
   characters: number
 }
 
-export type RichTextEditorValidity = {
+type RichTextEditorValidity = {
   characters: number
   minimum: number
   maximum: number | null
@@ -83,7 +88,7 @@ export type RichTextEditorValidity = {
   canSubmit: boolean
 }
 
-export type RichTextMentionCountsChangeSource = "initial" | "local" | "external"
+type RichTextMentionCountsChangeSource = "initial" | "local" | "external"
 
 type RichTextEditorProps = {
   content: string | JSONContent
@@ -128,6 +133,10 @@ type RichTextEditorProps = {
   >
 }
 
+type RichTextEditorCollaboration = NonNullable<
+  RichTextEditorProps["collaboration"]
+>
+
 type BlockPresenceMarker = {
   blockId: string
   top: number
@@ -164,15 +173,6 @@ const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
 const COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX = 28
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -197,29 +197,23 @@ function getEditorMentionCounts(currentEditor: Editor): RichTextMentionCounts {
   return mentionCounts
 }
 
-function areCollaborationSelectionMarkersEqual(
-  left: CollaborationSelectionMarker[],
-  right: CollaborationSelectionMarker[]
+function areArraysEqual<T>(
+  left: T[],
+  right: T[],
+  isEqual: (leftItem: T, rightItem: T) => boolean
 ) {
   if (left.length !== right.length) {
     return false
   }
 
   for (let index = 0; index < left.length; index += 1) {
-    const leftMarker = left[index]
-    const rightMarker = right[index]
-
-    if (!leftMarker || !rightMarker) {
-      return false
-    }
+    const leftItem = left[index]
+    const rightItem = right[index]
 
     if (
-      leftMarker.key !== rightMarker.key ||
-      leftMarker.color !== rightMarker.color ||
-      leftMarker.left !== rightMarker.left ||
-      leftMarker.top !== rightMarker.top ||
-      leftMarker.width !== rightMarker.width ||
-      leftMarker.height !== rightMarker.height
+      leftItem === undefined ||
+      rightItem === undefined ||
+      !isEqual(leftItem, rightItem)
     ) {
       return false
     }
@@ -228,22 +222,28 @@ function areCollaborationSelectionMarkersEqual(
   return true
 }
 
+function areCollaborationSelectionMarkersEqual(
+  left: CollaborationSelectionMarker[],
+  right: CollaborationSelectionMarker[]
+) {
+  return areArraysEqual(
+    left,
+    right,
+    (leftMarker, rightMarker) =>
+      leftMarker.key === rightMarker.key &&
+      leftMarker.color === rightMarker.color &&
+      leftMarker.left === rightMarker.left &&
+      leftMarker.top === rightMarker.top &&
+      leftMarker.width === rightMarker.width &&
+      leftMarker.height === rightMarker.height
+  )
+}
+
 function areBlockPresenceMarkersEqual(
   left: BlockPresenceMarker[],
   right: BlockPresenceMarker[]
 ) {
-  if (left.length !== right.length) {
-    return false
-  }
-
-  for (let index = 0; index < left.length; index += 1) {
-    const leftMarker = left[index]
-    const rightMarker = right[index]
-
-    if (!leftMarker || !rightMarker) {
-      return false
-    }
-
+  return areArraysEqual(left, right, (leftMarker, rightMarker) => {
     if (
       leftMarker.blockId !== rightMarker.blockId ||
       leftMarker.top !== rightMarker.top ||
@@ -252,26 +252,14 @@ function areBlockPresenceMarkersEqual(
       return false
     }
 
-    for (
-      let viewerIndex = 0;
-      viewerIndex < leftMarker.viewers.length;
-      viewerIndex += 1
-    ) {
-      const leftViewer = leftMarker.viewers[viewerIndex]
-      const rightViewer = rightMarker.viewers[viewerIndex]
-
-      if (
-        !leftViewer ||
-        !rightViewer ||
-        leftViewer.userId !== rightViewer.userId ||
-        leftViewer.activeBlockId !== rightViewer.activeBlockId
-      ) {
-        return false
-      }
-    }
-  }
-
-  return true
+    return areArraysEqual(
+      leftMarker.viewers,
+      rightMarker.viewers,
+      (leftViewer, rightViewer) =>
+        leftViewer.userId === rightViewer.userId &&
+        leftViewer.activeBlockId === rightViewer.activeBlockId
+    )
+  })
 }
 
 function getActiveBlockId(currentEditor: Editor) {
@@ -548,31 +536,17 @@ function areCollaborationCursorMarkersEqual(
   left: CollaborationCursorMarker[],
   right: CollaborationCursorMarker[]
 ) {
-  if (left.length !== right.length) {
-    return false
-  }
-
-  for (let index = 0; index < left.length; index += 1) {
-    const leftMarker = left[index]
-    const rightMarker = right[index]
-
-    if (!leftMarker || !rightMarker) {
-      return false
-    }
-
-    if (
-      leftMarker.key !== rightMarker.key ||
-      leftMarker.name !== rightMarker.name ||
-      leftMarker.color !== rightMarker.color ||
-      leftMarker.left !== rightMarker.left ||
-      leftMarker.top !== rightMarker.top ||
-      leftMarker.height !== rightMarker.height
-    ) {
-      return false
-    }
-  }
-
-  return true
+  return areArraysEqual(
+    left,
+    right,
+    (leftMarker, rightMarker) =>
+      leftMarker.key === rightMarker.key &&
+      leftMarker.name === rightMarker.name &&
+      leftMarker.color === rightMarker.color &&
+      leftMarker.left === rightMarker.left &&
+      leftMarker.top === rightMarker.top &&
+      leftMarker.height === rightMarker.height
+  )
 }
 
 type CollaborationAwarenessUser = {
@@ -674,11 +648,15 @@ function getCollaborationAwarenessCursorHead(
   const cursorValue = isRecord(userValue.cursor) ? userValue.cursor : null
   const head = cursorValue?.head
 
-  if (typeof head !== "number" || !Number.isInteger(head) || head < 0) {
+  if (!isValidAwarenessPosition(head)) {
     return null
   }
 
   return head
+}
+
+function isValidAwarenessPosition(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
 }
 
 function getCollaborationAwarenessSelectionRange(
@@ -704,14 +682,7 @@ function getCollaborationAwarenessSelectionRange(
       relativeSelection.head
     )
 
-    if (
-      typeof anchor === "number" &&
-      Number.isInteger(anchor) &&
-      anchor >= 0 &&
-      typeof head === "number" &&
-      Number.isInteger(head) &&
-      head >= 0
-    ) {
+    if (isValidAwarenessPosition(anchor) && isValidAwarenessPosition(head)) {
       return { anchor, head }
     }
   }
@@ -722,14 +693,7 @@ function getCollaborationAwarenessSelectionRange(
   const anchor = selectionValue?.anchor
   const head = selectionValue?.head
 
-  if (
-    typeof anchor !== "number" ||
-    !Number.isInteger(anchor) ||
-    anchor < 0 ||
-    typeof head !== "number" ||
-    !Number.isInteger(head) ||
-    head < 0
-  ) {
+  if (!isValidAwarenessPosition(anchor) || !isValidAwarenessPosition(head)) {
     return null
   }
 
@@ -746,7 +710,7 @@ type YSyncEditorState = {
   prevSnapshot?: unknown
 }
 
-function getFirstTextNode(node: Node | null): Text | null {
+function getTextNode(node: Node | null, edge: "first" | "last"): Text | null {
   if (!node) {
     return null
   }
@@ -763,25 +727,10 @@ function getFirstTextNode(node: Node | null): Text | null {
 
   const walker = documentRoot.createTreeWalker(node, NodeFilter.SHOW_TEXT)
 
-  return walker.nextNode() as Text | null
-}
-
-function getLastTextNode(node: Node | null): Text | null {
-  if (!node) {
-    return null
+  if (edge === "first") {
+    return walker.nextNode() as Text | null
   }
 
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node as Text
-  }
-
-  const documentRoot = node.ownerDocument
-
-  if (!documentRoot) {
-    return null
-  }
-
-  const walker = documentRoot.createTreeWalker(node, NodeFilter.SHOW_TEXT)
   let lastTextNode: Text | null = null
   let currentNode = walker.nextNode()
 
@@ -791,6 +740,14 @@ function getLastTextNode(node: Node | null): Text | null {
   }
 
   return lastTextNode
+}
+
+function getFirstTextNode(node: Node | null): Text | null {
+  return getTextNode(node, "first")
+}
+
+function getLastTextNode(node: Node | null): Text | null {
+  return getTextNode(node, "last")
 }
 
 function getCaretCoordinatesFromTextNode(input: {
@@ -945,50 +902,39 @@ function getClientRectsForDocumentRange(
   }
 }
 
-function getCaretCoordinatesBeforePosition(
+function getTextCaretCoordinatesBeforeDomPosition(domPosition: {
+  node: Node
+  offset: number
+}) {
+  const baseNode = domPosition.node
+
+  if (baseNode.nodeType === Node.TEXT_NODE && domPosition.offset > 0) {
+    return getCaretCoordinatesFromTextNode({
+      textNode: baseNode as Text,
+      offset: domPosition.offset,
+    })
+  }
+
+  if (!(baseNode instanceof HTMLElement) || domPosition.offset <= 0) {
+    return null
+  }
+
+  const beforeTextNode = getLastTextNode(
+    baseNode.childNodes[domPosition.offset - 1] ?? null
+  )
+
+  return beforeTextNode
+    ? getCaretCoordinatesFromTextNode({
+        textNode: beforeTextNode,
+        offset: beforeTextNode.data.length,
+      })
+    : null
+}
+
+function getFallbackCaretCoordinatesBeforePosition(
   currentEditor: Editor,
   position: number
 ) {
-  try {
-    const domPosition = currentEditor.view.domAtPos(position)
-    const baseNode = domPosition.node
-
-    if (baseNode.nodeType === Node.TEXT_NODE) {
-      const textNode = baseNode as Text
-
-      if (domPosition.offset > 0) {
-        const textCoordinates = getCaretCoordinatesFromTextNode({
-          textNode,
-          offset: domPosition.offset,
-        })
-
-        if (textCoordinates) {
-          return textCoordinates
-        }
-      }
-    }
-
-    if (baseNode instanceof HTMLElement) {
-      const beforeTextNode =
-        domPosition.offset > 0
-          ? getLastTextNode(baseNode.childNodes[domPosition.offset - 1] ?? null)
-          : null
-
-      if (beforeTextNode) {
-        const textCoordinates = getCaretCoordinatesFromTextNode({
-          textNode: beforeTextNode,
-          offset: beforeTextNode.data.length,
-        })
-
-        if (textCoordinates) {
-          return textCoordinates
-        }
-      }
-    }
-  } catch {
-    // Fall through to ProseMirror coordinates.
-  }
-
   const before = currentEditor.view.coordsAtPos(position, -1)
 
   return {
@@ -996,6 +942,25 @@ function getCaretCoordinatesBeforePosition(
     top: before.top,
     bottom: before.bottom,
   }
+}
+
+function getCaretCoordinatesBeforePosition(
+  currentEditor: Editor,
+  position: number
+) {
+  try {
+    const textCoordinates = getTextCaretCoordinatesBeforeDomPosition(
+      currentEditor.view.domAtPos(position)
+    )
+
+    if (textCoordinates) {
+      return textCoordinates
+    }
+  } catch {
+    // Fall through to ProseMirror coordinates.
+  }
+
+  return getFallbackCaretCoordinatesBeforePosition(currentEditor, position)
 }
 
 function getCaretCoordinatesAfterPosition(
@@ -1334,6 +1299,1336 @@ function collectCollaborationSelectionMarkers(input: {
   )
 }
 
+type RichTextSlashCommandOptions = Parameters<typeof filterSlashCommands>[1]
+
+type RichTextKeyboardMenuState = {
+  container: HTMLDivElement | null
+  currentEditor: Editor
+  event: KeyboardEvent
+}
+
+function handleSlashMenuKeyDown({
+  container,
+  currentEditor,
+  currentSlashState,
+  event,
+  previousSlashQueryRef,
+  setSlashIndex,
+  setSlashState,
+  slashIndex,
+  slashOptions,
+}: RichTextKeyboardMenuState & {
+  currentSlashState: MenuState | null
+  previousSlashQueryRef: MutableRefObject<string | null>
+  setSlashIndex: Dispatch<SetStateAction<number>>
+  setSlashState: (state: MenuState | null) => void
+  slashIndex: number
+  slashOptions: RichTextSlashCommandOptions
+}) {
+  if (!currentSlashState) {
+    return null
+  }
+
+  const nextCommands = filterSlashCommands(
+    currentSlashState.query,
+    slashOptions
+  )
+  const maxSlashIndex = Math.max(nextCommands.length - 1, 0)
+
+  if (event.key === "Escape") {
+    setSlashState(null)
+    previousSlashQueryRef.current = null
+    return true
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault()
+    setSlashIndex((current) =>
+      Math.min(Math.min(current, maxSlashIndex) + 1, maxSlashIndex)
+    )
+    return true
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault()
+    setSlashIndex((current) =>
+      Math.max(0, Math.min(current, maxSlashIndex) - 1)
+    )
+    return true
+  }
+
+  if (event.key === "Enter") {
+    const selected =
+      nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
+      nextCommands[0]
+
+    if (!selected) {
+      return false
+    }
+
+    event.preventDefault()
+    currentEditor
+      .chain()
+      .focus()
+      .deleteRange({
+        from: currentSlashState.from,
+        to: currentSlashState.to,
+      })
+      .run()
+    selected.run(currentEditor)
+    setSlashState(null)
+    setSlashIndex(0)
+    return true
+  }
+
+  const nextSlashState = buildSlashState(currentEditor, container)
+  if (!nextSlashState) {
+    setSlashState(null)
+    setSlashIndex(0)
+    previousSlashQueryRef.current = null
+  }
+
+  return false
+}
+
+function handleMentionMenuKeyDown({
+  container,
+  currentEditor,
+  currentMentionState,
+  event,
+  mentionCandidates,
+  mentionIndex,
+  onMentionInsertedRef,
+  previousMentionQueryRef,
+  setMentionIndex,
+  setMentionState,
+}: RichTextKeyboardMenuState & {
+  currentMentionState: MenuState | null
+  mentionCandidates: MentionCandidate[]
+  mentionIndex: number
+  onMentionInsertedRef: MutableRefObject<
+    RichTextEditorProps["onMentionInserted"]
+  >
+  previousMentionQueryRef: MutableRefObject<string | null>
+  setMentionIndex: Dispatch<SetStateAction<number>>
+  setMentionState: (state: MenuState | null) => void
+}) {
+  if (!currentMentionState) {
+    return null
+  }
+
+  const nextCandidates = filterMentionCandidates(
+    currentMentionState.query,
+    mentionCandidates
+  )
+  const maxMentionIndex = Math.max(nextCandidates.length - 1, 0)
+
+  if (event.key === "Escape") {
+    setMentionState(null)
+    previousMentionQueryRef.current = null
+    return true
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault()
+    setMentionIndex((current) =>
+      Math.min(Math.min(current, maxMentionIndex) + 1, maxMentionIndex)
+    )
+    return true
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault()
+    setMentionIndex((current) =>
+      Math.max(0, Math.min(current, maxMentionIndex) - 1)
+    )
+    return true
+  }
+
+  if (event.key === "Enter") {
+    const selected =
+      nextCandidates[Math.min(mentionIndex, nextCandidates.length - 1)] ??
+      nextCandidates[0]
+
+    if (!selected) {
+      return false
+    }
+
+    event.preventDefault()
+    insertMention(currentEditor, currentMentionState, selected)
+    onMentionInsertedRef.current?.(selected)
+    setMentionState(null)
+    setMentionIndex(0)
+    return true
+  }
+
+  const nextMentionState = buildMentionState(currentEditor, container)
+  if (!nextMentionState) {
+    setMentionState(null)
+    setMentionIndex(0)
+    previousMentionQueryRef.current = null
+  }
+
+  return false
+}
+
+function handleSubmitShortcutKeyDown({
+  event,
+  onSubmitShortcut,
+  submitOnEnter,
+}: {
+  event: KeyboardEvent
+  onSubmitShortcut?: () => void
+  submitOnEnter: boolean
+}) {
+  if (
+    onSubmitShortcut &&
+    submitOnEnter &&
+    event.key === "Enter" &&
+    !event.shiftKey
+  ) {
+    event.preventDefault()
+    onSubmitShortcut()
+    return true
+  }
+
+  if (
+    onSubmitShortcut &&
+    event.key === "Enter" &&
+    (event.metaKey || event.ctrlKey)
+  ) {
+    event.preventDefault()
+    onSubmitShortcut()
+    return true
+  }
+
+  return false
+}
+
+function handleRichTextEditorKeyDown({
+  allowSlashCommands,
+  container,
+  currentEditor,
+  event,
+  mentionCandidates,
+  mentionIndex,
+  mentionState,
+  onMentionInsertedRef,
+  onSubmitShortcut,
+  onUploadAttachment,
+  previousMentionQueryRef,
+  previousSlashQueryRef,
+  requestAttachmentPicker,
+  requestEmojiPicker,
+  requestImagePicker,
+  setMentionIndex,
+  setMentionState,
+  setSlashIndex,
+  setSlashState,
+  slashIndex,
+  slashState,
+  submitOnEnter,
+}: RichTextKeyboardMenuState & {
+  allowSlashCommands: boolean
+  mentionCandidates: MentionCandidate[]
+  mentionIndex: number
+  mentionState: MenuState | null
+  onMentionInsertedRef: MutableRefObject<
+    RichTextEditorProps["onMentionInserted"]
+  >
+  onSubmitShortcut?: () => void
+  onUploadAttachment: RichTextEditorProps["onUploadAttachment"]
+  previousMentionQueryRef: MutableRefObject<string | null>
+  previousSlashQueryRef: MutableRefObject<string | null>
+  requestAttachmentPicker: (currentEditor: Editor) => void
+  requestEmojiPicker: (
+    currentEditor: Editor,
+    anchor?: EmojiPickerAnchor | null
+  ) => void
+  requestImagePicker: (currentEditor: Editor) => void
+  setMentionIndex: Dispatch<SetStateAction<number>>
+  setMentionState: (state: MenuState | null) => void
+  setSlashIndex: Dispatch<SetStateAction<number>>
+  setSlashState: (state: MenuState | null) => void
+  slashIndex: number
+  slashState: MenuState | null
+  submitOnEnter: boolean
+}) {
+  const currentSlashState = allowSlashCommands ? slashState : null
+  const slashResult = handleSlashMenuKeyDown({
+    container,
+    currentEditor,
+    currentSlashState,
+    event,
+    previousSlashQueryRef,
+    setSlashIndex,
+    setSlashState,
+    slashIndex,
+    slashOptions: {
+      enableUploads: Boolean(onUploadAttachment),
+      promptEmojiPicker: (nextEditor) =>
+        requestEmojiPicker(nextEditor, currentSlashState),
+      promptAttachmentUpload: requestAttachmentPicker,
+      promptImageUpload: requestImagePicker,
+    },
+  })
+
+  if (slashResult !== null) {
+    return slashResult
+  }
+
+  const mentionResult = handleMentionMenuKeyDown({
+    container,
+    currentEditor,
+    currentMentionState: mentionState,
+    event,
+    mentionCandidates,
+    mentionIndex,
+    onMentionInsertedRef,
+    previousMentionQueryRef,
+    setMentionIndex,
+    setMentionState,
+  })
+
+  if (mentionResult !== null) {
+    return mentionResult
+  }
+
+  return handleSubmitShortcutKeyDown({
+    event,
+    onSubmitShortcut,
+    submitOnEnter,
+  })
+}
+
+function getRichTextEditorClassName({
+  compact,
+  fullPage,
+}: {
+  compact: boolean
+  fullPage: boolean
+}) {
+  if (fullPage) {
+    return "min-h-[calc(100svh-12rem)] text-base outline-none [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+  }
+
+  if (compact) {
+    return "min-h-16 text-sm outline-none [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-6 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+  }
+
+  return "min-h-24 text-sm outline-none [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+}
+
+function getVisiblePresenceViewers({
+  currentPresenceUserId,
+  presenceViewers,
+}: {
+  currentPresenceUserId: string | null
+  presenceViewers: DocumentPresenceViewer[]
+}) {
+  return currentPresenceUserId
+    ? presenceViewers.filter(
+        (viewer) => viewer.userId !== currentPresenceUserId
+      )
+    : presenceViewers
+}
+
+function InlineEmojiPickerOverlay({
+  anchor,
+  containerWidth,
+  currentEditor,
+  editable,
+  open,
+  onOpenChange,
+}: {
+  anchor: EmojiPickerAnchor | null
+  containerWidth: number
+  currentEditor: Editor
+  editable: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  if (!editable || !anchor) {
+    return null
+  }
+
+  return (
+    <div
+      className="absolute z-20"
+      style={{
+        left: Math.min(
+          Math.max(12, anchor.left),
+          Math.max(12, containerWidth - 24)
+        ),
+        top: anchor.top,
+      }}
+    >
+      <EmojiPickerPopover
+        align="start"
+        side="bottom"
+        open={open}
+        onOpenChange={onOpenChange}
+        onEmojiSelect={(emoji) => {
+          currentEditor.chain().focus().insertContent(emoji).run()
+        }}
+        trigger={
+          <button
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+            className="pointer-events-none size-px opacity-0"
+          />
+        }
+      />
+    </div>
+  )
+}
+
+function BlockPresenceOverlay({
+  collaboration,
+  markers,
+}: {
+  collaboration: RichTextEditorProps["collaboration"]
+  markers: BlockPresenceMarker[]
+}) {
+  if (collaboration || markers.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10">
+      {markers.map((marker) => {
+        const viewerNames = marker.viewers
+          .map((viewer) => viewer.name)
+          .join(", ")
+
+        return (
+          <div
+            key={marker.blockId}
+            className="absolute left-3"
+            style={{ top: marker.top }}
+            aria-label={`Active here: ${viewerNames}`}
+            title={`Active here: ${viewerNames}`}
+          >
+            <div className="flex items-start gap-1.5">
+              {marker.viewers
+                .slice(0, MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS)
+                .map((viewer) => {
+                  const color = getCollaborationUserColor(viewer.userId)
+
+                  return (
+                    <div
+                      key={viewer.userId}
+                      className="flex flex-col items-start"
+                    >
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm"
+                        style={{ backgroundColor: color }}
+                      >
+                        {viewer.name}
+                      </span>
+                      <span
+                        className="ml-2 h-4 w-0.5 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    </div>
+                  )
+                })}
+              {marker.viewers.length > MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS ? (
+                <span className="rounded-full bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border">
+                  {`+${marker.viewers.length - MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS}`}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CollaborationCursorPresenceOverlay({
+  collaboration,
+  markers,
+}: {
+  collaboration: RichTextEditorProps["collaboration"]
+  markers: CollaborationCursorMarker[]
+}) {
+  if (!collaboration || markers.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10">
+      {markers.map((marker) => {
+        const showLabelBelow =
+          marker.top < COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX
+
+        return (
+          <div
+            key={marker.key}
+            className="absolute"
+            style={{ left: marker.left, top: marker.top }}
+            aria-label={`${marker.name} is editing here`}
+            title={`${marker.name} is editing here`}
+          >
+            <span
+              className="absolute top-0 left-0 w-0.5 rounded-full"
+              style={{
+                height: marker.height,
+                backgroundColor: marker.color,
+              }}
+            />
+            <span
+              className={cn(
+                "absolute left-0 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white shadow-sm",
+                showLabelBelow
+                  ? "-translate-x-1/2"
+                  : "-translate-x-1/2 -translate-y-[calc(100%+4px)]"
+              )}
+              style={{
+                top: showLabelBelow ? marker.height + 4 : 0,
+                backgroundColor: marker.color,
+              }}
+            >
+              {marker.name}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CollaborationSelectionPresenceOverlay({
+  collaboration,
+  markers,
+}: {
+  collaboration: RichTextEditorProps["collaboration"]
+  markers: CollaborationSelectionMarker[]
+}) {
+  if (!collaboration || markers.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[5]">
+      {markers.map((marker) => (
+        <div
+          key={marker.key}
+          className="absolute rounded-[3px]"
+          style={{
+            left: marker.left,
+            top: marker.top,
+            width: marker.width,
+            height: marker.height,
+            backgroundColor: `${marker.color}22`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function RichTextEditorSurface({
+  blockPresence,
+  className,
+  collaborationCursorPresence,
+  collaborationSelectionPresence,
+  containerRef,
+  currentEditor,
+  fullPage,
+  fullPageCanvasWidth,
+  inlineEmojiPicker,
+  mentionMenu,
+  onInlineMouseDownCapture,
+  slashMenu,
+  toolbar,
+}: {
+  blockPresence: ReactNode
+  className?: string
+  collaborationCursorPresence: ReactNode
+  collaborationSelectionPresence: ReactNode
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  currentEditor: Editor
+  fullPage: boolean
+  fullPageCanvasWidth: FullPageCanvasWidth
+  inlineEmojiPicker: ReactNode
+  mentionMenu: ReactNode
+  onInlineMouseDownCapture: (event: MouseEvent<HTMLDivElement>) => void
+  slashMenu: ReactNode
+  toolbar: ReactNode
+}) {
+  if (fullPage) {
+    return (
+      <FullPageRichTextShell
+        canvasWidth={fullPageCanvasWidth}
+        className={className}
+        containerRef={containerRef}
+        toolbar={toolbar}
+      >
+        <EditorContent editor={currentEditor} />
+        {collaborationSelectionPresence}
+        {collaborationCursorPresence}
+        {blockPresence}
+        {slashMenu}
+        {mentionMenu}
+        {inlineEmojiPicker}
+      </FullPageRichTextShell>
+    )
+  }
+
+  return (
+    <div className={cn("flex flex-col gap-1", className)}>
+      <div
+        className="relative"
+        onMouseDownCapture={onInlineMouseDownCapture}
+        ref={containerRef}
+      >
+        <EditorContent editor={currentEditor} />
+        {collaborationSelectionPresence}
+        {collaborationCursorPresence}
+        {blockPresence}
+        {slashMenu}
+        {mentionMenu}
+        {inlineEmojiPicker}
+      </div>
+      {toolbar}
+    </div>
+  )
+}
+
+type RichTextEditorBodyProps = {
+  allowSlashCommands: boolean
+  blockPresenceMarkers: BlockPresenceMarker[]
+  className?: string
+  collaboration: RichTextEditorCollaboration | undefined
+  collaborationCursorMarkers: CollaborationCursorMarker[]
+  collaborationSelectionMarkers: CollaborationSelectionMarker[]
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  containerWidth: number
+  currentEditor: Editor | null
+  editable: boolean
+  emojiPickerAnchor: EmojiPickerAnchor | null
+  emojiPickerOpen: boolean
+  filteredMentionCandidates: MentionCandidate[]
+  filteredSlashCommands: ReturnType<typeof filterSlashCommands>
+  fullPage: boolean
+  fullPageCanvasWidth: FullPageCanvasWidth
+  handleToolbarFiles: (files: File[], position?: number | null) => Promise<void>
+  hiddenAttachmentInputRef: MutableRefObject<HTMLInputElement | null>
+  hiddenImageInputRef: MutableRefObject<HTMLInputElement | null>
+  mentionIndex: number
+  mentionMenuPlacement: "above" | "below"
+  mentionState: MenuState | null
+  onMentionInserted: RichTextEditorProps["onMentionInserted"]
+  pickerInsertPosition: number | null
+  previousMentionQueryRef: MutableRefObject<string | null>
+  previousSlashQueryRef: MutableRefObject<string | null>
+  requestAttachmentPicker: (currentEditor: Editor) => void
+  requestImagePicker: (currentEditor: Editor) => void
+  setEmojiPickerAnchor: Dispatch<SetStateAction<EmojiPickerAnchor | null>>
+  setEmojiPickerOpen: Dispatch<SetStateAction<boolean>>
+  setFullPageCanvasWidth: Dispatch<SetStateAction<FullPageCanvasWidth>>
+  setMentionIndex: Dispatch<SetStateAction<number>>
+  setMentionState: Dispatch<SetStateAction<MenuState | null>>
+  setSlashIndex: Dispatch<SetStateAction<number>>
+  setSlashState: Dispatch<SetStateAction<MenuState | null>>
+  showStats: boolean
+  showToolbar: boolean
+  slashIndex: number
+  slashState: MenuState | null
+  statsCharacters: number
+  statsWords: number
+  uploadingAttachment: boolean
+  uploadsEnabled: boolean
+}
+
+function RichTextEditorBody({
+  allowSlashCommands,
+  blockPresenceMarkers,
+  className,
+  collaboration,
+  collaborationCursorMarkers,
+  collaborationSelectionMarkers,
+  containerRef,
+  containerWidth,
+  currentEditor,
+  editable,
+  emojiPickerAnchor,
+  emojiPickerOpen,
+  filteredMentionCandidates,
+  filteredSlashCommands,
+  fullPage,
+  fullPageCanvasWidth,
+  handleToolbarFiles,
+  hiddenAttachmentInputRef,
+  hiddenImageInputRef,
+  mentionIndex,
+  mentionMenuPlacement,
+  mentionState,
+  onMentionInserted,
+  pickerInsertPosition,
+  previousMentionQueryRef,
+  previousSlashQueryRef,
+  requestAttachmentPicker,
+  requestImagePicker,
+  setEmojiPickerAnchor,
+  setEmojiPickerOpen,
+  setFullPageCanvasWidth,
+  setMentionIndex,
+  setMentionState,
+  setSlashIndex,
+  setSlashState,
+  showStats,
+  showToolbar,
+  slashIndex,
+  slashState,
+  statsCharacters,
+  statsWords,
+  uploadingAttachment,
+  uploadsEnabled,
+}: RichTextEditorBodyProps) {
+  if (!currentEditor) {
+    return null
+  }
+
+  const activeEditor = currentEditor
+
+  function handleInlineMouseDownCapture(event: MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !activeEditor.isEmpty) {
+      return
+    }
+
+    const target = event.target instanceof HTMLElement ? event.target : null
+
+    if (target?.closest('button, a, input, textarea, label, [role="button"]')) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      activeEditor.commands.focus("end")
+    })
+  }
+
+  const activeSlashIndex =
+    filteredSlashCommands.length === 0
+      ? 0
+      : Math.min(slashIndex, filteredSlashCommands.length - 1)
+  const activeMentionIndex =
+    filteredMentionCandidates.length === 0
+      ? 0
+      : Math.min(mentionIndex, filteredMentionCandidates.length - 1)
+
+  const toolbar = showToolbar ? (
+    <RichTextToolbar
+      editable={editable}
+      editor={activeEditor}
+      fullPage={fullPage}
+      fullPageCanvasWidth={fullPageCanvasWidth}
+      handleFiles={handleToolbarFiles}
+      hiddenAttachmentInputRef={hiddenAttachmentInputRef}
+      hiddenImageInputRef={hiddenImageInputRef}
+      pickerInsertPosition={pickerInsertPosition}
+      requestAttachmentPicker={requestAttachmentPicker}
+      requestImagePicker={requestImagePicker}
+      setFullPageCanvasWidth={setFullPageCanvasWidth}
+      showStats={showStats}
+      statsCharacters={statsCharacters}
+      statsWords={statsWords}
+      toolbarWidthClassName={
+        FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
+      }
+      uploadsEnabled={uploadsEnabled}
+      uploadingAttachment={uploadingAttachment}
+    />
+  ) : null
+
+  const inlineEmojiPicker = (
+    <InlineEmojiPickerOverlay
+      anchor={emojiPickerAnchor}
+      containerWidth={containerWidth}
+      currentEditor={activeEditor}
+      editable={editable}
+      open={emojiPickerOpen}
+      onOpenChange={(open) => {
+        setEmojiPickerOpen(open)
+        if (!open) {
+          setEmojiPickerAnchor(null)
+        }
+      }}
+    />
+  )
+
+  const slashMenu =
+    allowSlashCommands && slashState ? (
+      <SlashCommandMenu
+        activeIndex={activeSlashIndex}
+        commands={filteredSlashCommands}
+        containerWidth={containerWidth}
+        editor={activeEditor}
+        state={slashState}
+        onComplete={() => {
+          setSlashState(null)
+          setSlashIndex(0)
+          previousSlashQueryRef.current = null
+        }}
+      />
+    ) : null
+
+  const mentionMenu = mentionState ? (
+    <MentionMenu
+      activeIndex={activeMentionIndex}
+      candidates={filteredMentionCandidates}
+      containerWidth={containerWidth}
+      editor={activeEditor}
+      placement={mentionMenuPlacement}
+      state={mentionState}
+      onSelectCandidate={onMentionInserted}
+      onComplete={() => {
+        setMentionState(null)
+        setMentionIndex(0)
+        previousMentionQueryRef.current = null
+      }}
+    />
+  ) : null
+
+  const blockPresence = (
+    <BlockPresenceOverlay
+      collaboration={collaboration}
+      markers={blockPresenceMarkers}
+    />
+  )
+  const collaborationCursorPresence = (
+    <CollaborationCursorPresenceOverlay
+      collaboration={collaboration}
+      markers={collaborationCursorMarkers}
+    />
+  )
+  const collaborationSelectionPresence = (
+    <CollaborationSelectionPresenceOverlay
+      collaboration={collaboration}
+      markers={collaborationSelectionMarkers}
+    />
+  )
+
+  return (
+    <RichTextEditorSurface
+      blockPresence={blockPresence}
+      className={className}
+      collaborationCursorPresence={collaborationCursorPresence}
+      collaborationSelectionPresence={collaborationSelectionPresence}
+      containerRef={containerRef}
+      currentEditor={activeEditor}
+      fullPage={fullPage}
+      fullPageCanvasWidth={fullPageCanvasWidth}
+      inlineEmojiPicker={inlineEmojiPicker}
+      mentionMenu={mentionMenu}
+      onInlineMouseDownCapture={handleInlineMouseDownCapture}
+      slashMenu={slashMenu}
+      toolbar={toolbar}
+    />
+  )
+}
+
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value)
+
+  useEffect(() => {
+    ref.current = value
+  }, [value])
+
+  return ref
+}
+
+function useRichTextContainerWidth({
+  containerRef,
+  fullPage,
+}: {
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  fullPage: boolean
+}) {
+  const [containerWidth, setContainerWidth] = useState(256)
+
+  useEffect(() => {
+    const container = containerRef.current
+
+    if (!container) {
+      return
+    }
+
+    const updateWidth = () => {
+      setContainerWidth(container.clientWidth || 256)
+    }
+
+    updateWidth()
+
+    if (typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateWidth()
+    })
+
+    resizeObserver.observe(container)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [containerRef, fullPage])
+
+  return containerWidth
+}
+
+function useForwardedEditorInstance({
+  editor,
+  editorRef,
+  editorInstanceRef,
+}: {
+  editor: Editor | null
+  editorRef: MutableRefObject<Editor | null>
+  editorInstanceRef: MutableRefObject<Editor | null> | undefined
+}) {
+  useEffect(() => {
+    editorRef.current = editor
+
+    if (editorInstanceRef) {
+      editorInstanceRef.current = editor
+    }
+
+    return () => {
+      if (editorInstanceRef) {
+        editorInstanceRef.current = null
+      }
+    }
+  }, [editor, editorInstanceRef, editorRef])
+}
+
+function useExternalRichTextContentSync({
+  collaboration,
+  editor,
+  onMentionCountsChangeRef,
+  sanitizedStringContent,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  editor: Editor | null
+  onMentionCountsChangeRef: MutableRefObject<
+    RichTextEditorProps["onMentionCountsChange"]
+  >
+  sanitizedStringContent: string | null
+}) {
+  useEffect(() => {
+    if (!editor || collaboration) {
+      return
+    }
+
+    const currentContent = editor.getHTML()
+
+    if (
+      sanitizedStringContent === null ||
+      currentContent === sanitizedStringContent ||
+      editor.isFocused
+    ) {
+      return
+    }
+
+    editor.commands.setContent(sanitizedStringContent, {
+      emitUpdate: false,
+    })
+    onMentionCountsChangeRef.current?.(
+      getEditorMentionCounts(editor),
+      "external"
+    )
+  }, [collaboration, editor, onMentionCountsChangeRef, sanitizedStringContent])
+}
+
+function useInitialCollaborationPresenceSync({
+  collaboration,
+  editor,
+  reportActiveBlockId,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  editor: Editor | null
+  reportActiveBlockId: (activeBlockId: string | null) => void
+}) {
+  useEffect(() => {
+    if (!editor || !collaboration) {
+      return
+    }
+
+    const activeBlockId = getActiveBlockId(editor)
+    const selection = getSelectionRange(editor)
+    const relativeSelection = getRelativeSelectionRange(editor)
+    updateEditorCollaborationUser(editor, collaboration, {
+      typing: false,
+      activeBlockId,
+      cursor: selection,
+      selection,
+      relativeCursor: relativeSelection,
+      relativeSelection,
+    })
+    reportActiveBlockId(activeBlockId)
+  }, [collaboration, editor, reportActiveBlockId])
+}
+
+function useRichTextEditorLifecycleEffects({
+  attachmentPickerRequest,
+  autoFocus,
+  clearTypingTimeout,
+  editable,
+  editor,
+  hiddenAttachmentInputRef,
+  hiddenImageInputRef,
+  imagePickerRequest,
+}: {
+  attachmentPickerRequest: number
+  autoFocus: boolean
+  clearTypingTimeout: () => void
+  editable: boolean
+  editor: Editor | null
+  hiddenAttachmentInputRef: MutableRefObject<HTMLInputElement | null>
+  hiddenImageInputRef: MutableRefObject<HTMLInputElement | null>
+  imagePickerRequest: number
+}) {
+  useEffect(() => {
+    if (!editor) {
+      return
+    }
+
+    editor.setEditable(editable)
+  }, [editable, editor])
+
+  useEffect(() => {
+    if (!editor || !autoFocus) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      editor.commands.focus("end")
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [autoFocus, editor])
+
+  useEffect(() => {
+    return () => {
+      clearTypingTimeout()
+    }
+  }, [clearTypingTimeout])
+
+  useEffect(() => {
+    if (attachmentPickerRequest === 0) {
+      return
+    }
+
+    hiddenAttachmentInputRef.current?.click()
+  }, [attachmentPickerRequest, hiddenAttachmentInputRef])
+
+  useEffect(() => {
+    if (imagePickerRequest === 0) {
+      return
+    }
+
+    hiddenImageInputRef.current?.click()
+  }, [hiddenImageInputRef, imagePickerRequest])
+}
+
+function useBlockPresenceMarkers({
+  containerRef,
+  containerWidth,
+  editor,
+  fullPageCanvasWidth,
+  visiblePresenceViewers,
+}: {
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  containerWidth: number
+  editor: Editor | null
+  fullPageCanvasWidth: FullPageCanvasWidth
+  visiblePresenceViewers: DocumentPresenceViewer[]
+}) {
+  const [markers, setMarkers] = useState<BlockPresenceMarker[]>([])
+
+  const updateMarkers = useCallback(() => {
+    if (!editor || visiblePresenceViewers.length === 0) {
+      setMarkers((current) => (current.length === 0 ? current : []))
+      return
+    }
+
+    const nextMarkers = collectBlockPresenceMarkers({
+      currentEditor: editor,
+      container: containerRef.current,
+      viewers: visiblePresenceViewers,
+    })
+
+    setMarkers((current) =>
+      areBlockPresenceMarkersEqual(current, nextMarkers) ? current : nextMarkers
+    )
+  }, [containerRef, editor, visiblePresenceViewers])
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(updateMarkers)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [containerWidth, fullPageCanvasWidth, updateMarkers])
+
+  useEffect(() => {
+    if (!editor) {
+      return
+    }
+
+    let frameId: number | null = null
+    const queueUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        updateMarkers()
+      })
+    }
+
+    const container = containerRef.current
+    queueUpdate()
+    editor.on("update", queueUpdate)
+    editor.on("selectionUpdate", queueUpdate)
+    container?.addEventListener("scroll", queueUpdate, { passive: true })
+    window.addEventListener("resize", queueUpdate)
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+
+      editor.off("update", queueUpdate)
+      editor.off("selectionUpdate", queueUpdate)
+      container?.removeEventListener("scroll", queueUpdate)
+      window.removeEventListener("resize", queueUpdate)
+    }
+  }, [containerRef, editor, updateMarkers])
+
+  return markers
+}
+
+function useCollaborationCursorMarkers({
+  collaboration,
+  containerRef,
+  containerWidth,
+  currentPresenceUserId,
+  editor,
+  fullPageCanvasWidth,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  containerWidth: number
+  currentPresenceUserId: string | null
+  editor: Editor | null
+  fullPageCanvasWidth: FullPageCanvasWidth
+}) {
+  const [markers, setMarkers] = useState<CollaborationCursorMarker[]>([])
+
+  const updateMarkers = useCallback(() => {
+    if (!editor || !collaboration) {
+      setMarkers((current) => (current.length === 0 ? current : []))
+      return
+    }
+
+    const nextMarkers = collectCollaborationCursorMarkers({
+      currentEditor: editor,
+      container: containerRef.current,
+      collaboration,
+      currentPresenceUserId,
+    })
+    const activeKeys = collectActiveCollaborationMarkerKeys({
+      collaboration,
+      currentPresenceUserId,
+    })
+
+    setMarkers((current) => {
+      const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
+      const preservedMarkers = current.filter(
+        (marker) =>
+          activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
+      )
+      const mergedMarkers = [...nextMarkers, ...preservedMarkers].sort(
+        (left, right) =>
+          left.top - right.top ||
+          left.left - right.left ||
+          left.key.localeCompare(right.key)
+      )
+
+      return areCollaborationCursorMarkersEqual(current, mergedMarkers)
+        ? current
+        : mergedMarkers
+    })
+  }, [collaboration, containerRef, currentPresenceUserId, editor])
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(updateMarkers)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [containerWidth, fullPageCanvasWidth, updateMarkers])
+
+  useEffect(() => {
+    if (!editor || !collaboration) {
+      return
+    }
+
+    let frameId: number | null = null
+    let settleFrameId: number | null = null
+    const provider = collaboration.binding.provider
+    const queueUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        settleFrameId = window.requestAnimationFrame(() => {
+          settleFrameId = null
+          updateMarkers()
+        })
+      })
+    }
+
+    const container = containerRef.current
+    queueUpdate()
+    editor.on("update", queueUpdate)
+    editor.on("selectionUpdate", queueUpdate)
+    provider.awareness.on("change", queueUpdate)
+    provider.awareness.on("update", queueUpdate)
+    container?.addEventListener("scroll", queueUpdate, { passive: true })
+    window.addEventListener("resize", queueUpdate)
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
+
+      editor.off("update", queueUpdate)
+      editor.off("selectionUpdate", queueUpdate)
+      provider.awareness.off("change", queueUpdate)
+      provider.awareness.off("update", queueUpdate)
+      container?.removeEventListener("scroll", queueUpdate)
+      window.removeEventListener("resize", queueUpdate)
+    }
+  }, [collaboration, containerRef, editor, updateMarkers])
+
+  return markers
+}
+
+function useCollaborationSelectionMarkers({
+  collaboration,
+  containerRef,
+  containerWidth,
+  currentPresenceUserId,
+  editor,
+  fullPageCanvasWidth,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  containerWidth: number
+  currentPresenceUserId: string | null
+  editor: Editor | null
+  fullPageCanvasWidth: FullPageCanvasWidth
+}) {
+  const [markers, setMarkers] = useState<CollaborationSelectionMarker[]>([])
+
+  const updateMarkers = useCallback(() => {
+    if (!editor || !collaboration) {
+      setMarkers((current) => (current.length === 0 ? current : []))
+      return
+    }
+
+    const nextMarkers = collectCollaborationSelectionMarkers({
+      currentEditor: editor,
+      container: containerRef.current,
+      collaboration,
+      currentPresenceUserId,
+    })
+
+    setMarkers((current) =>
+      areCollaborationSelectionMarkersEqual(current, nextMarkers)
+        ? current
+        : nextMarkers
+    )
+  }, [collaboration, containerRef, currentPresenceUserId, editor])
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(updateMarkers)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [containerWidth, fullPageCanvasWidth, updateMarkers])
+
+  useEffect(() => {
+    if (!editor || !collaboration) {
+      return
+    }
+
+    let frameId: number | null = null
+    let settleFrameId: number | null = null
+    const provider = collaboration.binding.provider
+    const queueUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        settleFrameId = window.requestAnimationFrame(() => {
+          settleFrameId = null
+          updateMarkers()
+        })
+      })
+    }
+
+    const container = containerRef.current
+    queueUpdate()
+    editor.on("update", queueUpdate)
+    editor.on("selectionUpdate", queueUpdate)
+    provider.awareness.on("change", queueUpdate)
+    provider.awareness.on("update", queueUpdate)
+    container?.addEventListener("scroll", queueUpdate, { passive: true })
+    window.addEventListener("resize", queueUpdate)
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
+
+      editor.off("update", queueUpdate)
+      editor.off("selectionUpdate", queueUpdate)
+      provider.awareness.off("change", queueUpdate)
+      provider.awareness.off("update", queueUpdate)
+      container?.removeEventListener("scroll", queueUpdate)
+      window.removeEventListener("resize", queueUpdate)
+    }
+  }, [collaboration, containerRef, editor, updateMarkers])
+
+  return markers
+}
+
 export function RichTextEditor({
   content,
   onChange,
@@ -1370,10 +2665,10 @@ export function RichTextEditor({
   const editorRef = useRef<Editor | null>(null)
   const previousSlashQueryRef = useRef<string | null>(null)
   const previousMentionQueryRef = useRef<string | null>(null)
-  const onChangeRef = useRef(onChange)
-  const onUploadAttachmentRef = useRef(onUploadAttachment)
-  const onMentionCountsChangeRef = useRef(onMentionCountsChange)
-  const onMentionInsertedRef = useRef(onMentionInserted)
+  const onChangeRef = useLatestRef(onChange)
+  const onUploadAttachmentRef = useLatestRef(onUploadAttachment)
+  const onMentionCountsChangeRef = useLatestRef(onMentionCountsChange)
+  const onMentionInsertedRef = useLatestRef(onMentionInserted)
   const typingTimeoutRef = useRef<number | null>(null)
   const lastReportedActiveBlockIdRef = useRef<string | null>(null)
 
@@ -1390,32 +2685,6 @@ export function RichTextEditor({
   const [emojiPickerAnchor, setEmojiPickerAnchor] =
     useState<EmojiPickerAnchor | null>(null)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
-  const [containerWidth, setContainerWidth] = useState(256)
-  const [blockPresenceMarkers, setBlockPresenceMarkers] = useState<
-    BlockPresenceMarker[]
-  >([])
-  const [collaborationSelectionMarkers, setCollaborationSelectionMarkers] =
-    useState<CollaborationSelectionMarker[]>([])
-  const [collaborationCursorMarkers, setCollaborationCursorMarkers] = useState<
-    CollaborationCursorMarker[]
-  >([])
-
-  useEffect(() => {
-    onChangeRef.current = onChange
-  }, [onChange])
-
-  useEffect(() => {
-    onUploadAttachmentRef.current = onUploadAttachment
-  }, [onUploadAttachment])
-
-  useEffect(() => {
-    onMentionCountsChangeRef.current = onMentionCountsChange
-  }, [onMentionCountsChange])
-
-  useEffect(() => {
-    onMentionInsertedRef.current = onMentionInserted
-  }, [onMentionInserted])
-
   const reportActiveBlockId = useCallback(
     (activeBlockId: string | null) => {
       if (lastReportedActiveBlockIdRef.current === activeBlockId) {
@@ -1429,34 +2698,7 @@ export function RichTextEditor({
   )
   const { fullPageCanvasWidth, setFullPageCanvasWidth } =
     useFullPageCanvasWidthPreference(fullPage)
-
-  useEffect(() => {
-    const container = containerRef.current
-
-    if (!container) {
-      return
-    }
-
-    const updateWidth = () => {
-      setContainerWidth(container.clientWidth || 256)
-    }
-
-    updateWidth()
-
-    if (typeof ResizeObserver === "undefined") {
-      return
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateWidth()
-    })
-
-    resizeObserver.observe(container)
-
-    return () => {
-      resizeObserver.disconnect()
-    }
-  }, [fullPage])
+  const containerWidth = useRichTextContainerWidth({ containerRef, fullPage })
 
   function requestAttachmentPicker(currentEditor: Editor) {
     setPickerInsertPosition(currentEditor.state.selection.from)
@@ -1513,12 +2755,7 @@ export function RichTextEditor({
     syncMentionState(buildMentionState(currentEditor, containerRef.current))
   }
 
-  // Build editor class based on mode
-  const editorClass = fullPage
-    ? "min-h-[calc(100svh-12rem)] text-base outline-none [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
-    : compact
-      ? "min-h-16 text-sm outline-none [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-6 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
-      : "min-h-24 text-sm outline-none [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+  const editorClass = getRichTextEditorClassName({ compact, fullPage })
 
   const sanitizedStringContent = useMemo(
     () =>
@@ -1531,12 +2768,7 @@ export function RichTextEditor({
   const collaborationDocument = collaboration?.binding.doc ?? null
   const collaborationProvider = collaboration?.binding.provider ?? null
   const visiblePresenceViewers = useMemo(
-    () =>
-      currentPresenceUserId
-        ? presenceViewers.filter(
-            (viewer) => viewer.userId !== currentPresenceUserId
-          )
-        : presenceViewers,
+    () => getVisiblePresenceViewers({ currentPresenceUserId, presenceViewers }),
     [currentPresenceUserId, presenceViewers]
   )
   const baseExtensions = useMemo(
@@ -1571,12 +2803,12 @@ export function RichTextEditor({
     [collaborationDocument, collaborationProvider]
   )
 
-  function clearTypingTimeout() {
+  const clearTypingTimeout = useCallback(() => {
     if (typingTimeoutRef.current !== null) {
       window.clearTimeout(typingTimeoutRef.current)
       typingTimeoutRef.current = null
     }
-  }
+  }, [])
 
   function scheduleTypingIdleReset(currentEditor: Editor) {
     if (!collaboration) {
@@ -1616,7 +2848,7 @@ export function RichTextEditor({
         })
       }
     },
-    []
+    [onUploadAttachmentRef]
   )
 
   const handleEditorFiles = useCallback(
@@ -1632,7 +2864,7 @@ export function RichTextEditor({
         nextPosition = null
       }
     },
-    [handleEditorAttachment]
+    [handleEditorAttachment, onUploadAttachmentRef]
   )
 
   const handleToolbarFiles = useCallback(
@@ -1684,169 +2916,35 @@ export function RichTextEditor({
         },
         handleKeyDown(_view, event) {
           const currentEditor = editorRef.current
-          const currentSlashState = allowSlashCommands ? slashState : null
-          const currentMentionState = mentionState
-          const slashOptions = {
-            enableUploads: Boolean(onUploadAttachment),
-            promptEmojiPicker: (nextEditor: Editor) =>
-              requestEmojiPicker(nextEditor, currentSlashState),
-            promptAttachmentUpload: requestAttachmentPicker,
-            promptImageUpload: requestImagePicker,
-          }
 
           if (!currentEditor) {
             return false
           }
 
-          if (currentSlashState) {
-            const nextCommands = filterSlashCommands(
-              currentSlashState.query,
-              slashOptions
-            )
-            const maxSlashIndex = Math.max(nextCommands.length - 1, 0)
-
-            if (event.key === "Escape") {
-              setSlashState(null)
-              previousSlashQueryRef.current = null
-              return true
-            }
-
-            if (event.key === "ArrowDown") {
-              event.preventDefault()
-              setSlashIndex((current) =>
-                Math.min(Math.min(current, maxSlashIndex) + 1, maxSlashIndex)
-              )
-              return true
-            }
-
-            if (event.key === "ArrowUp") {
-              event.preventDefault()
-              setSlashIndex((current) =>
-                Math.max(0, Math.min(current, maxSlashIndex) - 1)
-              )
-              return true
-            }
-
-            if (event.key === "Enter") {
-              const selected =
-                nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
-                nextCommands[0]
-
-              if (!selected) {
-                return false
-              }
-
-              event.preventDefault()
-              currentEditor
-                .chain()
-                .focus()
-                .deleteRange({
-                  from: currentSlashState.from,
-                  to: currentSlashState.to,
-                })
-                .run()
-              selected.run(currentEditor)
-              setSlashState(null)
-              setSlashIndex(0)
-              return true
-            }
-
-            const nextSlashState = buildSlashState(
-              currentEditor,
-              containerRef.current
-            )
-            if (!nextSlashState) {
-              setSlashState(null)
-              setSlashIndex(0)
-              previousSlashQueryRef.current = null
-            }
-
-            return false
-          }
-
-          if (currentMentionState) {
-            const nextCandidates = filterMentionCandidates(
-              currentMentionState.query,
-              mentionCandidates
-            )
-            const maxMentionIndex = Math.max(nextCandidates.length - 1, 0)
-
-            if (event.key === "Escape") {
-              setMentionState(null)
-              previousMentionQueryRef.current = null
-              return true
-            }
-
-            if (event.key === "ArrowDown") {
-              event.preventDefault()
-              setMentionIndex((current) =>
-                Math.min(
-                  Math.min(current, maxMentionIndex) + 1,
-                  maxMentionIndex
-                )
-              )
-              return true
-            }
-
-            if (event.key === "ArrowUp") {
-              event.preventDefault()
-              setMentionIndex((current) =>
-                Math.max(0, Math.min(current, maxMentionIndex) - 1)
-              )
-              return true
-            }
-
-            if (event.key === "Enter") {
-              const selected =
-                nextCandidates[
-                  Math.min(mentionIndex, nextCandidates.length - 1)
-                ] ?? nextCandidates[0]
-
-              if (!selected) {
-                return false
-              }
-
-              event.preventDefault()
-              insertMention(currentEditor, currentMentionState, selected)
-              onMentionInsertedRef.current?.(selected)
-              setMentionState(null)
-              setMentionIndex(0)
-              return true
-            }
-
-            const nextMentionState = buildMentionState(
-              currentEditor,
-              containerRef.current
-            )
-            if (!nextMentionState) {
-              setMentionState(null)
-              setMentionIndex(0)
-              previousMentionQueryRef.current = null
-            }
-          }
-
-          if (
-            onSubmitShortcut &&
-            submitOnEnter &&
-            event.key === "Enter" &&
-            !event.shiftKey
-          ) {
-            event.preventDefault()
-            onSubmitShortcut()
-            return true
-          }
-
-          if (
-            onSubmitShortcut &&
-            event.key === "Enter" &&
-            (event.metaKey || event.ctrlKey)
-          ) {
-            event.preventDefault()
-            onSubmitShortcut()
-            return true
-          }
-
-          return false
+          return handleRichTextEditorKeyDown({
+            allowSlashCommands,
+            container: containerRef.current,
+            currentEditor,
+            event,
+            mentionCandidates,
+            mentionIndex,
+            mentionState,
+            onMentionInsertedRef,
+            onSubmitShortcut,
+            onUploadAttachment,
+            previousMentionQueryRef,
+            previousSlashQueryRef,
+            requestAttachmentPicker,
+            requestEmojiPicker,
+            requestImagePicker,
+            setMentionIndex,
+            setMentionState,
+            setSlashIndex,
+            setSlashState,
+            slashIndex,
+            slashState,
+            submitOnEnter,
+          })
         },
       },
       onCreate({ editor: currentEditor }) {
@@ -1963,117 +3061,28 @@ export function RichTextEditor({
     ]
   )
 
-  useEffect(() => {
-    editorRef.current = editor
-    if (editorInstanceRef) {
-      editorInstanceRef.current = editor
-    }
-
-    return () => {
-      if (editorInstanceRef) {
-        editorInstanceRef.current = null
-      }
-    }
-  }, [editor, editorInstanceRef])
-
-  useEffect(() => {
-    if (!editor) {
-      return
-    }
-
-    if (collaboration) {
-      return
-    }
-
-    const currentContent = editor.getHTML()
-
-    if (sanitizedStringContent === null) {
-      return
-    }
-
-    if (currentContent === sanitizedStringContent) {
-      return
-    }
-
-    // Ignore external content churn while the user is actively typing.
-    // This prevents stale snapshot echoes from resetting the document.
-    if (editor.isFocused) {
-      return
-    }
-
-    if (currentContent !== sanitizedStringContent) {
-      editor.commands.setContent(sanitizedStringContent, {
-        emitUpdate: false,
-      })
-      onMentionCountsChangeRef.current?.(
-        getEditorMentionCounts(editor),
-        "external"
-      )
-    }
-  }, [collaboration, editor, sanitizedStringContent])
-
-  useEffect(() => {
-    if (!editor || !collaboration) {
-      return
-    }
-
-    const activeBlockId = getActiveBlockId(editor)
-    const selection = getSelectionRange(editor)
-    const relativeSelection = getRelativeSelectionRange(editor)
-    updateEditorCollaborationUser(editor, collaboration, {
-      typing: false,
-      activeBlockId,
-      cursor: selection,
-      selection,
-      relativeCursor: relativeSelection,
-      relativeSelection,
-    })
-    reportActiveBlockId(activeBlockId)
-  }, [collaboration, editor, reportActiveBlockId])
-
-  useEffect(() => {
-    if (!editor) {
-      return
-    }
-
-    editor.setEditable(editable)
-  }, [editable, editor])
-
-  useEffect(() => {
-    if (!editor || !autoFocus) {
-      return
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      editor.commands.focus("end")
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-    }
-  }, [autoFocus, editor])
-
-  useEffect(() => {
-    return () => {
-      clearTypingTimeout()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (attachmentPickerRequest === 0) {
-      return
-    }
-
-    hiddenAttachmentInputRef.current?.click()
-  }, [attachmentPickerRequest])
-
-  useEffect(() => {
-    if (imagePickerRequest === 0) {
-      return
-    }
-
-    hiddenImageInputRef.current?.click()
-  }, [imagePickerRequest])
+  useForwardedEditorInstance({ editor, editorInstanceRef, editorRef })
+  useExternalRichTextContentSync({
+    collaboration,
+    editor,
+    onMentionCountsChangeRef,
+    sanitizedStringContent,
+  })
+  useInitialCollaborationPresenceSync({
+    collaboration,
+    editor,
+    reportActiveBlockId,
+  })
+  useRichTextEditorLifecycleEffects({
+    attachmentPickerRequest,
+    autoFocus,
+    clearTypingTimeout,
+    editable,
+    editor,
+    hiddenAttachmentInputRef,
+    hiddenImageInputRef,
+    imagePickerRequest,
+  })
 
   const filteredSlashCommands = useMemo(() => {
     if (!allowSlashCommands || !slashState || !editor) {
@@ -2110,84 +3119,29 @@ export function RichTextEditor({
       ? maxPlainTextCharacters - statsCharacters
       : null
 
-  const updateBlockPresenceMarkers = useCallback(() => {
-    if (!editor || visiblePresenceViewers.length === 0) {
-      setBlockPresenceMarkers((current) =>
-        current.length === 0 ? current : []
-      )
-      return
-    }
-
-    const nextMarkers = collectBlockPresenceMarkers({
-      currentEditor: editor,
-      container: containerRef.current,
-      viewers: visiblePresenceViewers,
-    })
-
-    setBlockPresenceMarkers((current) =>
-      areBlockPresenceMarkersEqual(current, nextMarkers) ? current : nextMarkers
-    )
-  }, [editor, visiblePresenceViewers])
-
-  const updateCollaborationCursorMarkers = useCallback(() => {
-    if (!editor || !collaboration) {
-      setCollaborationCursorMarkers((current) =>
-        current.length === 0 ? current : []
-      )
-      return
-    }
-
-    const nextMarkers = collectCollaborationCursorMarkers({
-      currentEditor: editor,
-      container: containerRef.current,
-      collaboration,
-      currentPresenceUserId,
-    })
-    const activeKeys = collectActiveCollaborationMarkerKeys({
-      collaboration,
-      currentPresenceUserId,
-    })
-
-    setCollaborationCursorMarkers((current) => {
-      const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
-      const preservedMarkers = current.filter(
-        (marker) =>
-          activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
-      )
-      const mergedMarkers = [...nextMarkers, ...preservedMarkers].sort(
-        (left, right) =>
-          left.top - right.top ||
-          left.left - right.left ||
-          left.key.localeCompare(right.key)
-      )
-
-      return areCollaborationCursorMarkersEqual(current, mergedMarkers)
-        ? current
-        : mergedMarkers
-    })
-  }, [collaboration, currentPresenceUserId, editor])
-
-  const updateCollaborationSelectionMarkers = useCallback(() => {
-    if (!editor || !collaboration) {
-      setCollaborationSelectionMarkers((current) =>
-        current.length === 0 ? current : []
-      )
-      return
-    }
-
-    const nextMarkers = collectCollaborationSelectionMarkers({
-      currentEditor: editor,
-      container: containerRef.current,
-      collaboration,
-      currentPresenceUserId,
-    })
-
-    setCollaborationSelectionMarkers((current) =>
-      areCollaborationSelectionMarkersEqual(current, nextMarkers)
-        ? current
-        : nextMarkers
-    )
-  }, [collaboration, currentPresenceUserId, editor])
+  const blockPresenceMarkers = useBlockPresenceMarkers({
+    containerRef,
+    containerWidth,
+    editor,
+    fullPageCanvasWidth,
+    visiblePresenceViewers,
+  })
+  const collaborationCursorMarkers = useCollaborationCursorMarkers({
+    collaboration,
+    containerRef,
+    containerWidth,
+    currentPresenceUserId,
+    editor,
+    fullPageCanvasWidth,
+  })
+  const collaborationSelectionMarkers = useCollaborationSelectionMarkers({
+    collaboration,
+    containerRef,
+    containerWidth,
+    currentPresenceUserId,
+    editor,
+    fullPageCanvasWidth,
+  })
 
   useEffect(() => {
     onStatsChange?.({
@@ -2217,434 +3171,51 @@ export function RichTextEditor({
     tooShort,
   ])
 
-  useEffect(() => {
-    updateBlockPresenceMarkers()
-  }, [containerWidth, fullPageCanvasWidth, updateBlockPresenceMarkers])
-
-  useEffect(() => {
-    updateCollaborationCursorMarkers()
-  }, [containerWidth, fullPageCanvasWidth, updateCollaborationCursorMarkers])
-
-  useEffect(() => {
-    updateCollaborationSelectionMarkers()
-  }, [containerWidth, fullPageCanvasWidth, updateCollaborationSelectionMarkers])
-
-  useEffect(() => {
-    if (!editor) {
-      return
-    }
-
-    let frameId: number | null = null
-    const queueUpdate = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        updateBlockPresenceMarkers()
-      })
-    }
-
-    const container = containerRef.current
-    queueUpdate()
-    editor.on("update", queueUpdate)
-    editor.on("selectionUpdate", queueUpdate)
-    container?.addEventListener("scroll", queueUpdate, { passive: true })
-    window.addEventListener("resize", queueUpdate)
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-
-      editor.off("update", queueUpdate)
-      editor.off("selectionUpdate", queueUpdate)
-      container?.removeEventListener("scroll", queueUpdate)
-      window.removeEventListener("resize", queueUpdate)
-    }
-  }, [editor, updateBlockPresenceMarkers])
-
-  useEffect(() => {
-    if (!editor || !collaboration) {
-      return
-    }
-
-    let frameId: number | null = null
-    let settleFrameId: number | null = null
-    const provider = collaboration.binding.provider
-    const queueUpdate = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        settleFrameId = window.requestAnimationFrame(() => {
-          settleFrameId = null
-          updateCollaborationCursorMarkers()
-        })
-      })
-    }
-
-    const container = containerRef.current
-    queueUpdate()
-    editor.on("update", queueUpdate)
-    editor.on("selectionUpdate", queueUpdate)
-    provider.awareness.on("change", queueUpdate)
-    provider.awareness.on("update", queueUpdate)
-    container?.addEventListener("scroll", queueUpdate, { passive: true })
-    window.addEventListener("resize", queueUpdate)
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
-
-      editor.off("update", queueUpdate)
-      editor.off("selectionUpdate", queueUpdate)
-      provider.awareness.off("change", queueUpdate)
-      provider.awareness.off("update", queueUpdate)
-      container?.removeEventListener("scroll", queueUpdate)
-      window.removeEventListener("resize", queueUpdate)
-    }
-  }, [collaboration, editor, updateCollaborationCursorMarkers])
-
-  useEffect(() => {
-    if (!editor || !collaboration) {
-      return
-    }
-
-    let frameId: number | null = null
-    let settleFrameId: number | null = null
-    const provider = collaboration.binding.provider
-    const queueUpdate = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        settleFrameId = window.requestAnimationFrame(() => {
-          settleFrameId = null
-          updateCollaborationSelectionMarkers()
-        })
-      })
-    }
-
-    const container = containerRef.current
-    queueUpdate()
-    editor.on("update", queueUpdate)
-    editor.on("selectionUpdate", queueUpdate)
-    provider.awareness.on("change", queueUpdate)
-    provider.awareness.on("update", queueUpdate)
-    container?.addEventListener("scroll", queueUpdate, { passive: true })
-    window.addEventListener("resize", queueUpdate)
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
-
-      editor.off("update", queueUpdate)
-      editor.off("selectionUpdate", queueUpdate)
-      provider.awareness.off("change", queueUpdate)
-      provider.awareness.off("update", queueUpdate)
-      container?.removeEventListener("scroll", queueUpdate)
-      window.removeEventListener("resize", queueUpdate)
-    }
-  }, [collaboration, editor, updateCollaborationSelectionMarkers])
-
-  if (!editor) {
-    return null
-  }
-
-  const currentEditor = editor
-
-  function handleInlineMouseDownCapture(event: MouseEvent<HTMLDivElement>) {
-    if (event.button !== 0 || !currentEditor.isEmpty) {
-      return
-    }
-
-    const target = event.target instanceof HTMLElement ? event.target : null
-
-    if (target?.closest('button, a, input, textarea, label, [role="button"]')) {
-      return
-    }
-
-    window.requestAnimationFrame(() => {
-      currentEditor.commands.focus("end")
-    })
-  }
-
-  const activeSlashIndex =
-    filteredSlashCommands.length === 0
-      ? 0
-      : Math.min(slashIndex, filteredSlashCommands.length - 1)
-  const activeMentionIndex =
-    filteredMentionCandidates.length === 0
-      ? 0
-      : Math.min(mentionIndex, filteredMentionCandidates.length - 1)
-
-  const toolbar = showToolbar ? (
-    <RichTextToolbar
+  return (
+    <RichTextEditorBody
+      allowSlashCommands={allowSlashCommands}
+      blockPresenceMarkers={blockPresenceMarkers}
+      className={className}
+      collaboration={collaboration}
+      collaborationCursorMarkers={collaborationCursorMarkers}
+      collaborationSelectionMarkers={collaborationSelectionMarkers}
+      containerRef={containerRef}
+      containerWidth={containerWidth}
+      currentEditor={editor}
       editable={editable}
-      editor={currentEditor}
+      emojiPickerAnchor={emojiPickerAnchor}
+      emojiPickerOpen={emojiPickerOpen}
+      filteredMentionCandidates={filteredMentionCandidates}
+      filteredSlashCommands={filteredSlashCommands}
       fullPage={fullPage}
       fullPageCanvasWidth={fullPageCanvasWidth}
-      handleFiles={handleToolbarFiles}
+      handleToolbarFiles={handleToolbarFiles}
       hiddenAttachmentInputRef={hiddenAttachmentInputRef}
       hiddenImageInputRef={hiddenImageInputRef}
+      mentionIndex={mentionIndex}
+      mentionMenuPlacement={mentionMenuPlacement}
+      mentionState={mentionState}
+      onMentionInserted={onMentionInserted}
       pickerInsertPosition={pickerInsertPosition}
+      previousMentionQueryRef={previousMentionQueryRef}
+      previousSlashQueryRef={previousSlashQueryRef}
       requestAttachmentPicker={requestAttachmentPicker}
       requestImagePicker={requestImagePicker}
+      setEmojiPickerAnchor={setEmojiPickerAnchor}
+      setEmojiPickerOpen={setEmojiPickerOpen}
       setFullPageCanvasWidth={setFullPageCanvasWidth}
+      setMentionIndex={setMentionIndex}
+      setMentionState={setMentionState}
+      setSlashIndex={setSlashIndex}
+      setSlashState={setSlashState}
       showStats={showStats}
+      showToolbar={showToolbar}
+      slashIndex={slashIndex}
+      slashState={slashState}
       statsCharacters={statsCharacters}
       statsWords={statsWords}
-      toolbarWidthClassName={
-        FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
-      }
-      uploadsEnabled={Boolean(onUploadAttachment)}
       uploadingAttachment={uploadingAttachment}
+      uploadsEnabled={Boolean(onUploadAttachment)}
     />
-  ) : null
-
-  const inlineEmojiPicker =
-    editable && emojiPickerAnchor ? (
-      <div
-        className="absolute z-20"
-        style={{
-          left: Math.min(
-            Math.max(12, emojiPickerAnchor.left),
-            Math.max(12, containerWidth - 24)
-          ),
-          top: emojiPickerAnchor.top,
-        }}
-      >
-        <EmojiPickerPopover
-          align="start"
-          side="bottom"
-          open={emojiPickerOpen}
-          onOpenChange={(open) => {
-            setEmojiPickerOpen(open)
-            if (!open) {
-              setEmojiPickerAnchor(null)
-            }
-          }}
-          onEmojiSelect={(emoji) => {
-            currentEditor.chain().focus().insertContent(emoji).run()
-          }}
-          trigger={
-            <button
-              type="button"
-              aria-hidden="true"
-              tabIndex={-1}
-              className="pointer-events-none size-px opacity-0"
-            />
-          }
-        />
-      </div>
-    ) : null
-
-  const slashMenu =
-    allowSlashCommands && slashState ? (
-      <SlashCommandMenu
-        activeIndex={activeSlashIndex}
-        commands={filteredSlashCommands}
-        containerWidth={containerWidth}
-        editor={currentEditor}
-        state={slashState}
-        onComplete={() => {
-          setSlashState(null)
-          setSlashIndex(0)
-          previousSlashQueryRef.current = null
-        }}
-      />
-    ) : null
-
-  const mentionMenu = mentionState ? (
-    <MentionMenu
-      activeIndex={activeMentionIndex}
-      candidates={filteredMentionCandidates}
-      containerWidth={containerWidth}
-      editor={currentEditor}
-      placement={mentionMenuPlacement}
-      state={mentionState}
-      onSelectCandidate={onMentionInserted}
-      onComplete={() => {
-        setMentionState(null)
-        setMentionIndex(0)
-        previousMentionQueryRef.current = null
-      }}
-    />
-  ) : null
-
-  const blockPresence =
-    !collaboration && blockPresenceMarkers.length > 0 ? (
-      <div className="pointer-events-none absolute inset-0 z-10">
-        {blockPresenceMarkers.map((marker) => {
-          const viewerNames = marker.viewers
-            .map((viewer) => viewer.name)
-            .join(", ")
-
-          return (
-            <div
-              key={marker.blockId}
-              className="absolute left-3"
-              style={{ top: marker.top }}
-              aria-label={`Active here: ${viewerNames}`}
-              title={`Active here: ${viewerNames}`}
-            >
-              <div className="flex items-start gap-1.5">
-                {marker.viewers
-                  .slice(0, MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS)
-                  .map((viewer) => {
-                    const color = getCollaborationUserColor(viewer.userId)
-
-                    return (
-                      <div
-                        key={viewer.userId}
-                        className="flex flex-col items-start"
-                      >
-                        <span
-                          className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm"
-                          style={{ backgroundColor: color }}
-                        >
-                          {viewer.name}
-                        </span>
-                        <span
-                          className="ml-2 h-4 w-0.5 rounded-full"
-                          style={{ backgroundColor: color }}
-                        />
-                      </div>
-                    )
-                  })}
-                {marker.viewers.length > MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS ? (
-                  <span className="rounded-full bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border">
-                    {`+${marker.viewers.length - MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS}`}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    ) : null
-
-  const collaborationCursorPresence =
-    collaboration && collaborationCursorMarkers.length > 0 ? (
-      <div className="pointer-events-none absolute inset-0 z-10">
-        {collaborationCursorMarkers.map((marker) => {
-          const showLabelBelow =
-            marker.top < COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX
-
-          return (
-            <div
-              key={marker.key}
-              className="absolute"
-              style={{
-                left: marker.left,
-                top: marker.top,
-              }}
-              aria-label={`${marker.name} is editing here`}
-              title={`${marker.name} is editing here`}
-            >
-              <span
-                className="absolute top-0 left-0 w-0.5 rounded-full"
-                style={{
-                  height: marker.height,
-                  backgroundColor: marker.color,
-                }}
-              />
-              <span
-                className={cn(
-                  "absolute left-0 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white shadow-sm",
-                  showLabelBelow
-                    ? "-translate-x-1/2"
-                    : "-translate-x-1/2 -translate-y-[calc(100%+4px)]"
-                )}
-                style={{
-                  top: showLabelBelow ? marker.height + 4 : 0,
-                  backgroundColor: marker.color,
-                }}
-              >
-                {marker.name}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    ) : null
-
-  const collaborationSelectionPresence =
-    collaboration && collaborationSelectionMarkers.length > 0 ? (
-      <div className="pointer-events-none absolute inset-0 z-[5]">
-        {collaborationSelectionMarkers.map((marker) => (
-          <div
-            key={marker.key}
-            className="absolute rounded-[3px]"
-            style={{
-              left: marker.left,
-              top: marker.top,
-              width: marker.width,
-              height: marker.height,
-              backgroundColor: `${marker.color}22`,
-            }}
-          />
-        ))}
-      </div>
-    ) : null
-
-  // Full-page mode — used for standalone documents
-  if (fullPage) {
-    return (
-      <FullPageRichTextShell
-        canvasWidth={fullPageCanvasWidth}
-        className={className}
-        containerRef={containerRef}
-        toolbar={toolbar}
-      >
-        <EditorContent editor={currentEditor} />
-        {collaborationSelectionPresence}
-        {collaborationCursorPresence}
-        {blockPresence}
-        {slashMenu}
-        {mentionMenu}
-        {inlineEmojiPicker}
-      </FullPageRichTextShell>
-    )
-  }
-
-  // Inline mode — used for issue descriptions (no card, no border, seamless)
-  return (
-    <div className={cn("flex flex-col gap-1", className)}>
-      <div
-        className="relative"
-        onMouseDownCapture={handleInlineMouseDownCapture}
-        ref={containerRef}
-      >
-        <EditorContent editor={currentEditor} />
-        {collaborationSelectionPresence}
-        {collaborationCursorPresence}
-        {blockPresence}
-        {slashMenu}
-        {mentionMenu}
-        {inlineEmojiPicker}
-      </div>
-      {toolbar}
-    </div>
   )
 }

@@ -1,5 +1,4 @@
 import { saveSession } from "@workos-inc/authkit-nextjs"
-import { NextResponse } from "next/server"
 
 import {
   pendingEmailVerificationCookieName,
@@ -14,18 +13,14 @@ import {
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 import { logProviderError } from "@/lib/server/provider-errors"
+import { getRequestMetadata } from "@/lib/server/auth-request"
+import { redirectToRoute } from "@/lib/server/route-response"
 import {
   getWorkOSAuthErrorCode,
   getWorkOSAuthErrorMessage,
   getWorkOSClient,
   getWorkOSPendingAuthentication,
 } from "@/lib/server/workos"
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url), {
-    status: request.method === "POST" ? 303 : 307,
-  })
-}
 
 function mapSignupError(error: unknown) {
   const code = getWorkOSAuthErrorCode(error)
@@ -38,10 +33,7 @@ function mapSignupError(error: unknown) {
       ? error.message
       : null)
 
-  if (
-    code &&
-    /already|exists|duplicate|conflict/i.test(code)
-  ) {
+  if (code && /already|exists|duplicate|conflict/i.test(code)) {
     return "Account already created. Please sign in."
   }
 
@@ -98,7 +90,11 @@ function isSignupConflict(error: unknown) {
   )
 }
 
-function withSignupProfileParams(path: string, firstName: string, lastName: string) {
+function withSignupProfileParams(
+  path: string,
+  firstName: string,
+  lastName: string
+) {
   const [pathname, existingQuery = ""] = path.split("?", 2)
   const searchParams = new URLSearchParams(existingQuery)
   searchParams.set("firstName", firstName)
@@ -108,93 +104,162 @@ function withSignupProfileParams(path: string, firstName: string, lastName: stri
   return query ? `${pathname}?${query}` : pathname
 }
 
-function getRequestMetadata(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for")
-  const ipAddress = forwardedFor?.split(",")[0]?.trim() || undefined
-  const userAgent = request.headers.get("user-agent") || undefined
+type SignupFormFields = {
+  email: string
+  firstName: string
+  lastName: string
+  nextPath: string
+  password: string
+}
+
+async function getSignupFormFields(
+  request: Request
+): Promise<SignupFormFields> {
+  const formData = await request.formData()
 
   return {
-    ipAddress,
-    userAgent,
+    firstName: String(formData.get("firstName") ?? "").trim(),
+    lastName: String(formData.get("lastName") ?? "").trim(),
+    email: String(formData.get("email") ?? "").trim(),
+    password: String(formData.get("password") ?? ""),
+    nextPath: normalizeAuthNextPath(String(formData.get("next") ?? "")),
   }
 }
 
-export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
+function isSignupFormComplete(fields: SignupFormFields) {
+  return Boolean(
+    fields.firstName && fields.lastName && fields.email && fields.password
+  )
+}
 
-  return redirectTo(
+function redirectToSignupError(
+  request: Request,
+  fields: SignupFormFields,
+  error: string
+) {
+  return redirectToRoute(
     request,
-    buildAuthPageHref("signup", {
-      nextPath,
+    withSignupProfileParams(
+      buildAuthPageHref("signup", {
+        nextPath: fields.nextPath,
+        email: fields.email,
+        error,
+        notice: null,
+      }),
+      fields.firstName,
+      fields.lastName
+    )
+  )
+}
+
+function redirectToSignupFailure(
+  request: Request,
+  fields: SignupFormFields,
+  error: unknown
+) {
+  return redirectToRoute(
+    request,
+    withSignupProfileParams(
+      buildAuthPageHref("signup", {
+        nextPath: fields.nextPath,
+        email: fields.email,
+        error: mapSignupError(error),
+      }),
+      fields.firstName,
+      fields.lastName
+    )
+  )
+}
+
+function redirectToExistingAccountLogin(
+  request: Request,
+  fields: SignupFormFields
+) {
+  return redirectToRoute(
+    request,
+    buildAuthPageHref("login", {
+      nextPath: fields.nextPath,
+      email: fields.email,
+      notice: "Account already created. Please sign in.",
     })
   )
 }
 
-export async function POST(request: Request) {
-  const formData = await request.formData()
-  const firstName = String(formData.get("firstName") ?? "").trim()
-  const lastName = String(formData.get("lastName") ?? "").trim()
-  const email = String(formData.get("email") ?? "").trim()
-  const password = String(formData.get("password") ?? "")
-  const nextPath = normalizeAuthNextPath(String(formData.get("next") ?? ""))
+async function createSignupUser(fields: SignupFormFields) {
+  await getWorkOSClient().userManagement.createUser({
+    email: fields.email,
+    password: fields.password,
+    firstName: fields.firstName,
+    lastName: fields.lastName,
+  })
+}
 
-  if (!firstName || !lastName || !email || !password) {
-    return redirectTo(
-      request,
-      withSignupProfileParams(
-        buildAuthPageHref("signup", {
-          nextPath,
-          email,
-          error: "Complete every field to create your account.",
-          notice: null,
-        }),
-        firstName,
-        lastName
-      )
-    )
-  }
-
+async function handleSignupUserCreation(
+  request: Request,
+  fields: SignupFormFields
+) {
   try {
-    await getWorkOSClient().userManagement.createUser({
-      email,
-      password,
-      firstName,
-      lastName,
-    })
+    await createSignupUser(fields)
+    return null
   } catch (error) {
     if (isSignupConflict(error)) {
-      return redirectTo(
-        request,
-        buildAuthPageHref("login", {
-          nextPath,
-          email,
-          notice: "Account already created. Please sign in.",
-        })
-      )
+      return redirectToExistingAccountLogin(request, fields)
     }
 
     logProviderError("WorkOS signup failed", error)
-    return redirectTo(
-      request,
-      withSignupProfileParams(
-        buildAuthPageHref("signup", {
-          nextPath,
-          email,
-          error: mapSignupError(error),
-        }),
-        firstName,
-        lastName
-      )
-    )
+    return redirectToSignupFailure(request, fields, error)
   }
+}
 
+function redirectToSignupEmailVerification(
+  request: Request,
+  fields: SignupFormFields,
+  pendingAuthentication: NonNullable<
+    ReturnType<typeof getWorkOSPendingAuthentication>
+  >
+) {
+  const email = pendingAuthentication.email ?? fields.email
+  const response = redirectToRoute(
+    request,
+    buildEmailVerificationPageHref({
+      mode: "signup",
+      nextPath: fields.nextPath,
+      email,
+      notice: "Account created. Enter the WorkOS code to continue.",
+    })
+  )
+
+  response.cookies.set(
+    pendingEmailVerificationCookieName,
+    serializePendingEmailVerificationState({
+      email,
+      mode: "signup",
+      nextPath: fields.nextPath,
+      pendingAuthenticationToken:
+        pendingAuthentication.pendingAuthenticationToken,
+    }),
+    pendingEmailVerificationCookieOptions
+  )
+
+  return response
+}
+
+function getSignupAuthenticationErrorMessage(error: unknown) {
+  return getWorkOSAuthErrorCode(error) === "invalid_password"
+    ? "That password does not meet the current requirements."
+    : mapSignupError(error)
+}
+
+async function authenticateCreatedSignupUser(
+  request: Request,
+  fields: SignupFormFields
+) {
   try {
     const authenticationResponse =
       await getWorkOSClient().userManagement.authenticateWithPassword({
         clientId: process.env.WORKOS_CLIENT_ID,
-        email,
-        password,
+        email: fields.email,
+        password: fields.password,
         ...getRequestMetadata(request),
       })
 
@@ -204,7 +269,7 @@ export async function POST(request: Request) {
       authenticationResponse.organizationId
     )
 
-    return redirectTo(request, buildPostAuthPath(nextPath))
+    return redirectToRoute(request, buildPostAuthPath(fields.nextPath))
   } catch (error) {
     const pendingAuthentication = getWorkOSPendingAuthentication(error)
 
@@ -212,47 +277,50 @@ export async function POST(request: Request) {
       getWorkOSAuthErrorCode(error) === "email_verification_required" &&
       pendingAuthentication
     ) {
-      const response = redirectTo(
+      return redirectToSignupEmailVerification(
         request,
-        buildEmailVerificationPageHref({
-          mode: "signup",
-          nextPath,
-          email: pendingAuthentication.email ?? email,
-          notice: "Account created. Enter the WorkOS code to continue.",
-        })
+        fields,
+        pendingAuthentication
       )
-
-      response.cookies.set(
-        pendingEmailVerificationCookieName,
-        serializePendingEmailVerificationState({
-          email: pendingAuthentication.email ?? email,
-          mode: "signup",
-          nextPath,
-          pendingAuthenticationToken:
-            pendingAuthentication.pendingAuthenticationToken,
-        }),
-        pendingEmailVerificationCookieOptions
-      )
-
-      return response
     }
 
     logProviderError("WorkOS signup authentication failed", error)
-
-    return redirectTo(
+    return redirectToSignupError(
       request,
-      withSignupProfileParams(
-        buildAuthPageHref("signup", {
-          nextPath,
-          email,
-          error:
-            getWorkOSAuthErrorCode(error) === "invalid_password"
-              ? "That password does not meet the current requirements."
-              : mapSignupError(error),
-        }),
-        firstName,
-        lastName
-      )
+      fields,
+      getSignupAuthenticationErrorMessage(error)
     )
   }
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url)
+  const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
+
+  return redirectToRoute(
+    request,
+    buildAuthPageHref("signup", {
+      nextPath,
+    })
+  )
+}
+
+export async function POST(request: Request) {
+  const fields = await getSignupFormFields(request)
+
+  if (!isSignupFormComplete(fields)) {
+    return redirectToSignupError(
+      request,
+      fields,
+      "Complete every field to create your account."
+    )
+  }
+
+  const creationResponse = await handleSignupUserCreation(request, fields)
+
+  if (creationResponse) {
+    return creationResponse
+  }
+
+  return authenticateCreatedSignupUser(request, fields)
 }

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react"
 import type { Editor } from "@tiptap/react"
 import {
@@ -223,73 +224,724 @@ function formatTypingIndicatorLabel(names: string[]) {
   return "Several people are typing"
 }
 
-export function ChatThread({
-  conversationId,
-  title,
-  description,
-  members,
-  loaded = true,
-  showHeader = true,
-  videoAction,
-  detailsAction,
-  welcomeParticipant,
-}: {
-  conversationId: string
-  title: string
-  description: string
-  members: ReturnType<typeof getConversationParticipants>
-  loaded?: boolean
-  showHeader?: boolean
-  videoAction?: ReactNode
-  detailsAction?: ReactNode
-  welcomeParticipant?: NonNullable<ReturnType<typeof getUser>> | null
-}) {
-  const messages = useAppStore(
-    useShallow((state) => getChatMessages(state, conversationId))
+type ChatThreadMessage = ReturnType<typeof getChatMessages>[number]
+type ChatMessageReaction = NonNullable<ChatThreadMessage["reactions"]>[number]
+type ChatThreadUser = NonNullable<ReturnType<typeof getUser>>
+type ChatThreadMember = ReturnType<typeof getConversationParticipants>[number]
+type WorkspaceUserPresenceView = ReturnType<
+  typeof buildWorkspaceUserPresenceView
+>
+type AppState = ReturnType<typeof useAppStore.getState>
+type WorkspaceMembershipState = "active" | "former" | "unknown"
+
+function isCallThreadMessage(message: ChatThreadMessage | null | undefined) {
+  return Boolean(
+    message &&
+    (message.kind === "call" ||
+      message.callId ||
+      parseCallInviteMessage(message.content))
   )
-  const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
-    useAppStore(
-      useShallow((state) => {
-        const conversation = state.conversations.find(
-          (entry) => entry.id === conversationId
+}
+
+function resolveMessageCallJoinHref({
+  legacyCallInvite,
+  message,
+}: {
+  legacyCallInvite: ReturnType<typeof parseCallInviteMessage>
+  message: ChatThreadMessage
+}) {
+  return message.callId
+    ? buildCallJoinHref(message.callId)
+    : (legacyCallInvite?.href ?? null)
+}
+
+function getChatMessageRowMeta({
+  index,
+  message,
+  previousMessage,
+}: {
+  index: number
+  message: ChatThreadMessage
+  previousMessage?: ChatThreadMessage
+}) {
+  const dayKey = getLocalDayKey(message.createdAt)
+  const prevDayKey = previousMessage
+    ? getLocalDayKey(previousMessage.createdAt)
+    : null
+  const showDayDivider = dayKey !== prevDayKey
+  const legacyCallInvite =
+    message.callId || message.kind === "call"
+      ? null
+      : parseCallInviteMessage(message.content)
+  const callJoinHref = resolveMessageCallJoinHref({
+    legacyCallInvite,
+    message,
+  })
+  const isCallMessage =
+    message.kind === "call" ||
+    Boolean(message.callId) ||
+    Boolean(legacyCallInvite)
+  const groupedWithPrev =
+    !showDayDivider &&
+    !isCallMessage &&
+    !isCallThreadMessage(previousMessage) &&
+    previousMessage?.createdBy === message.createdBy &&
+    new Date(message.createdAt).getTime() -
+      new Date(previousMessage.createdAt).getTime() <
+      5 * 60_000
+
+  return {
+    callJoinHref,
+    groupedWithPrev,
+    showDayDivider,
+    showTopMargin: !showDayDivider && index > 0 && !groupedWithPrev,
+  }
+}
+
+function ChatWelcomeIntro({
+  currentUserId,
+  currentWorkspaceId,
+  title,
+  welcomeParticipant,
+  welcomeParticipantView,
+}: {
+  currentUserId: string
+  currentWorkspaceId: string | null
+  title: string
+  welcomeParticipant: ChatThreadUser
+  welcomeParticipantView: WorkspaceUserPresenceView
+}) {
+  const displayName =
+    welcomeParticipantView?.name ?? welcomeParticipant.name ?? title
+
+  return (
+    <div className="px-4 pt-6">
+      <div className="mx-auto flex max-w-sm flex-col items-center text-center">
+        <UserAvatar
+          name={welcomeParticipantView?.name ?? welcomeParticipant.name}
+          avatarImageUrl={welcomeParticipantView?.avatarImageUrl}
+          avatarUrl={welcomeParticipantView?.avatarUrl}
+          status={welcomeParticipantView?.status ?? undefined}
+          showStatus={!welcomeParticipantView?.isFormerMember}
+          size="lg"
+          className="size-12"
+        />
+        <UserHoverCard
+          user={welcomeParticipant}
+          userId={welcomeParticipant.id}
+          currentUserId={currentUserId}
+          workspaceId={currentWorkspaceId}
+        >
+          <p className="mt-3 text-sm font-medium">{displayName}</p>
+        </UserHoverCard>
+        <p className="mt-1 text-xs text-muted-foreground">
+          This is the beginning of your conversation with {displayName}.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ChatDayDivider({
+  createdAt,
+  index,
+}: {
+  createdAt: string
+  index: number
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2.5 px-4 pb-1 text-[11.5px] text-fg-3",
+        index === 0 ? "pt-1" : "pt-3"
+      )}
+    >
+      <span aria-hidden className="h-px flex-1 bg-line-soft" />
+      <span>{formatDayDivider(createdAt)}</span>
+      <span aria-hidden className="h-px flex-1 bg-line-soft" />
+    </div>
+  )
+}
+
+function ChatMessageAvatar({
+  author,
+  authorView,
+}: {
+  author?: ChatThreadUser
+  authorView: WorkspaceUserPresenceView
+}) {
+  return (
+    <div className="mt-[4px]">
+      <UserAvatar
+        name={authorView?.name ?? author?.name}
+        avatarImageUrl={authorView?.avatarImageUrl}
+        avatarUrl={authorView?.avatarUrl}
+        status={authorView?.status ?? undefined}
+        showStatus={!authorView?.isFormerMember}
+        size="sm"
+      />
+    </div>
+  )
+}
+
+function ChatMessageHeader({
+  author,
+  authorView,
+  currentUserId,
+  currentWorkspaceId,
+  isCurrentUser,
+  message,
+}: {
+  author?: ChatThreadUser
+  authorView: WorkspaceUserPresenceView
+  currentUserId: string
+  currentWorkspaceId: string | null
+  isCurrentUser: boolean
+  message: ChatThreadMessage
+}) {
+  return (
+    <div className="-mt-px flex items-baseline gap-2">
+      <UserHoverCard
+        user={author}
+        userId={author?.id}
+        currentUserId={currentUserId}
+        workspaceId={currentWorkspaceId}
+      >
+        <span className="text-[13.5px] font-semibold text-foreground">
+          {authorView?.name ??
+            author?.name ??
+            (isCurrentUser ? "You" : "Unknown")}
+        </span>
+      </UserHoverCard>
+      <span className="text-[11.5px] text-fg-3">
+        {formatTimestamp(message.createdAt)}
+      </span>
+    </div>
+  )
+}
+
+function ChatMessageBody({
+  callJoinHref,
+  content,
+}: {
+  callJoinHref: string | null
+  content: string
+}) {
+  if (callJoinHref) {
+    return (
+      <div className="mt-0.5 flex flex-col items-start gap-2 text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] text-foreground">
+        <p>Started a call</p>
+        <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+          <a href={callJoinHref} target="_blank" rel="noopener noreferrer">
+            <ArrowSquareOut className="size-3.5" />
+            Join call
+          </a>
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <RichTextContent
+      content={getChatMessageMarkup(content)}
+      className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
+    />
+  )
+}
+
+function ChatMessageReactionButton({
+  currentUserId,
+  messageId,
+  reaction,
+}: {
+  currentUserId: string
+  messageId: string
+  reaction: ChatMessageReaction
+}) {
+  const active = reaction.userIds.includes(currentUserId)
+
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        useAppStore
+          .getState()
+          .toggleChatMessageReaction(messageId, reaction.emoji)
+      }
+      className={cn(
+        "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
+        active
+          ? "border-primary/40 bg-primary/10 text-foreground"
+          : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+      )}
+    >
+      <span>{reaction.emoji}</span>
+      <span>{reaction.userIds.length}</span>
+    </button>
+  )
+}
+
+function ChatMessageReactions({
+  currentUserId,
+  message,
+}: {
+  currentUserId: string
+  message: ChatThreadMessage
+}) {
+  const reactions = message.reactions ?? []
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {reactions.map((reaction) => (
+        <ChatMessageReactionButton
+          key={`${message.id}-${reaction.emoji}`}
+          currentUserId={currentUserId}
+          messageId={message.id}
+          reaction={reaction}
+        />
+      ))}
+      <EmojiPickerPopover
+        align="start"
+        side="top"
+        onEmojiSelect={(emoji) => {
+          useAppStore.getState().toggleChatMessageReaction(message.id, emoji)
+        }}
+        trigger={
+          <button
+            type="button"
+            aria-label="React"
+            className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+          >
+            <Smiley className="size-3.5" />
+            <span>React</span>
+          </button>
+        }
+      />
+    </div>
+  )
+}
+
+function ChatMessageRow({
+  author,
+  authorView,
+  currentUserId,
+  currentWorkspaceId,
+  index,
+  message,
+  previousMessage,
+}: {
+  author?: ChatThreadUser
+  authorView: WorkspaceUserPresenceView
+  currentUserId: string
+  currentWorkspaceId: string | null
+  index: number
+  message: ChatThreadMessage
+  previousMessage?: ChatThreadMessage
+}) {
+  const isCurrentUser = message.createdBy === currentUserId
+  const { callJoinHref, groupedWithPrev, showDayDivider, showTopMargin } =
+    getChatMessageRowMeta({
+      index,
+      message,
+      previousMessage,
+    })
+
+  return (
+    <div>
+      {showDayDivider ? (
+        <ChatDayDivider createdAt={message.createdAt} index={index} />
+      ) : null}
+      <div
+        className={cn(
+          "group/msg grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
+          groupedWithPrev ? "py-0" : "py-0.5",
+          showTopMargin && "mt-2"
+        )}
+        style={{ gridTemplateColumns: "24px 1fr" }}
+      >
+        {groupedWithPrev ? (
+          <div aria-hidden />
+        ) : (
+          <ChatMessageAvatar author={author} authorView={authorView} />
+        )}
+        <div className="flex min-w-0 flex-col">
+          {!groupedWithPrev ? (
+            <ChatMessageHeader
+              author={author}
+              authorView={authorView}
+              currentUserId={currentUserId}
+              currentWorkspaceId={currentWorkspaceId}
+              isCurrentUser={isCurrentUser}
+              message={message}
+            />
+          ) : null}
+          <ChatMessageBody
+            callJoinHref={callJoinHref}
+            content={message.content}
+          />
+          <ChatMessageReactions
+            currentUserId={currentUserId}
+            message={message}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatThreadHeader({
+  description,
+  detailsAction,
+  membersCount,
+  title,
+  videoAction,
+}: {
+  description: string
+  detailsAction?: ReactNode
+  membersCount: number
+  title: string
+  videoAction?: ReactNode
+}) {
+  const hasHeaderActions = videoAction != null || detailsAction != null
+
+  return (
+    <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-medium">{title}</span>
+        {description ? (
+          <span className="hidden truncate text-xs text-muted-foreground 2xl:inline">
+            {description}
+          </span>
+        ) : null}
+        <span className="hidden text-xs text-muted-foreground xl:inline">
+          {membersCount} members
+        </span>
+      </div>
+      {hasHeaderActions ? (
+        <div className="flex items-center gap-1.5">
+          <ChatHeaderActions
+            videoAction={videoAction}
+            detailsAction={detailsAction}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ChatMessageList({
+  currentUserId,
+  currentWorkspaceId,
+  getMembershipState,
+  messages,
+  usersById,
+}: {
+  currentUserId: string
+  currentWorkspaceId: string | null
+  getMembershipState: (
+    userId: string | null | undefined
+  ) => WorkspaceMembershipState
+  messages: ChatThreadMessage[]
+  usersById: Map<string, ChatThreadUser>
+}) {
+  return (
+    <div className="flex flex-col py-3">
+      {messages.map((message, idx) => {
+        const author = usersById.get(message.createdBy)
+        const authorView = buildWorkspaceUserPresenceView(
+          author,
+          getMembershipState(author?.id)
         )
+        const previousMessage = messages[idx - 1]
 
-        if (!conversation || conversation.kind !== "chat") {
-          return {
-            canCurrentUserSend: false,
-            conversationScopeType: null,
-            conversationScopeId: null,
-          }
-        }
+        return (
+          <ChatMessageRow
+            key={message.id}
+            author={author}
+            authorView={authorView}
+            currentUserId={currentUserId}
+            currentWorkspaceId={currentWorkspaceId}
+            index={idx}
+            message={message}
+            previousMessage={previousMessage}
+          />
+        )
+      })}
+    </div>
+  )
+}
 
-        if (conversation.scopeType === "workspace") {
-          return {
-            canCurrentUserSend:
-              conversation.participantIds.includes(state.currentUserId) &&
-              canEditWorkspace(state, conversation.scopeId),
-            conversationScopeType: conversation.scopeType,
-            conversationScopeId: conversation.scopeId,
-          }
-        }
+function ChatMessagesPane({
+  currentUserId,
+  currentWorkspaceId,
+  emptyStateDescription,
+  getMembershipState,
+  loaded,
+  messages,
+  messagesEndRef,
+  scrollRef,
+  showWelcomeIntro,
+  title,
+  usersById,
+  welcomeParticipant,
+  welcomeParticipantView,
+}: {
+  currentUserId: string
+  currentWorkspaceId: string | null
+  emptyStateDescription: string
+  getMembershipState: (
+    userId: string | null | undefined
+  ) => WorkspaceMembershipState
+  loaded: boolean
+  messages: ChatThreadMessage[]
+  messagesEndRef: RefObject<HTMLDivElement | null>
+  scrollRef: RefObject<HTMLDivElement | null>
+  showWelcomeIntro: boolean
+  title: string
+  usersById: Map<string, ChatThreadUser>
+  welcomeParticipant?: ChatThreadUser | null
+  welcomeParticipantView: WorkspaceUserPresenceView
+}) {
+  return (
+    <div
+      ref={scrollRef}
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+    >
+      {!loaded && messages.length === 0 ? (
+        <div className="mt-auto px-4 py-3">
+          <div className="flex justify-center py-6 text-sm text-muted-foreground">
+            Loading messages...
+          </div>
+        </div>
+      ) : messages.length === 0 ? (
+        <div className="mt-auto px-4 py-3">
+          <EmptyState
+            title="No messages yet"
+            description={emptyStateDescription}
+            icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
+            className="flex-none px-0 py-6"
+          />
+        </div>
+      ) : (
+        <>
+          {showWelcomeIntro && welcomeParticipant ? (
+            <ChatWelcomeIntro
+              currentUserId={currentUserId}
+              currentWorkspaceId={currentWorkspaceId}
+              title={title}
+              welcomeParticipant={welcomeParticipant}
+              welcomeParticipantView={welcomeParticipantView}
+            />
+          ) : null}
+          <div className="mt-auto" />
+          <ChatMessageList
+            currentUserId={currentUserId}
+            currentWorkspaceId={currentWorkspaceId}
+            getMembershipState={getMembershipState}
+            messages={messages}
+            usersById={usersById}
+          />
+          <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
+        </>
+      )}
+    </div>
+  )
+}
 
-        const role = getTeamRole(state, conversation.scopeId)
+function ChatTypingIndicator({
+  label,
+  typingUsers,
+}: {
+  label: string
+  typingUsers: Array<{
+    id: string
+    name: string
+    avatarImageUrl?: string | null
+    avatarUrl?: string | null
+  }>
+}) {
+  if (typingUsers.length === 0) {
+    return null
+  }
 
+  return (
+    <div className="shrink-0 border-t border-line-soft bg-background px-4 py-2">
+      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <div className="flex -space-x-1">
+          {typingUsers.slice(0, 3).map((user) => (
+            <UserAvatar
+              key={user.id}
+              name={user.name}
+              avatarImageUrl={user.avatarImageUrl}
+              avatarUrl={user.avatarUrl}
+              size="xs"
+              showStatus={false}
+              className="ring-2 ring-background"
+            />
+          ))}
+        </div>
+        <span>{label}</span>
+      </div>
+    </div>
+  )
+}
+
+function ChatComposerPanel({
+  composerDisabledReason,
+  composerEditable,
+  conversationId,
+  currentUserId,
+  hideComposer,
+  messageableMembers,
+  messagesLength,
+  onTypingChange,
+  title,
+  typingUsersCount,
+}: {
+  composerDisabledReason: string | null
+  composerEditable: boolean
+  conversationId: string
+  currentUserId: string
+  hideComposer: boolean
+  messageableMembers: ChatThreadMember[]
+  messagesLength: number
+  onTypingChange: (typing: boolean) => void
+  title: string
+  typingUsersCount: number
+}) {
+  if (hideComposer) {
+    if (messagesLength === 0 || !composerDisabledReason) {
+      return null
+    }
+
+    return (
+      <div
+        className={cn(
+          "shrink-0 bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur",
+          typingUsersCount > 0 ? "" : "border-t"
+        )}
+      >
+        {composerDisabledReason}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        "shrink-0 bg-background",
+        typingUsersCount > 0 ? "" : "border-t border-line-soft"
+      )}
+    >
+      <ChatComposer
+        placeholder={`Message ${title}…`}
+        mentionCandidates={messageableMembers}
+        currentUserId={currentUserId}
+        editable={composerEditable}
+        disabledReason={composerDisabledReason}
+        onTypingChange={onTypingChange}
+        onSend={(content) => {
+          useAppStore.getState().sendChatMessage({ conversationId, content })
+        }}
+      />
+    </div>
+  )
+}
+
+function resolveWorkspaceMembershipState({
+  currentWorkspaceId,
+  membershipStateByUserId,
+  userId,
+}: {
+  currentWorkspaceId: string | null
+  membershipStateByUserId: Map<string, WorkspaceMembershipState>
+  userId: string | null | undefined
+}) {
+  if (!userId || !currentWorkspaceId) {
+    return "unknown"
+  }
+
+  return membershipStateByUserId.get(userId) ?? "unknown"
+}
+
+function resolveComposerDisabledReason({
+  canCurrentUserSend,
+  conversationScopeType,
+  hasMessageableMembers,
+}: {
+  canCurrentUserSend: boolean
+  conversationScopeType: "workspace" | "team" | null
+  hasMessageableMembers: boolean
+}) {
+  if (!canCurrentUserSend) {
+    return "Messaging is read-only for your current role."
+  }
+
+  if (hasMessageableMembers) {
+    return null
+  }
+
+  if (conversationScopeType === "team") {
+    return "This chat is read-only because the other participants have left the team or deleted their account."
+  }
+
+  return "This chat is read-only because the other participants have left the workspace or deleted their account."
+}
+
+function resolveChatEmptyStateDescription({
+  composerDisabledReason,
+  hideComposer,
+  messagesLength,
+}: {
+  composerDisabledReason: string | null
+  hideComposer: boolean
+  messagesLength: number
+}) {
+  if (messagesLength === 0 && hideComposer && composerDisabledReason) {
+    return composerDisabledReason
+  }
+
+  return "Start the conversation below."
+}
+
+function useChatThreadScope(conversationId: string) {
+  return useAppStore(
+    useShallow((state) => {
+      const conversation = state.conversations.find(
+        (entry) => entry.id === conversationId
+      )
+
+      if (!conversation || conversation.kind !== "chat") {
         return {
-          canCurrentUserSend: role === "admin" || role === "member",
+          canCurrentUserSend: false,
+          conversationScopeType: null,
+          conversationScopeId: null,
+        }
+      }
+
+      if (conversation.scopeType === "workspace") {
+        return {
+          canCurrentUserSend:
+            conversation.participantIds.includes(state.currentUserId) &&
+            canEditWorkspace(state, conversation.scopeId),
           conversationScopeType: conversation.scopeType,
           conversationScopeId: conversation.scopeId,
         }
-      })
-    )
-  const {
-    currentUserId,
-    currentWorkspaceId,
-    users,
-    workspaces,
-    workspaceMemberships,
-    teams,
-    teamMemberships,
-  } = useAppStore(
+      }
+
+      const role = getTeamRole(state, conversation.scopeId)
+
+      return {
+        canCurrentUserSend: role === "admin" || role === "member",
+        conversationScopeType: conversation.scopeType,
+        conversationScopeId: conversation.scopeId,
+      }
+    })
+  )
+}
+
+function useChatThreadWorkspaceContext() {
+  return useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
       currentWorkspaceId: state.currentWorkspaceId,
@@ -300,21 +952,28 @@ export function ChatThread({
       teamMemberships: state.teamMemberships,
     }))
   )
-  const usersById = useMemo(
-    () => new Map(users.map((user) => [user.id, user])),
-    [users]
-  )
-  const { participants: chatPresenceParticipants, setTyping } = useChatPresence({
-    conversationId,
-    currentUserId,
-    enabled: true,
-  })
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const hasHeaderActions = videoAction != null || detailsAction != null
-  const showWelcomeIntro =
-    welcomeParticipant && messages.length > 0 && messages.length < 5
-  const messageableMembers = useMemo(
+}
+
+function useMessageableMembers({
+  conversationScopeId,
+  conversationScopeType,
+  currentUserId,
+  members,
+  teamMemberships,
+  teams,
+  workspaces,
+  workspaceMemberships,
+}: {
+  conversationScopeId: string | null
+  conversationScopeType: "workspace" | "team" | null
+  currentUserId: string
+  members: ChatThreadMember[]
+  teamMemberships: AppState["teamMemberships"]
+  teams: AppState["teams"]
+  workspaces: AppState["workspaces"]
+  workspaceMemberships: AppState["workspaceMemberships"]
+}) {
+  return useMemo(
     () =>
       members.filter((member) => {
         if (member.id === currentUserId) {
@@ -353,35 +1012,37 @@ export function ChatThread({
       workspaceMemberships,
     ]
   )
-  const activeOtherMemberCount = useMemo(
-    () =>
-      messageableMembers.filter((member) => member.id !== currentUserId).length,
-    [currentUserId, messageableMembers]
-  )
-  const hasMessageableMembers = activeOtherMemberCount > 0
-  const hideComposer = !hasMessageableMembers
-  const composerEditable = canCurrentUserSend && hasMessageableMembers
-  const composerDisabledReason = !canCurrentUserSend
-    ? "Messaging is read-only for your current role."
-    : !hasMessageableMembers
-      ? conversationScopeType === "team"
-        ? "This chat is read-only because the other participants have left the team or deleted their account."
-        : "This chat is read-only because the other participants have left the workspace or deleted their account."
-      : null
-  const emptyStateDescription =
-    messages.length === 0 && hideComposer && composerDisabledReason
-      ? composerDisabledReason
-      : "Start the conversation below."
-  const messageAuthorIdsKey = useMemo(() => {
+}
+
+function useMessageAuthorIdsKey(messages: ChatThreadMessage[]) {
+  return useMemo(() => {
     return [...new Set(messages.map((message) => message.createdBy))]
       .sort()
       .join("\u001f")
   }, [messages])
-  const workspaceMembershipStateByUserId = useMemo(() => {
-    const membershipStates = new Map<
-      string,
-      "active" | "former" | "unknown"
-    >()
+}
+
+function useWorkspaceMembershipStateByUserId({
+  currentWorkspaceId,
+  members,
+  messageAuthorIdsKey,
+  teamMemberships,
+  teams,
+  welcomeParticipant,
+  workspaces,
+  workspaceMemberships,
+}: {
+  currentWorkspaceId: string | null
+  members: ChatThreadMember[]
+  messageAuthorIdsKey: string
+  teamMemberships: AppState["teamMemberships"]
+  teams: AppState["teams"]
+  welcomeParticipant?: ChatThreadUser | null
+  workspaces: AppState["workspaces"]
+  workspaceMemberships: AppState["workspaceMemberships"]
+}) {
+  return useMemo(() => {
+    const membershipStates = new Map<string, WorkspaceMembershipState>()
 
     if (!currentWorkspaceId) {
       return membershipStates
@@ -430,7 +1091,20 @@ export function ChatThread({
     workspaces,
     workspaceMemberships,
   ])
-  const typingUsers = useMemo(() => {
+}
+
+function useChatTypingUsers({
+  chatPresenceParticipants,
+  currentUserId,
+  members,
+  usersById,
+}: {
+  chatPresenceParticipants: ReturnType<typeof useChatPresence>["participants"]
+  currentUserId: string
+  members: ChatThreadMember[]
+  usersById: Map<string, ChatThreadUser>
+}) {
+  return useMemo(() => {
     const uniqueTypingUsers = new Map<
       string,
       {
@@ -464,19 +1138,11 @@ export function ChatThread({
 
     return [...uniqueTypingUsers.values()]
   }, [chatPresenceParticipants, currentUserId, members, usersById])
-  const typingIndicatorLabel = useMemo(
-    () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
-    [typingUsers]
-  )
-  const latestMessageId = messages[messages.length - 1]?.id ?? null
+}
 
-  function getWorkspaceMembershipState(userId: string | null | undefined) {
-    if (!userId || !currentWorkspaceId) {
-      return "unknown" as const
-    }
-
-    return workspaceMembershipStateByUserId.get(userId) ?? ("unknown" as const)
-  }
+function useChatMessagesAutoScroll(latestMessageId: string | null) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -504,344 +1170,171 @@ export function ChatThread({
     }
   }, [latestMessageId])
 
+  return {
+    messagesEndRef,
+    scrollRef,
+  }
+}
+
+export function ChatThread({
+  conversationId,
+  title,
+  description,
+  members,
+  loaded = true,
+  showHeader = true,
+  videoAction,
+  detailsAction,
+  welcomeParticipant,
+}: {
+  conversationId: string
+  title: string
+  description: string
+  members: ReturnType<typeof getConversationParticipants>
+  loaded?: boolean
+  showHeader?: boolean
+  videoAction?: ReactNode
+  detailsAction?: ReactNode
+  welcomeParticipant?: NonNullable<ReturnType<typeof getUser>> | null
+}) {
+  const messages = useAppStore(
+    useShallow((state) => getChatMessages(state, conversationId))
+  )
+  const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
+    useChatThreadScope(conversationId)
+  const {
+    currentUserId,
+    currentWorkspaceId,
+    users,
+    workspaces,
+    workspaceMemberships,
+    teams,
+    teamMemberships,
+  } = useChatThreadWorkspaceContext()
+  const usersById = useMemo(
+    () => new Map(users.map((user) => [user.id, user])),
+    [users]
+  )
+  const { participants: chatPresenceParticipants, setTyping } = useChatPresence(
+    {
+      conversationId,
+      currentUserId,
+      enabled: true,
+    }
+  )
+  const showWelcomeIntro =
+    welcomeParticipant && messages.length > 0 && messages.length < 5
+  const messageableMembers = useMessageableMembers({
+    conversationScopeId,
+    conversationScopeType,
+    currentUserId,
+    members,
+    teamMemberships,
+    teams,
+    workspaces,
+    workspaceMemberships,
+  })
+  const activeOtherMemberCount = useMemo(
+    () =>
+      messageableMembers.filter((member) => member.id !== currentUserId).length,
+    [currentUserId, messageableMembers]
+  )
+  const hasMessageableMembers = activeOtherMemberCount > 0
+  const hideComposer = !hasMessageableMembers
+  const composerEditable = canCurrentUserSend && hasMessageableMembers
+  const composerDisabledReason = resolveComposerDisabledReason({
+    canCurrentUserSend,
+    conversationScopeType,
+    hasMessageableMembers,
+  })
+  const emptyStateDescription = resolveChatEmptyStateDescription({
+    composerDisabledReason,
+    hideComposer,
+    messagesLength: messages.length,
+  })
+  const messageAuthorIdsKey = useMessageAuthorIdsKey(messages)
+  const workspaceMembershipStateByUserId = useWorkspaceMembershipStateByUserId({
+    currentWorkspaceId,
+    members,
+    messageAuthorIdsKey,
+    teamMemberships,
+    teams,
+    welcomeParticipant,
+    workspaces,
+    workspaceMemberships,
+  })
+  const typingUsers = useChatTypingUsers({
+    chatPresenceParticipants,
+    currentUserId,
+    members,
+    usersById,
+  })
+  const typingIndicatorLabel = useMemo(
+    () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
+    [typingUsers]
+  )
+  const latestMessageId = messages[messages.length - 1]?.id ?? null
+  const { messagesEndRef, scrollRef } =
+    useChatMessagesAutoScroll(latestMessageId)
+  const getWorkspaceMembershipState = (userId: string | null | undefined) =>
+    resolveWorkspaceMembershipState({
+      currentWorkspaceId,
+      membershipStateByUserId: workspaceMembershipStateByUserId,
+      userId,
+    })
+  const welcomeParticipantView =
+    showWelcomeIntro && welcomeParticipant
+      ? buildWorkspaceUserPresenceView(
+          welcomeParticipant,
+          getWorkspaceMembershipState(welcomeParticipant.id)
+        )
+      : null
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {showHeader ? (
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-medium">{title}</span>
-            {description ? (
-              <span className="hidden truncate text-xs text-muted-foreground 2xl:inline">
-                {description}
-              </span>
-            ) : null}
-            <span className="hidden text-xs text-muted-foreground xl:inline">
-              {members.length} members
-            </span>
-          </div>
-          {hasHeaderActions ? (
-            <div className="flex items-center gap-1.5">
-              <ChatHeaderActions
-                videoAction={videoAction}
-                detailsAction={detailsAction}
-              />
-            </div>
-          ) : null}
-        </div>
+        <ChatThreadHeader
+          description={description}
+          detailsAction={detailsAction}
+          membersCount={members.length}
+          title={title}
+          videoAction={videoAction}
+        />
       ) : null}
 
-      <div
-        ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
-      >
-        {!loaded && messages.length === 0 ? (
-          <div className="mt-auto px-4 py-3">
-            <div className="flex justify-center py-6 text-sm text-muted-foreground">
-              Loading messages...
-            </div>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="mt-auto px-4 py-3">
-            <EmptyState
-              title="No messages yet"
-              description={emptyStateDescription}
-              icon={<PaperPlaneTilt className="size-5 text-muted-foreground" />}
-              className="flex-none px-0 py-6"
-            />
-          </div>
-        ) : (
-          <>
-            {showWelcomeIntro
-              ? (() => {
-                  const welcomeParticipantView = buildWorkspaceUserPresenceView(
-                    welcomeParticipant,
-                    getWorkspaceMembershipState(welcomeParticipant.id)
-                  )
+      <ChatMessagesPane
+        currentUserId={currentUserId}
+        currentWorkspaceId={currentWorkspaceId}
+        emptyStateDescription={emptyStateDescription}
+        getMembershipState={getWorkspaceMembershipState}
+        loaded={loaded}
+        messages={messages}
+        messagesEndRef={messagesEndRef}
+        scrollRef={scrollRef}
+        showWelcomeIntro={Boolean(showWelcomeIntro)}
+        title={title}
+        usersById={usersById}
+        welcomeParticipant={welcomeParticipant}
+        welcomeParticipantView={welcomeParticipantView}
+      />
 
-                  return (
-                    <div className="px-4 pt-6">
-                      <div className="mx-auto flex max-w-sm flex-col items-center text-center">
-                        <UserAvatar
-                          name={
-                            welcomeParticipantView?.name ??
-                            welcomeParticipant.name
-                          }
-                          avatarImageUrl={
-                            welcomeParticipantView?.avatarImageUrl
-                          }
-                          avatarUrl={welcomeParticipantView?.avatarUrl}
-                          status={welcomeParticipantView?.status ?? undefined}
-                          showStatus={!welcomeParticipantView?.isFormerMember}
-                          size="lg"
-                          className="size-12"
-                        />
-                        <UserHoverCard
-                          user={welcomeParticipant}
-                          userId={welcomeParticipant.id}
-                          currentUserId={currentUserId}
-                          workspaceId={currentWorkspaceId}
-                        >
-                          <p className="mt-3 text-sm font-medium">
-                            {welcomeParticipantView?.name ??
-                              welcomeParticipant.name ??
-                              title}
-                          </p>
-                        </UserHoverCard>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          This is the beginning of your conversation with{" "}
-                          {welcomeParticipantView?.name ??
-                            welcomeParticipant.name ??
-                            title}
-                          .
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })()
-              : null}
-            <div className="mt-auto" />
-            <div className="flex flex-col py-3">
-              {messages.map((message, idx) => {
-                const author = usersById.get(message.createdBy)
-                const authorView = buildWorkspaceUserPresenceView(
-                  author,
-                  getWorkspaceMembershipState(author?.id)
-                )
-                const prevMessage = messages[idx - 1]
-                const isCurrentUser = message.createdBy === currentUserId
-                const dayKey = getLocalDayKey(message.createdAt)
-                const prevDayKey = prevMessage
-                  ? getLocalDayKey(prevMessage.createdAt)
-                  : null
-                const showDayDivider = dayKey !== prevDayKey
-                const legacyCallInvite =
-                  message.callId || message.kind === "call"
-                    ? null
-                    : parseCallInviteMessage(message.content)
-                const callJoinHref = message.callId
-                  ? buildCallJoinHref(message.callId)
-                  : (legacyCallInvite?.href ?? null)
-                const isCallMessage =
-                  message.kind === "call" ||
-                  Boolean(message.callId) ||
-                  Boolean(legacyCallInvite)
-                const reactions = message.reactions ?? []
-                const prevIsCall = Boolean(
-                  prevMessage &&
-                  (prevMessage.kind === "call" ||
-                    prevMessage.callId ||
-                    parseCallInviteMessage(prevMessage.content))
-                )
-                const groupedWithPrev =
-                  !showDayDivider &&
-                  !isCallMessage &&
-                  !prevIsCall &&
-                  prevMessage?.createdBy === message.createdBy &&
-                  new Date(message.createdAt).getTime() -
-                    new Date(prevMessage.createdAt).getTime() <
-                    5 * 60_000
-                return (
-                  <div key={message.id}>
-                    {showDayDivider ? (
-                      <div
-                        className={cn(
-                          "flex items-center gap-2.5 px-4 pb-1 text-[11.5px] text-fg-3",
-                          idx === 0 ? "pt-1" : "pt-3"
-                        )}
-                      >
-                        <span
-                          aria-hidden
-                          className="h-px flex-1 bg-line-soft"
-                        />
-                        <span>{formatDayDivider(message.createdAt)}</span>
-                        <span
-                          aria-hidden
-                          className="h-px flex-1 bg-line-soft"
-                        />
-                      </div>
-                    ) : null}
-                    <div
-                    className={cn(
-                      "group/msg grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
-                      groupedWithPrev ? "py-0" : "py-0.5",
-                      !showDayDivider && idx > 0 && !groupedWithPrev && "mt-2"
-                    )}
-                    style={{ gridTemplateColumns: "24px 1fr" }}
-                  >
-                    {groupedWithPrev ? (
-                      <div aria-hidden />
-                    ) : (
-                      <div className="mt-[4px]">
-                        <UserAvatar
-                          name={authorView?.name ?? author?.name}
-                          avatarImageUrl={authorView?.avatarImageUrl}
-                          avatarUrl={authorView?.avatarUrl}
-                          status={authorView?.status ?? undefined}
-                          showStatus={!authorView?.isFormerMember}
-                          size="sm"
-                        />
-                      </div>
-                    )}
-                    <div className="flex min-w-0 flex-col">
-                      {!groupedWithPrev ? (
-                        <div className="-mt-px flex items-baseline gap-2">
-                          <UserHoverCard
-                            user={author}
-                            userId={author?.id}
-                            currentUserId={currentUserId}
-                            workspaceId={currentWorkspaceId}
-                          >
-                            <span className="text-[13.5px] font-semibold text-foreground">
-                              {authorView?.name ??
-                                author?.name ??
-                                (isCurrentUser ? "You" : "Unknown")}
-                            </span>
-                          </UserHoverCard>
-                          <span className="text-[11.5px] text-fg-3">
-                            {formatTimestamp(message.createdAt)}
-                          </span>
-                        </div>
-                      ) : null}
-                      {callJoinHref ? (
-                        <div className="mt-0.5 flex flex-col items-start gap-2 [overflow-wrap:anywhere] text-[13.5px] leading-[1.55] text-foreground">
-                          <p>Started a call</p>
-                          <Button
-                            asChild
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs"
-                          >
-                            <a
-                              href={callJoinHref}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <ArrowSquareOut className="size-3.5" />
-                              Join call
-                            </a>
-                          </Button>
-                        </div>
-                      ) : (
-                        <RichTextContent
-                          content={getChatMessageMarkup(message.content)}
-                          className="max-w-full text-[13.5px] leading-[1.55] text-foreground [overflow-wrap:anywhere] break-words [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
-                        />
-                      )}
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {reactions.map((reaction) => {
-                          const active = reaction.userIds.includes(
-                            currentUserId
-                          )
+      <ChatTypingIndicator
+        label={typingIndicatorLabel}
+        typingUsers={typingUsers}
+      />
 
-                          return (
-                            <button
-                              key={`${message.id}-${reaction.emoji}`}
-                              type="button"
-                              onClick={() =>
-                                useAppStore
-                                  .getState()
-                                  .toggleChatMessageReaction(
-                                    message.id,
-                                    reaction.emoji
-                                  )
-                              }
-                              className={cn(
-                                "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
-                                active
-                                  ? "border-primary/40 bg-primary/10 text-foreground"
-                                  : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
-                              )}
-                            >
-                              <span>{reaction.emoji}</span>
-                              <span>{reaction.userIds.length}</span>
-                            </button>
-                          )
-                        })}
-                        <EmojiPickerPopover
-                          align="start"
-                          side="top"
-                          onEmojiSelect={(emoji) => {
-                            useAppStore
-                              .getState()
-                              .toggleChatMessageReaction(message.id, emoji)
-                          }}
-                          trigger={
-                            <button
-                              type="button"
-                              aria-label="React"
-                              className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                            >
-                              <Smiley className="size-3.5" />
-                              <span>React</span>
-                            </button>
-                          }
-                        />
-                      </div>
-                    </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
-          </>
-        )}
-      </div>
-
-      {typingUsers.length > 0 ? (
-        <div className="shrink-0 border-t border-line-soft bg-background px-4 py-2">
-          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-            <div className="flex -space-x-1">
-              {typingUsers.slice(0, 3).map((user) => (
-                <UserAvatar
-                  key={user.id}
-                  name={user.name}
-                  avatarImageUrl={user.avatarImageUrl}
-                  avatarUrl={user.avatarUrl}
-                  size="xs"
-                  showStatus={false}
-                  className="ring-2 ring-background"
-                />
-              ))}
-            </div>
-            <span>{typingIndicatorLabel}</span>
-          </div>
-        </div>
-      ) : null}
-
-      {hideComposer ? (
-        messages.length > 0 && composerDisabledReason ? (
-          <div
-            className={cn(
-              "shrink-0 bg-background/95 px-4 py-3 text-xs text-muted-foreground backdrop-blur",
-              typingUsers.length > 0 ? "" : "border-t"
-            )}
-          >
-            {composerDisabledReason}
-          </div>
-        ) : null
-      ) : (
-        <div
-          className={cn(
-            "shrink-0 bg-background",
-            typingUsers.length > 0 ? "" : "border-t border-line-soft"
-          )}
-        >
-          <ChatComposer
-            placeholder={`Message ${title}…`}
-            mentionCandidates={messageableMembers}
-            currentUserId={currentUserId}
-            editable={composerEditable}
-            disabledReason={composerDisabledReason}
-            onTypingChange={setTyping}
-            onSend={(content) => {
-              useAppStore
-                .getState()
-                .sendChatMessage({ conversationId, content })
-            }}
-          />
-        </div>
-      )}
+      <ChatComposerPanel
+        composerDisabledReason={composerDisabledReason}
+        composerEditable={composerEditable}
+        conversationId={conversationId}
+        currentUserId={currentUserId}
+        hideComposer={hideComposer}
+        messageableMembers={messageableMembers}
+        messagesLength={messages.length}
+        onTypingChange={setTyping}
+        title={title}
+        typingUsersCount={typingUsers.length}
+      />
     </div>
   )
 }

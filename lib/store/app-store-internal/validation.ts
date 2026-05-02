@@ -18,6 +18,10 @@ import {
   type TeamWorkflowSettings,
   type WorkItem,
 } from "@/lib/domain/types"
+import {
+  resolveWorkItemProjectLinkUpdate,
+  type WorkItemProjectLinkResolution,
+} from "@/lib/domain/work-item-project-links"
 
 import { getNow } from "./helpers"
 import type {
@@ -25,7 +29,6 @@ import type {
   CreateDocumentInput,
   CreateProjectInput,
   WorkItemCascadeDeletePlan,
-  WorkItemProjectLinkResolution,
   WorkItemValidationInput,
 } from "./types"
 
@@ -132,14 +135,121 @@ export function getDocumentCreationValidationMessage(
     : "Docs are disabled for this team"
 }
 
+function getWorkItemTitleValidationMessage(title: string) {
+  const normalizedTitle = title.trim()
+
+  return normalizedTitle.length < 2 || normalizedTitle.length > 96
+    ? "Work item title must be between 2 and 96 characters"
+    : null
+}
+
+function getWorkItemAssigneeValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput
+) {
+  return input.assigneeId &&
+    !getTeamMemberIds(state, input.teamId).includes(input.assigneeId)
+    ? "Assignee must belong to the selected team"
+    : null
+}
+
+function getWorkItemLabelValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput
+) {
+  if (!("labelIds" in input) || !input.labelIds) {
+    return null
+  }
+
+  const availableLabelIds = new Set(
+    getLabelsForTeamScope(state, input.teamId).map((label) => label.id)
+  )
+
+  return input.labelIds.some((labelId) => !availableLabelIds.has(labelId))
+    ? "One or more labels are invalid"
+    : null
+}
+
+function getWorkItemDateValidationMessage(input: WorkItemValidationInput) {
+  return input.startDate &&
+    input.targetDate &&
+    new Date(input.targetDate).getTime() < new Date(input.startDate).getTime()
+    ? "Target date must be on or after the start date"
+    : null
+}
+
+function getInputParentWorkItem(
+  state: AppData,
+  input: WorkItemValidationInput
+) {
+  return input.parentId
+    ? (state.workItems.find((entry) => entry.id === input.parentId) ?? null)
+    : null
+}
+
+function getWorkItemParentValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput,
+  parent: WorkItem | null
+) {
+  if (!input.parentId) {
+    return null
+  }
+
+  if (!parent) {
+    return "Parent item not found"
+  }
+
+  if (parent.teamId !== input.teamId) {
+    return "Parent item must belong to the same team"
+  }
+
+  if (input.currentItemId && parent.id === input.currentItemId) {
+    return "Item cannot be its own parent"
+  }
+
+  if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
+    return "Selected parent cannot contain this work item type"
+  }
+
+  return input.currentItemId &&
+    getWorkItemDescendantIds(state, input.currentItemId).has(parent.id)
+    ? "Work item hierarchy cannot contain cycles"
+    : null
+}
+
+function getWorkItemProjectValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput,
+  primaryProjectId: string | null
+) {
+  if (!primaryProjectId) {
+    return null
+  }
+
+  const project = getProjectsForTeamScope(state, input.teamId).find(
+    (entry) => entry.id === primaryProjectId
+  )
+
+  if (!project) {
+    return "Project must belong to the same team or workspace"
+  }
+
+  return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+    input.type
+  )
+    ? null
+    : "Work item type is not allowed for the selected project template"
+}
+
 export function getWorkItemValidationMessage(
   state: AppData,
   input: WorkItemValidationInput
 ) {
-  const normalizedTitle = input.title.trim()
+  const titleValidationMessage = getWorkItemTitleValidationMessage(input.title)
 
-  if (normalizedTitle.length < 2 || normalizedTitle.length > 96) {
-    return "Work item title must be between 2 and 96 characters"
+  if (titleValidationMessage) {
+    return titleValidationMessage
   }
 
   const team = state.teams.find((entry) => entry.id === input.teamId)
@@ -152,84 +262,35 @@ export function getWorkItemValidationMessage(
     return getWorkSurfaceCopy(team.settings.experience).disabledLabel
   }
 
-  if (
-    input.assigneeId &&
-    !getTeamMemberIds(state, input.teamId).includes(input.assigneeId)
-  ) {
-    return "Assignee must belong to the selected team"
+  const preProjectValidationMessage =
+    getWorkItemAssigneeValidationMessage(state, input) ??
+    getWorkItemLabelValidationMessage(state, input) ??
+    getWorkItemDateValidationMessage(input)
+
+  if (preProjectValidationMessage) {
+    return preProjectValidationMessage
   }
 
-  if (
-    "labelIds" in input &&
-    input.labelIds &&
-    input.labelIds.some(
-      (labelId) =>
-        !getLabelsForTeamScope(state, input.teamId).some(
-          (label) => label.id === labelId
-        )
-    )
-  ) {
-    return "One or more labels are invalid"
-  }
+  const parent = getInputParentWorkItem(state, input)
+  const parentValidationMessage = getWorkItemParentValidationMessage(
+    state,
+    input,
+    parent
+  )
 
-  if (
-    input.startDate &&
-    input.targetDate &&
-    new Date(input.targetDate).getTime() < new Date(input.startDate).getTime()
-  ) {
-    return "Target date must be on or after the start date"
-  }
-
-  const parent = input.parentId
-    ? (state.workItems.find((entry) => entry.id === input.parentId) ?? null)
-    : null
-
-  if (input.parentId) {
-    if (!parent) {
-      return "Parent item not found"
-    }
-
-    if (parent.teamId !== input.teamId) {
-      return "Parent item must belong to the same team"
-    }
-
-    if (input.currentItemId && parent.id === input.currentItemId) {
-      return "Item cannot be its own parent"
-    }
-
-    if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
-      return "Selected parent cannot contain this work item type"
-    }
-
-    if (
-      input.currentItemId &&
-      getWorkItemDescendantIds(state, input.currentItemId).has(parent.id)
-    ) {
-      return "Work item hierarchy cannot contain cycles"
-    }
+  if (parentValidationMessage) {
+    return parentValidationMessage
   }
 
   const resolvedPrimaryProjectId = parent
     ? (parent.primaryProjectId ?? null)
     : (input.primaryProjectId ?? null)
 
-  if (resolvedPrimaryProjectId) {
-    const project = getProjectsForTeamScope(state, input.teamId).find(
-      (entry) => entry.id === resolvedPrimaryProjectId
-    )
-
-    if (!project) {
-      return "Project must belong to the same team or workspace"
-    }
-
-    return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-      input.type
-    )
-      ? null
-      : "Work item type is not allowed for the selected project template"
-  }
-
-  return null
+  return getWorkItemProjectValidationMessage(
+    state,
+    input,
+    resolvedPrimaryProjectId
+  )
 }
 
 export function getResolvedProjectLinkForWorkItemUpdate(
@@ -240,72 +301,12 @@ export function getResolvedProjectLinkForWorkItemUpdate(
     primaryProjectId?: string | null
   }
 ): WorkItemProjectLinkResolution {
-  const itemsById = new Map(state.workItems.map((item) => [item.id, item]))
-  const nextParentId =
-    patch.parentId === undefined ? existing.parentId : patch.parentId
-  const nextParent = nextParentId ? (itemsById.get(nextParentId) ?? null) : null
-  const resolvedPrimaryProjectId =
-    patch.primaryProjectId !== undefined
-      ? patch.primaryProjectId
-      : patch.parentId !== undefined
-        ? (nextParent?.primaryProjectId ?? existing.primaryProjectId)
-        : existing.primaryProjectId
-  const parentIds = new Map<string, string | null>(
-    state.workItems.map((item) => [
-      item.id,
-      item.id === existing.id ? (nextParentId ?? null) : item.parentId,
-    ])
-  )
-  let rootItemId = existing.id
-  const visited = new Set<string>([rootItemId])
-
-  while (true) {
-    const parentId = parentIds.get(rootItemId) ?? null
-
-    if (!parentId || visited.has(parentId)) {
-      break
-    }
-
-    visited.add(parentId)
-    rootItemId = parentId
-  }
-
-  const cascadeItemIds = new Set<string>([rootItemId])
-  const queue = [rootItemId]
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()
-
-    if (!currentId) {
-      continue
-    }
-
-    for (const [itemId, parentId] of parentIds) {
-      if (parentId !== currentId || cascadeItemIds.has(itemId)) {
-        continue
-      }
-
-      cascadeItemIds.add(itemId)
-      queue.push(itemId)
-    }
-  }
-
-  const shouldCascadeProjectLink =
-    (patch.primaryProjectId !== undefined || patch.parentId !== undefined) &&
-    [...cascadeItemIds].some((itemId) => {
-      const currentProjectId =
-        itemId === existing.id
-          ? existing.primaryProjectId
-          : (itemsById.get(itemId)?.primaryProjectId ?? null)
-
-      return currentProjectId !== resolvedPrimaryProjectId
-    })
-
-  return {
-    cascadeItemIds,
-    resolvedPrimaryProjectId,
-    shouldCascadeProjectLink,
-  }
+  return resolveWorkItemProjectLinkUpdate({
+    items: state.workItems,
+    itemId: existing.id,
+    existingPrimaryProjectId: existing.primaryProjectId,
+    patch,
+  })
 }
 
 export function getProjectCascadeConfirmationForWorkItemUpdate(

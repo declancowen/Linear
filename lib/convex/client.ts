@@ -1,13 +1,10 @@
 "use client"
 
 export {
-  convexUrl,
-  hasConvex,
   RouteMutationError,
   runRouteMutation,
 } from "./client/shared"
 export {
-  type SnapshotRoutePayload,
   fetchSnapshot,
   fetchSnapshotState,
   fetchSnapshotVersion,
@@ -31,27 +28,18 @@ export {
   type DocumentCollaborationSessionPayload,
   syncCreateDocumentCollaborationSession,
 } from "./client/document-collaboration"
-export {
-  type ChatPresenceSessionPayload,
-  syncCreateChatPresenceSession,
-} from "./client/chat-presence"
+
 export {
   fetchChannelFeedReadModel,
   fetchConversationListReadModel,
   fetchConversationThreadReadModel,
   fetchDocumentDetailReadModel,
-  fetchDocumentIndexReadModel,
   fetchNotificationInboxReadModel,
-  fetchProjectIndexReadModel,
   fetchProjectDetailReadModel,
   fetchSearchSeedReadModel,
-  fetchViewCatalogReadModel,
-  fetchWorkIndexReadModel,
   fetchWorkItemDetailReadModel,
-  fetchWorkspaceMembershipReadModel,
 } from "./client/read-models"
 export {
-  type StartConversationCallResult,
   syncAddChannelPostComment,
   syncCreateChannel,
   syncCreateChannelPost,

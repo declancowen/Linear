@@ -4,7 +4,7 @@ const JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const JOIN_CODE_LENGTH = 12
 const MAX_GENERATION_ATTEMPTS = 5
 
-export function generateJoinCode(length = JOIN_CODE_LENGTH) {
+function generateJoinCode(length = JOIN_CODE_LENGTH) {
   const bytes = randomBytes(length)
   let value = ""
 

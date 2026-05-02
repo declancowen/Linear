@@ -4,7 +4,16 @@ import type { Editor } from "@tiptap/react"
 import { format, formatDistanceToNow } from "date-fns"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarBlank,
@@ -75,8 +84,13 @@ import {
   priorityMeta,
   statusMeta,
   type AppData,
+  type Document as AppDocument,
   type DocumentPresenceViewer,
+  type Milestone,
   type Priority,
+  type Project,
+  type Team,
+  type UserProfile,
   type WorkItem,
 } from "@/lib/domain/types"
 import { RichTextContent } from "@/components/app/rich-text-content"
@@ -1461,86 +1475,397 @@ function MainActivityTimeline({
   )
 }
 
-export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
-  const router = useRouter()
-  const data = useAppStore(useShallow(selectAppDataSnapshot))
-  const currentUserId = useAppStore((state) => state.currentUserId)
-  const currentUser = getUser(data, currentUserId) ?? null
-  const item = data.workItems.find((entry) => entry.id === itemId)
-  const [deletingItem, setDeletingItem] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [mainChildComposerOpen, setMainChildComposerOpen] = useState(false)
-  const [sidebarChildComposerOpen, setSidebarChildComposerOpen] =
-    useState(false)
-  const [subIssuesOpen, setSubIssuesOpen] = useState(true)
-  const [propertiesOpen, setPropertiesOpen] = useState(true)
-  const [mainEditing, setMainEditing] = useState(false)
-  const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
-  const [mainDraftUpdatedAt, setMainDraftUpdatedAt] = useState<string | null>(
-    null
+type WorkItemCollaborationLifecycle = ReturnType<
+  typeof useDocumentCollaboration
+>["lifecycle"]
+
+type StableCollaborationUser = {
+  id: string
+  name: string
+  avatarUrl?: string | null
+  avatarImageUrl?: string | null
+}
+
+type DetailSelectOption = { value: string; label: string }
+type DetailTextLimitState = ReturnType<typeof getTextInputLimitState>
+type DetailChildProgress = ReturnType<typeof getWorkItemChildProgress>
+type DetailChildCopy = ReturnType<typeof getChildWorkItemCopy>
+type DetailWorkCopy = ReturnType<typeof getWorkSurfaceCopy>
+type DetailCollaborationState = ReturnType<typeof useDocumentCollaboration>
+type DetailBootstrapContent = DetailCollaborationState["bootstrapContent"]
+type DetailEditorCollaboration = DetailCollaborationState["editorCollaboration"]
+type DetailCollaborationBinding = DetailCollaborationState["collaboration"]
+type DetailUploadAttachmentHandler = NonNullable<
+  ComponentProps<typeof RichTextEditor>["onUploadAttachment"]
+>
+type DetailFlushCollaboration = DetailCollaborationState["flush"]
+type DetailRouter = ReturnType<typeof useRouter>
+type DetailRequestWorkItemUpdate = ReturnType<
+  typeof useWorkItemProjectCascadeConfirmation
+>["requestUpdate"]
+type DetailMainMentionRetryEntries = Record<string, PendingDocumentMention[]>
+type DetailSetMainMentionRetryEntries = Dispatch<
+  SetStateAction<DetailMainMentionRetryEntries>
+>
+
+function getMissingWorkItemDetailContent({
+  deletingItem,
+  hasLoadedWorkItemReadModel,
+}: {
+  deletingItem: boolean
+  hasLoadedWorkItemReadModel: boolean
+}) {
+  if (deletingItem) {
+    return null
+  }
+
+  if (!hasLoadedWorkItemReadModel) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Loading work item...
+      </div>
+    )
+  }
+
+  return <MissingState title="Work item not found" />
+}
+
+function getActiveDescriptionViewers({
+  hasLiveDescriptionPresence,
+  collaborationViewers,
+  currentUser,
+  legacyActiveBlockId,
+  workItemPresenceViewers,
+}: {
+  hasLiveDescriptionPresence: boolean
+  collaborationViewers: DocumentPresenceViewer[]
+  currentUser: UserProfile | null
+  legacyActiveBlockId: string | null
+  workItemPresenceViewers: DocumentPresenceViewer[]
+}) {
+  if (hasLiveDescriptionPresence) {
+    return collaborationViewers
+  }
+
+  if (!currentUser) {
+    return workItemPresenceViewers
+  }
+
+  return [
+    {
+      userId: currentUser.id,
+      name: currentUser.name,
+      avatarUrl: currentUser.avatarUrl,
+      avatarImageUrl: currentUser.avatarImageUrl ?? null,
+      activeBlockId: legacyActiveBlockId,
+      lastSeenAt: new Date().toISOString(),
+    },
+    ...workItemPresenceViewers,
+  ]
+}
+
+function getSelectedWorkItemProject(data: AppData, currentItem: WorkItem) {
+  if (!currentItem.primaryProjectId) {
+    return null
+  }
+
+  return (
+    data.projects.find(
+      (project) => project.id === currentItem.primaryProjectId
+    ) ?? null
   )
-  const [mainDraftTitle, setMainDraftTitle] = useState("")
-  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
-    useWorkItemProjectCascadeConfirmation()
-  const [mainDraftDescription, setMainDraftDescription] = useState("")
-  const [
-    mainPendingMentionRetryEntriesByItemId,
-    setMainPendingMentionRetryEntriesByItemId,
-  ] = useState<Record<string, PendingDocumentMention[]>>({})
-  const [savingMainSection, setSavingMainSection] = useState(false)
-  const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
-    DocumentPresenceViewer[]
-  >([])
-  const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
-    null
+}
+
+function getSelectedWorkItemMilestone(data: AppData, currentItem: WorkItem) {
+  if (!currentItem.milestoneId) {
+    return null
+  }
+
+  return (
+    data.milestones.find(
+      (milestone) => milestone.id === currentItem.milestoneId
+    ) ?? null
   )
-  const legacyActiveBlockIdRef = useRef<string | null>(null)
-  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
-  const stableCollaborationUserRef = useRef<{
-    id: string
-    name: string
-    avatarUrl?: string | null
-    avatarImageUrl?: string | null
-  } | null>(null)
-  const previousItemIdRef = useRef(itemId)
-  const description = item ? getDocument(data, item.descriptionDocId) : null
-  const descriptionContent = description?.content ?? "<p>Add a description…</p>"
-  const activeDescriptionDocumentId = description?.id ?? null
-  const [stableDescriptionDocumentId, setStableDescriptionDocumentId] =
-    useState<string | null>(null)
-  const activePresenceItemId = item?.id ?? null
-  const isEditingCurrentItem =
-    item !== undefined && mainEditing && mainDraftItemId === item.id
-  const collaborationCurrentUser =
-    currentUser ?? stableCollaborationUserRef.current ?? null
-  const {
-    bootstrapContent,
-    editorCollaboration,
-    collaboration,
-    flush: flushCollaboration,
-    isAwaitingCollaboration,
-    lifecycle: collaborationLifecycle,
-    viewers: collaborationViewers,
-  } = useDocumentCollaboration({
-    documentId: stableDescriptionDocumentId,
-    currentUser: collaborationCurrentUser,
-    enabled: Boolean(stableDescriptionDocumentId),
+}
+
+function getAvailableWorkItemLabels(data: AppData, team: Team | null) {
+  if (!team) {
+    return []
+  }
+
+  return [...getLabelsForTeamScope(data, team.id)].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )
+}
+
+function getWorkItemParentOptions(data: AppData, currentItem: WorkItem) {
+  return [
+    { value: "none", label: "No parent" },
+    ...getEligibleParentWorkItems(data, currentItem).map((candidate) => ({
+      value: candidate.id,
+      label: `${candidate.key} · ${candidate.title}`,
+    })),
+  ]
+}
+
+function getLinkedWorkItemProjects(data: AppData, currentItem: WorkItem) {
+  return currentItem.linkedProjectIds
+    .map(
+      (projectId) =>
+        data.projects.find((project) => project.id === projectId) ?? null
+    )
+    .filter(
+      (project): project is NonNullable<typeof project> => project !== null
+    )
+}
+
+function getLinkedWorkItemDocuments(data: AppData, currentItem: WorkItem) {
+  return currentItem.linkedDocumentIds
+    .map((documentId) => getDocument(data, documentId))
+    .filter(
+      (document): document is NonNullable<typeof document> => document !== null
+    )
+}
+
+function getWorkItemDeleteCascadeMessage({
+  data,
+  currentItem,
+  team,
+}: {
+  data: AppData
+  currentItem: WorkItem
+  team: Team | null
+}) {
+  const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
+  const itemLabel = getDisplayLabelForWorkItemType(
+    currentItem.type,
+    team?.settings.experience
+  ).toLowerCase()
+
+  if (descendantCount === 0) {
+    return `Delete this ${itemLabel}?`
+  }
+
+  return `Delete this ${itemLabel} and ${descendantCount} nested item${
+    descendantCount === 1 ? "" : "s"
+  }?`
+}
+
+function getWorkItemSidebarTitle({
+  currentItem,
+  mainSection,
+}: {
+  currentItem: WorkItem
+  mainSection: ReturnType<typeof useWorkItemMainSectionController>
+}) {
+  return mainSection.isMainEditing &&
+    mainSection.mainDraftTitle.trim().length > 0
+    ? mainSection.mainDraftTitle
+    : currentItem.title
+}
+
+function getWorkItemDetailModel({
+  currentItem,
+  data,
+  editable,
+  mainSection,
+  team,
+}: {
+  currentItem: WorkItem
+  data: AppData
+  editable: boolean
+  mainSection: ReturnType<typeof useWorkItemMainSectionController>
+  team: Team | null
+}) {
+  const teamExperience = team?.settings.experience
+  const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
+
+  return {
+    availableLabels: getAvailableWorkItemLabels(data, team),
+    canCreateChildItem: editable && allowedChildTypes.length > 0,
+    cascadeMessage: getWorkItemDeleteCascadeMessage({
+      data,
+      currentItem,
+      team,
+    }),
+    childCopy: getChildWorkItemCopy(currentItem.type, teamExperience),
+    childItems: sortItems(
+      getDirectChildWorkItems(data, currentItem.id),
+      "priority"
+    ),
+    childProgress: getWorkItemChildProgress(data, currentItem.id),
+    displayedEndDate: currentItem.targetDate ?? currentItem.dueDate,
+    linkedDocuments: getLinkedWorkItemDocuments(data, currentItem),
+    linkedProjects: getLinkedWorkItemProjects(data, currentItem),
+    mentionCandidates: team ? teamMembers : data.users,
+    parentItem: currentItem.parentId
+      ? getWorkItem(data, currentItem.parentId)
+      : null,
+    parentOptions: getWorkItemParentOptions(data, currentItem),
+    selectedMilestone: getSelectedWorkItemMilestone(data, currentItem),
+    selectedProject: getSelectedWorkItemProject(data, currentItem),
+    sidebarEditable: editable,
+    sidebarTitle: getWorkItemSidebarTitle({ currentItem, mainSection }),
+    statusOptions: buildPropertyStatusOptions(getStatusOrderForTeam(team)),
+    teamMembers,
+    teamProjects: getTeamProjectOptions(
+      data,
+      team?.id,
+      currentItem.primaryProjectId
+    ),
+    workCopy: getWorkSurfaceCopy(teamExperience),
+  }
+}
+
+function buildWorkItemEndDatePatch(
+  currentItem: WorkItem,
+  nextEndDate: string | null
+) {
+  return {
+    dueDate: currentItem.dueDate ? nextEndDate : undefined,
+    targetDate:
+      currentItem.targetDate || !currentItem.dueDate ? nextEndDate : undefined,
+  }
+}
+
+function updateWorkItemStartDate({
+  currentItem,
+  displayedEndDate,
+  nextStartDate,
+}: {
+  currentItem: WorkItem
+  displayedEndDate: string | null
+  nextStartDate: string | null
+}) {
+  const patch: {
+    startDate?: string | null
+    dueDate?: string | null
+    targetDate?: string | null
+  } = {
+    startDate: nextStartDate,
+  }
+
+  if (
+    nextStartDate &&
+    displayedEndDate &&
+    new Date(nextStartDate).getTime() > new Date(displayedEndDate).getTime()
+  ) {
+    Object.assign(patch, buildWorkItemEndDatePatch(currentItem, nextStartDate))
+  }
+
+  useAppStore.getState().updateWorkItem(currentItem.id, patch)
+}
+
+function updateWorkItemEndDate({
+  currentItem,
+  nextEndDate,
+}: {
+  currentItem: WorkItem
+  nextEndDate: string | null
+}) {
+  const patch: {
+    startDate?: string | null
+    dueDate?: string | null
+    targetDate?: string | null
+  } = buildWorkItemEndDatePatch(currentItem, nextEndDate)
+
+  if (
+    nextEndDate &&
+    currentItem.startDate &&
+    new Date(nextEndDate).getTime() < new Date(currentItem.startDate).getTime()
+  ) {
+    patch.startDate = nextEndDate
+  }
+
+  useAppStore.getState().updateWorkItem(currentItem.id, patch)
+}
+
+function requestWorkItemProjectChange({
+  currentItem,
+  requestConfirmedWorkItemUpdate,
+  value,
+}: {
+  currentItem: WorkItem
+  requestConfirmedWorkItemUpdate: DetailRequestWorkItemUpdate
+  value: string
+}) {
+  const nextProjectId = value === "none" ? null : value
+
+  if (nextProjectId === currentItem.primaryProjectId) {
+    return
+  }
+
+  requestConfirmedWorkItemUpdate(currentItem.id, {
+    primaryProjectId: nextProjectId,
   })
-  const { hasLoadedOnce: hasLoadedWorkItemReadModel } =
-    useScopedReadModelRefresh({
-      enabled:
-        !item ||
-        collaborationLifecycle === "legacy" ||
-        collaborationLifecycle === "degraded",
-      scopeKeys: [createWorkItemDetailScopeKey(itemId)],
-      fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
-      notFoundResult: createMissingScopedReadModelResult([
-        {
-          kind: "work-item-detail",
-          itemId,
-        },
-      ]),
-    })
+}
+
+function requestWorkItemParentChange({
+  currentItem,
+  requestConfirmedWorkItemUpdate,
+  value,
+}: {
+  currentItem: WorkItem
+  requestConfirmedWorkItemUpdate: DetailRequestWorkItemUpdate
+  value: string
+}) {
+  const nextParentId = value === "none" ? null : value
+
+  if (nextParentId === currentItem.parentId) {
+    return
+  }
+
+  requestConfirmedWorkItemUpdate(currentItem.id, {
+    parentId: nextParentId,
+  })
+}
+
+async function deleteWorkItemAndNavigate({
+  currentItem,
+  router,
+  setDeleteDialogOpen,
+  setDeletingItem,
+  team,
+}: {
+  currentItem: WorkItem
+  router: DetailRouter
+  setDeleteDialogOpen: Dispatch<SetStateAction<boolean>>
+  setDeletingItem: Dispatch<SetStateAction<boolean>>
+  team: Team | null
+}) {
+  setDeletingItem(true)
+
+  const deleted = await useAppStore.getState().deleteWorkItem(currentItem.id)
+
+  if (!deleted) {
+    setDeletingItem(false)
+    return
+  }
+
+  setDeleteDialogOpen(false)
+  router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
+}
+
+async function copyCurrentItemLink() {
+  try {
+    await navigator.clipboard.writeText(window.location.href)
+    toast.success("Item link copied")
+  } catch (error) {
+    toast.error(
+      error instanceof Error ? error.message : "Failed to copy item link"
+    )
+  }
+}
+
+function useStableCollaborationUser(
+  currentUser: UserProfile | null,
+  currentUserId: string
+) {
+  const stableCollaborationUserRef = useRef<StableCollaborationUser | null>(
+    null
+  )
+
   useEffect(() => {
     if (!currentUser) {
       return
@@ -1554,80 +1879,63 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     }
   }, [currentUser, currentUserId])
 
+  // eslint-disable-next-line react-hooks/refs -- keep the last user available while auth state refreshes.
+  return currentUser ?? stableCollaborationUserRef.current ?? null
+}
+
+function useStableDescriptionDocumentId(
+  itemId: string,
+  activeDescriptionDocumentId: string | null
+) {
+  const [stableDescriptionDocumentId, setStableDescriptionDocumentId] =
+    useState<string | null>(null)
+  const previousItemIdRef = useRef(itemId)
+
   useEffect(() => {
     if (previousItemIdRef.current === itemId) {
       return
     }
 
     previousItemIdRef.current = itemId
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must discard the previous collaboration document.
     setStableDescriptionDocumentId(null)
   }, [itemId])
 
   useEffect(() => {
-    if (!description?.id) {
+    if (!activeDescriptionDocumentId) {
       return
     }
 
-    setStableDescriptionDocumentId(description.id)
-  }, [description?.id])
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- promote the loaded document id into a stable collaboration target.
+    setStableDescriptionDocumentId(activeDescriptionDocumentId)
+  }, [activeDescriptionDocumentId])
 
-  const isCollaborationAttached = collaborationLifecycle === "attached"
-  const isCollaborationBootstrapping =
-    collaborationLifecycle === "bootstrapping"
-  const showDescriptionBootPreview = useInitialCollaborationSyncPreview({
-    id: itemId,
-    storagePrefix: ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX,
-    bootstrapping: isCollaborationBootstrapping,
-    attached: isCollaborationAttached,
-  })
-  const showDescriptionSyncDialog =
-    isEditingCurrentItem && showDescriptionBootPreview
-  const collaborationDescriptionContent = mainDraftDescription
-  const protectedDescriptionDocumentId =
-    activeDescriptionDocumentId ?? stableDescriptionDocumentId
-  const isProtectingDescriptionBody = Boolean(
-    protectedDescriptionDocumentId &&
-    (isEditingCurrentItem ||
-      isCollaborationBootstrapping ||
-      isCollaborationAttached)
+  return stableDescriptionDocumentId
+}
+
+function useLegacyWorkItemPresence({
+  activeItemId,
+  currentUserId,
+  collaborationLifecycle,
+  isEditingCurrentItem,
+}: {
+  activeItemId: string | null
+  currentUserId: string
+  collaborationLifecycle: WorkItemCollaborationLifecycle
+  isEditingCurrentItem: boolean
+}) {
+  const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
+    DocumentPresenceViewer[]
+  >([])
+  const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
+    null
   )
+  const legacyActiveBlockIdRef = useRef<string | null>(null)
+  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
+  const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
 
   useEffect(() => {
-    if (!protectedDescriptionDocumentId) {
-      return
-    }
-
-    useAppStore
-      .getState()
-      .setDocumentBodyProtection(
-        protectedDescriptionDocumentId,
-        isProtectingDescriptionBody
-      )
-
-    return () => {
-      useAppStore
-        .getState()
-        .setDocumentBodyProtection(protectedDescriptionDocumentId, false)
-    }
-  }, [protectedDescriptionDocumentId, isProtectingDescriptionBody])
-
-  useEffect(() => {
-    if (!activePresenceItemId) {
-      return
-    }
-
-    if (
-      collaborationLifecycle === "legacy" ||
-      collaborationLifecycle === "degraded"
-    ) {
-      return
-    }
-
-    useAppStore.getState().cancelItemDescriptionSync(activePresenceItemId)
-  }, [activePresenceItemId, collaborationLifecycle])
-
-  useEffect(() => {
-    if (!activePresenceItemId) {
+    if (!activeItemId) {
       sendLegacyPresenceRef.current = null
       setWorkItemPresenceViewers([])
       setLegacyActiveBlockId(null)
@@ -1647,7 +1955,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     let cancelled = false
     let presenceActive = window.document.visibilityState === "visible"
     let heartbeatTimeoutId: number | null = null
-    const activeItemId = activePresenceItemId
+    const activeItemIdValue = activeItemId
     const sessionId = getWorkItemPresenceSessionId(currentUserId)
 
     function clearHeartbeatTimeout() {
@@ -1684,7 +1992,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
 
       try {
         const viewers = await syncHeartbeatWorkItemPresence(
-          activeItemId,
+          activeItemIdValue,
           sessionId,
           legacyActiveBlockIdRef.current
         )
@@ -1726,7 +2034,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         setWorkItemPresenceViewers([])
       }
 
-      void syncClearWorkItemPresence(activeItemId, sessionId, {
+      void syncClearWorkItemPresence(activeItemIdValue, sessionId, {
         keepalive: options?.keepalive,
       }).catch((error) => {
         if (!cancelled && window.document.visibilityState === "visible") {
@@ -1776,36 +2084,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       )
       window.removeEventListener("pagehide", handlePageHide)
       sendLegacyPresenceRef.current = null
-      void syncClearWorkItemPresence(activeItemId, sessionId, {
+      void syncClearWorkItemPresence(activeItemIdValue, sessionId, {
         keepalive: true,
       }).catch(() => {})
     }
-  }, [activePresenceItemId, collaborationLifecycle, currentUserId])
+  }, [activeItemId, collaborationLifecycle, currentUserId])
 
-  useEffect(() => {
-    setMainChildComposerOpen(false)
-    setSidebarChildComposerOpen(false)
-  }, [itemId])
-
-  const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
-  const activeDescriptionViewers = hasLiveDescriptionPresence
-    ? collaborationViewers
-    : currentUser
-      ? [
-          {
-            userId: currentUser.id,
-            name: currentUser.name,
-            avatarUrl: currentUser.avatarUrl,
-            avatarImageUrl: currentUser.avatarImageUrl ?? null,
-            activeBlockId: legacyActiveBlockId,
-            lastSeenAt: new Date().toISOString(),
-          },
-          ...workItemPresenceViewers,
-        ]
-      : workItemPresenceViewers
-  const otherDescriptionViewers = activeDescriptionViewers.filter(
-    (viewer) => viewer.userId !== currentUserId
-  )
   const handleLegacyActiveBlockChange = useCallback(
     (activeBlockId: string | null) => {
       legacyActiveBlockIdRef.current = activeBlockId
@@ -1815,11 +2099,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   )
 
   useEffect(() => {
-    if (
-      hasLiveDescriptionPresence ||
-      !activePresenceItemId ||
-      !isEditingCurrentItem
-    ) {
+    if (hasLiveDescriptionPresence || !activeItemId || !isEditingCurrentItem) {
       return
     }
 
@@ -1831,222 +2111,328 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       window.clearTimeout(timeoutId)
     }
   }, [
-    activePresenceItemId,
+    activeItemId,
     hasLiveDescriptionPresence,
     isEditingCurrentItem,
     legacyActiveBlockId,
   ])
 
-  if (!item) {
-    if (deletingItem) {
-      return null
+  return {
+    handleLegacyActiveBlockChange,
+    legacyActiveBlockId,
+    workItemPresenceViewers,
+  }
+}
+
+function clearMainPendingMentionRetryEntries(
+  setEntries: DetailSetMainMentionRetryEntries,
+  itemId: string
+) {
+  setEntries((current) => {
+    if (!(itemId in current)) {
+      return current
     }
 
-    if (!hasLoadedWorkItemReadModel) {
-      return (
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          Loading work item...
-        </div>
+    const next = { ...current }
+    delete next[itemId]
+    return next
+  })
+}
+
+async function persistWorkItemMainSection({
+  currentItem,
+  flushCollaboration,
+  isCollaborationAttached,
+  mainDraftDescription,
+  mainDraftUpdatedAt,
+  mainTitleDirty,
+  normalizedMainDraftTitle,
+}: {
+  currentItem: WorkItem
+  flushCollaboration: DetailFlushCollaboration
+  isCollaborationAttached: boolean
+  mainDraftDescription: string
+  mainDraftUpdatedAt: string | null
+  mainTitleDirty: boolean
+  normalizedMainDraftTitle: string
+}) {
+  if (isCollaborationAttached) {
+    try {
+      await flushCollaboration({
+        kind: "work-item-main",
+        ...(mainTitleDirty
+          ? {
+              workItemExpectedUpdatedAt:
+                mainDraftUpdatedAt ?? currentItem.updatedAt,
+              workItemTitle: normalizedMainDraftTitle,
+            }
+          : {}),
+      })
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to persist the latest description changes"
       )
+      return false
     }
 
-    return <MissingState title="Work item not found" />
+    return true
   }
 
-  const currentItem = item
-  const team = getTeam(data, currentItem.teamId)
-  const workCopy = getWorkSurfaceCopy(team?.settings.experience)
-  const editable = team ? canEditTeam(data, team.id) : false
-  // Title and description stay behind explicit edit mode; sidebar properties do not.
-  const sidebarEditable = editable
-  const statusOptions = buildPropertyStatusOptions(getStatusOrderForTeam(team))
-  const teamMembers = team ? getTeamMembers(data, team.id) : []
-  const teamProjects = getTeamProjectOptions(
-    data,
-    team?.id,
-    currentItem.primaryProjectId
-  )
-  const selectedProject = currentItem.primaryProjectId
-    ? (data.projects.find(
-        (project) => project.id === currentItem.primaryProjectId
-      ) ?? null)
-    : null
-  const selectedMilestone = currentItem.milestoneId
-    ? (data.milestones.find(
-        (milestone) => milestone.id === currentItem.milestoneId
-      ) ?? null)
-    : null
-  const availableLabels = team
-    ? [...getLabelsForTeamScope(data, team.id)].sort((left, right) =>
-        left.name.localeCompare(right.name)
+  return useAppStore.getState().saveWorkItemMainSection({
+    itemId: currentItem.id,
+    title: normalizedMainDraftTitle,
+    description: mainDraftDescription,
+    expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
+  })
+}
+
+async function deliverWorkItemMainMentionNotifications({
+  pendingMentionEntries,
+  savedItemId,
+  setPendingMentionRetryEntriesByItemId,
+}: {
+  pendingMentionEntries: PendingDocumentMention[]
+  savedItemId: string
+  setPendingMentionRetryEntriesByItemId: DetailSetMainMentionRetryEntries
+}) {
+  if (pendingMentionEntries.length === 0) {
+    clearMainPendingMentionRetryEntries(
+      setPendingMentionRetryEntriesByItemId,
+      savedItemId
+    )
+    return
+  }
+
+  try {
+    const result = await syncSendItemDescriptionMentionNotifications(
+      savedItemId,
+      pendingMentionEntries
+    )
+
+    clearMainPendingMentionRetryEntries(
+      setPendingMentionRetryEntriesByItemId,
+      savedItemId
+    )
+
+    toast.success(
+      `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
+    )
+  } catch (error) {
+    if (isAlreadyDeliveredMentionConflict(error)) {
+      clearMainPendingMentionRetryEntries(
+        setPendingMentionRetryEntriesByItemId,
+        savedItemId
       )
-    : []
-  const parentItem = currentItem.parentId
-    ? getWorkItem(data, currentItem.parentId)
-    : null
-  const childItems = sortItems(
-    getDirectChildWorkItems(data, currentItem.id),
-    "priority"
+      toast.success("Saved changes and delivered mention notifications.")
+      return
+    }
+
+    setPendingMentionRetryEntriesByItemId((current) => ({
+      ...current,
+      [savedItemId]: pendingMentionEntries,
+    }))
+    toast.error(
+      error instanceof Error
+        ? error.message
+        : "Saved changes but failed to notify mentions"
+    )
+  }
+}
+
+function getIsMainSectionEditing({
+  currentItem,
+  mainDraftItemId,
+  mainEditing,
+}: {
+  currentItem: WorkItem | undefined
+  mainDraftItemId: string | null
+  mainEditing: boolean
+}) {
+  return (
+    currentItem !== undefined &&
+    mainEditing &&
+    mainDraftItemId === currentItem.id
   )
-  const childProgress = getWorkItemChildProgress(data, currentItem.id)
-  const parentOptions = [
-    { value: "none", label: "No parent" },
-    ...getEligibleParentWorkItems(data, currentItem).map((candidate) => ({
-      value: candidate.id,
-      label: `${candidate.key} · ${candidate.title}`,
-    })),
-  ]
-  const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
-  const childCopy = getChildWorkItemCopy(
-    currentItem.type,
-    team?.settings.experience
+}
+
+function getPendingMainMentionEntries({
+  currentItem,
+  descriptionContent,
+  isMainEditing,
+  mainDraftDescription,
+  pendingMentionRetryEntriesByItemId,
+}: {
+  currentItem: WorkItem | undefined
+  descriptionContent: string
+  isMainEditing: boolean
+  mainDraftDescription: string
+  pendingMentionRetryEntriesByItemId: DetailMainMentionRetryEntries
+}) {
+  if (!currentItem || !isMainEditing) {
+    return []
+  }
+
+  const activeRetryEntries = filterPendingDocumentMentionsByContent(
+    pendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
+    mainDraftDescription
   )
-  const canCreateChildItem = editable && allowedChildTypes.length > 0
-  const descendantCount = getWorkItemDescendantIds(data, currentItem.id).size
-  const itemLabel = getDisplayLabelForWorkItemType(
-    currentItem.type,
-    team?.settings.experience
-  ).toLowerCase()
-  const linkedProjects = currentItem.linkedProjectIds
-    .map(
-      (projectId) =>
-        data.projects.find((project) => project.id === projectId) ?? null
-    )
-    .filter(
-      (project): project is NonNullable<typeof project> => project !== null
-    )
-  const linkedDocuments = currentItem.linkedDocumentIds
-    .map((documentId) => getDocument(data, documentId))
-    .filter(
-      (document): document is NonNullable<typeof document> => document !== null
-    )
-  const cascadeMessage =
-    descendantCount > 0
-      ? `Delete this ${itemLabel} and ${descendantCount} nested item${
-          descendantCount === 1 ? "" : "s"
-        }?`
-      : `Delete this ${itemLabel}?`
-  const showSubIssuesSection =
-    childItems.length > 0 || allowedChildTypes.length > 0
-  const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
-  const isMainEditing = mainEditing && mainDraftItemId === currentItem.id
-  const sidebarTitle =
-    isMainEditing && mainDraftTitle.trim().length > 0
-      ? mainDraftTitle
-      : currentItem.title
-  const activeMainPendingMentionRetryEntries =
-    filterPendingDocumentMentionsByContent(
-      mainPendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
-      mainDraftDescription
-    )
-  const pendingMainMentionEntries = isMainEditing
-    ? mergePendingDocumentMentions(
-        activeMainPendingMentionRetryEntries,
-        getPendingRichTextMentionEntries(
-          descriptionContent,
-          mainDraftDescription
-        )
-      )
-    : []
+
+  return mergePendingDocumentMentions(
+    activeRetryEntries,
+    getPendingRichTextMentionEntries(descriptionContent, mainDraftDescription)
+  )
+}
+
+function getMainSectionDraftState({
+  currentItem,
+  descriptionContent,
+  isCollaborationAttached,
+  isMainEditing,
+  mainDraftDescription,
+  mainDraftTitle,
+  mainDraftUpdatedAt,
+}: {
+  currentItem: WorkItem | undefined
+  descriptionContent: string
+  isCollaborationAttached: boolean
+  isMainEditing: boolean
+  mainDraftDescription: string
+  mainDraftTitle: string
+  mainDraftUpdatedAt: string | null
+}) {
+  const normalizedTitle = mainDraftTitle.trim()
+  const titleDirty = Boolean(
+    currentItem && isMainEditing && normalizedTitle !== currentItem.title
+  )
+  const descriptionDirty =
+    isMainEditing && mainDraftDescription !== descriptionContent
+  const stale = Boolean(
+    currentItem &&
+    !isCollaborationAttached &&
+    isMainEditing &&
+    mainDraftUpdatedAt &&
+    mainDraftUpdatedAt !== currentItem.updatedAt
+  )
+
+  return {
+    descriptionDirty,
+    dirty: titleDirty || descriptionDirty,
+    normalizedTitle,
+    stale,
+    titleDirty,
+  }
+}
+
+function getCanSaveMainSection({
+  currentItem,
+  draftDirty,
+  isAwaitingCollaboration,
+  isCollaborationAttached,
+  isMainEditing,
+  mainDraftStale,
+  mainTitleCanSubmit,
+  pendingMentionCount,
+  savingMainSection,
+}: {
+  currentItem: WorkItem | undefined
+  draftDirty: boolean
+  isAwaitingCollaboration: boolean
+  isCollaborationAttached: boolean
+  isMainEditing: boolean
+  mainDraftStale: boolean
+  mainTitleCanSubmit: boolean
+  pendingMentionCount: number
+  savingMainSection: boolean
+}) {
+  if (!currentItem) {
+    return false
+  }
+
+  if (isCollaborationAttached) {
+    return isMainEditing && !savingMainSection
+  }
+
+  return (
+    !isAwaitingCollaboration &&
+    isMainEditing &&
+    mainTitleCanSubmit &&
+    (draftDirty || pendingMentionCount > 0) &&
+    !savingMainSection &&
+    !mainDraftStale
+  )
+}
+
+function useWorkItemMainSectionController({
+  currentItem,
+  descriptionContent,
+  editable,
+  flushCollaboration,
+  isAwaitingCollaboration,
+  isCollaborationAttached,
+  isCollaborationBootstrapping,
+}: {
+  currentItem: WorkItem | undefined
+  descriptionContent: string
+  editable: boolean
+  flushCollaboration: DetailFlushCollaboration
+  isAwaitingCollaboration: boolean
+  isCollaborationAttached: boolean
+  isCollaborationBootstrapping: boolean
+}) {
+  const [mainEditing, setMainEditing] = useState(false)
+  const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
+  const [mainDraftUpdatedAt, setMainDraftUpdatedAt] = useState<string | null>(
+    null
+  )
+  const [mainDraftTitle, setMainDraftTitle] = useState("")
+  const [mainDraftDescription, setMainDraftDescription] = useState("")
+  const [
+    mainPendingMentionRetryEntriesByItemId,
+    setMainPendingMentionRetryEntriesByItemId,
+  ] = useState<DetailMainMentionRetryEntries>({})
+  const [savingMainSection, setSavingMainSection] = useState(false)
+
+  const isMainEditing = getIsMainSectionEditing({
+    currentItem,
+    mainDraftItemId,
+    mainEditing,
+  })
+  const pendingMainMentionEntries = getPendingMainMentionEntries({
+    currentItem,
+    descriptionContent,
+    isMainEditing,
+    mainDraftDescription,
+    pendingMentionRetryEntriesByItemId: mainPendingMentionRetryEntriesByItemId,
+  })
   const mainTitleLimitState = getTextInputLimitState(
     mainDraftTitle,
     workItemTitleConstraints
   )
-  const normalizedMainDraftTitle = mainDraftTitle.trim()
-  const mainTitleDirty =
-    isMainEditing && normalizedMainDraftTitle !== currentItem.title
-  const mainDescriptionDirty =
-    isMainEditing && mainDraftDescription !== descriptionContent
-  const mainDirty = mainTitleDirty || mainDescriptionDirty
-  const mainDraftStale =
-    !isCollaborationAttached &&
-    isMainEditing &&
-    Boolean(mainDraftUpdatedAt) &&
-    mainDraftUpdatedAt !== currentItem.updatedAt
-  const canSaveMainSection = isCollaborationAttached
-    ? isMainEditing && !savingMainSection
-    : !isAwaitingCollaboration &&
-      isMainEditing &&
-      mainTitleLimitState.canSubmit &&
-      (mainDirty || pendingMainMentionEntries.length > 0) &&
-      !savingMainSection &&
-      !mainDraftStale
-
-  function buildEndDatePatch(nextEndDate: string | null) {
-    return {
-      dueDate: currentItem.dueDate ? nextEndDate : undefined,
-      targetDate:
-        currentItem.targetDate || !currentItem.dueDate
-          ? nextEndDate
-          : undefined,
-    }
-  }
-
-  function handleStartDateChange(nextStartDate: string | null) {
-    const patch: {
-      startDate?: string | null
-      dueDate?: string | null
-      targetDate?: string | null
-    } = {
-      startDate: nextStartDate,
-    }
-
-    if (
-      nextStartDate &&
-      displayedEndDate &&
-      new Date(nextStartDate).getTime() > new Date(displayedEndDate).getTime()
-    ) {
-      Object.assign(patch, buildEndDatePatch(nextStartDate))
-    }
-
-    useAppStore.getState().updateWorkItem(currentItem.id, patch)
-  }
-
-  function handleProjectChange(value: string) {
-    const nextProjectId = value === "none" ? null : value
-
-    if (nextProjectId === currentItem.primaryProjectId) {
-      return
-    }
-
-    requestConfirmedWorkItemUpdate(currentItem.id, {
-      primaryProjectId: nextProjectId,
-    })
-  }
-
-  function handleParentChange(value: string) {
-    const nextParentId = value === "none" ? null : value
-
-    if (nextParentId === currentItem.parentId) {
-      return
-    }
-
-    requestConfirmedWorkItemUpdate(currentItem.id, {
-      parentId: nextParentId,
-    })
-  }
-
-  function handleEndDateChange(nextEndDate: string | null) {
-    const patch: {
-      startDate?: string | null
-      dueDate?: string | null
-      targetDate?: string | null
-    } = buildEndDatePatch(nextEndDate)
-
-    if (
-      nextEndDate &&
-      currentItem.startDate &&
-      new Date(nextEndDate).getTime() <
-        new Date(currentItem.startDate).getTime()
-    ) {
-      patch.startDate = nextEndDate
-    }
-
-    useAppStore.getState().updateWorkItem(currentItem.id, patch)
-  }
+  const draftState = getMainSectionDraftState({
+    currentItem,
+    descriptionContent,
+    isCollaborationAttached,
+    isMainEditing,
+    mainDraftDescription,
+    mainDraftTitle,
+    mainDraftUpdatedAt,
+  })
+  const canSaveMainSection = getCanSaveMainSection({
+    currentItem,
+    draftDirty: draftState.dirty,
+    isAwaitingCollaboration,
+    isCollaborationAttached,
+    isMainEditing,
+    mainDraftStale: draftState.stale,
+    mainTitleCanSubmit: mainTitleLimitState.canSubmit,
+    pendingMentionCount: pendingMainMentionEntries.length,
+    savingMainSection,
+  })
 
   function handleStartMainEdit() {
-    if (!editable || isCollaborationBootstrapping) {
+    if (!currentItem || !editable || isCollaborationBootstrapping) {
       return
     }
 
@@ -2060,908 +2446,1894 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   function handleCancelMainEdit() {
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
-    setMainDraftTitle(currentItem.title)
-    setMainDraftDescription(descriptionContent)
+    setMainDraftTitle(currentItem?.title ?? "")
+    setMainDraftDescription(currentItem ? descriptionContent : "")
     setMainEditing(false)
   }
 
   function handleReloadMainDraft() {
+    if (!currentItem) {
+      return
+    }
+
     setMainDraftUpdatedAt(currentItem.updatedAt)
     setMainDraftTitle(currentItem.title)
     setMainDraftDescription(descriptionContent)
   }
 
+  function handleDescriptionChange(content: string) {
+    setMainDraftDescription(content)
+
+    if (currentItem && isCollaborationAttached) {
+      useAppStore
+        .getState()
+        .applyItemDescriptionCollaborationContent(currentItem.id, content)
+    }
+  }
+
   async function handleSaveMainEdit() {
-    if (!canSaveMainSection) {
+    if (!currentItem || !canSaveMainSection) {
       return
     }
 
     setSavingMainSection(true)
     const savedItemId = currentItem.id
     const pendingMentionEntries = [...pendingMainMentionEntries]
+    const saved = await persistWorkItemMainSection({
+      currentItem,
+      flushCollaboration,
+      isCollaborationAttached,
+      mainDraftDescription,
+      mainDraftUpdatedAt,
+      mainTitleDirty: draftState.titleDirty,
+      normalizedMainDraftTitle: draftState.normalizedTitle,
+    })
 
-    if (isCollaborationAttached) {
-      try {
-        await flushCollaboration({
-          kind: "work-item-main",
-          ...(mainTitleDirty
-            ? {
-                workItemExpectedUpdatedAt:
-                  mainDraftUpdatedAt ?? currentItem.updatedAt,
-                workItemTitle: normalizedMainDraftTitle,
-              }
-            : {}),
-        })
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to persist the latest description changes"
-        )
-        setSavingMainSection(false)
-        return
-      }
-    } else {
-      const saved = await useAppStore.getState().saveWorkItemMainSection({
-        itemId: savedItemId,
-        title: normalizedMainDraftTitle,
-        description: mainDraftDescription,
-        expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
-      })
-
-      if (!saved) {
-        setSavingMainSection(false)
-        return
-      }
+    if (!saved) {
+      setSavingMainSection(false)
+      return
     }
 
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
     setMainEditing(false)
 
-    if (pendingMentionEntries.length > 0) {
-      try {
-        const result = await syncSendItemDescriptionMentionNotifications(
-          savedItemId,
-          pendingMentionEntries
-        )
-
-        setMainPendingMentionRetryEntriesByItemId((current) => {
-          const next = { ...current }
-          delete next[savedItemId]
-          return next
-        })
-
-        toast.success(
-          `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
-        )
-      } catch (error) {
-        if (isAlreadyDeliveredMentionConflict(error)) {
-          setMainPendingMentionRetryEntriesByItemId((current) => {
-            const next = { ...current }
-            delete next[savedItemId]
-            return next
-          })
-          toast.success("Saved changes and delivered mention notifications.")
-        } else {
-          setMainPendingMentionRetryEntriesByItemId((current) => ({
-            ...current,
-            [savedItemId]: pendingMentionEntries,
-          }))
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Saved changes but failed to notify mentions"
-          )
-        }
-      }
-    } else {
-      setMainPendingMentionRetryEntriesByItemId((current) => {
-        if (!(savedItemId in current)) {
-          return current
-        }
-
-        const next = { ...current }
-        delete next[savedItemId]
-        return next
-      })
-    }
-
+    await deliverWorkItemMainMentionNotifications({
+      pendingMentionEntries,
+      savedItemId,
+      setPendingMentionRetryEntriesByItemId:
+        setMainPendingMentionRetryEntriesByItemId,
+    })
     setSavingMainSection(false)
   }
 
-  async function handleDeleteItem() {
-    setDeletingItem(true)
+  return {
+    canSaveMainSection,
+    handleCancelMainEdit,
+    handleDescriptionChange,
+    handleReloadMainDraft,
+    handleSaveMainEdit,
+    handleStartMainEdit,
+    isMainEditing,
+    mainDraftDescription,
+    mainDraftStale: draftState.stale,
+    mainDraftTitle,
+    mainTitleLimitState,
+    savingMainSection,
+    setMainDraftTitle,
+  }
+}
 
-    const deleted = await useAppStore.getState().deleteWorkItem(currentItem.id)
+function WorkItemDetailBreadcrumb({
+  currentItem,
+  team,
+}: {
+  currentItem: WorkItem
+  team: Team | null
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-[12px] text-fg-2">
+      <SidebarTrigger className="size-5 shrink-0" />
+      <span className="mr-2 font-mono text-[12px] text-fg-3">
+        {currentItem.key}
+      </span>
+      <Link
+        href={`/team/${team?.slug}/work`}
+        className="text-fg-3 hover:text-foreground"
+      >
+        {team?.name}
+      </Link>
+      <CaretRight className="size-3 text-fg-4" />
+      <span className="truncate">{currentItem.title}</span>
+    </div>
+  )
+}
 
-    if (!deleted) {
-      setDeletingItem(false)
+function WorkItemTopBarEditActions({
+  isMainEditing,
+  savingMainSection,
+  canSaveMainSection,
+  isCollaborationAttached,
+  onCancelMainEdit,
+  onSaveMainEdit,
+  onStartMainEdit,
+}: {
+  isMainEditing: boolean
+  savingMainSection: boolean
+  canSaveMainSection: boolean
+  isCollaborationAttached: boolean
+  onCancelMainEdit: () => void
+  onSaveMainEdit: () => void
+  onStartMainEdit: () => void
+}) {
+  if (!isMainEditing) {
+    return (
+      <Button size="sm" variant="outline" onClick={onStartMainEdit}>
+        Edit
+      </Button>
+    )
+  }
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={savingMainSection}
+        onClick={onCancelMainEdit}
+      >
+        {isCollaborationAttached ? "Close" : "Cancel"}
+      </Button>
+      <Button size="sm" disabled={!canSaveMainSection} onClick={onSaveMainEdit}>
+        {savingMainSection
+          ? "Saving..."
+          : isCollaborationAttached
+            ? "Done"
+            : "Save"}
+      </Button>
+    </>
+  )
+}
+
+function WorkItemTopBarDeleteMenu({
+  deletingItem,
+  itemTypeLabel,
+  onOpenDeleteDialog,
+}: {
+  deletingItem: boolean
+  itemTypeLabel: string
+  onOpenDeleteDialog: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon-sm" variant="ghost" disabled={deletingItem}>
+          <DotsThree className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44 min-w-44">
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={deletingItem}
+          onSelect={(event) => {
+            event.preventDefault()
+            onOpenDeleteDialog()
+          }}
+        >
+          <Trash className="size-4" />
+          Delete {itemTypeLabel}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function WorkItemTopBarActions({
+  editable,
+  otherDescriptionViewers,
+  isMainEditing,
+  savingMainSection,
+  canSaveMainSection,
+  isCollaborationAttached,
+  deletingItem,
+  itemTypeLabel,
+  propertiesOpen,
+  onCancelMainEdit,
+  onSaveMainEdit,
+  onStartMainEdit,
+  onOpenDeleteDialog,
+  onToggleProperties,
+}: {
+  editable: boolean
+  otherDescriptionViewers: DocumentPresenceViewer[]
+  isMainEditing: boolean
+  savingMainSection: boolean
+  canSaveMainSection: boolean
+  isCollaborationAttached: boolean
+  deletingItem: boolean
+  itemTypeLabel: string
+  propertiesOpen: boolean
+  onCancelMainEdit: () => void
+  onSaveMainEdit: () => void
+  onStartMainEdit: () => void
+  onOpenDeleteDialog: () => void
+  onToggleProperties: () => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {editable ? (
+        <>
+          {otherDescriptionViewers.length > 0 ? (
+            <DocumentPresenceAvatarGroup
+              viewers={otherDescriptionViewers}
+              compact
+            />
+          ) : null}
+          <WorkItemTopBarEditActions
+            isMainEditing={isMainEditing}
+            savingMainSection={savingMainSection}
+            canSaveMainSection={canSaveMainSection}
+            isCollaborationAttached={isCollaborationAttached}
+            onCancelMainEdit={onCancelMainEdit}
+            onSaveMainEdit={onSaveMainEdit}
+            onStartMainEdit={onStartMainEdit}
+          />
+          <WorkItemTopBarDeleteMenu
+            deletingItem={deletingItem}
+            itemTypeLabel={itemTypeLabel}
+            onOpenDeleteDialog={onOpenDeleteDialog}
+          />
+        </>
+      ) : null}
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className={cn(!propertiesOpen && "text-muted-foreground")}
+        onClick={onToggleProperties}
+      >
+        <SidebarSimple className="size-4" />
+      </Button>
+    </div>
+  )
+}
+
+function WorkItemDetailTopBar({
+  currentItem,
+  team,
+  editable,
+  otherDescriptionViewers,
+  isMainEditing,
+  savingMainSection,
+  canSaveMainSection,
+  isCollaborationAttached,
+  deletingItem,
+  propertiesOpen,
+  onCancelMainEdit,
+  onSaveMainEdit,
+  onStartMainEdit,
+  onOpenDeleteDialog,
+  onToggleProperties,
+}: {
+  currentItem: WorkItem
+  team: Team | null
+  editable: boolean
+  otherDescriptionViewers: DocumentPresenceViewer[]
+  isMainEditing: boolean
+  savingMainSection: boolean
+  canSaveMainSection: boolean
+  isCollaborationAttached: boolean
+  deletingItem: boolean
+  propertiesOpen: boolean
+  onCancelMainEdit: () => void
+  onSaveMainEdit: () => void
+  onStartMainEdit: () => void
+  onOpenDeleteDialog: () => void
+  onToggleProperties: () => void
+}) {
+  const itemTypeLabel = getDisplayLabelForWorkItemType(
+    currentItem.type,
+    team?.settings.experience
+  )
+
+  return (
+    <div className="flex min-h-10 shrink-0 items-center justify-between gap-1 border-b border-line-soft bg-surface px-3 py-2">
+      <WorkItemDetailBreadcrumb currentItem={currentItem} team={team} />
+      <WorkItemTopBarActions
+        editable={editable}
+        otherDescriptionViewers={otherDescriptionViewers}
+        isMainEditing={isMainEditing}
+        savingMainSection={savingMainSection}
+        canSaveMainSection={canSaveMainSection}
+        isCollaborationAttached={isCollaborationAttached}
+        deletingItem={deletingItem}
+        itemTypeLabel={itemTypeLabel}
+        propertiesOpen={propertiesOpen}
+        onCancelMainEdit={onCancelMainEdit}
+        onSaveMainEdit={onSaveMainEdit}
+        onStartMainEdit={onStartMainEdit}
+        onOpenDeleteDialog={onOpenDeleteDialog}
+        onToggleProperties={onToggleProperties}
+      />
+    </div>
+  )
+}
+
+function WorkItemParentPill({
+  parentItem,
+  workCopy,
+}: {
+  parentItem: WorkItem | null
+  workCopy: DetailWorkCopy
+}) {
+  if (!parentItem) {
+    return null
+  }
+
+  return (
+    <div className="mb-6">
+      <Link
+        href={`/items/${parentItem.id}`}
+        className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-fg-2 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
+      >
+        <span className="text-[10px] font-semibold tracking-[0.06em] text-fg-4 uppercase">
+          {workCopy.parentLabel}
+        </span>
+        <span className="font-mono text-[11px] text-fg-4">
+          {parentItem.key}
+        </span>
+        <span className="max-w-[20rem] truncate">{parentItem.title}</span>
+      </Link>
+    </div>
+  )
+}
+
+function WorkItemMainHeader({
+  currentItem,
+  team,
+  isMainEditing,
+  mainDraftTitle,
+  mainTitleLimitState,
+  onMainDraftTitleChange,
+}: {
+  currentItem: WorkItem
+  team: Team | null
+  isMainEditing: boolean
+  mainDraftTitle: string
+  mainTitleLimitState: DetailTextLimitState
+  onMainDraftTitleChange: (title: string) => void
+}) {
+  const itemTypeLabel = getDisplayLabelForWorkItemType(
+    currentItem.type,
+    team?.settings.experience
+  )
+
+  return (
+    <header className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] leading-none">
+        <span className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
+          <span
+            aria-hidden
+            className="inline-block size-1.5 rounded-full bg-fg-4"
+          />
+          <span>{itemTypeLabel}</span>
+        </span>
+        <span aria-hidden className="text-fg-4">
+          ·
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-2">
+          <StatusIcon status={currentItem.status} />
+          <span>{statusMeta[currentItem.status].label}</span>
+        </span>
+        {currentItem.priority !== "none" ? (
+          <>
+            <span aria-hidden className="text-fg-4">
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-2">
+              <PriorityIcon priority={currentItem.priority} />
+              <span>{priorityMeta[currentItem.priority].label}</span>
+            </span>
+          </>
+        ) : null}
+      </div>
+      {isMainEditing ? (
+        <div>
+          <Input
+            value={mainDraftTitle}
+            onChange={(event) => onMainDraftTitleChange(event.target.value)}
+            placeholder={`${itemTypeLabel} title`}
+            maxLength={workItemTitleConstraints.max}
+            className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
+            autoFocus
+          />
+          <FieldCharacterLimit
+            state={mainTitleLimitState}
+            limit={workItemTitleConstraints.max}
+            className="mt-1"
+          />
+        </div>
+      ) : (
+        <h1 className="text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] text-foreground">
+          {currentItem.title}
+        </h1>
+      )}
+    </header>
+  )
+}
+
+function WorkItemStaleDraftNotice({
+  stale,
+  onReload,
+}: {
+  stale: boolean
+  onReload: () => void
+}) {
+  if (!stale) {
+    return null
+  }
+
+  return (
+    <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2.5">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">
+          This item changed while you were editing
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Reload the latest title and description before saving your draft.
+        </div>
+      </div>
+      <Button size="sm" variant="outline" onClick={onReload}>
+        Reload latest
+      </Button>
+    </div>
+  )
+}
+
+function WorkItemDescriptionEditor({
+  showDescriptionBootPreview,
+  bootstrapContent,
+  collaborationDescriptionContent,
+  isCollaborationAttached,
+  editorCollaboration,
+  collaboration,
+  currentUserId,
+  editable,
+  isCollaborationBootstrapping,
+  otherDescriptionViewers,
+  mentionCandidates,
+  onLegacyActiveBlockChange,
+  onDescriptionChange,
+  onUploadAttachment,
+}: {
+  showDescriptionBootPreview: boolean
+  bootstrapContent: DetailBootstrapContent
+  collaborationDescriptionContent: string
+  isCollaborationAttached: boolean
+  editorCollaboration: DetailEditorCollaboration
+  collaboration: DetailCollaborationBinding
+  currentUserId: string
+  editable: boolean
+  isCollaborationBootstrapping: boolean
+  otherDescriptionViewers: DocumentPresenceViewer[]
+  mentionCandidates: UserProfile[]
+  onLegacyActiveBlockChange: (activeBlockId: string | null) => void
+  onDescriptionChange: (content: string) => void
+  onUploadAttachment: DetailUploadAttachmentHandler
+}) {
+  return (
+    <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
+      {showDescriptionBootPreview ? (
+        <RichTextContent
+          content={
+            typeof bootstrapContent === "string"
+              ? bootstrapContent
+              : collaborationDescriptionContent
+          }
+          className="text-fg-1 min-h-24 text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+        />
+      ) : (
+        <RichTextEditor
+          content={collaborationDescriptionContent}
+          collaboration={
+            isCollaborationAttached
+              ? (editorCollaboration ?? collaboration ?? undefined)
+              : undefined
+          }
+          currentPresenceUserId={currentUserId}
+          editable={editable && !isCollaborationBootstrapping}
+          showStats={false}
+          placeholder="Add a description…"
+          presenceViewers={otherDescriptionViewers}
+          onActiveBlockChange={onLegacyActiveBlockChange}
+          mentionCandidates={mentionCandidates}
+          onChange={onDescriptionChange}
+          onUploadAttachment={onUploadAttachment}
+        />
+      )}
+    </div>
+  )
+}
+
+function WorkItemDescriptionReadView({
+  descriptionContent,
+  editable,
+  onStartMainEdit,
+}: {
+  descriptionContent: string
+  editable: boolean
+  onStartMainEdit: () => void
+}) {
+  if (isDescriptionPlaceholder(descriptionContent)) {
+    return editable ? (
+      <button
+        type="button"
+        onClick={onStartMainEdit}
+        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-4 py-3 text-left text-[13px] text-fg-4 transition-colors hover:border-fg-4 hover:bg-surface hover:text-fg-2"
+      >
+        <NotePencil className="size-3.5" />
+        <span>Add a description…</span>
+      </button>
+    ) : (
+      <p className="text-[13px] text-fg-4">No description yet.</p>
+    )
+  }
+
+  return (
+    <RichTextContent
+      content={descriptionContent}
+      className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
+    />
+  )
+}
+
+function WorkItemDescriptionSection({
+  isMainEditing,
+  showDescriptionBootPreview,
+  bootstrapContent,
+  collaborationDescriptionContent,
+  isCollaborationAttached,
+  editorCollaboration,
+  collaboration,
+  currentUserId,
+  editable,
+  isCollaborationBootstrapping,
+  otherDescriptionViewers,
+  mentionCandidates,
+  descriptionContent,
+  onLegacyActiveBlockChange,
+  onDescriptionChange,
+  onUploadAttachment,
+  onStartMainEdit,
+}: {
+  isMainEditing: boolean
+  showDescriptionBootPreview: boolean
+  bootstrapContent: DetailBootstrapContent
+  collaborationDescriptionContent: string
+  isCollaborationAttached: boolean
+  editorCollaboration: DetailEditorCollaboration
+  collaboration: DetailCollaborationBinding
+  currentUserId: string
+  editable: boolean
+  isCollaborationBootstrapping: boolean
+  otherDescriptionViewers: DocumentPresenceViewer[]
+  mentionCandidates: UserProfile[]
+  descriptionContent: string
+  onLegacyActiveBlockChange: (activeBlockId: string | null) => void
+  onDescriptionChange: (content: string) => void
+  onUploadAttachment: DetailUploadAttachmentHandler
+  onStartMainEdit: () => void
+}) {
+  return (
+    <section className="mt-7">
+      {isMainEditing ? (
+        <WorkItemDescriptionEditor
+          showDescriptionBootPreview={showDescriptionBootPreview}
+          bootstrapContent={bootstrapContent}
+          collaborationDescriptionContent={collaborationDescriptionContent}
+          isCollaborationAttached={isCollaborationAttached}
+          editorCollaboration={editorCollaboration}
+          collaboration={collaboration}
+          currentUserId={currentUserId}
+          editable={editable}
+          isCollaborationBootstrapping={isCollaborationBootstrapping}
+          otherDescriptionViewers={otherDescriptionViewers}
+          mentionCandidates={mentionCandidates}
+          onLegacyActiveBlockChange={onLegacyActiveBlockChange}
+          onDescriptionChange={onDescriptionChange}
+          onUploadAttachment={onUploadAttachment}
+        />
+      ) : (
+        <WorkItemDescriptionReadView
+          descriptionContent={descriptionContent}
+          editable={editable}
+          onStartMainEdit={onStartMainEdit}
+        />
+      )}
+    </section>
+  )
+}
+
+function WorkItemChildItemsHeader({
+  childItems,
+  childProgress,
+  childCopy,
+  canCreateChildItem,
+  open,
+  mainChildComposerOpen,
+  onToggleOpen,
+  onToggleComposer,
+}: {
+  childItems: WorkItem[]
+  childProgress: DetailChildProgress
+  childCopy: DetailChildCopy
+  canCreateChildItem: boolean
+  open: boolean
+  mainChildComposerOpen: boolean
+  onToggleOpen: () => void
+  onToggleComposer: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-3.5 pb-2.5">
+      <button
+        type="button"
+        className="inline-flex items-center gap-2 text-[13px] font-semibold text-foreground transition-colors hover:text-fg-2"
+        onClick={onToggleOpen}
+      >
+        {open ? (
+          <CaretDown className="size-3 text-fg-4" />
+        ) : (
+          <CaretRight className="size-3 text-fg-4" />
+        )}
+        <span>{childCopy.childPluralLabel}</span>
+      </button>
+      {childItems.length > 0 ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-fg-2 tabular-nums">
+          <span>
+            {childProgress.completedChildren}/
+            {childProgress.includedChildren > 0
+              ? childProgress.includedChildren
+              : childItems.length}
+          </span>
+          <span className="text-fg-4">·</span>
+          <span>{childProgress.percent}%</span>
+        </span>
+      ) : (
+        <span className="text-[11px] text-fg-4">None yet</span>
+      )}
+      {canCreateChildItem ? (
+        <Button
+          size="icon-sm"
+          variant={mainChildComposerOpen ? "outline" : "ghost"}
+          className="ml-auto"
+          onClick={onToggleComposer}
+        >
+          <Plus className="size-3.5" />
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function WorkItemChildProgressBar({
+  childItems,
+  childProgress,
+}: {
+  childItems: WorkItem[]
+  childProgress: DetailChildProgress
+}) {
+  if (childItems.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mx-4 mb-3 h-[3px] overflow-hidden rounded-full bg-surface-3">
+      <div
+        className="h-full rounded-full bg-status-done transition-all"
+        style={{
+          width: `${childProgress.percent}%`,
+        }}
+      />
+    </div>
+  )
+}
+
+function WorkItemChildRows({
+  data,
+  childItems,
+}: {
+  data: AppData
+  childItems: WorkItem[]
+}) {
+  if (childItems.length === 0) {
+    return null
+  }
+
+  return (
+    <ul className="flex flex-col divide-y divide-line-soft">
+      {childItems.map((child) => (
+        <li key={child.id}>
+          <DetailChildWorkItemRow data={data} item={child} variant="main" />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function WorkItemChildComposerSlot({
+  currentItem,
+  childItems,
+  childCopy,
+  editable,
+  canCreateChildItem,
+  mainChildComposerOpen,
+  onOpenComposer,
+  onCloseComposer,
+}: {
+  currentItem: WorkItem
+  childItems: WorkItem[]
+  childCopy: DetailChildCopy
+  editable: boolean
+  canCreateChildItem: boolean
+  mainChildComposerOpen: boolean
+  onOpenComposer: () => void
+  onCloseComposer: () => void
+}) {
+  if (mainChildComposerOpen) {
+    return (
+      <div className="border-t border-line-soft bg-background">
+        <InlineChildIssueComposer
+          teamId={currentItem.teamId}
+          parentItem={currentItem}
+          disabled={!editable}
+          onCancel={onCloseComposer}
+          onCreated={onCloseComposer}
+        />
+      </div>
+    )
+  }
+
+  if (!canCreateChildItem) {
+    return null
+  }
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex w-full items-center gap-2 px-4 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground",
+        childItems.length > 0 && "border-t border-line-soft"
+      )}
+      onClick={onOpenComposer}
+    >
+      <Plus className="size-3" />
+      <span>{childCopy.addChildLabel}</span>
+    </button>
+  )
+}
+
+function WorkItemChildItemsSection({
+  data,
+  currentItem,
+  childItems,
+  childProgress,
+  childCopy,
+  editable,
+  canCreateChildItem,
+  open,
+  mainChildComposerOpen,
+  onToggleOpen,
+  onToggleComposer,
+  onOpenComposer,
+  onCloseComposer,
+}: {
+  data: AppData
+  currentItem: WorkItem
+  childItems: WorkItem[]
+  childProgress: DetailChildProgress
+  childCopy: DetailChildCopy
+  editable: boolean
+  canCreateChildItem: boolean
+  open: boolean
+  mainChildComposerOpen: boolean
+  onToggleOpen: () => void
+  onToggleComposer: () => void
+  onOpenComposer: () => void
+  onCloseComposer: () => void
+}) {
+  if (childItems.length === 0 && !canCreateChildItem) {
+    return null
+  }
+
+  return (
+    <section className="mt-8 overflow-hidden rounded-xl border border-line bg-surface">
+      <WorkItemChildItemsHeader
+        childItems={childItems}
+        childProgress={childProgress}
+        childCopy={childCopy}
+        canCreateChildItem={canCreateChildItem}
+        open={open}
+        mainChildComposerOpen={mainChildComposerOpen}
+        onToggleOpen={onToggleOpen}
+        onToggleComposer={onToggleComposer}
+      />
+
+      <WorkItemChildProgressBar
+        childItems={childItems}
+        childProgress={childProgress}
+      />
+
+      {open ? (
+        <div className="border-t border-line-soft">
+          <WorkItemChildRows data={data} childItems={childItems} />
+          <WorkItemChildComposerSlot
+            currentItem={currentItem}
+            childItems={childItems}
+            childCopy={childCopy}
+            editable={editable}
+            canCreateChildItem={canCreateChildItem}
+            mainChildComposerOpen={mainChildComposerOpen}
+            onOpenComposer={onOpenComposer}
+            onCloseComposer={onCloseComposer}
+          />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function WorkItemMainArticle({
+  data,
+  currentItem,
+  team,
+  workCopy,
+  parentItem,
+  isMainEditing,
+  mainDraftTitle,
+  mainTitleLimitState,
+  mainDraftStale,
+  descriptionContent,
+  showDescriptionBootPreview,
+  bootstrapContent,
+  collaborationDescriptionContent,
+  isCollaborationAttached,
+  editorCollaboration,
+  collaboration,
+  currentUserId,
+  editable,
+  isCollaborationBootstrapping,
+  otherDescriptionViewers,
+  mentionCandidates,
+  childItems,
+  childProgress,
+  childCopy,
+  canCreateChildItem,
+  subIssuesOpen,
+  mainChildComposerOpen,
+  onMainDraftTitleChange,
+  onReloadMainDraft,
+  onLegacyActiveBlockChange,
+  onDescriptionChange,
+  onUploadAttachment,
+  onStartMainEdit,
+  onToggleSubIssues,
+  onToggleMainChildComposer,
+  onOpenMainChildComposer,
+  onCloseMainChildComposer,
+}: {
+  data: AppData
+  currentItem: WorkItem
+  team: Team | null
+  workCopy: DetailWorkCopy
+  parentItem: WorkItem | null
+  isMainEditing: boolean
+  mainDraftTitle: string
+  mainTitleLimitState: DetailTextLimitState
+  mainDraftStale: boolean
+  descriptionContent: string
+  showDescriptionBootPreview: boolean
+  bootstrapContent: DetailBootstrapContent
+  collaborationDescriptionContent: string
+  isCollaborationAttached: boolean
+  editorCollaboration: DetailEditorCollaboration
+  collaboration: DetailCollaborationBinding
+  currentUserId: string
+  editable: boolean
+  isCollaborationBootstrapping: boolean
+  otherDescriptionViewers: DocumentPresenceViewer[]
+  mentionCandidates: UserProfile[]
+  childItems: WorkItem[]
+  childProgress: DetailChildProgress
+  childCopy: DetailChildCopy
+  canCreateChildItem: boolean
+  subIssuesOpen: boolean
+  mainChildComposerOpen: boolean
+  onMainDraftTitleChange: (title: string) => void
+  onReloadMainDraft: () => void
+  onLegacyActiveBlockChange: (activeBlockId: string | null) => void
+  onDescriptionChange: (content: string) => void
+  onUploadAttachment: DetailUploadAttachmentHandler
+  onStartMainEdit: () => void
+  onToggleSubIssues: () => void
+  onToggleMainChildComposer: () => void
+  onOpenMainChildComposer: () => void
+  onCloseMainChildComposer: () => void
+}) {
+  return (
+    <div className="min-w-0 flex-1 overflow-y-auto">
+      <article className="mx-auto flex max-w-[60rem] flex-col px-10 pt-12 pb-24">
+        <WorkItemParentPill parentItem={parentItem} workCopy={workCopy} />
+
+        <WorkItemMainHeader
+          currentItem={currentItem}
+          team={team}
+          isMainEditing={isMainEditing}
+          mainDraftTitle={mainDraftTitle}
+          mainTitleLimitState={mainTitleLimitState}
+          onMainDraftTitleChange={onMainDraftTitleChange}
+        />
+
+        <WorkItemStaleDraftNotice
+          stale={mainDraftStale}
+          onReload={onReloadMainDraft}
+        />
+
+        <WorkItemDescriptionSection
+          isMainEditing={isMainEditing}
+          showDescriptionBootPreview={showDescriptionBootPreview}
+          bootstrapContent={bootstrapContent}
+          collaborationDescriptionContent={collaborationDescriptionContent}
+          isCollaborationAttached={isCollaborationAttached}
+          editorCollaboration={editorCollaboration}
+          collaboration={collaboration}
+          currentUserId={currentUserId}
+          editable={editable}
+          isCollaborationBootstrapping={isCollaborationBootstrapping}
+          otherDescriptionViewers={otherDescriptionViewers}
+          mentionCandidates={mentionCandidates}
+          descriptionContent={descriptionContent}
+          onLegacyActiveBlockChange={onLegacyActiveBlockChange}
+          onDescriptionChange={onDescriptionChange}
+          onUploadAttachment={onUploadAttachment}
+          onStartMainEdit={onStartMainEdit}
+        />
+
+        <WorkItemChildItemsSection
+          data={data}
+          currentItem={currentItem}
+          childItems={childItems}
+          childProgress={childProgress}
+          childCopy={childCopy}
+          editable={editable}
+          canCreateChildItem={canCreateChildItem}
+          open={subIssuesOpen}
+          mainChildComposerOpen={mainChildComposerOpen}
+          onToggleOpen={onToggleSubIssues}
+          onToggleComposer={onToggleMainChildComposer}
+          onOpenComposer={onOpenMainChildComposer}
+          onCloseComposer={onCloseMainChildComposer}
+        />
+
+        <section className="mt-10">
+          <div className="mb-5 flex items-center gap-2">
+            <h2 className="text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
+              Activity
+            </h2>
+            <span aria-hidden className="h-px flex-1 bg-line-soft" />
+          </div>
+          <MainActivityTimeline
+            data={data}
+            item={currentItem}
+            currentUserId={currentUserId}
+            editable={editable}
+          />
+        </section>
+      </article>
+    </div>
+  )
+}
+
+function WorkItemSidebarProperties({
+  currentItem,
+  team,
+  teamMembers,
+  teamProjects,
+  selectedMilestone,
+  availableLabels,
+  parentOptions,
+  displayedEndDate,
+  sidebarEditable,
+  statusOptions,
+  onStatusChange,
+  onPriorityChange,
+  onAssigneeChange,
+  onStartDateChange,
+  onEndDateChange,
+  onProjectChange,
+  onParentChange,
+}: {
+  currentItem: WorkItem
+  team: Team | null
+  teamMembers: UserProfile[]
+  teamProjects: Project[]
+  selectedMilestone: Milestone | null
+  availableLabels: AppData["labels"]
+  parentOptions: DetailSelectOption[]
+  displayedEndDate: string | null
+  sidebarEditable: boolean
+  statusOptions: DetailSelectOption[]
+  onStatusChange: (value: string) => void
+  onPriorityChange: (value: string) => void
+  onAssigneeChange: (value: string) => void
+  onStartDateChange: (value: string | null) => void
+  onEndDateChange: (value: string | null) => void
+  onProjectChange: (value: string) => void
+  onParentChange: (value: string) => void
+}) {
+  return (
+    <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
+      <DetailSidebarSelectRow
+        label="Status"
+        icon={<StatusIcon status={currentItem.status} />}
+        value={currentItem.status}
+        disabled={!sidebarEditable}
+        options={statusOptions}
+        renderValue={(value, optionLabel) => (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-grid size-3.5 shrink-0 place-items-center">
+              <StatusIcon status={value} />
+            </span>
+            <span className="truncate">{optionLabel}</span>
+          </div>
+        )}
+        renderOption={(value, optionLabel) => (
+          <div className="flex items-center gap-2">
+            <span className="inline-grid size-3.5 shrink-0 place-items-center">
+              <StatusIcon status={value} />
+            </span>
+            <span>{optionLabel}</span>
+          </div>
+        )}
+        onValueChange={onStatusChange}
+      />
+      <DetailSidebarSelectRow
+        label="Priority"
+        icon={<Flag className="size-[13px]" />}
+        value={currentItem.priority}
+        disabled={!sidebarEditable}
+        options={Object.entries(priorityMeta).map(([value, meta]) => ({
+          value,
+          label: meta.label,
+        }))}
+        renderValue={(value, optionLabel) => (
+          <div className="flex min-w-0 items-center gap-2">
+            <PriorityIcon priority={value as Priority} />
+            <span className="truncate">{optionLabel}</span>
+          </div>
+        )}
+        renderOption={(value, optionLabel) => (
+          <div className="flex items-center gap-2">
+            <PriorityIcon priority={value as Priority} />
+            <span>{optionLabel}</span>
+          </div>
+        )}
+        onValueChange={onPriorityChange}
+      />
+      <DetailSidebarSelectRow
+        label="Assignee"
+        icon={<Plus className="size-[13px]" />}
+        value={currentItem.assigneeId ?? "unassigned"}
+        disabled={!sidebarEditable}
+        options={[
+          { value: "unassigned", label: "Assign" },
+          ...teamMembers.map((user) => ({
+            value: user.id,
+            label: user.name,
+          })),
+        ]}
+        renderValue={(value, optionLabel) => {
+          if (value === "unassigned") {
+            return <span className="truncate">{optionLabel}</span>
+          }
+
+          const selectedUser =
+            teamMembers.find((user) => user.id === value) ?? null
+
+          return selectedUser ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <WorkItemAssigneeAvatar
+                user={selectedUser}
+                className="data-[size=sm]:size-4"
+              />
+              <span className="truncate">{selectedUser.name}</span>
+            </div>
+          ) : (
+            <span className="truncate">{optionLabel}</span>
+          )
+        }}
+        renderOption={(value, optionLabel) => {
+          if (value === "unassigned") {
+            return <span>{optionLabel}</span>
+          }
+
+          const optionUser =
+            teamMembers.find((user) => user.id === value) ?? null
+
+          return optionUser ? (
+            <div className="flex items-center gap-2">
+              <WorkItemAssigneeAvatar
+                user={optionUser}
+                className="data-[size=sm]:size-4"
+              />
+              <span>{optionUser.name}</span>
+            </div>
+          ) : (
+            <span>{optionLabel}</span>
+          )
+        }}
+        onValueChange={onAssigneeChange}
+      />
+      <DetailSidebarDateRow
+        label="Start"
+        icon={<Clock className="size-[13px]" />}
+        value={currentItem.startDate}
+        disabled={!sidebarEditable}
+        onValueChange={onStartDateChange}
+      />
+      <DetailSidebarDateRow
+        label="Due"
+        icon={<CalendarBlank className="size-[13px]" />}
+        value={displayedEndDate}
+        disabled={!sidebarEditable}
+        onValueChange={onEndDateChange}
+      />
+      <DetailSidebarLabelsRow
+        item={currentItem}
+        workspaceId={team?.workspaceId}
+        labels={availableLabels}
+        editable={sidebarEditable}
+      />
+      <DetailSidebarSelectRow
+        label="Project"
+        icon={<FolderSimple className="size-[13px]" />}
+        value={currentItem.primaryProjectId ?? "none"}
+        disabled={!sidebarEditable}
+        options={[
+          { value: "none", label: "No project" },
+          ...teamProjects.map((project) => ({
+            value: project.id,
+            label: project.name,
+          })),
+        ]}
+        renderValue={(value, optionLabel) =>
+          value === "none" ? (
+            <span className="truncate text-fg-4">{optionLabel}</span>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="inline-block size-1.5 rounded-full bg-fg-3" />
+              <span className="truncate">{optionLabel}</span>
+            </div>
+          )
+        }
+        onValueChange={onProjectChange}
+      />
+      {selectedMilestone ? (
+        <DetailSidebarStaticRow
+          label="Milestone"
+          icon={<Flag className="size-[13px]" />}
+        >
+          <span className="truncate">{selectedMilestone.name}</span>
+          {selectedMilestone.targetDate ? (
+            <span className="text-fg-4">
+              · {format(new Date(selectedMilestone.targetDate), "MMM d")}
+            </span>
+          ) : null}
+        </DetailSidebarStaticRow>
+      ) : null}
+      {currentItem.parentId || parentOptions.length > 1 ? (
+        <DetailSidebarSelectRow
+          label="Parent"
+          icon={<FolderSimple className="size-[13px]" />}
+          value={currentItem.parentId ?? "none"}
+          disabled={!sidebarEditable}
+          options={parentOptions}
+          renderValue={(value, optionLabel) =>
+            value === "none" ? (
+              <span className="truncate text-fg-4">{optionLabel}</span>
+            ) : (
+              <span className="truncate">{optionLabel}</span>
+            )
+          }
+          onValueChange={onParentChange}
+        />
+      ) : null}
+    </dl>
+  )
+}
+
+function WorkItemSidebarSubtasks({
+  data,
+  currentItem,
+  childItems,
+  childProgress,
+  childCopy,
+  editable,
+  canCreateChildItem,
+  sidebarChildComposerOpen,
+  onToggleComposer,
+  onCloseComposer,
+}: {
+  data: AppData
+  currentItem: WorkItem
+  childItems: WorkItem[]
+  childProgress: DetailChildProgress
+  childCopy: DetailChildCopy
+  editable: boolean
+  canCreateChildItem: boolean
+  sidebarChildComposerOpen: boolean
+  onToggleComposer: () => void
+  onCloseComposer: () => void
+}) {
+  return (
+    <DetailSidebarSection
+      title="Subtasks"
+      count={`${childProgress.completedChildren} of ${childItems.length || 0}`}
+      action={
+        canCreateChildItem ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+            onClick={onToggleComposer}
+          >
+            <Plus className="size-3" />
+            {childCopy.addChildLabel}
+          </button>
+        ) : null
+      }
+    >
+      <div className="flex flex-col gap-1">
+        {childItems.length > 0 ? (
+          <div className="mb-2 px-2">
+            <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-fg-3 tabular-nums">
+              <span className="text-fg-4">
+                {childProgress.includedChildren > 0
+                  ? `${childProgress.completedChildren}/${childProgress.includedChildren} active`
+                  : `${childProgress.completedChildren}/${childItems.length}`}
+              </span>
+              <span>{childProgress.percent}%</span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-surface-3">
+              <div
+                className="h-full rounded-full bg-status-done transition-all"
+                style={{
+                  width: `${childProgress.percent}%`,
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
+        {childItems.map((child) => (
+          <DetailChildWorkItemRow
+            key={child.id}
+            data={data}
+            item={child}
+            variant="sidebar"
+          />
+        ))}
+        {sidebarChildComposerOpen ? (
+          <div className="mt-1 rounded-md border border-line">
+            <InlineChildIssueComposer
+              teamId={currentItem.teamId}
+              parentItem={currentItem}
+              disabled={!editable}
+              onCancel={onCloseComposer}
+              onCreated={onCloseComposer}
+            />
+          </div>
+        ) : null}
+      </div>
+    </DetailSidebarSection>
+  )
+}
+
+function WorkItemRelationsSection({
+  data,
+  selectedProject,
+  linkedProjects,
+  linkedDocuments,
+}: {
+  data: AppData
+  selectedProject: Project | null
+  linkedProjects: Project[]
+  linkedDocuments: AppDocument[]
+}) {
+  if (
+    linkedProjects.length === 0 &&
+    linkedDocuments.length === 0 &&
+    !selectedProject
+  ) {
+    return null
+  }
+
+  return (
+    <DetailSidebarSection title="Relations">
+      <div className="flex flex-col gap-1.5">
+        {selectedProject ? (
+          <Link
+            href={
+              getProjectHref(data, selectedProject) ??
+              `/projects/${selectedProject.id}`
+            }
+            className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
+          >
+            <FolderSimple className="size-3" />
+            <span>Project</span>
+            <b className="font-medium text-foreground">
+              {selectedProject.name}
+            </b>
+          </Link>
+        ) : null}
+        {linkedProjects.map((project) => (
+          <Link
+            key={project.id}
+            href={getProjectHref(data, project) ?? `/projects/${project.id}`}
+            className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
+          >
+            <FolderSimple className="size-3" />
+            <span>Linked project</span>
+            <b className="font-medium text-foreground">{project.name}</b>
+          </Link>
+        ))}
+        {linkedDocuments.map((document) => (
+          <Link
+            key={document.id}
+            href={`/docs/${document.id}`}
+            className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
+          >
+            <LinkSimple className="size-3" />
+            <span>Linked doc</span>
+            <b className="font-medium text-foreground">{document.title}</b>
+          </Link>
+        ))}
+      </div>
+    </DetailSidebarSection>
+  )
+}
+
+function WorkItemDetailSidebar({
+  open,
+  data,
+  currentItem,
+  team,
+  sidebarTitle,
+  sidebarEditable,
+  statusOptions,
+  teamMembers,
+  teamProjects,
+  selectedProject,
+  selectedMilestone,
+  availableLabels,
+  parentOptions,
+  childItems,
+  childProgress,
+  childCopy,
+  editable,
+  canCreateChildItem,
+  sidebarChildComposerOpen,
+  linkedProjects,
+  linkedDocuments,
+  currentUserId,
+  onCopyItemLink,
+  onStatusChange,
+  onPriorityChange,
+  onAssigneeChange,
+  onStartDateChange,
+  onEndDateChange,
+  onProjectChange,
+  onParentChange,
+  onToggleChildComposer,
+  onCloseChildComposer,
+}: {
+  open: boolean
+  data: AppData
+  currentItem: WorkItem
+  team: Team | null
+  sidebarTitle: string
+  sidebarEditable: boolean
+  statusOptions: DetailSelectOption[]
+  teamMembers: UserProfile[]
+  teamProjects: Project[]
+  selectedProject: Project | null
+  selectedMilestone: Milestone | null
+  availableLabels: AppData["labels"]
+  parentOptions: DetailSelectOption[]
+  childItems: WorkItem[]
+  childProgress: DetailChildProgress
+  childCopy: DetailChildCopy
+  editable: boolean
+  canCreateChildItem: boolean
+  sidebarChildComposerOpen: boolean
+  linkedProjects: Project[]
+  linkedDocuments: AppDocument[]
+  currentUserId: string
+  onCopyItemLink: () => void
+  onStatusChange: (value: string) => void
+  onPriorityChange: (value: string) => void
+  onAssigneeChange: (value: string) => void
+  onStartDateChange: (value: string | null) => void
+  onEndDateChange: (value: string | null) => void
+  onProjectChange: (value: string) => void
+  onParentChange: (value: string) => void
+  onToggleChildComposer: () => void
+  onCloseChildComposer: () => void
+}) {
+  const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
+
+  return (
+    <CollapsibleRightSidebar
+      open={open}
+      width="26.25rem"
+      className="border-l border-line bg-surface"
+    >
+      <div className="flex items-center gap-1 border-b border-line-soft px-3 py-2">
+        <span className="mr-2 font-mono text-[12px] text-fg-3">
+          {currentItem.key}
+        </span>
+        <span className="flex items-center gap-1.5 text-[12px] text-fg-2">
+          <StatusIcon status={currentItem.status} />
+          <span>{statusMeta[currentItem.status].label}</span>
+        </span>
+        <div className="ml-auto flex items-center gap-0.5">
+          <button
+            type="button"
+            className={detailIconButtonClassName}
+            aria-label="Copy item link"
+            onClick={onCopyItemLink}
+          >
+            <LinkSimple className="size-[14px]" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-[22px]">
+        <h2 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
+          {sidebarTitle}
+        </h2>
+
+        <WorkItemSidebarProperties
+          currentItem={currentItem}
+          team={team}
+          teamMembers={teamMembers}
+          teamProjects={teamProjects}
+          selectedMilestone={selectedMilestone}
+          availableLabels={availableLabels}
+          parentOptions={parentOptions}
+          displayedEndDate={displayedEndDate}
+          sidebarEditable={sidebarEditable}
+          statusOptions={statusOptions}
+          onStatusChange={onStatusChange}
+          onPriorityChange={onPriorityChange}
+          onAssigneeChange={onAssigneeChange}
+          onStartDateChange={onStartDateChange}
+          onEndDateChange={onEndDateChange}
+          onProjectChange={onProjectChange}
+          onParentChange={onParentChange}
+        />
+
+        <WorkItemSidebarSubtasks
+          data={data}
+          currentItem={currentItem}
+          childItems={childItems}
+          childProgress={childProgress}
+          childCopy={childCopy}
+          editable={editable}
+          canCreateChildItem={canCreateChildItem}
+          sidebarChildComposerOpen={sidebarChildComposerOpen}
+          onToggleComposer={onToggleChildComposer}
+          onCloseComposer={onCloseChildComposer}
+        />
+
+        <WorkItemRelationsSection
+          data={data}
+          selectedProject={selectedProject}
+          linkedProjects={linkedProjects}
+          linkedDocuments={linkedDocuments}
+        />
+
+        <DetailSidebarSection title="Activity">
+          <DetailSidebarActivity
+            data={data}
+            currentUserId={currentUserId}
+            item={currentItem}
+            editable={editable}
+          />
+        </DetailSidebarSection>
+      </div>
+    </CollapsibleRightSidebar>
+  )
+}
+
+export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
+  const router = useRouter()
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const currentUser = getUser(data, currentUserId) ?? null
+  const item = data.workItems.find((entry) => entry.id === itemId)
+  const [deletingItem, setDeletingItem] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [mainChildComposerOpen, setMainChildComposerOpen] = useState(false)
+  const [sidebarChildComposerOpen, setSidebarChildComposerOpen] =
+    useState(false)
+  const [subIssuesOpen, setSubIssuesOpen] = useState(true)
+  const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
+  const description = item ? getDocument(data, item.descriptionDocId) : null
+  const descriptionContent = description?.content ?? "<p>Add a description…</p>"
+  const activeDescriptionDocumentId = description?.id ?? null
+  const stableDescriptionDocumentId = useStableDescriptionDocumentId(
+    itemId,
+    activeDescriptionDocumentId
+  )
+  const activePresenceItemId = item?.id ?? null
+  const collaborationCurrentUser = useStableCollaborationUser(
+    currentUser,
+    currentUserId
+  )
+  const {
+    bootstrapContent,
+    editorCollaboration,
+    collaboration,
+    flush: flushCollaboration,
+    isAwaitingCollaboration,
+    lifecycle: collaborationLifecycle,
+    viewers: collaborationViewers,
+  } = useDocumentCollaboration({
+    documentId: stableDescriptionDocumentId,
+    currentUser: collaborationCurrentUser,
+    enabled: Boolean(stableDescriptionDocumentId),
+  })
+  const { hasLoadedOnce: hasLoadedWorkItemReadModel } =
+    useScopedReadModelRefresh({
+      enabled:
+        !item ||
+        collaborationLifecycle === "legacy" ||
+        collaborationLifecycle === "degraded",
+      scopeKeys: [createWorkItemDetailScopeKey(itemId)],
+      fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
+      notFoundResult: createMissingScopedReadModelResult([
+        {
+          kind: "work-item-detail",
+          itemId,
+        },
+      ]),
+    })
+
+  const isCollaborationAttached = collaborationLifecycle === "attached"
+  const isCollaborationBootstrapping =
+    collaborationLifecycle === "bootstrapping"
+  const team = item ? getTeam(data, item.teamId) : null
+  const editable = team ? canEditTeam(data, team.id) : false
+  const showDescriptionBootPreview = useInitialCollaborationSyncPreview({
+    id: itemId,
+    storagePrefix: ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX,
+    bootstrapping: isCollaborationBootstrapping,
+    attached: isCollaborationAttached,
+  })
+  const mainSection = useWorkItemMainSectionController({
+    currentItem: item,
+    descriptionContent,
+    editable,
+    flushCollaboration,
+    isAwaitingCollaboration,
+    isCollaborationAttached,
+    isCollaborationBootstrapping,
+  })
+  const isEditingCurrentItem = mainSection.isMainEditing
+  const showDescriptionSyncDialog =
+    isEditingCurrentItem && showDescriptionBootPreview
+  const collaborationDescriptionContent = mainSection.mainDraftDescription
+  const protectedDescriptionDocumentId =
+    activeDescriptionDocumentId ?? stableDescriptionDocumentId
+  const isProtectingDescriptionBody = Boolean(
+    protectedDescriptionDocumentId &&
+    (isEditingCurrentItem ||
+      isCollaborationBootstrapping ||
+      isCollaborationAttached)
+  )
+
+  useEffect(() => {
+    if (!protectedDescriptionDocumentId) {
       return
     }
 
-    setDeleteDialogOpen(false)
-    router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
+    useAppStore
+      .getState()
+      .setDocumentBodyProtection(
+        protectedDescriptionDocumentId,
+        isProtectingDescriptionBody
+      )
+
+    return () => {
+      useAppStore
+        .getState()
+        .setDocumentBodyProtection(protectedDescriptionDocumentId, false)
+    }
+  }, [protectedDescriptionDocumentId, isProtectingDescriptionBody])
+
+  useEffect(() => {
+    if (!activePresenceItemId) {
+      return
+    }
+
+    if (
+      collaborationLifecycle === "legacy" ||
+      collaborationLifecycle === "degraded"
+    ) {
+      return
+    }
+
+    useAppStore.getState().cancelItemDescriptionSync(activePresenceItemId)
+  }, [activePresenceItemId, collaborationLifecycle])
+
+  const {
+    handleLegacyActiveBlockChange,
+    legacyActiveBlockId,
+    workItemPresenceViewers,
+  } = useLegacyWorkItemPresence({
+    activeItemId: activePresenceItemId,
+    currentUserId,
+    collaborationLifecycle,
+    isEditingCurrentItem,
+  })
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- switching items closes stale child composers.
+    setMainChildComposerOpen(false)
+    setSidebarChildComposerOpen(false)
+  }, [itemId])
+
+  const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
+  const activeDescriptionViewers = getActiveDescriptionViewers({
+    hasLiveDescriptionPresence,
+    collaborationViewers,
+    currentUser,
+    legacyActiveBlockId,
+    workItemPresenceViewers,
+  })
+  const otherDescriptionViewers = activeDescriptionViewers.filter(
+    (viewer) => viewer.userId !== currentUserId
+  )
+
+  if (!item) {
+    return getMissingWorkItemDetailContent({
+      deletingItem,
+      hasLoadedWorkItemReadModel,
+    })
+  }
+
+  const currentItem = item
+  const detailModel = getWorkItemDetailModel({
+    currentItem,
+    data,
+    editable,
+    mainSection,
+    team,
+  })
+  const {
+    canSaveMainSection,
+    handleCancelMainEdit,
+    handleDescriptionChange,
+    handleReloadMainDraft,
+    handleSaveMainEdit,
+    handleStartMainEdit,
+    isMainEditing,
+    mainDraftStale,
+    mainDraftTitle,
+    mainTitleLimitState,
+    savingMainSection,
+    setMainDraftTitle,
+  } = mainSection
+  const {
+    availableLabels,
+    canCreateChildItem,
+    cascadeMessage,
+    childCopy,
+    childItems,
+    childProgress,
+    displayedEndDate,
+    linkedDocuments,
+    linkedProjects,
+    mentionCandidates,
+    parentItem,
+    parentOptions,
+    selectedMilestone,
+    selectedProject,
+    sidebarEditable,
+    sidebarTitle,
+    statusOptions,
+    teamMembers,
+    teamProjects,
+    workCopy,
+  } = detailModel
+
+  function handleStartDateChange(nextStartDate: string | null) {
+    updateWorkItemStartDate({
+      currentItem,
+      displayedEndDate,
+      nextStartDate,
+    })
+  }
+
+  function handleProjectChange(value: string) {
+    requestWorkItemProjectChange({
+      currentItem,
+      requestConfirmedWorkItemUpdate,
+      value,
+    })
+  }
+
+  function handleParentChange(value: string) {
+    requestWorkItemParentChange({
+      currentItem,
+      requestConfirmedWorkItemUpdate,
+      value,
+    })
+  }
+
+  function handleEndDateChange(nextEndDate: string | null) {
+    updateWorkItemEndDate({ currentItem, nextEndDate })
+  }
+
+  async function handleDeleteItem() {
+    await deleteWorkItemAndNavigate({
+      currentItem,
+      router,
+      setDeleteDialogOpen,
+      setDeletingItem,
+      team,
+    })
   }
 
   async function handleCopyItemLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href)
-      toast.success("Item link copied")
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to copy item link"
-      )
-    }
+    await copyCurrentItemLink()
   }
 
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-background">
-        <div className="flex min-h-10 shrink-0 items-center justify-between gap-1 border-b border-line-soft bg-surface px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[12px] text-fg-2">
-            <SidebarTrigger className="size-5 shrink-0" />
-            <span className="mr-2 font-mono text-[12px] text-fg-3">
-              {currentItem.key}
-            </span>
-            <Link
-              href={`/team/${team?.slug}/work`}
-              className="text-fg-3 hover:text-foreground"
-            >
-              {team?.name}
-            </Link>
-            <CaretRight className="size-3 text-fg-4" />
-            <span className="truncate">{currentItem.title}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {editable ? (
-              <>
-                {otherDescriptionViewers.length > 0 ? (
-                  <DocumentPresenceAvatarGroup
-                    viewers={otherDescriptionViewers}
-                    compact
-                  />
-                ) : null}
-                {isMainEditing ? (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={savingMainSection}
-                      onClick={handleCancelMainEdit}
-                    >
-                      {isCollaborationAttached ? "Close" : "Cancel"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={!canSaveMainSection}
-                      onClick={() => void handleSaveMainEdit()}
-                    >
-                      {savingMainSection
-                        ? "Saving..."
-                        : isCollaborationAttached
-                          ? "Done"
-                          : "Save"}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleStartMainEdit}
-                  >
-                    Edit
-                  </Button>
-                )}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      disabled={deletingItem}
-                    >
-                      <DotsThree className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44 min-w-44">
-                    <DropdownMenuItem
-                      variant="destructive"
-                      disabled={deletingItem}
-                      onSelect={(event) => {
-                        event.preventDefault()
-                        setDeleteDialogOpen(true)
-                      }}
-                    >
-                      <Trash className="size-4" />
-                      Delete{" "}
-                      {getDisplayLabelForWorkItemType(
-                        currentItem.type,
-                        team?.settings.experience
-                      )}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
-            ) : null}
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className={cn(!propertiesOpen && "text-muted-foreground")}
-              onClick={() => setPropertiesOpen((current) => !current)}
-            >
-              <SidebarSimple className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <WorkItemDetailTopBar
+          currentItem={currentItem}
+          team={team}
+          editable={editable}
+          otherDescriptionViewers={otherDescriptionViewers}
+          isMainEditing={isMainEditing}
+          savingMainSection={savingMainSection}
+          canSaveMainSection={canSaveMainSection}
+          isCollaborationAttached={isCollaborationAttached}
+          deletingItem={deletingItem}
+          propertiesOpen={propertiesOpen}
+          onCancelMainEdit={handleCancelMainEdit}
+          onSaveMainEdit={() => {
+            void handleSaveMainEdit()
+          }}
+          onStartMainEdit={handleStartMainEdit}
+          onOpenDeleteDialog={() => setDeleteDialogOpen(true)}
+          onToggleProperties={() => setPropertiesOpen((current) => !current)}
+        />
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-w-0 flex-1 overflow-y-auto">
-            <article className="mx-auto flex max-w-[60rem] flex-col px-10 pt-12 pb-24">
-              {parentItem ? (
-                <div className="mb-6">
-                  <Link
-                    href={`/items/${parentItem.id}`}
-                    className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-fg-2 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
-                  >
-                    <span className="text-[10px] font-semibold tracking-[0.06em] text-fg-4 uppercase">
-                      {workCopy.parentLabel}
-                    </span>
-                    <span className="font-mono text-[11px] text-fg-4">
-                      {parentItem.key}
-                    </span>
-                    <span className="max-w-[20rem] truncate">
-                      {parentItem.title}
-                    </span>
-                  </Link>
-                </div>
-              ) : null}
-
-              <header className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] leading-none">
-                  <span className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
-                    <span
-                      aria-hidden
-                      className="inline-block size-1.5 rounded-full bg-fg-4"
-                    />
-                    <span>
-                      {getDisplayLabelForWorkItemType(
-                        currentItem.type,
-                        team?.settings.experience
-                      )}
-                    </span>
-                  </span>
-                  <span aria-hidden className="text-fg-4">
-                    ·
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-2">
-                    <StatusIcon status={currentItem.status} />
-                    <span>{statusMeta[currentItem.status].label}</span>
-                  </span>
-                  {currentItem.priority !== "none" ? (
-                    <>
-                      <span aria-hidden className="text-fg-4">
-                        ·
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg-2">
-                        <PriorityIcon priority={currentItem.priority} />
-                        <span>{priorityMeta[currentItem.priority].label}</span>
-                      </span>
-                    </>
-                  ) : null}
-                </div>
-                {isMainEditing ? (
-                  <div>
-                    <Input
-                      value={mainDraftTitle}
-                      onChange={(event) =>
-                        setMainDraftTitle(event.target.value)
-                      }
-                      placeholder={`${getDisplayLabelForWorkItemType(
-                        currentItem.type,
-                        team?.settings.experience
-                      )} title`}
-                      maxLength={workItemTitleConstraints.max}
-                      className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
-                      autoFocus
-                    />
-                    <FieldCharacterLimit
-                      state={mainTitleLimitState}
-                      limit={workItemTitleConstraints.max}
-                      className="mt-1"
-                    />
-                  </div>
-                ) : (
-                  <h1 className="text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] text-foreground">
-                    {currentItem.title}
-                  </h1>
-                )}
-              </header>
-
-              {mainDraftStale ? (
-                <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">
-                      This item changed while you were editing
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Reload the latest title and description before saving your
-                      draft.
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleReloadMainDraft}
-                  >
-                    Reload latest
-                  </Button>
-                </div>
-              ) : null}
-              <section className="mt-7">
-                {isMainEditing ? (
-                  <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
-                    {showDescriptionBootPreview ? (
-                      <RichTextContent
-                        content={
-                          typeof bootstrapContent === "string"
-                            ? bootstrapContent
-                            : collaborationDescriptionContent
-                        }
-                        className="text-fg-1 min-h-24 text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
-                      />
-                    ) : (
-                      <RichTextEditor
-                        content={collaborationDescriptionContent}
-                        collaboration={
-                          isCollaborationAttached
-                            ? (editorCollaboration ??
-                              collaboration ??
-                              undefined)
-                            : undefined
-                        }
-                        currentPresenceUserId={currentUserId}
-                        editable={editable && !isCollaborationBootstrapping}
-                        showStats={false}
-                        placeholder="Add a description…"
-                        presenceViewers={otherDescriptionViewers}
-                        onActiveBlockChange={handleLegacyActiveBlockChange}
-                        mentionCandidates={
-                          team ? getTeamMembers(data, team.id) : data.users
-                        }
-                        onChange={(content) => {
-                          setMainDraftDescription(content)
-
-                          if (isCollaborationAttached) {
-                            useAppStore
-                              .getState()
-                              .applyItemDescriptionCollaborationContent(
-                                currentItem.id,
-                                content
-                              )
-                            return
-                          }
-                        }}
-                        onUploadAttachment={(file) =>
-                          useAppStore
-                            .getState()
-                            .uploadAttachment("workItem", currentItem.id, file)
-                        }
-                      />
-                    )}
-                  </div>
-                ) : isDescriptionPlaceholder(descriptionContent) ? (
-                  editable ? (
-                    <button
-                      type="button"
-                      onClick={handleStartMainEdit}
-                      className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-4 py-3 text-left text-[13px] text-fg-4 transition-colors hover:border-fg-4 hover:bg-surface hover:text-fg-2"
-                    >
-                      <NotePencil className="size-3.5" />
-                      <span>Add a description…</span>
-                    </button>
-                  ) : (
-                    <p className="text-[13px] text-fg-4">No description yet.</p>
-                  )
-                ) : (
-                  <RichTextContent
-                    content={descriptionContent}
-                    className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
-                  />
-                )}
-              </section>
-
-              {showSubIssuesSection ? (
-                <section className="mt-8 overflow-hidden rounded-xl border border-line bg-surface">
-                  <div className="flex items-center gap-3 px-4 pt-3.5 pb-2.5">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-[13px] font-semibold text-foreground transition-colors hover:text-fg-2"
-                      onClick={() => setSubIssuesOpen((current) => !current)}
-                    >
-                      {subIssuesOpen ? (
-                        <CaretDown className="size-3 text-fg-4" />
-                      ) : (
-                        <CaretRight className="size-3 text-fg-4" />
-                      )}
-                      <span>{childCopy.childPluralLabel}</span>
-                    </button>
-                    {childItems.length > 0 ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-fg-2 tabular-nums">
-                        <span>
-                          {childProgress.completedChildren}/
-                          {childProgress.includedChildren > 0
-                            ? childProgress.includedChildren
-                            : childItems.length}
-                        </span>
-                        <span className="text-fg-4">·</span>
-                        <span>{childProgress.percent}%</span>
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-fg-4">None yet</span>
-                    )}
-                    {canCreateChildItem ? (
-                      <Button
-                        size="icon-sm"
-                        variant={mainChildComposerOpen ? "outline" : "ghost"}
-                        className="ml-auto"
-                        onClick={() => {
-                          setSubIssuesOpen(true)
-                          setMainChildComposerOpen((current) => {
-                            const next = !current
-                            if (next) {
-                              setSidebarChildComposerOpen(false)
-                            }
-                            return next
-                          })
-                        }}
-                      >
-                        <Plus className="size-3.5" />
-                      </Button>
-                    ) : null}
-                  </div>
-
-                  {childItems.length > 0 ? (
-                    <div className="mx-4 mb-3 h-[3px] overflow-hidden rounded-full bg-surface-3">
-                      <div
-                        className="h-full rounded-full bg-status-done transition-all"
-                        style={{
-                          width: `${childProgress.percent}%`,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-
-                  {subIssuesOpen ? (
-                    <div className="border-t border-line-soft">
-                      {childItems.length > 0 ? (
-                        <ul className="flex flex-col divide-y divide-line-soft">
-                          {childItems.map((child) => (
-                            <li key={child.id}>
-                              <DetailChildWorkItemRow
-                                data={data}
-                                item={child}
-                                variant="main"
-                              />
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-
-                      {mainChildComposerOpen ? (
-                        <div className="border-t border-line-soft bg-background">
-                          <InlineChildIssueComposer
-                            teamId={currentItem.teamId}
-                            parentItem={currentItem}
-                            disabled={!editable}
-                            onCancel={() => setMainChildComposerOpen(false)}
-                            onCreated={() => setMainChildComposerOpen(false)}
-                          />
-                        </div>
-                      ) : canCreateChildItem ? (
-                        <button
-                          type="button"
-                          className={cn(
-                            "inline-flex w-full items-center gap-2 px-4 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground",
-                            childItems.length > 0 && "border-t border-line-soft"
-                          )}
-                          onClick={() => {
-                            setSidebarChildComposerOpen(false)
-                            setMainChildComposerOpen(true)
-                          }}
-                        >
-                          <Plus className="size-3" />
-                          <span>{childCopy.addChildLabel}</span>
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
-              <section className="mt-10">
-                <div className="mb-5 flex items-center gap-2">
-                  <h2 className="text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase">
-                    Activity
-                  </h2>
-                  <span aria-hidden className="h-px flex-1 bg-line-soft" />
-                </div>
-                <MainActivityTimeline
-                  data={data}
-                  item={currentItem}
-                  currentUserId={currentUserId}
-                  editable={editable}
-                />
-              </section>
-            </article>
-          </div>
-
-          <CollapsibleRightSidebar
-            open={propertiesOpen}
-            width="26.25rem"
-            className="border-l border-line bg-surface"
-          >
-            <div className="flex items-center gap-1 border-b border-line-soft px-3 py-2">
-              <span className="mr-2 font-mono text-[12px] text-fg-3">
-                {currentItem.key}
-              </span>
-              <span className="flex items-center gap-1.5 text-[12px] text-fg-2">
-                <StatusIcon status={currentItem.status} />
-                <span>{statusMeta[currentItem.status].label}</span>
-              </span>
-              <div className="ml-auto flex items-center gap-0.5">
-                <button
-                  type="button"
-                  className={detailIconButtonClassName}
-                  aria-label="Copy item link"
-                  onClick={() => void handleCopyItemLink()}
-                >
-                  <LinkSimple className="size-[14px]" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-6 py-[22px]">
-              <h2 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
-                {sidebarTitle}
-              </h2>
-
-              <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
-                <DetailSidebarSelectRow
-                  label="Status"
-                  icon={<StatusIcon status={currentItem.status} />}
-                  value={currentItem.status}
-                  disabled={!sidebarEditable}
-                  options={statusOptions}
-                  renderValue={(value, optionLabel) => (
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="inline-grid size-3.5 shrink-0 place-items-center">
-                        <StatusIcon status={value} />
-                      </span>
-                      <span className="truncate">{optionLabel}</span>
-                    </div>
-                  )}
-                  renderOption={(value, optionLabel) => (
-                    <div className="flex items-center gap-2">
-                      <span className="inline-grid size-3.5 shrink-0 place-items-center">
-                        <StatusIcon status={value} />
-                      </span>
-                      <span>{optionLabel}</span>
-                    </div>
-                  )}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      status: value as WorkItem["status"],
-                    })
-                  }
-                />
-                <DetailSidebarSelectRow
-                  label="Priority"
-                  icon={<Flag className="size-[13px]" />}
-                  value={currentItem.priority}
-                  disabled={!sidebarEditable}
-                  options={Object.entries(priorityMeta).map(
-                    ([value, meta]) => ({
-                      value,
-                      label: meta.label,
-                    })
-                  )}
-                  renderValue={(value, optionLabel) => (
-                    <div className="flex min-w-0 items-center gap-2">
-                      <PriorityIcon priority={value as Priority} />
-                      <span className="truncate">{optionLabel}</span>
-                    </div>
-                  )}
-                  renderOption={(value, optionLabel) => (
-                    <div className="flex items-center gap-2">
-                      <PriorityIcon priority={value as Priority} />
-                      <span>{optionLabel}</span>
-                    </div>
-                  )}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      priority: value as Priority,
-                    })
-                  }
-                />
-                <DetailSidebarSelectRow
-                  label="Assignee"
-                  icon={<Plus className="size-[13px]" />}
-                  value={currentItem.assigneeId ?? "unassigned"}
-                  disabled={!sidebarEditable}
-                  options={[
-                    { value: "unassigned", label: "Assign" },
-                    ...teamMembers.map((user) => ({
-                      value: user.id,
-                      label: user.name,
-                    })),
-                  ]}
-                  renderValue={(value, optionLabel) => {
-                    if (value === "unassigned") {
-                      return <span className="truncate">{optionLabel}</span>
-                    }
-
-                    const selectedUser =
-                      teamMembers.find((user) => user.id === value) ?? null
-
-                    return selectedUser ? (
-                      <div className="flex min-w-0 items-center gap-2">
-                        <WorkItemAssigneeAvatar
-                          user={selectedUser}
-                          className="data-[size=sm]:size-4"
-                        />
-                        <span className="truncate">{selectedUser.name}</span>
-                      </div>
-                    ) : (
-                      <span className="truncate">{optionLabel}</span>
-                    )
-                  }}
-                  renderOption={(value, optionLabel) => {
-                    if (value === "unassigned") {
-                      return <span>{optionLabel}</span>
-                    }
-
-                    const optionUser =
-                      teamMembers.find((user) => user.id === value) ?? null
-
-                    return optionUser ? (
-                      <div className="flex items-center gap-2">
-                        <WorkItemAssigneeAvatar
-                          user={optionUser}
-                          className="data-[size=sm]:size-4"
-                        />
-                        <span>{optionUser.name}</span>
-                      </div>
-                    ) : (
-                      <span>{optionLabel}</span>
-                    )
-                  }}
-                  onValueChange={(value) =>
-                    useAppStore.getState().updateWorkItem(currentItem.id, {
-                      assigneeId: value === "unassigned" ? null : value,
-                    })
-                  }
-                />
-                <DetailSidebarDateRow
-                  label="Start"
-                  icon={<Clock className="size-[13px]" />}
-                  value={currentItem.startDate}
-                  disabled={!sidebarEditable}
-                  onValueChange={handleStartDateChange}
-                />
-                <DetailSidebarDateRow
-                  label="Due"
-                  icon={<CalendarBlank className="size-[13px]" />}
-                  value={displayedEndDate}
-                  disabled={!sidebarEditable}
-                  onValueChange={handleEndDateChange}
-                />
-                <DetailSidebarLabelsRow
-                  item={currentItem}
-                  workspaceId={team?.workspaceId}
-                  labels={availableLabels}
-                  editable={sidebarEditable}
-                />
-                <DetailSidebarSelectRow
-                  label="Project"
-                  icon={<FolderSimple className="size-[13px]" />}
-                  value={currentItem.primaryProjectId ?? "none"}
-                  disabled={!sidebarEditable}
-                  options={[
-                    { value: "none", label: "No project" },
-                    ...teamProjects.map((project) => ({
-                      value: project.id,
-                      label: project.name,
-                    })),
-                  ]}
-                  renderValue={(value, optionLabel) =>
-                    value === "none" ? (
-                      <span className="truncate text-fg-4">{optionLabel}</span>
-                    ) : (
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="inline-block size-1.5 rounded-full bg-fg-3" />
-                        <span className="truncate">{optionLabel}</span>
-                      </div>
-                    )
-                  }
-                  onValueChange={handleProjectChange}
-                />
-                {selectedMilestone ? (
-                  <DetailSidebarStaticRow
-                    label="Milestone"
-                    icon={<Flag className="size-[13px]" />}
-                  >
-                    <span className="truncate">{selectedMilestone.name}</span>
-                    {selectedMilestone.targetDate ? (
-                      <span className="text-fg-4">
-                        ·{" "}
-                        {format(
-                          new Date(selectedMilestone.targetDate),
-                          "MMM d"
-                        )}
-                      </span>
-                    ) : null}
-                  </DetailSidebarStaticRow>
-                ) : null}
-                {currentItem.parentId || parentOptions.length > 1 ? (
-                  <DetailSidebarSelectRow
-                    label="Parent"
-                    icon={<FolderSimple className="size-[13px]" />}
-                    value={currentItem.parentId ?? "none"}
-                    disabled={!sidebarEditable}
-                    options={parentOptions}
-                    renderValue={(value, optionLabel) =>
-                      value === "none" ? (
-                        <span className="truncate text-fg-4">
-                          {optionLabel}
-                        </span>
-                      ) : (
-                        <span className="truncate">{optionLabel}</span>
-                      )
-                    }
-                    onValueChange={handleParentChange}
-                  />
-                ) : null}
-              </dl>
-
-              <DetailSidebarSection
-                title="Subtasks"
-                count={`${childProgress.completedChildren} of ${childItems.length || 0}`}
-                action={
-                  canCreateChildItem ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-                      onClick={() =>
-                        setSidebarChildComposerOpen((current) => {
-                          const next = !current
-                          if (next) {
-                            setMainChildComposerOpen(false)
-                          }
-                          return next
-                        })
-                      }
-                    >
-                      <Plus className="size-3" />
-                      {childCopy.addChildLabel}
-                    </button>
-                  ) : null
+          <WorkItemMainArticle
+            data={data}
+            currentItem={currentItem}
+            team={team}
+            workCopy={workCopy}
+            parentItem={parentItem}
+            isMainEditing={isMainEditing}
+            mainDraftTitle={mainDraftTitle}
+            mainTitleLimitState={mainTitleLimitState}
+            mainDraftStale={mainDraftStale}
+            descriptionContent={descriptionContent}
+            showDescriptionBootPreview={showDescriptionBootPreview}
+            bootstrapContent={bootstrapContent}
+            collaborationDescriptionContent={collaborationDescriptionContent}
+            isCollaborationAttached={isCollaborationAttached}
+            editorCollaboration={editorCollaboration}
+            collaboration={collaboration}
+            currentUserId={currentUserId}
+            editable={editable}
+            isCollaborationBootstrapping={isCollaborationBootstrapping}
+            otherDescriptionViewers={otherDescriptionViewers}
+            mentionCandidates={mentionCandidates}
+            childItems={childItems}
+            childProgress={childProgress}
+            childCopy={childCopy}
+            canCreateChildItem={canCreateChildItem}
+            subIssuesOpen={subIssuesOpen}
+            mainChildComposerOpen={mainChildComposerOpen}
+            onMainDraftTitleChange={setMainDraftTitle}
+            onReloadMainDraft={handleReloadMainDraft}
+            onLegacyActiveBlockChange={handleLegacyActiveBlockChange}
+            onDescriptionChange={handleDescriptionChange}
+            onUploadAttachment={(file) =>
+              useAppStore
+                .getState()
+                .uploadAttachment("workItem", currentItem.id, file)
+            }
+            onStartMainEdit={handleStartMainEdit}
+            onToggleSubIssues={() => setSubIssuesOpen((current) => !current)}
+            onToggleMainChildComposer={() => {
+              setSubIssuesOpen(true)
+              setMainChildComposerOpen((current) => {
+                const next = !current
+                if (next) {
+                  setSidebarChildComposerOpen(false)
                 }
-              >
-                <div className="flex flex-col gap-1">
-                  {childItems.length > 0 ? (
-                    <div className="mb-2 px-2">
-                      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-fg-3 tabular-nums">
-                        <span className="text-fg-4">
-                          {childProgress.includedChildren > 0
-                            ? `${childProgress.completedChildren}/${childProgress.includedChildren} active`
-                            : `${childProgress.completedChildren}/${childItems.length}`}
-                        </span>
-                        <span>{childProgress.percent}%</span>
-                      </div>
-                      <div className="h-1 overflow-hidden rounded-full bg-surface-3">
-                        <div
-                          className="h-full rounded-full bg-status-done transition-all"
-                          style={{
-                            width: `${childProgress.percent}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-                  {childItems.map((child) => (
-                    <DetailChildWorkItemRow
-                      key={child.id}
-                      data={data}
-                      item={child}
-                      variant="sidebar"
-                    />
-                  ))}
-                  {sidebarChildComposerOpen ? (
-                    <div className="mt-1 rounded-md border border-line">
-                      <InlineChildIssueComposer
-                        teamId={currentItem.teamId}
-                        parentItem={currentItem}
-                        disabled={!editable}
-                        onCancel={() => setSidebarChildComposerOpen(false)}
-                        onCreated={() => setSidebarChildComposerOpen(false)}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              </DetailSidebarSection>
+                return next
+              })
+            }}
+            onOpenMainChildComposer={() => {
+              setSidebarChildComposerOpen(false)
+              setMainChildComposerOpen(true)
+            }}
+            onCloseMainChildComposer={() => setMainChildComposerOpen(false)}
+          />
 
-              {linkedProjects.length > 0 ||
-              linkedDocuments.length > 0 ||
-              selectedProject ? (
-                <DetailSidebarSection title="Relations">
-                  <div className="flex flex-col gap-1.5">
-                    {selectedProject ? (
-                      <Link
-                        href={
-                          getProjectHref(data, selectedProject) ??
-                          `/projects/${selectedProject.id}`
-                        }
-                        className={cn(
-                          detailChipClassName,
-                          "w-fit hover:bg-surface-3"
-                        )}
-                      >
-                        <FolderSimple className="size-3" />
-                        <span>Project</span>
-                        <b className="font-medium text-foreground">
-                          {selectedProject.name}
-                        </b>
-                      </Link>
-                    ) : null}
-                    {linkedProjects.map((project) => (
-                      <Link
-                        key={project.id}
-                        href={
-                          getProjectHref(data, project) ??
-                          `/projects/${project.id}`
-                        }
-                        className={cn(
-                          detailChipClassName,
-                          "w-fit hover:bg-surface-3"
-                        )}
-                      >
-                        <FolderSimple className="size-3" />
-                        <span>Linked project</span>
-                        <b className="font-medium text-foreground">
-                          {project.name}
-                        </b>
-                      </Link>
-                    ))}
-                    {linkedDocuments.map((document) => (
-                      <Link
-                        key={document.id}
-                        href={`/docs/${document.id}`}
-                        className={cn(
-                          detailChipClassName,
-                          "w-fit hover:bg-surface-3"
-                        )}
-                      >
-                        <LinkSimple className="size-3" />
-                        <span>Linked doc</span>
-                        <b className="font-medium text-foreground">
-                          {document.title}
-                        </b>
-                      </Link>
-                    ))}
-                  </div>
-                </DetailSidebarSection>
-              ) : null}
-
-              <DetailSidebarSection title="Activity">
-                <DetailSidebarActivity
-                  data={data}
-                  currentUserId={currentUserId}
-                  item={currentItem}
-                  editable={editable}
-                />
-              </DetailSidebarSection>
-            </div>
-          </CollapsibleRightSidebar>
+          <WorkItemDetailSidebar
+            open={propertiesOpen}
+            data={data}
+            currentItem={currentItem}
+            team={team}
+            sidebarTitle={sidebarTitle}
+            sidebarEditable={sidebarEditable}
+            statusOptions={statusOptions}
+            teamMembers={teamMembers}
+            teamProjects={teamProjects}
+            selectedProject={selectedProject}
+            selectedMilestone={selectedMilestone}
+            availableLabels={availableLabels}
+            parentOptions={parentOptions}
+            childItems={childItems}
+            childProgress={childProgress}
+            childCopy={childCopy}
+            editable={editable}
+            canCreateChildItem={canCreateChildItem}
+            sidebarChildComposerOpen={sidebarChildComposerOpen}
+            linkedProjects={linkedProjects}
+            linkedDocuments={linkedDocuments}
+            currentUserId={currentUserId}
+            onCopyItemLink={() => {
+              void handleCopyItemLink()
+            }}
+            onStatusChange={(value) =>
+              useAppStore.getState().updateWorkItem(currentItem.id, {
+                status: value as WorkItem["status"],
+              })
+            }
+            onPriorityChange={(value) =>
+              useAppStore.getState().updateWorkItem(currentItem.id, {
+                priority: value as Priority,
+              })
+            }
+            onAssigneeChange={(value) =>
+              useAppStore.getState().updateWorkItem(currentItem.id, {
+                assigneeId: value === "unassigned" ? null : value,
+              })
+            }
+            onStartDateChange={handleStartDateChange}
+            onEndDateChange={handleEndDateChange}
+            onProjectChange={handleProjectChange}
+            onParentChange={handleParentChange}
+            onToggleChildComposer={() =>
+              setSidebarChildComposerOpen((current) => {
+                const next = !current
+                if (next) {
+                  setMainChildComposerOpen(false)
+                }
+                return next
+              })
+            }
+            onCloseChildComposer={() => setSidebarChildComposerOpen(false)}
+          />
         </div>
       </div>
       {confirmationDialog}

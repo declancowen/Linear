@@ -1,6 +1,9 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
-import { buildMentionEmailJobs } from "../../lib/email/builders"
+import {
+  buildMentionEmailJobs,
+  type MentionEmail,
+} from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
 import {
   requireEditableTeamAccess,
@@ -154,6 +157,43 @@ type ToggleChannelPostReactionArgs = ServerAccessArgs & {
   currentUserId: string
   postId: string
   emoji: string
+}
+
+type ChannelPostDoc = NonNullable<Awaited<ReturnType<typeof getChannelPostDoc>>>
+type ChannelConversationDoc = NonNullable<
+  Awaited<ReturnType<typeof getConversationDoc>>
+>
+type CallDoc = NonNullable<Awaited<ReturnType<typeof getCallDoc>>>
+type ChannelCommentAudience = {
+  actorName: string
+  audienceUserIds: string[]
+  mentionUserIds: string[]
+  usersById: Map<string, Awaited<ReturnType<typeof listUsersByIds>>[number]>
+}
+
+type ChatConversation = NonNullable<
+  Awaited<ReturnType<typeof requireConversationAccess>>
+>
+
+type ChatUser = Awaited<ReturnType<typeof listUsersByIds>>[number]
+
+type ChatMessageDraft = {
+  messageHtml: string
+  messageId: string
+  messageText: string
+}
+
+type ChatMessageAudience = {
+  actorName: string
+  audienceUserIds: string[]
+  users: ChatUser[]
+  usersById: Map<string, ChatUser>
+}
+
+type ChatNotificationContext = {
+  actorName: string
+  entityPath: string
+  entityTitle: string
 }
 
 function toMeetingRole(role: "admin" | "member" | "viewer" | "guest" | null) {
@@ -602,76 +642,122 @@ export async function getCallJoinContextHandler(
   )
 }
 
-export async function finalizeCallJoinHandler(
-  ctx: MutationCtx,
-  args: FinalizeCallJoinArgs
-) {
-  assertServerToken(args.serverToken)
-
+function assertCallJoinTarget(args: {
+  callId?: string
+  conversationId?: string
+}) {
   if (!args.callId && !args.conversationId) {
     throw new Error("callId or conversationId is required")
   }
+}
 
-  if (args.callId) {
-    const call = await getCallDoc(ctx, args.callId)
-
-    if (!call) {
-      throw new Error("Call not found")
-    }
-
-    const conversation = await requireConversationAccess(
-      ctx,
-      await getConversationDoc(ctx, call.conversationId),
-      args.currentUserId
-    )
-
-    if (conversation.kind !== "chat") {
-      throw new Error("Calls can only be joined from chats")
-    }
-
-    if (call.endedAt) {
-      throw new Error("Call has already ended")
-    }
-
-    const now = getNow()
-    const shouldUseProvisionedRoom = !call.roomId || !call.roomName
-    const roomId = shouldUseProvisionedRoom ? args.roomId : call.roomId
-    const roomName = shouldUseProvisionedRoom ? args.roomName : call.roomName
-    const participantUserIds = [
-      ...new Set([...(call.participantUserIds ?? []), args.currentUserId]),
-    ]
-
-    await ctx.db.patch(call._id, {
-      roomId,
-      roomName,
-      participantUserIds,
-      lastJoinedAt: now,
-      lastJoinedBy: args.currentUserId,
-      joinCount: (call.joinCount ?? 0) + 1,
-      updatedAt: now,
-    })
-
-    return {
-      callId: call.id,
-      conversationId: call.conversationId,
-      roomId,
-      roomName,
-    }
-  }
-
-  const conversation = await requireConversationAccess(
-    ctx,
-    await getConversationDoc(ctx, args.conversationId ?? ""),
-    args.currentUserId
-  )
-
+function assertChatCallConversation(conversation: ChatConversation) {
   if (conversation.kind !== "chat") {
     throw new Error("Calls can only be joined from chats")
   }
+}
 
-  const shouldUseProvisionedRoom = !conversation.roomId || !conversation.roomName
-  const roomId = shouldUseProvisionedRoom ? args.roomId : conversation.roomId
-  const roomName = shouldUseProvisionedRoom ? args.roomName : conversation.roomName
+async function requireChatCallConversation(
+  ctx: MutationCtx,
+  conversationId: string,
+  currentUserId: string
+) {
+  const conversation = await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, conversationId),
+    currentUserId
+  )
+
+  assertChatCallConversation(conversation)
+
+  return conversation
+}
+
+async function requireCallJoinCall(ctx: MutationCtx, callId: string) {
+  const call = await getCallDoc(ctx, callId)
+
+  if (!call) {
+    throw new Error("Call not found")
+  }
+
+  return call
+}
+
+function getResolvedCallRoom(
+  source: {
+    roomId?: string | null
+    roomName?: string | null
+  },
+  args: FinalizeCallJoinArgs
+) {
+  if (source.roomId && source.roomName) {
+    return {
+      roomId: source.roomId,
+      roomName: source.roomName,
+      shouldUseProvisionedRoom: false,
+    }
+  }
+
+  return {
+    roomId: args.roomId,
+    roomName: args.roomName,
+    shouldUseProvisionedRoom: true,
+  }
+}
+
+function getCallParticipantUserIds(call: CallDoc, currentUserId: string) {
+  return [...new Set([...(call.participantUserIds ?? []), currentUserId])]
+}
+
+async function finalizeExistingCallJoin(
+  ctx: MutationCtx,
+  args: FinalizeCallJoinArgs,
+  call: CallDoc
+) {
+  await requireChatCallConversation(
+    ctx,
+    call.conversationId,
+    args.currentUserId
+  )
+
+  if (call.endedAt) {
+    throw new Error("Call has already ended")
+  }
+
+  const now = getNow()
+  const { roomId, roomName } = getResolvedCallRoom(call, args)
+
+  await ctx.db.patch(call._id, {
+    roomId,
+    roomName,
+    participantUserIds: getCallParticipantUserIds(call, args.currentUserId),
+    lastJoinedAt: now,
+    lastJoinedBy: args.currentUserId,
+    joinCount: (call.joinCount ?? 0) + 1,
+    updatedAt: now,
+  })
+
+  return {
+    callId: call.id,
+    conversationId: call.conversationId,
+    roomId,
+    roomName,
+  }
+}
+
+async function finalizeConversationCallJoin(
+  ctx: MutationCtx,
+  args: FinalizeCallJoinArgs
+) {
+  const conversation = await requireChatCallConversation(
+    ctx,
+    args.conversationId ?? "",
+    args.currentUserId
+  )
+  const { roomId, roomName, shouldUseProvisionedRoom } = getResolvedCallRoom(
+    conversation,
+    args
+  )
 
   if (shouldUseProvisionedRoom) {
     await ctx.db.patch(conversation._id, {
@@ -689,11 +775,28 @@ export async function finalizeCallJoinHandler(
   }
 }
 
-export async function sendChatMessageHandler(
+export async function finalizeCallJoinHandler(
   ctx: MutationCtx,
-  args: SendChatMessageArgs
+  args: FinalizeCallJoinArgs
 ) {
   assertServerToken(args.serverToken)
+  assertCallJoinTarget(args)
+
+  if (args.callId) {
+    return finalizeExistingCallJoin(
+      ctx,
+      args,
+      await requireCallJoinCall(ctx, args.callId)
+    )
+  }
+
+  return finalizeConversationCallJoin(ctx, args)
+}
+
+async function resolveWritableChatConversation(
+  ctx: MutationCtx,
+  args: SendChatMessageArgs
+): Promise<ChatConversation> {
   const conversation = await requireConversationAccess(
     ctx,
     await getConversationDoc(ctx, args.conversationId),
@@ -705,6 +808,14 @@ export async function sendChatMessageHandler(
     throw new Error("Messages can only be sent to chats")
   }
 
+  return conversation
+}
+
+async function getChatMessageAudience(
+  ctx: MutationCtx,
+  conversation: ChatConversation,
+  args: SendChatMessageArgs
+): Promise<ChatMessageAudience> {
   const audienceUserIds = await getConversationAudienceUserIds(
     ctx,
     conversation
@@ -714,68 +825,95 @@ export async function sendChatMessageHandler(
     ...audienceUserIds,
   ])
   const usersById = new Map(users.map((user) => [user.id, user]))
-  const now = getNow()
-  const messageId = args.messageId?.trim() || createId("chat_message")
-  const actor = usersById.get(args.currentUserId)
+
+  return {
+    actorName: usersById.get(args.currentUserId)?.name ?? "Someone",
+    audienceUserIds,
+    users,
+    usersById,
+  }
+}
+
+function getChatMessageDraft(args: SendChatMessageArgs): ChatMessageDraft {
   const messageHtml = args.content.trim()
-  const messageText = getPlainTextContent(messageHtml)
-  const existingMessage = args.messageId?.trim()
-    ? await getChatMessageDoc(ctx, messageId)
-    : null
 
-  if (!messageText) {
-    throw new Error("Message content must include at least 1 character")
+  return {
+    messageHtml,
+    messageId: args.messageId?.trim() || createId("chat_message"),
+    messageText: getPlainTextContent(messageHtml),
   }
-  if (existingMessage) {
-    if (
-      existingMessage.conversationId !== conversation.id ||
-      existingMessage.createdBy !== args.currentUserId ||
-      existingMessage.content !== messageHtml
-    ) {
-      throw new Error("Message id is already in use")
-    }
+}
 
-    return {
-      messageId: existingMessage.id,
-      mentionEmails: [],
-    }
+async function getExistingChatMessage(
+  ctx: MutationCtx,
+  args: SendChatMessageArgs,
+  messageId: string
+) {
+  return args.messageId?.trim() ? getChatMessageDoc(ctx, messageId) : null
+}
+
+function assertExistingChatMessageReusable(
+  existingMessage: NonNullable<Awaited<ReturnType<typeof getChatMessageDoc>>>,
+  conversation: ChatConversation,
+  args: SendChatMessageArgs,
+  messageHtml: string
+) {
+  if (
+    existingMessage.conversationId !== conversation.id ||
+    existingMessage.createdBy !== args.currentUserId ||
+    existingMessage.content !== messageHtml
+  ) {
+    throw new Error("Message id is already in use")
   }
-  if (!audienceUserIds.some((userId) => userId !== args.currentUserId)) {
-    throw new Error(
-      conversation.scopeType === "team"
-        ? "This chat is read-only because the other participants have left the team or deleted their account"
-        : "This chat is read-only because the other participants have left the workspace or deleted their account"
-    )
+}
+
+function assertChatHasOtherParticipants(
+  conversation: ChatConversation,
+  audienceUserIds: string[],
+  args: SendChatMessageArgs
+) {
+  if (audienceUserIds.some((userId) => userId !== args.currentUserId)) {
+    return
   }
 
-  const mentionUserIds = createMentionIds(messageHtml, users, audienceUserIds)
-  const mentionEmails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    entityTitle: string
-    entityType: "chat"
-    entityId: string
-    entityPath: string
-    entityLabel: string
-    actorName: string
-    commentText: string
-  }> = []
-  const entityTitle = conversation.title.trim() || "a chat"
-  const entityPath = await getChatConversationPath(ctx, conversation)
+  throw new Error(
+    conversation.scopeType === "team"
+      ? "This chat is read-only because the other participants have left the team or deleted their account"
+      : "This chat is read-only because the other participants have left the workspace or deleted their account"
+  )
+}
+
+async function getChatNotificationContext(
+  ctx: MutationCtx,
+  conversation: ChatConversation,
+  actorName: string
+): Promise<ChatNotificationContext> {
+  return {
+    actorName,
+    entityPath: await getChatConversationPath(ctx, conversation),
+    entityTitle: conversation.title.trim() || "a chat",
+  }
+}
+
+async function insertChatMentionNotifications({
+  args,
+  context,
+  conversation,
+  ctx,
+  mentionUserIds,
+  messageText,
+  usersById,
+}: {
+  args: SendChatMessageArgs
+  context: ChatNotificationContext
+  conversation: ChatConversation
+  ctx: MutationCtx
+  mentionUserIds: string[]
+  messageText: string
+  usersById: Map<string, ChatUser>
+}) {
+  const mentionEmails: MentionEmail[] = []
   const notifiedUserIds = new Set<string>()
-
-  await ctx.db.insert("chatMessages", {
-    id: messageId,
-    conversationId: conversation.id,
-    kind: "text",
-    content: messageHtml,
-    callId: null,
-    mentionUserIds,
-    reactions: [],
-    createdBy: args.currentUserId,
-    createdAt: now,
-  })
 
   for (const mentionedUserId of mentionUserIds) {
     if (
@@ -789,7 +927,7 @@ export async function sendChatMessageHandler(
     const notification = createNotification(
       mentionedUserId,
       args.currentUserId,
-      `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+      `${context.actorName} mentioned you in ${context.entityTitle}`,
       "chat",
       conversation.id,
       "mention"
@@ -802,12 +940,12 @@ export async function sendChatMessageHandler(
         notificationId: notification.id,
         email: mentionedUser.email,
         name: mentionedUser.name,
-        entityTitle,
+        entityTitle: context.entityTitle,
         entityType: "chat",
         entityId: conversation.id,
-        entityPath,
+        entityPath: context.entityPath,
         entityLabel: "chat",
-        actorName: actor?.name ?? "Someone",
+        actorName: context.actorName,
         commentText: messageText,
       })
     }
@@ -815,6 +953,27 @@ export async function sendChatMessageHandler(
     notifiedUserIds.add(mentionedUserId)
   }
 
+  return {
+    mentionEmails,
+    notifiedUserIds,
+  }
+}
+
+async function insertChatMessageNotifications({
+  args,
+  audienceUserIds,
+  context,
+  conversation,
+  ctx,
+  notifiedUserIds,
+}: {
+  args: SendChatMessageArgs
+  audienceUserIds: string[]
+  context: ChatNotificationContext
+  conversation: ChatConversation
+  ctx: MutationCtx
+  notifiedUserIds: Set<string>
+}) {
   for (const audienceUserId of audienceUserIds) {
     if (
       audienceUserId === args.currentUserId ||
@@ -826,7 +985,7 @@ export async function sendChatMessageHandler(
     const notification = createNotification(
       audienceUserId,
       args.currentUserId,
-      `${actor?.name ?? "Someone"} sent you a message in ${entityTitle}`,
+      `${context.actorName} sent you a message in ${context.entityTitle}`,
       "chat",
       conversation.id,
       "message"
@@ -835,6 +994,84 @@ export async function sendChatMessageHandler(
     await ctx.db.insert("notifications", notification)
     notifiedUserIds.add(audienceUserId)
   }
+}
+
+export async function sendChatMessageHandler(
+  ctx: MutationCtx,
+  args: SendChatMessageArgs
+) {
+  assertServerToken(args.serverToken)
+  const conversation = await resolveWritableChatConversation(ctx, args)
+  const audience = await getChatMessageAudience(ctx, conversation, args)
+  const now = getNow()
+  const draft = getChatMessageDraft(args)
+  const existingMessage = await getExistingChatMessage(
+    ctx,
+    args,
+    draft.messageId
+  )
+
+  if (!draft.messageText) {
+    throw new Error("Message content must include at least 1 character")
+  }
+
+  if (existingMessage) {
+    assertExistingChatMessageReusable(
+      existingMessage,
+      conversation,
+      args,
+      draft.messageHtml
+    )
+
+    return {
+      messageId: existingMessage.id,
+      mentionEmails: [],
+    }
+  }
+
+  assertChatHasOtherParticipants(conversation, audience.audienceUserIds, args)
+
+  const mentionUserIds = createMentionIds(
+    draft.messageHtml,
+    audience.users,
+    audience.audienceUserIds
+  )
+  const notificationContext = await getChatNotificationContext(
+    ctx,
+    conversation,
+    audience.actorName
+  )
+
+  await ctx.db.insert("chatMessages", {
+    id: draft.messageId,
+    conversationId: conversation.id,
+    kind: "text",
+    content: draft.messageHtml,
+    callId: null,
+    mentionUserIds,
+    reactions: [],
+    createdBy: args.currentUserId,
+    createdAt: now,
+  })
+
+  const mentionDelivery = await insertChatMentionNotifications({
+    args,
+    context: notificationContext,
+    conversation,
+    ctx,
+    mentionUserIds,
+    messageText: draft.messageText,
+    usersById: audience.usersById,
+  })
+
+  await insertChatMessageNotifications({
+    args,
+    audienceUserIds: audience.audienceUserIds,
+    context: notificationContext,
+    conversation,
+    ctx,
+    notifiedUserIds: mentionDelivery.notifiedUserIds,
+  })
 
   await ctx.db.patch(conversation._id, {
     updatedAt: now,
@@ -845,13 +1082,13 @@ export async function sendChatMessageHandler(
     ctx,
     buildMentionEmailJobs({
       origin: args.origin,
-      emails: mentionEmails,
+      emails: mentionDelivery.mentionEmails,
     })
   )
 
   return {
-    messageId,
-    mentionEmails,
+    messageId: draft.messageId,
+    mentionEmails: mentionDelivery.mentionEmails,
   }
 }
 
@@ -1005,11 +1242,10 @@ export async function createChannelPostHandler(
   }
 }
 
-export async function addChannelPostCommentHandler(
+async function requireChannelPostCommentScope(
   ctx: MutationCtx,
   args: AddChannelPostCommentArgs
 ) {
-  assertServerToken(args.serverToken)
   const post = await getChannelPostDoc(ctx, args.postId)
 
   if (!post) {
@@ -1027,72 +1263,95 @@ export async function addChannelPostCommentHandler(
     throw new Error("Comments can only be added to channels")
   }
 
-  const existingComments = await ctx.db
-    .query("channelPostComments")
-    .withIndex("by_post", (q) => q.eq("postId", post.id))
-    .collect()
-  const now = getNow()
-  const commentId = createId("channel_comment")
+  return {
+    conversation,
+    post,
+  }
+}
+
+async function getChannelCommentAudience(
+  ctx: MutationCtx,
+  input: {
+    content: string
+    conversation: ChannelConversationDoc
+    currentUserId: string
+  }
+): Promise<ChannelCommentAudience> {
   const audienceUserIds = await getConversationAudienceUserIds(
     ctx,
-    conversation
+    input.conversation
   )
   const users = await listUsersByIds(ctx, [
-    args.currentUserId,
+    input.currentUserId,
     ...audienceUserIds,
   ])
   const usersById = new Map(users.map((user) => [user.id, user]))
-  const actor = usersById.get(args.currentUserId)
   const mentionUserIds = createMentionIds(
-    args.content,
+    input.content,
     users,
     audienceUserIds
-  ).filter((userId) => userId !== args.currentUserId)
-  const notifiedUserIds = new Set<string>()
-  const entityTitle = post.title.trim() || "a channel post"
-  const entityPath = await getChannelConversationPath(
-    ctx,
-    conversation,
-    post.id
-  )
-  const commentText = getPlainTextContent(args.content)
-  const mentionEmails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    entityTitle: string
-    entityType: "channelPost"
-    entityId: string
-    entityPath: string
-    entityLabel: string
+  ).filter((userId) => userId !== input.currentUserId)
+
+  return {
+    actorName: usersById.get(input.currentUserId)?.name ?? "Someone",
+    audienceUserIds,
+    mentionUserIds,
+    usersById,
+  }
+}
+
+async function insertChannelPostComment(
+  ctx: MutationCtx,
+  input: {
+    commentId: string
+    content: string
+    currentUserId: string
+    mentionUserIds: string[]
+    now: string
+    postId: string
+  }
+) {
+  await ctx.db.insert("channelPostComments", {
+    id: input.commentId,
+    postId: input.postId,
+    content: input.content.trim(),
+    mentionUserIds: input.mentionUserIds,
+    createdBy: input.currentUserId,
+    createdAt: input.now,
+  })
+}
+
+async function insertChannelPostMentionNotifications(
+  ctx: MutationCtx,
+  input: {
     actorName: string
     commentText: string
-  }> = []
+    currentUserId: string
+    entityPath: string
+    entityTitle: string
+    mentionUserIds: string[]
+    notifiedUserIds: Set<string>
+    postId: string
+    usersById: ChannelCommentAudience["usersById"]
+  }
+) {
+  const mentionEmails: MentionEmail[] = []
 
-  await ctx.db.insert("channelPostComments", {
-    id: commentId,
-    postId: post.id,
-    content: args.content.trim(),
-    mentionUserIds,
-    createdBy: args.currentUserId,
-    createdAt: now,
-  })
-
-  for (const mentionedUserId of mentionUserIds) {
+  for (const mentionedUserId of input.mentionUserIds) {
     if (
-      mentionedUserId === args.currentUserId ||
-      notifiedUserIds.has(mentionedUserId)
+      mentionedUserId === input.currentUserId ||
+      input.notifiedUserIds.has(mentionedUserId)
     ) {
       continue
     }
 
-    const mentionedUser = usersById.get(mentionedUserId)
+    const mentionedUser = input.usersById.get(mentionedUserId)
     const notification = createNotification(
       mentionedUserId,
-      args.currentUserId,
-      `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
+      input.currentUserId,
+      `${input.actorName} mentioned you in ${input.entityTitle}`,
       "channelPost",
-      post.id,
+      input.postId,
       "mention"
     )
 
@@ -1103,30 +1362,45 @@ export async function addChannelPostCommentHandler(
         notificationId: notification.id,
         email: mentionedUser.email,
         name: mentionedUser.name,
-        entityTitle,
+        entityTitle: input.entityTitle,
         entityType: "channelPost",
-        entityId: post.id,
-        entityPath,
+        entityId: input.postId,
+        entityPath: input.entityPath,
         entityLabel: "channel post",
-        actorName: actor?.name ?? "Someone",
-        commentText,
+        actorName: input.actorName,
+        commentText: input.commentText,
       })
     }
 
-    notifiedUserIds.add(mentionedUserId)
+    input.notifiedUserIds.add(mentionedUserId)
   }
 
+  return mentionEmails
+}
+
+async function insertChannelPostFollowerNotifications(
+  ctx: MutationCtx,
+  input: {
+    actorName: string
+    audienceUserIds: string[]
+    currentUserId: string
+    entityTitle: string
+    existingComments: Array<{ createdBy: string }>
+    notifiedUserIds: Set<string>
+    post: ChannelPostDoc
+  }
+) {
   const followerIds = [
-    post.createdBy,
-    ...existingComments.map((comment) => comment.createdBy),
+    input.post.createdBy,
+    ...input.existingComments.map((comment) => comment.createdBy),
   ]
 
   for (const followerId of followerIds) {
     if (
       !followerId ||
-      !audienceUserIds.includes(followerId) ||
-      followerId === args.currentUserId ||
-      notifiedUserIds.has(followerId)
+      !input.audienceUserIds.includes(followerId) ||
+      followerId === input.currentUserId ||
+      input.notifiedUserIds.has(followerId)
     ) {
       continue
     }
@@ -1135,24 +1409,95 @@ export async function addChannelPostCommentHandler(
       "notifications",
       createNotification(
         followerId,
-        args.currentUserId,
-        `${actor?.name ?? "Someone"} commented on ${entityTitle}`,
+        input.currentUserId,
+        `${input.actorName} commented on ${input.entityTitle}`,
         "channelPost",
-        post.id,
+        input.post.id,
         "comment"
       )
     )
 
-    notifiedUserIds.add(followerId)
+    input.notifiedUserIds.add(followerId)
   }
+}
 
-  await ctx.db.patch(post._id, {
-    updatedAt: now,
+async function touchChannelPostCommentThread(
+  ctx: MutationCtx,
+  input: {
+    conversation: ChannelConversationDoc
+    now: string
+    post: ChannelPostDoc
+  }
+) {
+  await ctx.db.patch(input.post._id, {
+    updatedAt: input.now,
   })
 
-  await ctx.db.patch(conversation._id, {
-    updatedAt: now,
-    lastActivityAt: now,
+  await ctx.db.patch(input.conversation._id, {
+    updatedAt: input.now,
+    lastActivityAt: input.now,
+  })
+}
+
+export async function addChannelPostCommentHandler(
+  ctx: MutationCtx,
+  args: AddChannelPostCommentArgs
+) {
+  assertServerToken(args.serverToken)
+  const { conversation, post } = await requireChannelPostCommentScope(ctx, args)
+
+  const existingComments = await ctx.db
+    .query("channelPostComments")
+    .withIndex("by_post", (q) => q.eq("postId", post.id))
+    .collect()
+  const now = getNow()
+  const commentId = createId("channel_comment")
+  const audience = await getChannelCommentAudience(ctx, {
+    content: args.content,
+    conversation,
+    currentUserId: args.currentUserId,
+  })
+  const notifiedUserIds = new Set<string>()
+  const entityTitle = post.title.trim() || "a channel post"
+  const entityPath = await getChannelConversationPath(
+    ctx,
+    conversation,
+    post.id
+  )
+  const commentText = getPlainTextContent(args.content)
+
+  await insertChannelPostComment(ctx, {
+    commentId,
+    content: args.content,
+    currentUserId: args.currentUserId,
+    mentionUserIds: audience.mentionUserIds,
+    now,
+    postId: post.id,
+  })
+  const mentionEmails = await insertChannelPostMentionNotifications(ctx, {
+    actorName: audience.actorName,
+    commentText,
+    currentUserId: args.currentUserId,
+    entityPath,
+    entityTitle,
+    mentionUserIds: audience.mentionUserIds,
+    notifiedUserIds,
+    postId: post.id,
+    usersById: audience.usersById,
+  })
+  await insertChannelPostFollowerNotifications(ctx, {
+    actorName: audience.actorName,
+    audienceUserIds: audience.audienceUserIds,
+    currentUserId: args.currentUserId,
+    entityTitle,
+    existingComments,
+    notifiedUserIds,
+    post,
+  })
+  await touchChannelPostCommentThread(ctx, {
+    conversation,
+    now,
+    post,
   })
 
   await queueEmailJobs(

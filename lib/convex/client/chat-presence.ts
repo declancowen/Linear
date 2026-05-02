@@ -2,7 +2,7 @@
 
 import { runRouteMutation } from "./shared"
 
-export type ChatPresenceSessionPayload = {
+type ChatPresenceSessionPayload = {
   roomId: string
   conversationId: string
   token: string

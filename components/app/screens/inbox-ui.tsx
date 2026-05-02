@@ -603,6 +603,208 @@ function getPrimaryActionDescriptor({
   }
 }
 
+type PrimaryActionDescriptor = NonNullable<
+  ReturnType<typeof getPrimaryActionDescriptor>
+>
+
+function InboxDetailEmptyState({
+  visibleNotificationCount,
+}: {
+  visibleNotificationCount: number
+}) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center px-6">
+      {visibleNotificationCount === 0 ? (
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="grid size-12 place-items-center rounded-full bg-muted/60">
+            <Bell className="size-5 text-muted-foreground" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">All caught up</p>
+            <p className="text-sm text-muted-foreground">
+              No new notifications.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Select a notification to view details.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function InboxDetailToolbar({
+  notification,
+  onDelete,
+  onToggleArchive,
+  onToggleRead,
+}: {
+  notification: Notification
+  onDelete: () => void
+  onToggleArchive: (notification: Notification) => void
+  onToggleRead: (notification: Notification) => void
+}) {
+  const unread = !notification.readAt
+  const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
+
+  return (
+    <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-6 py-2 backdrop-blur">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        {renderEntityIcon(
+          notification.entityType,
+          "size-3.5 text-muted-foreground"
+        )}
+        <span className="truncate font-medium text-foreground/80">
+          {ENTITY_LABEL[notification.entityType]}
+        </span>
+        <span className="text-muted-foreground/60">·</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="truncate tabular-nums">
+              {relativeCreatedAt.usesAgoSuffix
+                ? `${relativeCreatedAt.label} ago`
+                : relativeCreatedAt.label}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>
+            {formatFullTimestamp(notification.createdAt)}
+          </TooltipContent>
+        </Tooltip>
+        {unread ? (
+          <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            <span className="size-1.5 rounded-full bg-primary" />
+            Unread
+          </span>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => onToggleRead(notification)}
+              aria-label={unread ? "Mark as read" : "Mark as unread"}
+            >
+              {unread ? (
+                <CheckCircle className="size-3.5" />
+              ) : (
+                <Circle className="size-3.5" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>
+            {unread ? "Mark as read" : "Mark as unread"}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => onToggleArchive(notification)}
+              aria-label={
+                notification.archivedAt
+                  ? "Unarchive notification"
+                  : "Archive notification"
+              }
+            >
+              {notification.archivedAt ? (
+                <ArrowCounterClockwise className="size-3.5" />
+              ) : (
+                <Archive className="size-3.5" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>
+            {notification.archivedAt ? "Unarchive" : "Archive"}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={onDelete}
+              aria-label="Delete notification"
+            >
+              <Trash className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>Delete</TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
+  )
+}
+
+function InboxPrimaryAction({
+  action,
+}: {
+  action: PrimaryActionDescriptor | null
+}) {
+  if (!action) {
+    return null
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {action.kind === "link" ? (
+        <Button size="sm" asChild>
+          <Link href={action.href}>{action.label}</Link>
+        </Button>
+      ) : (
+        <Button size="sm" disabled={action.loading} onClick={action.onClick}>
+          {action.label}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function InboxDetailBody({
+  actor,
+  actorName,
+  notification,
+  primaryAction,
+}: {
+  actor: UserProfile | null
+  actorName: string
+  notification: Notification
+  primaryAction: PrimaryActionDescriptor | null
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8">
+      <div className="flex items-center gap-3">
+        <UserAvatar
+          name={actorName}
+          avatarUrl={actor?.avatarUrl ?? null}
+          avatarImageUrl={actor?.avatarImageUrl ?? null}
+          size="default"
+          showStatus={false}
+        />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-foreground">
+            {actorName}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {formatFullTimestamp(notification.createdAt)}
+          </div>
+        </div>
+      </div>
+      <p className="text-[15px] leading-relaxed text-foreground">
+        {notification.message}
+      </p>
+      <InboxPrimaryAction action={primaryAction} />
+    </div>
+  )
+}
+
 export function InboxDetailPane({
   activeEntry,
   visibleNotificationCount,
@@ -630,34 +832,14 @@ export function InboxDetailPane({
 }) {
   if (!activeEntry) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center px-6">
-        {visibleNotificationCount === 0 ? (
-          <div className="flex flex-col items-center gap-3 text-center">
-            <div className="grid size-12 place-items-center rounded-full bg-muted/60">
-              <Bell className="size-5 text-muted-foreground" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">
-                All caught up
-              </p>
-              <p className="text-sm text-muted-foreground">
-                No new notifications.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Select a notification to view details.
-          </p>
-        )}
-      </div>
+      <InboxDetailEmptyState
+        visibleNotificationCount={visibleNotificationCount}
+      />
     )
   }
 
   const { notification, actor } = activeEntry
-  const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
-  const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
   const primaryAction = getPrimaryActionDescriptor({
     notification,
     activeProjectHref,
@@ -670,135 +852,18 @@ export function InboxDetailPane({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-      <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-6 py-2 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {renderEntityIcon(
-            notification.entityType,
-            "size-3.5 text-muted-foreground"
-          )}
-          <span className="truncate font-medium text-foreground/80">
-            {ENTITY_LABEL[notification.entityType]}
-          </span>
-          <span className="text-muted-foreground/60">·</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="truncate tabular-nums">
-                {relativeCreatedAt.usesAgoSuffix
-                  ? `${relativeCreatedAt.label} ago`
-                  : relativeCreatedAt.label}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={6}>
-              {formatFullTimestamp(notification.createdAt)}
-            </TooltipContent>
-          </Tooltip>
-          {unread ? (
-            <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              <span className="size-1.5 rounded-full bg-primary" />
-              Unread
-            </span>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => onToggleRead(notification)}
-                aria-label={unread ? "Mark as read" : "Mark as unread"}
-              >
-                {unread ? (
-                  <CheckCircle className="size-3.5" />
-                ) : (
-                  <Circle className="size-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={6}>
-              {unread ? "Mark as read" : "Mark as unread"}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => onToggleArchive(notification)}
-                aria-label={
-                  notification.archivedAt
-                    ? "Unarchive notification"
-                    : "Archive notification"
-                }
-              >
-                {notification.archivedAt ? (
-                  <ArrowCounterClockwise className="size-3.5" />
-                ) : (
-                  <Archive className="size-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={6}>
-              {notification.archivedAt ? "Unarchive" : "Archive"}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={onDelete}
-                aria-label="Delete notification"
-              >
-                <Trash className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={6}>Delete</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8">
-        <div className="flex items-center gap-3">
-          <UserAvatar
-            name={actorName}
-            avatarUrl={actor?.avatarUrl ?? null}
-            avatarImageUrl={actor?.avatarImageUrl ?? null}
-            size="default"
-            showStatus={false}
-          />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-foreground">
-              {actorName}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {formatFullTimestamp(notification.createdAt)}
-            </div>
-          </div>
-        </div>
-        <p className="text-[15px] leading-relaxed text-foreground">
-          {notification.message}
-        </p>
-        {primaryAction ? (
-          <div className="flex items-center gap-2">
-            {primaryAction.kind === "link" ? (
-              <Button size="sm" asChild>
-                <Link href={primaryAction.href}>{primaryAction.label}</Link>
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                disabled={primaryAction.loading}
-                onClick={primaryAction.onClick}
-              >
-                {primaryAction.label}
-              </Button>
-            )}
-          </div>
-        ) : null}
-      </div>
+      <InboxDetailToolbar
+        notification={notification}
+        onDelete={onDelete}
+        onToggleArchive={onToggleArchive}
+        onToggleRead={onToggleRead}
+      />
+      <InboxDetailBody
+        actor={actor}
+        actorName={actorName}
+        notification={notification}
+        primaryAction={primaryAction}
+      />
     </div>
   )
 }

@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server"
-
 import { ApplicationError } from "@/lib/server/application-errors"
 import { getScopedReadModelVersionsServer } from "@/lib/server/convex"
-import { logProviderError } from "@/lib/server/provider-errors"
+import {
+  createEventStreamResponse,
+  createServerSentEventResponse,
+  sleep,
+} from "@/lib/server/event-stream"
 import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
 import { isRouteResponse, jsonError } from "@/lib/server/route-response"
 import { authorizeScopedReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
@@ -15,44 +17,8 @@ const STREAM_UNAVAILABLE_RETRY_MS = 10000
 
 export const dynamic = "force-dynamic"
 
-function sleep(durationMs: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, durationMs)
-  })
-}
-
 function normalizeScopeKeys(request: Request) {
   return [...new Set(new URL(request.url).searchParams.getAll("scopeKey").map((value) => value.trim()).filter(Boolean))]
-}
-
-function createScopedEventStreamResponse(
-  event: string,
-  payload: unknown,
-  options?: {
-    retryMs?: number
-  }
-) {
-  const encoder = new TextEncoder()
-
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(
-        encoder.encode(
-          `${options?.retryMs ? `retry: ${options.retryMs}\n` : ""}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
-        )
-      )
-      controller.close()
-    },
-  })
-
-  return new NextResponse(stream, {
-    headers: {
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "Content-Type": "text/event-stream",
-      "X-Accel-Buffering": "no",
-    },
-  })
 }
 
 export async function GET(request: Request) {
@@ -96,7 +62,6 @@ export async function GET(request: Request) {
     )
   }
 
-  const encoder = new TextEncoder()
   let initial
 
   try {
@@ -108,7 +73,7 @@ export async function GET(request: Request) {
       error instanceof ApplicationError &&
       error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
     ) {
-      return createScopedEventStreamResponse(
+      return createServerSentEventResponse(
         "unavailable",
         {
           code: error.code,
@@ -122,135 +87,86 @@ export async function GET(request: Request) {
 
     throw error
   }
+  return createEventStreamResponse(
+    request,
+    "Scoped invalidation event stream failed",
+    async ({ isClosed, sendEvent }) => {
+      let currentVersions = new Map(
+        initial.versions.map((entry) => [entry.scopeKey, entry.version])
+      )
+      let lastHeartbeatAt = Date.now()
+      const startedAt = Date.now()
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      let closed = false
+      sendEvent(
+        "ready",
+        {
+          versions: initial.versions,
+        },
+        {
+          retryMs: STREAM_DEFAULT_RETRY_MS,
+        }
+      )
 
-      const close = () => {
-        if (closed) {
-          return
+      while (!isClosed()) {
+        if (Date.now() - startedAt >= STREAM_MAX_DURATION_MS) {
+          break
         }
 
-        closed = true
+        await sleep(STREAM_POLL_INTERVAL_MS)
+
+        if (isClosed()) {
+          break
+        }
+
+        let next
 
         try {
-          controller.close()
-        } catch {}
-      }
-
-      const sendEvent = (
-        event: string,
-        payload: unknown,
-        options?: {
-          retryMs?: number
-        }
-      ) => {
-        if (closed) {
-          return
-        }
-
-        controller.enqueue(
-          encoder.encode(
-            `${options?.retryMs ? `retry: ${options.retryMs}\n` : ""}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
-          )
-        )
-      }
-
-      request.signal.addEventListener("abort", close)
-
-      void (async () => {
-        try {
-          let currentVersions = new Map(
-            initial.versions.map((entry) => [entry.scopeKey, entry.version])
-          )
-          let lastHeartbeatAt = Date.now()
-          const startedAt = Date.now()
-
-          sendEvent(
-            "ready",
-            {
-              versions: initial.versions,
-            },
-            {
-              retryMs: STREAM_DEFAULT_RETRY_MS,
-            }
-          )
-
-          while (!closed && !request.signal.aborted) {
-            if (Date.now() - startedAt >= STREAM_MAX_DURATION_MS) {
-              break
-            }
-
-            await sleep(STREAM_POLL_INTERVAL_MS)
-
-            if (closed || request.signal.aborted) {
-              break
-            }
-
-            let next
-
-            try {
-              next = await getScopedReadModelVersionsServer({
-                scopeKeys,
-              })
-            } catch (error) {
-              if (
-                error instanceof ApplicationError &&
-                error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
-              ) {
-                sendEvent(
-                  "unavailable",
-                  {
-                    code: error.code,
-                    message: error.message,
-                  },
-                  {
-                    retryMs: STREAM_UNAVAILABLE_RETRY_MS,
-                  }
-                )
-                break
-              }
-
-              throw error
-            }
-            const changed = next.versions.filter(
-              (entry) => currentVersions.get(entry.scopeKey) !== entry.version
-            )
-
-            if (changed.length > 0) {
-              currentVersions = new Map(
-                next.versions.map((entry) => [entry.scopeKey, entry.version])
-              )
-              sendEvent("scope", {
-                versions: changed,
-              })
-              lastHeartbeatAt = Date.now()
-              continue
-            }
-
-            if (Date.now() - lastHeartbeatAt >= STREAM_HEARTBEAT_INTERVAL_MS) {
-              sendEvent("ping", {
-                timestamp: new Date().toISOString(),
-              })
-              lastHeartbeatAt = Date.now()
-            }
-          }
+          next = await getScopedReadModelVersionsServer({
+            scopeKeys,
+          })
         } catch (error) {
-          logProviderError("Scoped invalidation event stream failed", error)
-        } finally {
-          close()
-        }
-      })()
-    },
-  })
+          if (
+            error instanceof ApplicationError &&
+            error.code === "SCOPED_READ_MODELS_UNAVAILABLE"
+          ) {
+            sendEvent(
+              "unavailable",
+              {
+                code: error.code,
+                message: error.message,
+              },
+              {
+                retryMs: STREAM_UNAVAILABLE_RETRY_MS,
+              }
+            )
+            break
+          }
 
-  return new NextResponse(stream, {
-    headers: {
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "Content-Type": "text/event-stream",
-      "X-Accel-Buffering": "no",
-    },
-  })
+          throw error
+        }
+
+        const changed = next.versions.filter(
+          (entry) => currentVersions.get(entry.scopeKey) !== entry.version
+        )
+
+        if (changed.length > 0) {
+          currentVersions = new Map(
+            next.versions.map((entry) => [entry.scopeKey, entry.version])
+          )
+          sendEvent("scope", {
+            versions: changed,
+          })
+          lastHeartbeatAt = Date.now()
+          continue
+        }
+
+        if (Date.now() - lastHeartbeatAt >= STREAM_HEARTBEAT_INTERVAL_MS) {
+          sendEvent("ping", {
+            timestamp: new Date().toISOString(),
+          })
+          lastHeartbeatAt = Date.now()
+        }
+      }
+    }
+  )
 }

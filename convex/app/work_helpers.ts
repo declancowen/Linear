@@ -10,6 +10,7 @@ import {
   type ViewDefinition,
   type WorkItemType,
 } from "../../lib/domain/types"
+import { resolveWorkItemProjectLinkUpdate } from "../../lib/domain/work-item-project-links"
 import type { MutationCtx } from "../_generated/server"
 
 import {
@@ -378,83 +379,18 @@ export function getResolvedProjectLinkForWorkItemUpdate(
     primaryProjectId: string | null
   }>,
   existing: { primaryProjectId: string | null },
-  parent: { primaryProjectId: string | null } | null,
   itemId: string,
   patch: {
     parentId?: string | null
     primaryProjectId?: string | null
   }
 ) {
-  const existingItem = items.find((item) => item.id === itemId) ?? null
-  const projectIds = new Map<string, string | null>(
-    items.map((item) => [item.id, item.primaryProjectId])
-  )
-  const resolvedPrimaryProjectId =
-    patch.primaryProjectId !== undefined
-      ? patch.primaryProjectId
-      : patch.parentId !== undefined
-        ? (parent?.primaryProjectId ?? existing.primaryProjectId)
-        : existing.primaryProjectId
-  const nextParentId =
-    patch.parentId === undefined
-      ? (existingItem?.parentId ?? null)
-      : patch.parentId
-  const parentIds = new Map<string, string | null>(
-    items.map((item) => [
-      item.id,
-      item.id === itemId ? (nextParentId ?? null) : item.parentId,
-    ])
-  )
-  let rootItemId = itemId
-  const visited = new Set<string>([rootItemId])
-
-  while (true) {
-    const currentParentId = parentIds.get(rootItemId) ?? null
-
-    if (!currentParentId || visited.has(currentParentId)) {
-      break
-    }
-
-    visited.add(currentParentId)
-    rootItemId = currentParentId
-  }
-
-  const cascadeItemIds = new Set<string>([rootItemId])
-  const queue = [rootItemId]
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()
-
-    if (!currentId) {
-      continue
-    }
-
-    for (const [candidateId, candidateParentId] of parentIds) {
-      if (candidateParentId !== currentId || cascadeItemIds.has(candidateId)) {
-        continue
-      }
-
-      cascadeItemIds.add(candidateId)
-      queue.push(candidateId)
-    }
-  }
-
-  const shouldCascadeProjectLink =
-    (patch.primaryProjectId !== undefined || patch.parentId !== undefined) &&
-    [...cascadeItemIds].some((candidateId) => {
-      const currentProjectId =
-        candidateId === itemId
-          ? existing.primaryProjectId
-          : (projectIds.get(candidateId) ?? null)
-
-      return currentProjectId !== resolvedPrimaryProjectId
-    })
-
-  return {
-    cascadeItemIds,
-    resolvedPrimaryProjectId,
-    shouldCascadeProjectLink,
-  }
+  return resolveWorkItemProjectLinkUpdate({
+    items,
+    itemId,
+    existingPrimaryProjectId: existing.primaryProjectId,
+    patch,
+  })
 }
 
 export async function requireViewMutationAccess(
